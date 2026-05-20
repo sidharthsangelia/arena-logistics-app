@@ -7,6 +7,7 @@ import RateCalculatorForm from "@/components/rate-calculator/RateCalculatorForm"
 import RateResultsList from "@/components/rate-calculator/RateResultList";
 import { fetchRates } from "@/lib/api";
 import { RateRequest, RateResult } from "@/lib/types";
+import Image from "next/image";
 
 export default function HomePage() {
   const [results, setResults] = useState<RateResult[] | null>(null);
@@ -40,6 +41,7 @@ export default function HomePage() {
           {/* <div className="h-8 w-8 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold text-sm">
             SK
           </div> */}
+          <Image src="/arena_logo.png" alt="Arena Cargo And Logistics" width={128} height={32} />
           <div>
             <h1 className="text-base font-semibold text-slate-900 leading-none">Arena Cargo And Logistics</h1>
             <p className="text-xs text-slate-500 mt-0.5">International Rate Calculator</p>
