@@ -2,11 +2,22 @@ import { NextRequest, NextResponse } from "next/server";
 
 const SKYCART_API = "https://devapiv2.skart-express.com/api/v1/booking/rate-calculator";
 
+const ARAMEX_API = "https://ws.aramex.net/ShippingAPI.V2/RateCalculator/Service_1_0.svc/json/CalculateRate";
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
 
     const upstream = await fetch(SKYCART_API, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "accept": "*/*",
+      },
+      body: JSON.stringify(body),
+    });
+
+    const aramex = await fetch(ARAMEX_API, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
