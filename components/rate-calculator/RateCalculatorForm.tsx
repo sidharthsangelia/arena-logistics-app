@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -18,55 +19,126 @@ import {
   CardTitle,
   CardDescription,
 } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
 import { Loader2, PackageSearch } from "lucide-react";
-import { RateRequest } from "@/lib/types";
+import { RateRequest, AVAILABLE_VENDORS, VendorId } from "@/lib/types";
+
+// ── Props ─────────────────────────────────────────────────────────────────────
 
 interface Props {
-  onSubmit: (data: RateRequest) => void;
+  onSubmit: (data: RateRequest, vendors: VendorId[]) => void;
   loading: boolean;
 }
 
-const COUNTRIES = [
-  "AUSTRALIA",
-  "UNITED STATES",
-  "UNITED KINGDOM",
-  "CANADA",
-  "GERMANY",
-  "FRANCE",
-  "SINGAPORE",
-  "UAE",
-  "JAPAN",
-  "NEW ZEALAND",
+// ── Country list ──────────────────────────────────────────────────────────────
+// Tuples of [full name used by Aramex, ISO 3166-1 alpha-2 code]
+const COUNTRY_OPTIONS: { label: string; code: string; fullName: string }[] = [
+  { label: "Australia",     code: "AU", fullName: "AUSTRALIA"      },
+  { label: "United States", code: "US", fullName: "UNITED STATES"  },
+  { label: "United Kingdom",code: "GB", fullName: "UNITED KINGDOM" },
+  { label: "Canada",        code: "CA", fullName: "CANADA"         },
+  { label: "Germany",       code: "DE", fullName: "GERMANY"        },
+  { label: "France",        code: "FR", fullName: "FRANCE"         },
+  { label: "Singapore",     code: "SG", fullName: "SINGAPORE"      },
+  { label: "UAE",           code: "AE", fullName: "UAE"            },
+  { label: "Japan",         code: "JP", fullName: "JAPAN"          },
+  { label: "New Zealand",   code: "NZ", fullName: "NEW ZEALAND"    },
 ];
 
+// ── Default values ────────────────────────────────────────────────────────────
+
 const defaultValues: RateRequest = {
-  user_name: "sgate",
-  password: "123456",
-  booking_type: 1,
-  origin_pincode: "110059",
-  destination_pincode: "7470",
-  destination_country: "AUSTRALIA",
-  shipment_type: 1,
-  weight: 1,
-  quantity: 1,
-  length: 5,
+  origin: {
+    city: "New Delhi",
+    pincode: "110059",
+    countryCode: "IN",
+    line1: "123 Connaught Place",
+  },
+  destination: {
+    city: "Sydney",
+    pincode: "7470",
+    countryCode: "AU",
+    country: "AUSTRALIA",
+  },
+  shipment: {
+    weight: 1,
+    quantity: 1,
+    dimensions: { length: 30, width: 20, height: 10, unit: "cm" },
+    description: "Electronics",
+  },
 };
+
+// ── Component ─────────────────────────────────────────────────────────────────
 
 export default function RateCalculatorForm({ onSubmit, loading }: Props) {
   const [form, setForm] = useState<RateRequest>(defaultValues);
 
-  const set =
-    (field: keyof RateRequest) => (e: React.ChangeEvent<HTMLInputElement>) => {
-      const value = ["weight", "quantity", "length"].includes(field)
-        ? Number(e.target.value)
-        : e.target.value;
-      setForm((prev) => ({ ...prev, [field]: value }));
+  // All vendors selected by default
+  const [selectedVendors, setSelectedVendors] = useState<VendorId[]>(
+    AVAILABLE_VENDORS.map((v) => v.id)
+  );
+
+  // ── Field helpers ───────────────────────────────────────────────────────────
+
+  const setOrigin = (field: keyof RateRequest["origin"]) =>
+    (e: React.ChangeEvent<HTMLInputElement>) =>
+      setForm((p) => ({ ...p, origin: { ...p.origin, [field]: e.target.value } }));
+
+  const setDestination = (field: keyof RateRequest["destination"]) =>
+    (e: React.ChangeEvent<HTMLInputElement>) =>
+      setForm((p) => ({ ...p, destination: { ...p.destination, [field]: e.target.value } }));
+
+  const setDestinationCountry = (countryCode: string) => {
+    const opt = COUNTRY_OPTIONS.find((c) => c.code === countryCode);
+    setForm((p) => ({
+      ...p,
+      destination: {
+        ...p.destination,
+        countryCode,
+        country: opt?.fullName ?? countryCode,
+      },
+    }));
+  };
+
+  const setShipment =
+    (field: keyof Omit<RateRequest["shipment"], "dimensions">) =>
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const value = field === "description" ? e.target.value : Number(e.target.value);
+      setForm((p) => ({ ...p, shipment: { ...p.shipment, [field]: value } }));
     };
+
+  const setDimension =
+    (field: keyof RateRequest["shipment"]["dimensions"]) =>
+    (e: React.ChangeEvent<HTMLInputElement>) =>
+      setForm((p) => ({
+        ...p,
+        shipment: {
+          ...p.shipment,
+          dimensions: { ...p.shipment.dimensions, [field]: Number(e.target.value) },
+        },
+      }));
+
+  const setDimensionUnit = (unit: "cm" | "in") =>
+    setForm((p) => ({
+      ...p,
+      shipment: { ...p.shipment, dimensions: { ...p.shipment.dimensions, unit } },
+    }));
+
+  // ── Vendor toggle ───────────────────────────────────────────────────────────
+
+  const toggleVendor = (id: VendorId, checked: boolean) =>
+    setSelectedVendors((prev) =>
+      checked ? [...prev, id] : prev.filter((v) => v !== id)
+    );
+
+  // ── Submit ──────────────────────────────────────────────────────────────────
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSubmit(form);
+    onSubmit(form, selectedVendors);
   };
+
+  // ── Render ──────────────────────────────────────────────────────────────────
 
   return (
     <Card className="shadow-md">
@@ -76,162 +148,268 @@ export default function RateCalculatorForm({ onSubmit, loading }: Props) {
           Shipment Details
         </CardTitle>
         <CardDescription>
-          Fill in the shipment info to get live carrier rates
+          Fill in the shipment details to get live rates from all carriers
         </CardDescription>
       </CardHeader>
+
       <CardContent>
-        <form onSubmit={handleSubmit} className="space-y-5">
-          {/* Credentials Row */}
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="user_name">Username</Label>
-              <Input
-                id="user_name"
-                value={form.user_name}
-                onChange={set("user_name")}
-                required
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="password">Password</Label>
-              <Input
-                id="password"
-                type="password"
-                value={form.password}
-                onChange={set("password")}
-                required
-              />
-            </div>
-          </div>
+        <form onSubmit={handleSubmit} className="space-y-6">
 
-          {/* Pincodes Row */}
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="origin_pincode">Origin Pincode</Label>
-              <Input
-                id="origin_pincode"
-                value={form.origin_pincode}
-                onChange={set("origin_pincode")}
-                placeholder="e.g. 110059"
-                required
-              />
+          {/* ── Origin ─────────────────────────────────────────────────────── */}
+          <section className="space-y-3">
+            <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wide">
+              Origin
+            </h3>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="origin_city">City</Label>
+                <Input
+                  id="origin_city"
+                  value={form.origin.city}
+                  onChange={setOrigin("city")}
+                  placeholder="e.g. New Delhi"
+                  required
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="origin_pincode">Pincode / ZIP</Label>
+                <Input
+                  id="origin_pincode"
+                  value={form.origin.pincode}
+                  onChange={setOrigin("pincode")}
+                  placeholder="e.g. 110059"
+                  required
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="origin_countryCode">Country Code</Label>
+                <Input
+                  id="origin_countryCode"
+                  value={form.origin.countryCode}
+                  onChange={setOrigin("countryCode")}
+                  placeholder="IN"
+                  maxLength={2}
+                  className="uppercase"
+                  required
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="origin_line1">Address Line 1 (optional)</Label>
+                <Input
+                  id="origin_line1"
+                  value={form.origin.line1 ?? ""}
+                  onChange={setOrigin("line1")}
+                  placeholder="e.g. 123 Connaught Place"
+                />
+              </div>
+            </div>
+          </section>
+
+          <Separator />
+
+          {/* ── Destination ────────────────────────────────────────────────── */}
+          <section className="space-y-3">
+            <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wide">
+              Destination
+            </h3>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="dest_city">City</Label>
+                <Input
+                  id="dest_city"
+                  value={form.destination.city}
+                  onChange={setDestination("city")}
+                  placeholder="e.g. Sydney"
+                  required
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="dest_pincode">Pincode / ZIP</Label>
+                <Input
+                  id="dest_pincode"
+                  value={form.destination.pincode}
+                  onChange={setDestination("pincode")}
+                  placeholder="e.g. 7470"
+                  required
+                />
+              </div>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="destination_pincode">Destination Pincode</Label>
-              <Input
-                id="destination_pincode"
-                value={form.destination_pincode}
-                onChange={set("destination_pincode")}
-                placeholder="e.g. 7470"
-                required
-              />
-            </div>
-          </div>
-
-          {/* Country */}
-          {/* <div className="space-y-1.5">
-            <Label>Destination Country</Label>
-            <Select
-              value={form.destination_country}
-              onValueChange={(v) => setForm((p) => ({ ...p, destination_country: v }))}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Select country" />
-              </SelectTrigger>
-              <SelectContent>
-                {COUNTRIES.map((c) => (
-                  <SelectItem key={c} value={c}>{c}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div> */}
-
-          {/* Types Row */}
-          <div className="grid grid-cols-2 gap-4">
-            {/* country */}
-            <div>
-                <Label>Destination Country</Label>
-            <Select
-              value={form.destination_country}
-              onValueChange={(v) =>
-                setForm((p) => ({ ...p, destination_country: v }))
-              }
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Select country" />
-              </SelectTrigger>
-              <SelectContent>
-                {COUNTRIES.map((c) => (
-                  <SelectItem key={c} value={c}>
-                    {c}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>Shipment Type</Label>
+              <Label>Destination Country</Label>
               <Select
-                value={String(form.shipment_type)}
-                onValueChange={(v) =>
-                  setForm((p) => ({ ...p, shipment_type: Number(v) }))
-                }
+                value={form.destination.countryCode}
+                onValueChange={setDestinationCountry}
               >
                 <SelectTrigger>
-                  <SelectValue />
+                  <SelectValue placeholder="Select country" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="1">Documents </SelectItem>
-                  <SelectItem value="2">Non-Documents </SelectItem>
+                  {COUNTRY_OPTIONS.map((c) => (
+                    <SelectItem key={c.code} value={c.code}>
+                      {c.label}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
+              {/* countryCode shown read-only for transparency */}
+              <p className="text-xs text-slate-400">
+                Country code: <span className="font-mono">{form.destination.countryCode}</span>
+                {form.destination.country && (
+                  <> · Full name: <span className="font-mono">{form.destination.country}</span></>
+                )}
+              </p>
             </div>
-          </div>
+          </section>
 
-          {/* Package Details Row */}
-          <div className="grid grid-cols-3 gap-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="weight">Weight (kg)</Label>
-              <Input
-                id="weight"
-                type="number"
-                min={0.1}
-                step={0.1}
-                value={form.weight}
-                onChange={set("weight")}
-                required
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="quantity">Quantity</Label>
-              <Input
-                id="quantity"
-                type="number"
-                min={1}
-                value={form.quantity}
-                onChange={set("quantity")}
-                required
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="length">Length (cm)</Label>
-              <Input
-                id="length"
-                type="number"
-                min={1}
-                value={form.length}
-                onChange={set("length")}
-                required
-              />
-            </div>
-          </div>
+          <Separator />
 
-          <Button type="submit" className="w-full" disabled={loading}>
+          {/* ── Shipment ───────────────────────────────────────────────────── */}
+          <section className="space-y-3">
+            <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wide">
+              Package
+            </h3>
+            <div className="grid grid-cols-3 gap-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="weight">Weight (kg)</Label>
+                <Input
+                  id="weight"
+                  type="number"
+                  min={0.1}
+                  step={0.1}
+                  value={form.shipment.weight}
+                  onChange={setShipment("weight")}
+                  required
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="quantity">Quantity</Label>
+                <Input
+                  id="quantity"
+                  type="number"
+                  min={1}
+                  value={form.shipment.quantity}
+                  onChange={setShipment("quantity")}
+                  required
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="description">Contents</Label>
+                <Input
+                  id="description"
+                  value={form.shipment.description}
+                  onChange={setShipment("description")}
+                  placeholder="e.g. Electronics"
+                  required
+                />
+              </div>
+            </div>
+
+            {/* Dimensions */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label>Dimensions</Label>
+                <Select
+                  value={form.shipment.dimensions.unit}
+                  onValueChange={(v) => setDimensionUnit(v as "cm" | "in")}
+                >
+                  <SelectTrigger className="w-20 h-7 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="cm">cm</SelectItem>
+                    <SelectItem value="in">in</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid grid-cols-3 gap-4">
+                <div className="space-y-1.5">
+                  <Label htmlFor="dim_length" className="text-xs text-slate-500">
+                    Length ({form.shipment.dimensions.unit})
+                  </Label>
+                  <Input
+                    id="dim_length"
+                    type="number"
+                    min={1}
+                    value={form.shipment.dimensions.length}
+                    onChange={setDimension("length")}
+                    required
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="dim_width" className="text-xs text-slate-500">
+                    Width ({form.shipment.dimensions.unit})
+                  </Label>
+                  <Input
+                    id="dim_width"
+                    type="number"
+                    min={1}
+                    value={form.shipment.dimensions.width}
+                    onChange={setDimension("width")}
+                    required
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="dim_height" className="text-xs text-slate-500">
+                    Height ({form.shipment.dimensions.unit})
+                  </Label>
+                  <Input
+                    id="dim_height"
+                    type="number"
+                    min={1}
+                    value={form.shipment.dimensions.height}
+                    onChange={setDimension("height")}
+                    required
+                  />
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <Separator />
+
+          {/* ── Vendor filter ───────────────────────────────────────────────── */}
+          <section className="space-y-3">
+            <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wide">
+              Carriers to Query
+            </h3>
+            <div className="flex flex-wrap gap-5">
+              {AVAILABLE_VENDORS.map((vendor) => (
+                <div key={vendor.id} className="flex items-center gap-2">
+                  <Checkbox
+                    id={`vendor_${vendor.id}`}
+                    checked={selectedVendors.includes(vendor.id)}
+                    onCheckedChange={(checked) =>
+                      toggleVendor(vendor.id, Boolean(checked))
+                    }
+                  />
+                  <Label
+                    htmlFor={`vendor_${vendor.id}`}
+                    className="font-normal cursor-pointer"
+                  >
+                    {vendor.label}
+                  </Label>
+                </div>
+              ))}
+            </div>
+            {selectedVendors.length === 0 && (
+              <p className="text-xs text-amber-600">
+                Select at least one carrier to get rates.
+              </p>
+            )}
+          </section>
+
+          {/* ── Submit ──────────────────────────────────────────────────────── */}
+          <Button
+            type="submit"
+            className="w-full"
+            disabled={loading || selectedVendors.length === 0}
+          >
             {loading ? (
               <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Fetching
-                Rates...
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Fetching Rates…
               </>
             ) : (
               "Get Rates"
