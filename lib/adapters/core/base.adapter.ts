@@ -1,6 +1,6 @@
 /**
  * BASE ADAPTER (Abstract)
- * ─────────────────────────────────────────────────────────────────────────────
+ * -----------------------------------------------------------------------------
  * Every vendor adapter extends this class. It enforces the contract:
  *   1. transformRequest  → convert canonical input → vendor-specific payload
  *   2. callVendorApi     → make the HTTP call to the vendor
@@ -10,7 +10,7 @@
  * It orchestrates the three steps above and handles errors uniformly.
  *
  * HOW TO ADD A NEW VENDOR
- * ─────────────────────────────────────────────────────────────────────────────
+ * -----------------------------------------------------------------------------
  *   1. Create src/lib/adapters/vendors/<vendor>/
  *   2. Create <vendor>.types.ts  (vendor-specific request/response shapes)
  *   3. Create <vendor>.adapter.ts extending BaseVendorAdapter

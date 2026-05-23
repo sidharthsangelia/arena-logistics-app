@@ -1,6 +1,6 @@
 /**
  * ARAMEX ADAPTER
- * ─────────────────────────────────────────────────────────────────────────────
+ * -----------------------------------------------------------------------------
  * Handles all Aramex API communication and data transformation.
  *
  * Note how different Aramex's API is from Skart's:
@@ -19,13 +19,13 @@ import type {
   AramexRateResponse,
 } from "./aramex.types";
 
-// ─── CONFIG ──────────────────────────────────────────────────────────────────
+// --- CONFIG ------------------------------------------------------------------
 
 const ARAMEX_API_URL =
   process.env.ARAMEX_API_URL ??
   "https://ws.aramex.net/ShippingAPI.V2/RateCalculator/Service_1_0.svc/json/CalculateRate";
 
-// ─── ADAPTER ─────────────────────────────────────────────────────────────────
+// --- ADAPTER -----------------------------------------------------------------
 
 export class AramexAdapter extends BaseVendorAdapter<
   AramexRateRequest,
@@ -34,7 +34,7 @@ export class AramexAdapter extends BaseVendorAdapter<
   readonly vendorId = "aramex";
   readonly vendorName = "Aramex";
 
-  // ── Step 1: Canonical → Vendor ──────────────────────────────────────────
+  // -- Step 1: Canonical → Vendor ------------------------------------------
 
   protected transformRequest(input: CanonicalRateRequest): AramexRateRequest {
     return {
@@ -84,7 +84,7 @@ export class AramexAdapter extends BaseVendorAdapter<
     };
   }
 
-  // ── Step 2: HTTP call ────────────────────────────────────────────────────
+  // -- Step 2: HTTP call ----------------------------------------------------
 
   protected async callVendorApi(
     request: AramexRateRequest
@@ -110,7 +110,7 @@ export class AramexAdapter extends BaseVendorAdapter<
     return json;
   }
 
-  // ── Step 3: Vendor → Canonical ──────────────────────────────────────────
+  // -- Step 3: Vendor → Canonical ------------------------------------------
   // Aramex returns one rate object, not an array of products.
   // We still return RateQuote[] to keep the contract uniform.
 

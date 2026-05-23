@@ -1,6 +1,6 @@
 /**
  * NEXT.JS API ROUTE  —  POST /api/rates
- * ─────────────────────────────────────────────────────────────────────────────
+ * -----------------------------------------------------------------------------
  * This is a deliberately thin layer. Its only jobs are:
  *   1. Parse and validate the incoming request body
  *   2. Call the service
@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // ── Basic validation ─────────────────────────────────────────────────────
+  // -- Basic validation -----------------------------------------------------
   // In production, swap this with zod.parse() for full schema validation.
 
   const validationError = validateRequest(body);
@@ -35,12 +35,12 @@ export async function POST(req: NextRequest) {
 
   const input = body as CanonicalRateRequest;
 
-  // ── Optional: filter to specific vendors via query param ─────────────────
+  // -- Optional: filter to specific vendors via query param -----------------
   // e.g. POST /api/rates?vendors=skart,aramex
   const vendorParam = req.nextUrl.searchParams.get("vendors");
   const vendorIds = vendorParam ? vendorParam.split(",").map((v) => v.trim()) : undefined;
 
-  // ── Call the service ─────────────────────────────────────────────────────
+  // -- Call the service -----------------------------------------------------
   try {
     const response = await getRates(input, { vendorIds });
     return NextResponse.json(response, { status: 200 });
@@ -53,7 +53,7 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// ─── VALIDATION HELPER ────────────────────────────────────────────────────────
+// --- VALIDATION HELPER --------------------------------------------------------
 // Replace with zod for production use; kept simple here for clarity.
 
 function validateRequest(body: unknown): string | null {

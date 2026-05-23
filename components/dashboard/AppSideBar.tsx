@@ -29,7 +29,7 @@ import {
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 
-// ── Nav items ─────────────────────────────────────────────────────────────────
+//    Nav items                                                                  
 
 const NAV_MAIN = [
   { label: "Overview",        href: "/",  icon: LayoutDashboard, badge: null },
@@ -44,7 +44,7 @@ const NAV_SYSTEM = [
   { label: "Settings", href: "/settings", icon: Settings },
 ] as const;
 
-// ─────────────────────────────────────────────────────────────────────────────
+//                                                                              
 
 export function AppSidebar() {
   const pathname = usePathname();
@@ -54,7 +54,7 @@ export function AppSidebar() {
 
   return (
     <Sidebar collapsible="icon" className="border-r border-sidebar-border">
-      {/* ── Brand header ──────────────────────────────────────────────────── */}
+      {/*    Brand header                                                      */}
       <SidebarHeader className="px-3 py-4">
         <div className="flex items-center gap-2.5 px-1">
           {/* Logo: always visible, even when collapsed */}
@@ -76,7 +76,7 @@ export function AppSidebar() {
 
       <SidebarSeparator />
 
-      {/* ── Main nav ──────────────────────────────────────────────────────── */}
+      {/*    Main nav                                                          */}
       <SidebarContent>
         <SidebarGroup>
           <SidebarGroupLabel>Main Menu</SidebarGroupLabel>
@@ -131,7 +131,7 @@ export function AppSidebar() {
         </SidebarGroup>
       </SidebarContent>
 
-      {/* ── Footer / user ─────────────────────────────────────────────────── */}
+      {/*    Footer / user                                                     */}
       <SidebarFooter className="p-2">
         <SidebarSeparator className="mb-2" />
         <SidebarMenu>

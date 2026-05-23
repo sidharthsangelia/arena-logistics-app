@@ -1,11 +1,11 @@
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 // lib/types.ts
 //
 // Canonical client-side types. These mirror lib/adapters/core/types.ts exactly
 // so the form payload and result rendering stay in sync with the adapter layer.
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
-// ── Request ───────────────────────────────────────────────────────────────────
+// -- Request -------------------------------------------------------------------
 
 export interface Address {
   city: string;
@@ -36,7 +36,7 @@ export interface RateRequest {
   shipment: Shipment;
 }
 
-// ── Response ──────────────────────────────────────────────────────────────────
+// -- Response ------------------------------------------------------------------
 
 export interface Charge {
   name: string;
@@ -69,7 +69,7 @@ export interface RateResponse {
   vendorErrors: VendorError[];
 }
 
-// ── Vendor registry (mirrors lib/adapters/vendors/index.ts registrations) ─────
+// -- Vendor registry (mirrors lib/adapters/vendors/index.ts registrations) -----
 
 export const AVAILABLE_VENDORS = [
   { id: "skart",  label: "sKart Express" },

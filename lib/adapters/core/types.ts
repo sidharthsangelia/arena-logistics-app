@@ -1,13 +1,13 @@
 /**
  * CANONICAL TYPES
- * ─────────────────────────────────────────────────────────────────────────────
+ * -----------------------------------------------------------------------------
  * These are the "language" the entire app speaks internally.
  * Every vendor adapter MUST translate FROM these types (input) and
  * translate TO these types (output). Never let vendor-specific shapes
  * leak outside the adapter's own folder.
  */
 
-// ─── INPUT ───────────────────────────────────────────────────────────────────
+// --- INPUT -------------------------------------------------------------------
 
 export interface CanonicalAddress {
   line1?: string;
@@ -43,7 +43,7 @@ export interface CanonicalRateRequest {
   shipment: CanonicalShipmentDetails;
 }
 
-// ─── OUTPUT ──────────────────────────────────────────────────────────────────
+// --- OUTPUT ------------------------------------------------------------------
 
 export interface CanonicalChargeBreakdown {
   name: string;

@@ -23,7 +23,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 
-// ── Mock data ─────────────────────────────────────────────────────────────────
+// -- Mock data ----
 
 const KPI_CARDS = [
   {
@@ -150,7 +150,7 @@ const RECENT_SHIPMENTS: {
   },
 ];
 
-// ── Status badge ──────────────────────────────────────────────────────────────
+// -- Status badge --
 
 const STATUS_STYLES: Record<ShipmentStatus, string> = {
   "In Transit": "bg-blue-50  text-blue-700  border-blue-200",
@@ -167,13 +167,13 @@ function StatusBadge({ status }: { status: ShipmentStatus }) {
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// 
 
 export default function DashboardPage() {
   return (
     <div className="p-6 space-y-8 max-w-6xl mx-auto">
 
-      {/* ── Page heading ──────────────────────────────────────────────────── */}
+      {/* Page heading */}
       <div>
         <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
           Good morning, Admin 👋
@@ -183,7 +183,7 @@ export default function DashboardPage() {
         </p>
       </div>
 
-      {/* ── KPI cards ─────────────────────────────────────────────────────── */}
+      {/* KPI cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {KPI_CARDS.map((card) => (
           <Card key={card.title} className="shadow-sm">
@@ -221,7 +221,7 @@ export default function DashboardPage() {
         ))}
       </div>
 
-      {/* ── Quick Actions ──────────────────────────────────────────────────── */}
+      {/*  Quick Actions  */}
       <section>
         <h2 className="text-sm font-semibold text-slate-700 uppercase tracking-wide mb-3">
           Quick Actions
@@ -252,7 +252,7 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      {/* ── Recent Shipments ───────────────────────────────────────────────── */}
+      {/* Recent Shipments */}
       <section>
         <Card className="shadow-sm">
           <CardHeader className="pb-3">
@@ -329,7 +329,7 @@ export default function DashboardPage() {
         </Card>
       </section>
 
-      {/* ── Alerts ─────────────────────────────────────────────────────────── */}
+      {/* -- Alerts ----------------------------------------------------------- */}
       <section>
         <Card className="shadow-sm border-amber-200 bg-amber-50/40">
           <CardContent className="p-4 flex items-start gap-3">

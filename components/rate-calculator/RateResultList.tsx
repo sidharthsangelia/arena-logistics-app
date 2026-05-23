@@ -20,7 +20,7 @@ export default function RateResultsList({ quotes, vendorErrors }: Props) {
 
   return (
     <div className="space-y-4">
-      {/* ── Partial-failure warnings ── */}
+      {/*      Partial-failure warnings      */}
       {vendorErrors.length > 0 && (
         <Alert variant="default" className="border-amber-300 bg-amber-50">
           <AlertTriangle className="h-4 w-4 text-amber-600" />
@@ -37,7 +37,7 @@ export default function RateResultsList({ quotes, vendorErrors }: Props) {
         </Alert>
       )}
 
-      {/* ── Header ── */}
+      {/*      Header      */}
       {sorted.length > 0 ? (
         <>
           <div className="flex items-center justify-between">
@@ -49,7 +49,7 @@ export default function RateResultsList({ quotes, vendorErrors }: Props) {
             </span>
           </div>
 
-          {/* ── Grid of cards ── */}
+          {/*      Grid of cards      */}
           <div className="grid gap-4 sm:grid-cols-2">
             {sorted.map((quote, i) => (
               <RateResultCard
