@@ -32,7 +32,7 @@ import { Badge } from "@/components/ui/badge";
 // ── Nav items ─────────────────────────────────────────────────────────────────
 
 const NAV_MAIN = [
-  { label: "Overview",        href: "/dashboard",  icon: LayoutDashboard, badge: null },
+  { label: "Overview",        href: "/",  icon: LayoutDashboard, badge: null },
   { label: "Rate Calculator", href: "/rates",       icon: Calculator,      badge: null },
   { label: "Book Order",      href: "/book",        icon: PackagePlus,     badge: null },
   { label: "Track Shipment",  href: "/track",       icon: MapPin,          badge: null },
@@ -58,9 +58,10 @@ export function AppSidebar() {
       <SidebarHeader className="px-3 py-4">
         <div className="flex items-center gap-2.5 px-1">
           {/* Logo: always visible, even when collapsed */}
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-600">
+          {/* <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-600">
             <Package className="h-4 w-4 text-white" />
-          </div>
+          </div> */}
+          <Image src="/arena_logo.png" alt="Arena Cargo Logo" width={84} height={32} />
           {/* Name: hidden when sidebar is icon-only */}
           <div className="group-data-[collapsible=icon]:hidden overflow-hidden">
             <p className="text-sm font-semibold leading-none text-sidebar-foreground truncate">
