@@ -4,11 +4,11 @@ import {
   Text,
   View,
   StyleSheet,
+  Image,
 } from "@react-pdf/renderer";
+
 import { RateQuote, RateRequest } from "@/lib/types";
 import { ClientInfo } from "./QuoteSheet";
-
-// ─── props ───────────────────────────────────────────────────────────────────
 
 interface Props {
   quote: RateQuote;
@@ -18,345 +18,369 @@ interface Props {
   quoteNumber: string;
 }
 
-// ─── colour palette ──────────────────────────────────────────────────────────
-
 const C = {
-  navy:        "#1B2A4A",  // primary brand
-  navyMid:     "#2D4270",  // header rows
-  navyLight:   "#E8EEF7",  // light tint for alternating rows / boxes
-  accent:      "#0F6FBF",  // hyperlinks, highlights
-  text:        "#1E293B",  // body
-  muted:       "#64748B",  // labels, subtext
-  border:      "#CBD5E1",  // table borders, separators
-  bg:          "#F8FAFC",  // section backgrounds
-  white:       "#FFFFFF",
-  green:       "#15803D",
-  greenLight:  "#DCFCE7",
-  greenBorder: "#86EFAC",
-  red:         "#B91C1C",
+  navy: "#183153",
+  text: "#111827",
+  gray: "#6B7280",
+  lightGray: "#F3F4F6",
+  border: "#C7CDD4",
+  darkBorder: "#94A3B8",
+  white: "#FFFFFF",
 };
 
-// ─── styles ──────────────────────────────────────────────────────────────────
-
 const s = StyleSheet.create({
-  // PAGE
   page: {
     fontFamily: "Helvetica",
-    fontSize: 9,
+    fontSize: 8,
     color: C.text,
-    paddingTop: 44,
-    paddingBottom: 64,
-    paddingHorizontal: 44,
+    paddingTop: 30,
+    paddingBottom: 42,
+    paddingHorizontal: 34,
     backgroundColor: C.white,
-    lineHeight: 1.35,
+    lineHeight: 1.25,
   },
 
+  // ======================================================
   // HEADER
-  headerRow: {
+  // ======================================================
+
+ header: {
+  flexDirection: "row",
+  justifyContent: "space-between",
+  alignItems: "flex-start",
+  borderBottomWidth: 1.2,
+  borderBottomColor: C.navy,
+  paddingBottom: 12,
+  marginBottom: 14,
+},
+
+companyLeft: {
+  width: "64%",
+  paddingRight: 16,
+},
+
+logoText: {
+  fontFamily: "Helvetica-Bold",
+  fontSize: 13.5,
+  color: C.navy,
+  letterSpacing: 0.2,
+  lineHeight: 1.05,
+  marginBottom: 5,
+},
+
+companySub: {
+  fontSize: 7,
+  color: C.gray,
+  marginBottom: 2,
+  lineHeight: 1.3,
+},
+
+quoteMetaBox: {
+  width: "31%",
+  borderWidth: 1,
+  borderColor: C.darkBorder,
+},
+
+  quoteMetaHeader: {
+    backgroundColor: C.navy,
+    paddingVertical: 5,
+    paddingHorizontal: 7,
+  },
+
+  quoteMetaHeaderText: {
+    fontFamily: "Helvetica-Bold",
+    fontSize: 8,
+    color: C.white,
+    letterSpacing: 0.8,
+  },
+
+  quoteMetaRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "flex-start",
-    paddingBottom: 14,
-    marginBottom: 18,
-    borderBottomWidth: 2,
-    borderBottomColor: C.navy,
+    borderBottomWidth: 0.8,
+    borderBottomColor: C.border,
+    paddingVertical: 5,
+    paddingHorizontal: 7,
   },
-  coName: {
-    fontFamily: "Helvetica-Bold",
-    fontSize: 20,
-    color: C.navy,
-    marginBottom: 3,
-  },
-  coSub: {
-    fontSize: 8,
-    color: C.muted,
-    marginBottom: 1.5,
-  },
-  quoteTitle: {
-    fontFamily: "Helvetica-Bold",
-    fontSize: 14,
-    color: C.navy,
-    textAlign: "right",
-    letterSpacing: 1,
-    textTransform: "uppercase",
-    marginBottom: 7,
-  },
-  metaRow: {
-    flexDirection: "row",
-    gap: 8,
-    marginBottom: 2.5,
-    justifyContent: "flex-end",
-  },
+
   metaLabel: {
-    fontSize: 7.5,
-    color: C.muted,
-    width: 60,
-    textAlign: "right",
+    fontSize: 7,
+    color: C.gray,
   },
+
   metaValue: {
     fontFamily: "Helvetica-Bold",
-    fontSize: 7.5,
+    fontSize: 7,
     color: C.text,
-    minWidth: 90,
-    textAlign: "left",
   },
 
-  // BILL-TO / ROUTE ROW
-  infoRow: {
-    flexDirection: "row",
-    gap: 10,
-    marginBottom: 16,
-  },
-  infoBox: {
-    flex: 1,
-    padding: 10,
-    backgroundColor: C.bg,
-    borderWidth: 1,
-    borderColor: C.border,
-    borderRadius: 4,
-  },
-  infoBoxBlue: {
-    flex: 1,
-    padding: 10,
-    backgroundColor: C.navyLight,
-    borderWidth: 1,
-    borderColor: "#93B4D8",
-    borderRadius: 4,
-  },
-  boxLabel: {
-    fontFamily: "Helvetica-Bold",
-    fontSize: 7,
-    color: C.muted,
-    textTransform: "uppercase",
-    letterSpacing: 0.7,
-    marginBottom: 6,
-  },
-  boxLabelBlue: {
-    fontFamily: "Helvetica-Bold",
-    fontSize: 7,
-    color: C.navyMid,
-    textTransform: "uppercase",
-    letterSpacing: 0.7,
-    marginBottom: 6,
-  },
-  clientName: {
-    fontFamily: "Helvetica-Bold",
-    fontSize: 10,
-    color: C.text,
-    marginBottom: 2.5,
-  },
-  clientLine: {
-    fontSize: 8.5,
-    color: C.muted,
-    marginBottom: 2,
-  },
+  // ======================================================
+  // SECTION TITLE
+  // ======================================================
 
-  // ROUTE
-  routeCols: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    marginBottom: 8,
-  },
-  routeCol: { flex: 1 },
-  routePointLabel: {
+  sectionTitle: {
     fontFamily: "Helvetica-Bold",
-    fontSize: 7,
-    color: C.navyMid,
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-    marginBottom: 2,
-  },
-  routeCity: {
-    fontFamily: "Helvetica-Bold",
-    fontSize: 11,
+    fontSize: 7.2,
     color: C.navy,
-  },
-  routeCountry: {
-    fontSize: 7.5,
-    color: C.muted,
-    marginTop: 1,
-  },
-  routeArrow: {
-    fontFamily: "Helvetica-Bold",
-    fontSize: 13,
-    color: C.navyMid,
-  },
-  routeDetail: {
-    fontSize: 7.5,
-    color: C.muted,
-    marginBottom: 2,
-  },
-
-  // TABLE
-  tableSection: { marginBottom: 16 },
-  sectionHeading: {
-    fontFamily: "Helvetica-Bold",
-    fontSize: 7.5,
-    color: C.muted,
     textTransform: "uppercase",
-    letterSpacing: 0.7,
+    letterSpacing: 1,
     marginBottom: 5,
   },
-  table: {
+
+  // ======================================================
+  // SHIPMENT TABLE
+  // ======================================================
+
+  infoTable: {
     borderWidth: 1,
-    borderColor: C.border,
-    borderRadius: 4,
-    overflow: "hidden",
+    borderColor: C.darkBorder,
+    marginBottom: 12,
   },
-  tableHead: {
+
+  infoRow: {
     flexDirection: "row",
-    backgroundColor: C.navyMid,
-    paddingVertical: 7,
-    paddingHorizontal: 10,
-  },
-  thCell: {
-    fontFamily: "Helvetica-Bold",
-    fontSize: 7.5,
-    color: C.white,
-    textTransform: "uppercase",
-    letterSpacing: 0.4,
-  },
-  tableRow: {
-    flexDirection: "row",
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    borderBottomWidth: 1,
+    borderBottomWidth: 0.8,
     borderBottomColor: C.border,
   },
-  tableRowAlt: { backgroundColor: C.navyLight },
-  tableRowLast: {
-    flexDirection: "row",
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-  },
-  tdCell: {
-    fontSize: 8.5,
+
+  infoLabel: {
+    width: "18%",
+    backgroundColor: C.lightGray,
+    paddingVertical: 5,
+    paddingHorizontal: 6,
+    fontFamily: "Helvetica-Bold",
+    fontSize: 7,
     color: C.text,
   },
-  tdCellMuted: {
-    fontSize: 8.5,
-    color: C.muted,
+
+  infoValue: {
+    width: "32%",
+    paddingVertical: 5,
+    paddingHorizontal: 6,
+    fontSize: 7,
+    color: C.text,
   },
-  tdRight: { textAlign: "right" },
 
-  // Column widths
-  cDesc:   { flex: 3 },
-  cCarrier:{ flex: 1.5 },
-  cTAT:    { flex: 1 },
-  cAmt:    { flex: 1.3 },
+  // ======================================================
+  // FREIGHT TABLE
+  // ======================================================
 
+  table: {
+    borderWidth: 1,
+    borderColor: C.darkBorder,
+    marginBottom: 14,
+  },
+
+  tableHeader: {
+    flexDirection: "row",
+    backgroundColor: C.lightGray,
+    borderBottomWidth: 1,
+    borderBottomColor: C.darkBorder,
+    paddingVertical: 5,
+    paddingHorizontal: 6,
+  },
+
+  tableRow: {
+    flexDirection: "row",
+    borderBottomWidth: 0.8,
+    borderBottomColor: C.border,
+    paddingVertical: 5,
+    paddingHorizontal: 6,
+  },
+
+  th: {
+    fontFamily: "Helvetica-Bold",
+    fontSize: 6.8,
+    textTransform: "uppercase",
+    color: C.text,
+  },
+
+  td: {
+    fontSize: 7,
+    color: C.text,
+  },
+
+  right: {
+    textAlign: "right",
+  },
+
+  center: {
+    textAlign: "center",
+  },
+
+  // columns
+
+  cDesc: {
+    width: "31%",
+  },
+
+  cBasis: {
+    width: "16%",
+  },
+
+  cQty: {
+    width: "8%",
+  },
+
+  cTransit: {
+    width: "14%",
+  },
+
+  cCurr: {
+    width: "10%",
+  },
+
+  cAmount: {
+    width: "18%",
+  },
+
+  // ======================================================
   // TOTALS
-  totalsWrapper: {
+  // ======================================================
+
+  totalsWrap: {
     alignItems: "flex-end",
     marginBottom: 14,
   },
+
   totalsBox: {
-    width: 230,
+    width: 220,
     borderWidth: 1,
-    borderColor: C.border,
-    borderRadius: 4,
-    overflow: "hidden",
+    borderColor: C.darkBorder,
   },
+
   totalsRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    paddingVertical: 5,
-    paddingHorizontal: 10,
-    borderBottomWidth: 1,
+    borderBottomWidth: 0.8,
     borderBottomColor: C.border,
+    paddingVertical: 5,
+    paddingHorizontal: 7,
   },
-  totalsLabel: { fontSize: 8.5, color: C.muted },
-  totalsValue: { fontSize: 8.5, color: C.text },
-  totalsFinalRow: {
+
+  totalsLabel: {
+    fontSize: 7,
+    color: C.gray,
+  },
+
+  totalsValue: {
+    fontSize: 7,
+    color: C.text,
+  },
+
+  grandTotal: {
     flexDirection: "row",
     justifyContent: "space-between",
-    paddingVertical: 8,
-    paddingHorizontal: 10,
     backgroundColor: C.navy,
+    paddingVertical: 7,
+    paddingHorizontal: 7,
   },
-  totalsFinalLabel: {
+
+  grandLabel: {
     fontFamily: "Helvetica-Bold",
-    fontSize: 9,
+    fontSize: 8,
     color: C.white,
-    textTransform: "uppercase",
     letterSpacing: 0.5,
   },
-  totalsFinalValue: {
+
+  grandValue: {
     fontFamily: "Helvetica-Bold",
-    fontSize: 11,
+    fontSize: 10,
     color: C.white,
   },
 
-  // VALIDITY STRIP
-  validityStrip: {
-    flexDirection: "row",
-    alignItems: "center",
-    padding: 8,
-    backgroundColor: C.greenLight,
+  // ======================================================
+  // NOTES
+  // ======================================================
+
+  noteBox: {
     borderWidth: 1,
-    borderColor: C.greenBorder,
-    borderRadius: 4,
-    marginBottom: 14,
-  },
-  validityText: {
-    fontFamily: "Helvetica-Bold",
-    fontSize: 7.5,
-    color: C.green,
+    borderColor: C.border,
+    padding: 7,
+    marginBottom: 10,
   },
 
+  noteText: {
+    fontSize: 6.7,
+    color: C.gray,
+    marginBottom: 2.5,
+    lineHeight: 1.35,
+  },
+
+  // ======================================================
   // TERMS
+  // ======================================================
+
   termsBox: {
-    padding: 10,
-    backgroundColor: C.bg,
     borderWidth: 1,
     borderColor: C.border,
-    borderRadius: 4,
-    marginBottom: 14,
-  },
-  termsHeading: {
-    fontFamily: "Helvetica-Bold",
-    fontSize: 7,
-    color: C.muted,
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-    marginBottom: 5,
-  },
-  termLine: {
-    fontSize: 7.5,
-    color: C.muted,
-    marginBottom: 3,
-    lineHeight: 1.4,
-  },
-
-  // BANK / PAYMENT BOX (optional)
-  paymentBox: {
-    padding: 10,
-    backgroundColor: C.bg,
-    borderWidth: 1,
-    borderColor: C.border,
-    borderRadius: 4,
+    padding: 7,
     marginBottom: 14,
   },
 
+  termsGrid: {
+    flexDirection: "row",
+    gap: 12,
+  },
+
+  termCol: {
+    flex: 1,
+  },
+
+  term: {
+    fontSize: 6.2,
+    color: C.gray,
+    marginBottom: 2.5,
+    lineHeight: 1.35,
+  },
+
+  // ======================================================
+  // SIGNATURE
+  // ======================================================
+
+  signatureRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 8,
+    marginBottom: 10,
+  },
+
+  signBox: {
+    width: 220,
+  },
+
+  signLine: {
+    borderTopWidth: 0.8,
+    borderTopColor: C.darkBorder,
+    marginBottom: 4,
+  },
+
+  signText: {
+    fontSize: 6.8,
+    color: C.gray,
+  },
+
+  // ======================================================
   // FOOTER
+  // ======================================================
+
   footer: {
     position: "absolute",
-    bottom: 22,
-    left: 44,
-    right: 44,
-    borderTopWidth: 1,
+    bottom: 18,
+    left: 34,
+    right: 34,
+    borderTopWidth: 0.8,
     borderTopColor: C.border,
-    paddingTop: 7,
+    paddingTop: 5,
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "center",
   },
-  footerText: { fontSize: 7, color: C.muted },
-  footerBold: { fontFamily: "Helvetica-Bold", color: C.text },
-});
 
-// ─── helpers ─────────────────────────────────────────────────────────────────
+  footerText: {
+    fontSize: 6,
+    color: C.gray,
+  },
+});
 
 function fmt(amount: number, currency: string) {
   return new Intl.NumberFormat("en-IN", {
@@ -376,17 +400,15 @@ function fmtDate(d: Date) {
 }
 
 const TERMS = [
-  "1. All rates quoted are indicative and subject to confirmation at time of booking. Final charges may vary based on actual weight and dimensions verified at the point of shipment.",
-  "2. Transit times are estimated only and are not guaranteed. Delays due to customs examination, weather conditions, national holidays, or force majeure events are not the carrier's responsibility.",
-  "3. Fuel surcharges (FSC), security surcharges, and peak season surcharges are subject to change without prior notice and will be billed at the rate applicable on the date of shipment.",
-  "4. Customs duties, import taxes, VAT, and destination clearance fees are not included unless explicitly stated. These are the consignee's responsibility.",
-  "5. Cargo insurance is not included. We strongly recommend all-risk marine cargo insurance. Please contact us for a separate insurance quotation.",
-  "6. Liability is limited per the carrier's standard trading conditions, which are available on request. Sub-COGSA limits apply for sea freight.",
-  "7. Payment terms: Net 30 days from invoice date unless agreed otherwise in writing. A late payment fee of 1.5% per month applies on overdue balances.",
-  "8. This quotation is valid for 30 days from the date issued, subject to space and rate availability at time of booking.",
+  "Rates subject to carrier confirmation and available capacity at time of booking.",
+  "Transit times are indicative only and may vary due to operational or customs delays.",
+  "Duties, taxes, VAT, customs clearance, and destination charges are excluded unless specified.",
+  "Remote area, dangerous goods, oversized cargo, and restricted commodity surcharges may apply.",
+  "Shipment billing will be based on actual chargeable weight confirmed at cargo acceptance.",
+  "Cargo insurance is not included unless specifically requested in writing.",
+  "Payment terms: Net 7 days from invoice date unless otherwise agreed.",
+  "Subject to Delhi / Gurgaon jurisdiction only.",
 ];
-
-// ─── document ────────────────────────────────────────────────────────────────
 
 export default function QuoteDocument({
   quote,
@@ -395,29 +417,28 @@ export default function QuoteDocument({
   markupPercent,
   quoteNumber,
 }: Props) {
-  const today    = new Date();
+  if (!request) {
+    throw new Error("QuoteDocument: request prop is missing");
+  }
+
+  const today = new Date();
+
   const validity = new Date(today);
   validity.setDate(validity.getDate() + 30);
 
   const factor = 1 + markupPercent / 100;
 
-  // Apply markup to all amounts
   const adjustedCharges = quote.charges.map((c) => ({
     ...c,
-    amount:    c.amount    * factor,
-    taxAmount: c.taxAmount != null ? c.taxAmount * factor : c.taxAmount,
+    amount: c.amount * factor,
   }));
-  const adjExcl = quote.totalWithoutTax * factor;
-  const adjIncl = quote.totalWithTax    * factor;
-  const adjTax  = adjIncl - adjExcl;
 
-  if (!request) {
-  throw new Error("QuoteDocument: request prop is missing");
-}
+  const subtotal = quote.totalWithoutTax * factor;
+  const total = quote.totalWithTax * factor;
+  const tax = total - subtotal;
 
   const { origin, destination, shipment } = request;
 
-  // Volumetric weight
   const volWt =
     (shipment.dimensions.length *
       shipment.dimensions.width *
@@ -429,32 +450,57 @@ export default function QuoteDocument({
   return (
     <Document
       title={`Freight Quote ${quoteNumber}`}
-      author="SwiftFreight"
-      creator="SwiftFreight Logistics Platform"
-      producer="@react-pdf/renderer"
+      author="Arena Cargo And Logistics India Private Limited"
+      producer="Arena Cargo Logistics"
     >
       <Page size="A4" style={s.page}>
-        {/* ── HEADER ─────────────────────────────────────────────────── */}
-        <View style={s.headerRow} fixed>
-          {/* left: company branding */}
-          <View>
-            <Text style={s.coName}>SwiftFreight</Text>
-            <Text style={s.coSub}>International Freight Forwarding &amp; Logistics Solutions</Text>
-            <Text style={s.coSub}>info@swiftfreight.com  ·  +91 11 4567 8900  ·  www.swiftfreight.com</Text>
+        {/* ===================================================== */}
+        {/* HEADER */}
+        {/* ===================================================== */}
+
+        <View style={s.header}>
+          <View style={s.companyLeft}>
+            <Text style={s.logoText}>
+            ARENA CARGO AND LOGISTICS INDIA{"\n"}
+  PRIVATE LIMITED
+            </Text>
+
+            <Text style={s.companySub}>
+              International Freight Forwarding | Customs Clearance |
+              Warehousing
+            </Text>
+
+            <Text style={s.companySub}>
+              A3-401 Signature Global Solera-1 Sector 107
+            </Text>
+
+            <Text style={s.companySub}>
+              Gurgaon Haryana 122006 India
+            </Text>
+
+            <Text style={s.companySub}>
+              GSTIN: 06AALCA3833B1Z2
+            </Text>
+
+            <Text style={s.companySub}>
+              Email: adnan@arenalogistics.co.in
+            </Text>
           </View>
 
-          {/* right: quote reference */}
-          <View>
-            <Text style={s.quoteTitle}>Rate Quotation</Text>
-            {(
-              [
-                ["Quote No.", quoteNumber],
-                ["Date",      fmtDate(today)],
-                ["Valid Until", fmtDate(validity)],
-                ["Currency",  quote.currency],
-              ] as [string, string][]
-            ).map(([label, value]) => (
-              <View key={label} style={s.metaRow}>
+          <View style={s.quoteMetaBox}>
+            <View style={s.quoteMetaHeader}>
+              <Text style={s.quoteMetaHeaderText}>
+                FREIGHT RATE QUOTATION
+              </Text>
+            </View>
+
+            {[
+              ["Quotation No.", quoteNumber],
+              ["Quotation Date", fmtDate(today)],
+              ["Validity", fmtDate(validity)],
+              ["Currency", quote.currency],
+            ].map(([label, value]) => (
+              <View key={label} style={s.quoteMetaRow}>
                 <Text style={s.metaLabel}>{label}</Text>
                 <Text style={s.metaValue}>{value}</Text>
               </View>
@@ -462,130 +508,313 @@ export default function QuoteDocument({
           </View>
         </View>
 
-        {/* ── BILL-TO + ROUTE ────────────────────────────────────────── */}
-        <View style={s.infoRow}>
-          {/* bill to */}
-          <View style={s.infoBox}>
-            <Text style={s.boxLabel}>Bill To</Text>
-            <Text style={s.clientName}>{client.name}</Text>
-            <Text style={s.clientLine}>{client.company}</Text>
-            {client.email   ? <Text style={s.clientLine}>{client.email}</Text>   : null}
-            {client.phone   ? <Text style={s.clientLine}>{client.phone}</Text>   : null}
-            {client.address ? <Text style={s.clientLine}>{client.address}</Text> : null}
-          </View>
+        {/* ===================================================== */}
+        {/* SHIPMENT INFO */}
+        {/* ===================================================== */}
 
-          {/* shipment route */}
-          <View style={s.infoBoxBlue}>
-            <Text style={s.boxLabelBlue}>Shipment Route</Text>
+        <Text style={s.sectionTitle}>
+          Shipment Information
+        </Text>
 
-            <View style={s.routeCols}>
-              <View style={s.routeCol}>
-                <Text style={s.routePointLabel}>Origin</Text>
-                <Text style={s.routeCity}>{origin.city}</Text>
-                <Text style={s.routeCountry}>{origin.countryCode}</Text>
-              </View>
-              <Text style={s.routeArrow}>→</Text>
-              <View style={s.routeCol}>
-                <Text style={s.routePointLabel}>Destination</Text>
-                <Text style={s.routeCity}>{destination.city}</Text>
-                <Text style={s.routeCountry}>
-                  {destination.country ?? destination.countryCode}
-                </Text>
-              </View>
-            </View>
-
-            <Text style={s.routeDetail}>
-              Gross weight: {shipment.weight} kg  |  Vol. weight: {volWt.toFixed(2)} kg  |  Chargeable: {chargeable.toFixed(2)} kg
+        <View style={s.infoTable}>
+          <View style={s.infoRow}>
+            <Text style={s.infoLabel}>Client</Text>
+            <Text style={s.infoValue}>
+              {client.company}
             </Text>
-            <Text style={s.routeDetail}>
-              Dimensions: {shipment.dimensions.length} × {shipment.dimensions.width} × {shipment.dimensions.height} {shipment.dimensions.unit}
-            </Text>
-            <Text style={s.routeDetail}>
-              Pieces: {shipment.quantity}  |  Contents: {shipment.description}
+
+            <Text style={s.infoLabel}>Contact</Text>
+            <Text style={s.infoValue}>
+              {client.name}
             </Text>
           </View>
-        </View>
 
-        {/* ── CHARGES TABLE ──────────────────────────────────────────── */}
-        <View style={s.tableSection}>
-          <Text style={s.sectionHeading}>Rate Breakdown — {quote.vendorName} · {quote.productName}</Text>
+          <View style={s.infoRow}>
+            <Text style={s.infoLabel}>Origin</Text>
+            <Text style={s.infoValue}>
+              {origin.city}, {origin.countryCode}
+            </Text>
 
-          <View style={s.table}>
-            {/* table header */}
-            <View style={s.tableHead}>
-              <Text style={[s.thCell, s.cDesc]}>Charge Description</Text>
-              <Text style={[s.thCell, s.cCarrier]}>Carrier</Text>
-              <Text style={[s.thCell, s.cTAT]}>Transit</Text>
-              <Text style={[s.thCell, s.cAmt, s.tdRight]}>Amount ({quote.currency})</Text>
-            </View>
+            <Text style={s.infoLabel}>Destination</Text>
+            <Text style={s.infoValue}>
+              {destination.city},{" "}
+              {destination.country ||
+                destination.countryCode}
+            </Text>
+          </View>
 
-            {/* rows */}
-            {adjustedCharges.map((charge, i) => {
-              const isLast = i === adjustedCharges.length - 1;
-              const rowStyle = isLast
-                ? s.tableRowLast
-                : [s.tableRow, i % 2 === 1 ? s.tableRowAlt : {}];
-              return (
-                <View key={i} style={rowStyle}>
-                  <Text style={[s.tdCell, s.cDesc]}>{charge.name}</Text>
-                  <Text style={[s.tdCellMuted, s.cCarrier]}>{quote.vendorName}</Text>
-                  <Text style={[s.tdCellMuted, s.cTAT]}>
-                    {i === 0
-                      ? quote.tatDays > 0
-                        ? `${quote.tatDays} days`
-                        : "TBD"
-                      : "—"}
-                  </Text>
-                  <Text style={[s.tdCell, s.cAmt, s.tdRight]}>
-                    {fmt(charge.amount, charge.currency)}
-                  </Text>
-                </View>
-              );
-            })}
+          <View style={s.infoRow}>
+            <Text style={s.infoLabel}>
+              Service Type
+            </Text>
+
+            <Text style={s.infoValue}>
+              {quote.productName}
+            </Text>
+
+            <Text style={s.infoLabel}>Carrier</Text>
+            <Text style={s.infoValue}>
+              {quote.vendorName}
+            </Text>
+          </View>
+
+          <View style={s.infoRow}>
+            <Text style={s.infoLabel}>
+              Chargeable Weight
+            </Text>
+
+            <Text style={s.infoValue}>
+              {chargeable.toFixed(2)} KG
+            </Text>
+
+            <Text style={s.infoLabel}>
+              Transit Time
+            </Text>
+
+            <Text style={s.infoValue}>
+              {quote.tatDays > 0
+                ? `${quote.tatDays} Days`
+                : "TBA"}
+            </Text>
+          </View>
+
+          <View style={s.infoRow}>
+            <Text style={s.infoLabel}>
+              Commodity
+            </Text>
+
+            <Text style={s.infoValue}>
+              {shipment.description}
+            </Text>
+
+            <Text style={s.infoLabel}>
+              Dimensions
+            </Text>
+
+            <Text style={s.infoValue}>
+              {shipment.dimensions.length} ×{" "}
+              {shipment.dimensions.width} ×{" "}
+              {shipment.dimensions.height}{" "}
+              {shipment.dimensions.unit}
+            </Text>
           </View>
         </View>
 
-        {/* ── TOTALS ─────────────────────────────────────────────────── */}
-        <View style={s.totalsWrapper}>
-          <View style={s.totalsBox}>
-            <View style={s.totalsRow}>
-              <Text style={s.totalsLabel}>Subtotal (excl. tax)</Text>
-              <Text style={s.totalsValue}>{fmt(adjExcl, quote.currency)}</Text>
-            </View>
-            <View style={s.totalsRow}>
-              <Text style={s.totalsLabel}>Tax / GST / Levies</Text>
-              <Text style={s.totalsValue}>{fmt(adjTax, quote.currency)}</Text>
-            </View>
-            <View style={s.totalsFinalRow}>
-              <Text style={s.totalsFinalLabel}>Total Due</Text>
-              <Text style={s.totalsFinalValue}>{fmt(adjIncl, quote.currency)}</Text>
-            </View>
+        {/* ===================================================== */}
+        {/* FREIGHT TABLE */}
+        {/* ===================================================== */}
+
+        <Text style={s.sectionTitle}>
+          Freight Charges
+        </Text>
+
+        <View style={s.table}>
+          <View style={s.tableHeader}>
+            <Text style={[s.th, s.cDesc]}>
+              Description
+            </Text>
+
+            <Text style={[s.th, s.cBasis]}>
+              Basis
+            </Text>
+
+            <Text style={[s.th, s.cQty, s.center]}>
+              Qty
+            </Text>
+
+            <Text style={[s.th, s.cTransit]}>
+              Transit
+            </Text>
+
+            <Text style={[s.th, s.cCurr]}>
+              Curr.
+            </Text>
+
+            <Text style={[s.th, s.cAmount, s.right]}>
+              Amount
+            </Text>
           </View>
-        </View>
 
-        {/* ── VALIDITY STRIP ─────────────────────────────────────────── */}
-        <View style={s.validityStrip}>
-          <Text style={s.validityText}>
-            ✓  This quotation is valid for 30 days, until {fmtDate(validity)}.
-            Rates are subject to availability at time of booking.
-          </Text>
-        </View>
+          {adjustedCharges.map((charge, i) => (
+            <View key={i} style={s.tableRow}>
+              <Text style={[s.td, s.cDesc]}>
+                {charge.name.toUpperCase()}
+              </Text>
 
-        {/* ── TERMS & CONDITIONS ─────────────────────────────────────── */}
-        <View style={s.termsBox}>
-          <Text style={s.termsHeading}>Terms &amp; Conditions</Text>
-          {TERMS.map((t, i) => (
-            <Text key={i} style={s.termLine}>{t}</Text>
+              <Text style={[s.td, s.cBasis]}>
+                Per Shipment
+              </Text>
+
+              <Text
+                style={[
+                  s.td,
+                  s.cQty,
+                  s.center,
+                ]}
+              >
+                1
+              </Text>
+
+              <Text style={[s.td, s.cTransit]}>
+                {i === 0
+                  ? `${quote.tatDays} Days`
+                  : "-"}
+              </Text>
+
+              <Text style={[s.td, s.cCurr]}>
+                {quote.currency}
+              </Text>
+
+              <Text
+                style={[
+                  s.td,
+                  s.cAmount,
+                  s.right,
+                ]}
+              >
+                {fmt(
+                  charge.amount,
+                  charge.currency
+                )}
+              </Text>
+            </View>
           ))}
         </View>
 
-        {/* ── FOOTER ─────────────────────────────────────────────────── */}
+        {/* ===================================================== */}
+        {/* TOTALS */}
+        {/* ===================================================== */}
+
+        <View style={s.totalsWrap}>
+          <View style={s.totalsBox}>
+            <View style={s.totalsRow}>
+              <Text style={s.totalsLabel}>
+                Subtotal
+              </Text>
+
+              <Text style={s.totalsValue}>
+                {fmt(subtotal, quote.currency)}
+              </Text>
+            </View>
+
+            <View style={s.totalsRow}>
+              <Text style={s.totalsLabel}>
+                GST / Taxes
+              </Text>
+
+              <Text style={s.totalsValue}>
+                {fmt(tax, quote.currency)}
+              </Text>
+            </View>
+
+            <View style={s.grandTotal}>
+              <Text style={s.grandLabel}>
+                TOTAL QUOTED
+              </Text>
+
+              <Text style={s.grandValue}>
+                {fmt(total, quote.currency)}
+              </Text>
+            </View>
+          </View>
+        </View>
+
+        {/* ===================================================== */}
+        {/* NOTES */}
+        {/* ===================================================== */}
+
+        <View style={s.noteBox}>
+          <Text style={s.sectionTitle}>
+            Operational Notes
+          </Text>
+
+          <Text style={s.noteText}>
+            Rates valid until {fmtDate(validity)}
+            subject to carrier approval and
+            available capacity.
+          </Text>
+
+          <Text style={s.noteText}>
+            Additional surcharges may apply for
+            remote areas, oversized cargo, and
+            restricted commodities.
+          </Text>
+
+          <Text style={s.noteText}>
+            Final billing shall be based on actual
+            chargeable weight verified at shipment
+            acceptance.
+          </Text>
+        </View>
+
+        {/* ===================================================== */}
+        {/* TERMS */}
+        {/* ===================================================== */}
+
+        <View style={s.termsBox}>
+          <Text style={s.sectionTitle}>
+            Terms & Conditions
+          </Text>
+
+          <View style={s.termsGrid}>
+            <View style={s.termCol}>
+              {TERMS.slice(0, 4).map(
+                (term, i) => (
+                  <Text
+                    key={i}
+                    style={s.term}
+                  >
+                    {i + 1}. {term}
+                  </Text>
+                )
+              )}
+            </View>
+
+            <View style={s.termCol}>
+              {TERMS.slice(4).map(
+                (term, i) => (
+                  <Text
+                    key={i}
+                    style={s.term}
+                  >
+                    {i + 5}. {term}
+                  </Text>
+                )
+              )}
+            </View>
+          </View>
+        </View>
+
+        {/* ===================================================== */}
+        {/* SIGNATURE */}
+        {/* ===================================================== */}
+
+        <View style={s.signatureRow}>
+          <View style={s.signBox}>
+            <View style={s.signLine} />
+
+            <Text style={s.signText}>
+              Authorised Signatory
+            </Text>
+
+            <Text style={s.signText}>
+              Arena Cargo And Logistics India
+              Private Limited
+            </Text>
+          </View>
+        </View>
+
+        {/* ===================================================== */}
+        {/* FOOTER */}
+        {/* ===================================================== */}
+
         <View style={s.footer} fixed>
           <Text style={s.footerText}>
-            <Text style={s.footerBold}>SwiftFreight</Text>
-            {"  ·  Confidential Rate Quotation  ·  "}
-            {quoteNumber}
+            This quotation is confidential and
+            intended solely for the named
+            recipient.
           </Text>
+
           <Text
             style={s.footerText}
             render={({ pageNumber, totalPages }) =>
