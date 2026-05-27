@@ -44,42 +44,58 @@ const s = StyleSheet.create({
   // HEADER
   // ======================================================
 
- header: {
-  flexDirection: "row",
-  justifyContent: "space-between",
+  header: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    borderBottomWidth: 1.2,
+    borderBottomColor: C.navy,
+    paddingBottom: 14,
+    marginBottom: 18,
+  },
+
+  companyLeft: {
+  width: "62%",
   alignItems: "flex-start",
-  borderBottomWidth: 1.2,
-  borderBottomColor: C.navy,
-  paddingBottom: 12,
-  marginBottom: 14,
 },
 
-companyLeft: {
-  width: "64%",
-  paddingRight: 16,
+logoWrap: {
+  width: 120,
+  height: 58,
+  marginBottom: 10,
 },
 
-logoText: {
+logo: {
+  width: "100%",
+  height: "100%",
+  objectFit: "contain",
+},
+
+companyInfo: {
+  width: "100%",
+},
+
+companyName: {
   fontFamily: "Helvetica-Bold",
-  fontSize: 13.5,
+  fontSize: 13,
   color: C.navy,
+  lineHeight: 1.2,
+  marginBottom: 6,
   letterSpacing: 0.2,
-  lineHeight: 1.05,
-  marginBottom: 5,
 },
 
-companySub: {
-  fontSize: 7,
-  color: C.gray,
-  marginBottom: 2,
-  lineHeight: 1.3,
-},
+  companySub: {
+    fontSize: 7,
+    color: C.gray,
+    marginBottom: 2,
+    lineHeight: 1.35,
+  },
 
-quoteMetaBox: {
-  width: "31%",
-  borderWidth: 1,
-  borderColor: C.darkBorder,
-},
+  quoteMetaBox: {
+    width: "30%",
+    borderWidth: 1,
+    borderColor: C.darkBorder,
+  },
 
   quoteMetaHeader: {
     backgroundColor: C.navy,
@@ -360,6 +376,20 @@ quoteMetaBox: {
     color: C.gray,
   },
 
+  signatureImage: {
+  width: 120,
+  height: 42,
+  objectFit: "contain",
+  marginBottom: 6,
+},
+
+signatureName: {
+  fontFamily: "Helvetica-Bold",
+  fontSize: 7,
+  color: C.text,
+  marginBottom: 2,
+},
+
   // ======================================================
   // FOOTER
   // ======================================================
@@ -460,38 +490,36 @@ export default function QuoteDocument({
 
         <View style={s.header}>
           <View style={s.companyLeft}>
-            <Text style={s.logoText}>
-            ARENA CARGO AND LOGISTICS INDIA{"\n"}
-  PRIVATE LIMITED
-            </Text>
+            <View style={s.logoWrap}>
+              <Image src="/arena_logo.png" style={s.logo} />
+            </View>
 
-            <Text style={s.companySub}>
-              International Freight Forwarding | Customs Clearance |
-              Warehousing
-            </Text>
+            <View style={s.companyInfo}>
+              <Text style={s.companyName}>
+                ARENA CARGO AND LOGISTICS INDIA PRIVATE LIMITED
+              </Text>
 
-            <Text style={s.companySub}>
-              A3-401 Signature Global Solera-1 Sector 107
-            </Text>
+              <Text style={s.companySub}>
+                International Freight Forwarding | Customs Clearance |
+                Warehousing
+              </Text>
 
-            <Text style={s.companySub}>
-              Gurgaon Haryana 122006 India
-            </Text>
+              <Text style={s.companySub}>
+                A3-401 Signature Global Solera 1, Sector 107, Gurgaon Haryana
+                122006
+              </Text>
 
-            <Text style={s.companySub}>
-              GSTIN: 06AALCA3833B1Z2
-            </Text>
+              <Text style={s.companySub}>GSTIN: 06AALCA3833B1Z2</Text>
 
-            <Text style={s.companySub}>
-              Email: adnan@arenalogistics.co.in
-            </Text>
+              <Text style={s.companySub}>
+                Email: adnan@arenalogistics.co.in
+              </Text>
+            </View>
           </View>
 
           <View style={s.quoteMetaBox}>
             <View style={s.quoteMetaHeader}>
-              <Text style={s.quoteMetaHeaderText}>
-                FREIGHT RATE QUOTATION
-              </Text>
+              <Text style={s.quoteMetaHeaderText}>FREIGHT RATE QUOTATION</Text>
             </View>
 
             {[
@@ -512,21 +540,15 @@ export default function QuoteDocument({
         {/* SHIPMENT INFO */}
         {/* ===================================================== */}
 
-        <Text style={s.sectionTitle}>
-          Shipment Information
-        </Text>
+        <Text style={s.sectionTitle}>Shipment Information</Text>
 
         <View style={s.infoTable}>
           <View style={s.infoRow}>
             <Text style={s.infoLabel}>Client</Text>
-            <Text style={s.infoValue}>
-              {client.company}
-            </Text>
+            <Text style={s.infoValue}>{client.company}</Text>
 
             <Text style={s.infoLabel}>Contact</Text>
-            <Text style={s.infoValue}>
-              {client.name}
-            </Text>
+            <Text style={s.infoValue}>{client.name}</Text>
           </View>
 
           <View style={s.infoRow}>
@@ -538,64 +560,41 @@ export default function QuoteDocument({
             <Text style={s.infoLabel}>Destination</Text>
             <Text style={s.infoValue}>
               {destination.city},{" "}
-              {destination.country ||
-                destination.countryCode}
+              {destination.country || destination.countryCode}
             </Text>
           </View>
 
           <View style={s.infoRow}>
-            <Text style={s.infoLabel}>
-              Service Type
-            </Text>
+            <Text style={s.infoLabel}>Service Type</Text>
 
-            <Text style={s.infoValue}>
-              {quote.productName}
-            </Text>
+            <Text style={s.infoValue}>{quote.productName}</Text>
 
             <Text style={s.infoLabel}>Carrier</Text>
+            <Text style={s.infoValue}>{quote.vendorName}</Text>
+          </View>
+
+          <View style={s.infoRow}>
+            <Text style={s.infoLabel}>Chargeable Weight</Text>
+
+            <Text style={s.infoValue}>{chargeable.toFixed(2)} KG</Text>
+
+            <Text style={s.infoLabel}>Transit Time</Text>
+
             <Text style={s.infoValue}>
-              {quote.vendorName}
+              {quote.tatDays > 0 ? `${quote.tatDays} Days` : "TBA"}
             </Text>
           </View>
 
           <View style={s.infoRow}>
-            <Text style={s.infoLabel}>
-              Chargeable Weight
-            </Text>
+            <Text style={s.infoLabel}>Commodity</Text>
+
+            <Text style={s.infoValue}>{shipment.description}</Text>
+
+            <Text style={s.infoLabel}>Dimensions</Text>
 
             <Text style={s.infoValue}>
-              {chargeable.toFixed(2)} KG
-            </Text>
-
-            <Text style={s.infoLabel}>
-              Transit Time
-            </Text>
-
-            <Text style={s.infoValue}>
-              {quote.tatDays > 0
-                ? `${quote.tatDays} Days`
-                : "TBA"}
-            </Text>
-          </View>
-
-          <View style={s.infoRow}>
-            <Text style={s.infoLabel}>
-              Commodity
-            </Text>
-
-            <Text style={s.infoValue}>
-              {shipment.description}
-            </Text>
-
-            <Text style={s.infoLabel}>
-              Dimensions
-            </Text>
-
-            <Text style={s.infoValue}>
-              {shipment.dimensions.length} ×{" "}
-              {shipment.dimensions.width} ×{" "}
-              {shipment.dimensions.height}{" "}
-              {shipment.dimensions.unit}
+              {shipment.dimensions.length} × {shipment.dimensions.width} ×{" "}
+              {shipment.dimensions.height} {shipment.dimensions.unit}
             </Text>
           </View>
         </View>
@@ -604,78 +603,39 @@ export default function QuoteDocument({
         {/* FREIGHT TABLE */}
         {/* ===================================================== */}
 
-        <Text style={s.sectionTitle}>
-          Freight Charges
-        </Text>
+        <Text style={s.sectionTitle}>Freight Charges</Text>
 
         <View style={s.table}>
           <View style={s.tableHeader}>
-            <Text style={[s.th, s.cDesc]}>
-              Description
-            </Text>
+            <Text style={[s.th, s.cDesc]}>Description</Text>
 
-            <Text style={[s.th, s.cBasis]}>
-              Basis
-            </Text>
+            <Text style={[s.th, s.cBasis]}>Basis</Text>
 
-            <Text style={[s.th, s.cQty, s.center]}>
-              Qty
-            </Text>
+            <Text style={[s.th, s.cQty, s.center]}>Qty</Text>
 
-            <Text style={[s.th, s.cTransit]}>
-              Transit
-            </Text>
+            <Text style={[s.th, s.cTransit]}>Transit</Text>
 
-            <Text style={[s.th, s.cCurr]}>
-              Curr.
-            </Text>
+            <Text style={[s.th, s.cCurr]}>Curr.</Text>
 
-            <Text style={[s.th, s.cAmount, s.right]}>
-              Amount
-            </Text>
+            <Text style={[s.th, s.cAmount, s.right]}>Amount</Text>
           </View>
 
           {adjustedCharges.map((charge, i) => (
             <View key={i} style={s.tableRow}>
-              <Text style={[s.td, s.cDesc]}>
-                {charge.name.toUpperCase()}
-              </Text>
+              <Text style={[s.td, s.cDesc]}>{charge.name.toUpperCase()}</Text>
 
-              <Text style={[s.td, s.cBasis]}>
-                Per Shipment
-              </Text>
+              <Text style={[s.td, s.cBasis]}>Per Shipment</Text>
 
-              <Text
-                style={[
-                  s.td,
-                  s.cQty,
-                  s.center,
-                ]}
-              >
-                1
-              </Text>
+              <Text style={[s.td, s.cQty, s.center]}>1</Text>
 
               <Text style={[s.td, s.cTransit]}>
-                {i === 0
-                  ? `${quote.tatDays} Days`
-                  : "-"}
+                {i === 0 ? `${quote.tatDays} Days` : "-"}
               </Text>
 
-              <Text style={[s.td, s.cCurr]}>
-                {quote.currency}
-              </Text>
+              <Text style={[s.td, s.cCurr]}>{quote.currency}</Text>
 
-              <Text
-                style={[
-                  s.td,
-                  s.cAmount,
-                  s.right,
-                ]}
-              >
-                {fmt(
-                  charge.amount,
-                  charge.currency
-                )}
+              <Text style={[s.td, s.cAmount, s.right]}>
+                {fmt(charge.amount, charge.currency)}
               </Text>
             </View>
           ))}
@@ -688,33 +648,21 @@ export default function QuoteDocument({
         <View style={s.totalsWrap}>
           <View style={s.totalsBox}>
             <View style={s.totalsRow}>
-              <Text style={s.totalsLabel}>
-                Subtotal
-              </Text>
+              <Text style={s.totalsLabel}>Subtotal</Text>
 
-              <Text style={s.totalsValue}>
-                {fmt(subtotal, quote.currency)}
-              </Text>
+              <Text style={s.totalsValue}>{fmt(subtotal, quote.currency)}</Text>
             </View>
 
             <View style={s.totalsRow}>
-              <Text style={s.totalsLabel}>
-                GST / Taxes
-              </Text>
+              <Text style={s.totalsLabel}>GST / Taxes</Text>
 
-              <Text style={s.totalsValue}>
-                {fmt(tax, quote.currency)}
-              </Text>
+              <Text style={s.totalsValue}>{fmt(tax, quote.currency)}</Text>
             </View>
 
             <View style={s.grandTotal}>
-              <Text style={s.grandLabel}>
-                TOTAL QUOTED
-              </Text>
+              <Text style={s.grandLabel}>TOTAL QUOTED</Text>
 
-              <Text style={s.grandValue}>
-                {fmt(total, quote.currency)}
-              </Text>
+              <Text style={s.grandValue}>{fmt(total, quote.currency)}</Text>
             </View>
           </View>
         </View>
@@ -724,26 +672,21 @@ export default function QuoteDocument({
         {/* ===================================================== */}
 
         <View style={s.noteBox}>
-          <Text style={s.sectionTitle}>
-            Operational Notes
-          </Text>
+          <Text style={s.sectionTitle}>Operational Notes</Text>
 
           <Text style={s.noteText}>
             Rates valid until {fmtDate(validity)}
-            subject to carrier approval and
-            available capacity.
+            subject to carrier approval and available capacity.
           </Text>
 
           <Text style={s.noteText}>
-            Additional surcharges may apply for
-            remote areas, oversized cargo, and
-            restricted commodities.
+            Additional surcharges may apply for remote areas, oversized cargo,
+            and restricted commodities.
           </Text>
 
           <Text style={s.noteText}>
-            Final billing shall be based on actual
-            chargeable weight verified at shipment
-            acceptance.
+            Final billing shall be based on actual chargeable weight verified at
+            shipment acceptance.
           </Text>
         </View>
 
@@ -752,35 +695,23 @@ export default function QuoteDocument({
         {/* ===================================================== */}
 
         <View style={s.termsBox}>
-          <Text style={s.sectionTitle}>
-            Terms & Conditions
-          </Text>
+          <Text style={s.sectionTitle}>Terms & Conditions</Text>
 
           <View style={s.termsGrid}>
             <View style={s.termCol}>
-              {TERMS.slice(0, 4).map(
-                (term, i) => (
-                  <Text
-                    key={i}
-                    style={s.term}
-                  >
-                    {i + 1}. {term}
-                  </Text>
-                )
-              )}
+              {TERMS.slice(0, 4).map((term, i) => (
+                <Text key={i} style={s.term}>
+                  {i + 1}. {term}
+                </Text>
+              ))}
             </View>
 
             <View style={s.termCol}>
-              {TERMS.slice(4).map(
-                (term, i) => (
-                  <Text
-                    key={i}
-                    style={s.term}
-                  >
-                    {i + 5}. {term}
-                  </Text>
-                )
-              )}
+              {TERMS.slice(4).map((term, i) => (
+                <Text key={i} style={s.term}>
+                  {i + 5}. {term}
+                </Text>
+              ))}
             </View>
           </View>
         </View>
@@ -789,20 +720,25 @@ export default function QuoteDocument({
         {/* SIGNATURE */}
         {/* ===================================================== */}
 
-        <View style={s.signatureRow}>
-          <View style={s.signBox}>
-            <View style={s.signLine} />
+     <View style={s.signatureRow}>
+  <View style={s.signBox}>
 
-            <Text style={s.signText}>
-              Authorised Signatory
-            </Text>
+    <Image
+      src="/s_i_g.png"
+      style={s.signatureImage}
+    />
 
-            <Text style={s.signText}>
-              Arena Cargo And Logistics India
-              Private Limited
-            </Text>
-          </View>
-        </View>
+    <View style={s.signLine} />
+
+    <Text style={s.signatureName}>
+      Authorised Signatory
+    </Text>
+
+    <Text style={s.signText}>
+      Arena Cargo And Logistics India Private Limited
+    </Text>
+  </View>
+</View>
 
         {/* ===================================================== */}
         {/* FOOTER */}
@@ -810,8 +746,7 @@ export default function QuoteDocument({
 
         <View style={s.footer} fixed>
           <Text style={s.footerText}>
-            This quotation is confidential and
-            intended solely for the named
+            This quotation is confidential and intended solely for the named
             recipient.
           </Text>
 
