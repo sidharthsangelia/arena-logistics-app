@@ -23,14 +23,14 @@ import { Separator } from "@/components/ui/separator";
 import { Loader2, PackageSearch } from "lucide-react";
 import { RateRequest, AVAILABLE_VENDORS, VendorId } from "@/lib/types";
 
-// ── Props ─────────────────────────────────────────────────────────────────────
+//      Props                                                                                                                                           
 
 interface Props {
   onSubmit: (data: RateRequest, vendors: VendorId[]) => void;
   loading: boolean;
 }
 
-// ── Country list ──────────────────────────────────────────────────────────────
+//      Country list                                                                                                                             
 // Tuples of [full name used by Aramex, ISO 3166-1 alpha-2 code]
 const COUNTRY_OPTIONS: { label: string; code: string; fullName: string }[] = [
   { label: "Australia",     code: "AU", fullName: "AUSTRALIA"      },
@@ -45,7 +45,7 @@ const COUNTRY_OPTIONS: { label: string; code: string; fullName: string }[] = [
   { label: "New Zealand",   code: "NZ", fullName: "NEW ZEALAND"    },
 ];
 
-// ── Default values ────────────────────────────────────────────────────────────
+//      Default values                                                                                                                         
 
 const defaultValues: RateRequest = {
   origin: {
@@ -68,7 +68,7 @@ const defaultValues: RateRequest = {
   },
 };
 
-// ── Component ─────────────────────────────────────────────────────────────────
+//      Component                                                                                                                                   
 
 export default function RateCalculatorForm({ onSubmit, loading }: Props) {
   const [form, setForm] = useState<RateRequest>(defaultValues);
@@ -78,7 +78,7 @@ export default function RateCalculatorForm({ onSubmit, loading }: Props) {
     AVAILABLE_VENDORS.map((v) => v.id)
   );
 
-  // ── Field helpers ───────────────────────────────────────────────────────────
+  //      Field helpers                                                                                                                       
 
   const setOrigin = (field: keyof RateRequest["origin"]) =>
     (e: React.ChangeEvent<HTMLInputElement>) =>
@@ -124,21 +124,21 @@ export default function RateCalculatorForm({ onSubmit, loading }: Props) {
       shipment: { ...p.shipment, dimensions: { ...p.shipment.dimensions, unit } },
     }));
 
-  // ── Vendor toggle ───────────────────────────────────────────────────────────
+  //      Vendor toggle                                                                                                                       
 
   const toggleVendor = (id: VendorId, checked: boolean) =>
     setSelectedVendors((prev) =>
       checked ? [...prev, id] : prev.filter((v) => v !== id)
     );
 
-  // ── Submit ──────────────────────────────────────────────────────────────────
+  //      Submit                                                                                                                                     
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     onSubmit(form, selectedVendors);
   };
 
-  // ── Render ──────────────────────────────────────────────────────────────────
+  //      Render                                                                                                                                     
 
   return (
     <Card className="shadow-md">
@@ -155,7 +155,7 @@ export default function RateCalculatorForm({ onSubmit, loading }: Props) {
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-6">
 
-          {/* ── Origin ─────────────────────────────────────────────────────── */}
+          {/*      Origin                                                                                                                */}
           <section className="space-y-3">
             <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wide">
               Origin
@@ -209,7 +209,7 @@ export default function RateCalculatorForm({ onSubmit, loading }: Props) {
 
           <Separator />
 
-          {/* ── Destination ────────────────────────────────────────────────── */}
+          {/*      Destination                                                                                                      */}
           <section className="space-y-3">
             <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wide">
               Destination
@@ -265,7 +265,7 @@ export default function RateCalculatorForm({ onSubmit, loading }: Props) {
 
           <Separator />
 
-          {/* ── Shipment ───────────────────────────────────────────────────── */}
+          {/*      Shipment                                                                                                            */}
           <section className="space-y-3">
             <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wide">
               Package
@@ -369,7 +369,7 @@ export default function RateCalculatorForm({ onSubmit, loading }: Props) {
 
           <Separator />
 
-          {/* ── Vendor filter ───────────────────────────────────────────────── */}
+          {/*      Vendor filter                                                                                                    */}
           <section className="space-y-3">
             <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wide">
               Carriers to Query
@@ -400,7 +400,7 @@ export default function RateCalculatorForm({ onSubmit, loading }: Props) {
             )}
           </section>
 
-          {/* ── Submit ──────────────────────────────────────────────────────── */}
+          {/*      Submit                                                                                                                  */}
           <Button
             type="submit"
             className="w-full"

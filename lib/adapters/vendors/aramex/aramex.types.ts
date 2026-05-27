@@ -1,11 +1,11 @@
 /**
  * ARAMEX VENDOR TYPES
- * ─────────────────────────────────────────────────────────────────────────────
+ * -----------------------------------------------------------------------------
  * Exact shapes of the Aramex Shipping API request and response payloads.
  * Scoped entirely to this vendor folder.
  */
 
-// ─── REQUEST ─────────────────────────────────────────────────────────────────
+// --- REQUEST -----------------------------------------------------------------
 
 export interface AramexClientInfo {
   UserName: string;
@@ -61,7 +61,7 @@ export interface AramexRateRequest {
   ShipmentDetails: AramexShipmentDetails;
 }
 
-// ─── RESPONSE ────────────────────────────────────────────────────────────────
+// --- RESPONSE ----------------------------------------------------------------
 
 export interface AramexMoneyValue {
   CurrencyCode: string;

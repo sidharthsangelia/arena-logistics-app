@@ -1,6 +1,6 @@
 /**
  * ADAPTER REGISTRY
- * ─────────────────────────────────────────────────────────────────────────────
+ * -----------------------------------------------------------------------------
  * A simple Map-based registry. The service layer looks up adapters here
  * instead of importing them directly — this is the key to extensibility.
  *

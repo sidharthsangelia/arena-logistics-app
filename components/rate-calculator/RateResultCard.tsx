@@ -14,7 +14,7 @@ interface Props {
   rank: number; // 1 = cheapest
 }
 
-// ── Vendor badge colour ───────────────────────────────────────────────────────
+//        Vendor badge colour                                                                                                                                                                      
 // Keyed by vendorId (stable, from the adapter registry)
 const VENDOR_BADGE: Record<string, string> = {
   skart:  "bg-blue-100   text-blue-800   border-blue-200",
@@ -25,7 +25,7 @@ function vendorBadgeClass(vendorId: string) {
   return VENDOR_BADGE[vendorId] ?? "bg-slate-100 text-slate-700 border-slate-200";
 }
 
-// ── Currency formatter ────────────────────────────────────────────────────────
+//        Currency formatter                                                                                                                                                                         
 // Handles both INR and USD (and any future currency the adapters return).
 function fmt(amount: number, currency: string) {
   return new Intl.NumberFormat("en-IN", {
@@ -41,7 +41,7 @@ function tatLabel(days: number) {
   return `${days} day${days !== 1 ? "s" : ""}`;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+//                                                                                                                                                                                                                                        
 
 export default function RateResultCard({ quote, rank }: Props) {
   const tax = quote.totalWithTax - quote.totalWithoutTax;

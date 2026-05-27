@@ -1,11 +1,11 @@
 /**
  * SKART VENDOR TYPES
- * ─────────────────────────────────────────────────────────────────────────────
+ * -----------------------------------------------------------------------------
  * Exact shapes of the sKart Express API's request and response payloads.
  * These live ONLY inside this folder — nothing outside should import them.
  */
 
-// ─── REQUEST ─────────────────────────────────────────────────────────────────
+// --- REQUEST -----------------------------------------------------------------
 
 export interface SkartRateRequest {
   user_name: string;
@@ -20,7 +20,7 @@ export interface SkartRateRequest {
   length: number;
 }
 
-// ─── RESPONSE ────────────────────────────────────────────────────────────────
+// --- RESPONSE ----------------------------------------------------------------
 
 export interface SkartCharge {
   charge_name: string;

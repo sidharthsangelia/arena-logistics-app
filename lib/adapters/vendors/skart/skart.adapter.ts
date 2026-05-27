@@ -1,6 +1,6 @@
 /**
  * SKART ADAPTER
- * ─────────────────────────────────────────────────────────────────────────────
+ * -----------------------------------------------------------------------------
  * Handles all sKart Express API communication and data transformation.
  *
  * Responsibilities:
@@ -16,7 +16,7 @@ import { BaseVendorAdapter } from "../../core/base.adapter";
 import type { CanonicalRateRequest, RateQuote } from "../../core/types";
 import type { SkartRateRequest, SkartRateResponse, SkartProduct } from "./skart.types";
 
-// ─── CONFIG ──────────────────────────────────────────────────────────────────
+// --- CONFIG ------------------------------------------------------------------
 // Keep credentials in env vars; never hard-code them.
 
 const SKART_API_URL =
@@ -26,7 +26,7 @@ const SKART_API_URL =
 const SKART_USERNAME = process.env.SKART_USERNAME ?? "";
 const SKART_PASSWORD = process.env.SKART_PASSWORD ?? "";
 
-// ─── ADAPTER ─────────────────────────────────────────────────────────────────
+// --- ADAPTER -----------------------------------------------------------------
 
 export class SkartAdapter extends BaseVendorAdapter<
   SkartRateRequest,
@@ -35,7 +35,7 @@ export class SkartAdapter extends BaseVendorAdapter<
   readonly vendorId = "skart";
   readonly vendorName = "sKart Express";
 
-  // ── Step 1: Canonical → Vendor ──────────────────────────────────────────
+  // -- Step 1: Canonical → Vendor ------------------------------------------
 
   protected transformRequest(input: CanonicalRateRequest): SkartRateRequest {
     return {
@@ -53,7 +53,7 @@ export class SkartAdapter extends BaseVendorAdapter<
     };
   }
 
-  // ── Step 2: HTTP call ────────────────────────────────────────────────────
+  // -- Step 2: HTTP call ----------------------------------------------------
 
   protected async callVendorApi(
     request: SkartRateRequest
@@ -81,7 +81,7 @@ export class SkartAdapter extends BaseVendorAdapter<
     return json;
   }
 
-  // ── Step 3: Vendor → Canonical ──────────────────────────────────────────
+  // -- Step 3: Vendor → Canonical ------------------------------------------
 
   protected transformResponse(response: SkartRateResponse): RateQuote[] {
     return response.data.map((product) => this.mapProduct(product));

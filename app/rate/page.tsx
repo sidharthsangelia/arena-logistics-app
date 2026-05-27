@@ -41,7 +41,7 @@ export default function HomePage() {
 
   return (
     <main className="min-h-screen bg-slate-50">
-      {/* ── Header ─────────────────────────────────────────────────────────── */}
+      {/* -- Header */}
       <header className="bg-white border-b border-slate-200 px-6 py-4">
         <div className="max-w-5xl mx-auto flex items-center gap-3">
           <Image
@@ -61,7 +61,7 @@ export default function HomePage() {
         </div>
       </header>
 
-      {/* ── Body ───────────────────────────────────────────────────────────── */}
+      {/* -- Body */}
       <div className="max-w-5xl mx-auto px-6 py-8 space-y-8">
         <RateCalculatorForm onSubmit={handleSubmit} loading={loading} />
 

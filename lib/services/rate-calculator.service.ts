@@ -1,6 +1,6 @@
 /**
  * RATE CALCULATOR SERVICE
- * ─────────────────────────────────────────────────────────────────────────────
+ * -----------------------------------------------------------------------------
  * The service layer sits between the API route and the adapters.
  * It knows NOTHING about individual vendors — it just fans out to all
  * registered adapters, collects results, and returns a unified response.

@@ -1,6 +1,6 @@
 /**
  * VENDOR REGISTRATION
- * ─────────────────────────────────────────────────────────────────────────────
+ * -----------------------------------------------------------------------------
  * This is the ONE file you touch when adding a new vendor.
  *
  * Steps to add a new vendor (e.g. FedEx):
