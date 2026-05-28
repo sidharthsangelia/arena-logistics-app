@@ -338,7 +338,7 @@ export default function RateCalculatorForm({ onSubmit, loading }: Props) {
   return (
     <div className="space-y-5">
       {/* Header */}
-      <div className="flex items-start justify-between">
+      {/* <div className="flex items-start justify-between">
         <div>
           <div className="flex items-center gap-2.5 mb-1">
             <PackageSearch className="h-5 w-5 text-muted-foreground" />
@@ -350,7 +350,7 @@ export default function RateCalculatorForm({ onSubmit, loading }: Props) {
             Get live carrier rates for your shipment
           </p>
         </div>
-      </div>
+      </div> */}
 
       <form onSubmit={handleSubmit(handleFormSubmit)} className="space-y-5">
 
