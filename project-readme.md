@@ -191,3 +191,10 @@ If a vendor fails, its quotes are absent but `vendorErrors` is populated —
 - **Observability**: wrap `callVendorApi` in the base class with timing/tracing
 - **Unit tests**: each adapter's `transformRequest` and `transformResponse` are pure functions — easy to test with fixtures
 - **Rate limiting**: add Next.js middleware or an `upstash/ratelimit` check in the route
+
+
+# Todo
+
+- add auth using clerk 
+- add orgs
+- add db to store client info and quotes history 

@@ -11,7 +11,8 @@ import {
   Package,
   FileText,
   Settings,
-  ChevronRight,
+  LogIn,
+  UserPlus,
 } from "lucide-react";
 import {
   Sidebar,
@@ -26,25 +27,28 @@ import {
   SidebarMenuItem,
   SidebarSeparator,
 } from "@/components/ui/sidebar";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
+import {
+  Show,
+  SignInButton,
+  SignUpButton,
+  UserButton,
+} from "@clerk/nextjs";
 
-//    Nav items                                                                  
+// Nav items
 
 const NAV_MAIN = [
-  { label: "Overview",        href: "/",  icon: LayoutDashboard, badge: null },
-  { label: "Rate Calculator", href: "/rates",       icon: Calculator,      badge: null },
-  { label: "Book Order",      href: "/book",        icon: PackagePlus,     badge: null },
-  { label: "Track Shipment",  href: "/track",       icon: MapPin,          badge: null },
-  { label: "Shipments",       href: "/shipments",   icon: Package,         badge: "3"  },
-  { label: "Invoices",        href: "/invoices",    icon: FileText,        badge: null },
+  { label: "Overview",        href: "/",          icon: LayoutDashboard, badge: null },
+  { label: "Rate Calculator", href: "/rates",      icon: Calculator,      badge: null },
+  { label: "Book Order",      href: "/book",       icon: PackagePlus,     badge: null },
+  { label: "Track Shipment",  href: "/track",      icon: MapPin,          badge: null },
+  { label: "Shipments",       href: "/shipments",  icon: Package,         badge: "3"  },
+  { label: "Invoices",        href: "/invoices",   icon: FileText,        badge: null },
 ] as const;
 
 const NAV_SYSTEM = [
   { label: "Settings", href: "/settings", icon: Settings },
 ] as const;
-
-//                                                                              
 
 export function AppSidebar() {
   const pathname = usePathname();
@@ -54,15 +58,10 @@ export function AppSidebar() {
 
   return (
     <Sidebar collapsible="icon" className="border-r border-sidebar-border">
-      {/*    Brand header                                                      */}
+      {/* Brand header */}
       <SidebarHeader className="px-3 py-4">
         <div className="flex items-center gap-2.5 px-1">
-          {/* Logo: always visible, even when collapsed */}
-          {/* <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-600">
-            <Package className="h-4 w-4 text-white" />
-          </div> */}
           <Image src="/arena_logo.png" alt="Arena Cargo Logo" width={84} height={32} />
-          {/* Name: hidden when sidebar is icon-only */}
           <div className="group-data-[collapsible=icon]:hidden overflow-hidden">
             <p className="text-sm font-semibold leading-none text-sidebar-foreground truncate">
               Arena Cargo
@@ -76,7 +75,7 @@ export function AppSidebar() {
 
       <SidebarSeparator />
 
-      {/*    Main nav                                                          */}
+      {/* Main nav */}
       <SidebarContent>
         <SidebarGroup>
           <SidebarGroupLabel>Main Menu</SidebarGroupLabel>
@@ -131,31 +130,63 @@ export function AppSidebar() {
         </SidebarGroup>
       </SidebarContent>
 
-      {/*    Footer / user                                                     */}
-      <SidebarFooter className="p-2">
+      {/* Footer / auth */}
+      <SidebarFooter className="p-3">
         <SidebarSeparator className="mb-2" />
-        <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              size="lg"
-              className="group-data-[collapsible=icon]:justify-center"
-              tooltip="Account"
-            >
-              <Avatar className="h-7 w-7 shrink-0">
-                <AvatarFallback className="bg-blue-100 text-blue-700 text-xs font-semibold">
-                  AC
-                </AvatarFallback>
-              </Avatar>
-              <div className="flex flex-col items-start text-left group-data-[collapsible=icon]:hidden min-w-0">
-                <span className="text-xs font-medium truncate">Admin</span>
-                <span className="text-xs text-sidebar-foreground/50 truncate">
-                  arena@cargo.com
-                </span>
-              </div>
-              <ChevronRight className="ml-auto h-4 w-4 text-sidebar-foreground/40 group-data-[collapsible=icon]:hidden" />
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-        </SidebarMenu>
+
+        {/* Signed in: Clerk UserButton */}
+        <Show when="signed-in">
+          <SidebarMenu>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                size="lg"
+                className="group-data-[collapsible=icon]:justify-center gap-3 h-auto py-2"
+                tooltip="Account"
+              >
+                <UserButton
+                  appearance={{
+                    elements: { avatarBox: "h-7 w-7 shrink-0" },
+                  }}
+                />
+                <div className="flex flex-col items-start text-left group-data-[collapsible=icon]:hidden min-w-0 flex-1">
+                  <span className="text-xs font-medium truncate leading-none">
+                    My Account
+                  </span>
+                  <span className="text-xs text-sidebar-foreground/50 truncate mt-0.5">
+                    Manage profile &amp; billing
+                  </span>
+                </div>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </SidebarMenu>
+        </Show>
+
+        {/* Signed out: Sign In + Sign Up */}
+        <Show when="signed-out">
+          <SidebarMenu>
+            <SidebarMenuItem>
+              <SidebarMenuButton tooltip="Sign In" asChild>
+                <SignInButton mode="modal">
+                  <button className="flex w-full items-center gap-2 text-sm">
+                    <LogIn className="h-4 w-4 shrink-0" />
+                    <span className="group-data-[collapsible=icon]:hidden">Sign In</span>
+                  </button>
+                </SignInButton>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+
+            <SidebarMenuItem>
+              <SidebarMenuButton tooltip="Create Account" asChild>
+                <SignUpButton mode="modal">
+                  <button className="flex w-full items-center gap-2 text-sm font-medium text-blue-600 dark:text-blue-400">
+                    <UserPlus className="h-4 w-4 shrink-0" />
+                    <span className="group-data-[collapsible=icon]:hidden">Create Account</span>
+                  </button>
+                </SignUpButton>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </SidebarMenu>
+        </Show>
       </SidebarFooter>
     </Sidebar>
   );
