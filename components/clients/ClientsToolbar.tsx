@@ -1,5 +1,7 @@
 import ClientsSearch from "@/components/clients/ClientsSearch";
 import CreateClientDialog from "@/components/clients/CreateClientDialog";
+import ExportClientsButton from "./ExportClientButton";
+import ImportClientsButton from "./ImportClientButton";
 
 export default function ClientsToolbar() {
   return (
@@ -16,6 +18,10 @@ export default function ClientsToolbar() {
 
       <div className="flex items-center gap-2">
         <ClientsSearch />
+
+  <ImportClientsButton />
+
+  <ExportClientsButton />
         <CreateClientDialog />
       </div>
     </div>
