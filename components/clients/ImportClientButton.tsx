@@ -90,7 +90,7 @@ export default function ImportClientsButton() {
       <input
         id="client-import"
         type="file"
-        accept=".xlsx,.xls"
+        accept=".xlsx,.xls,.csv"
         className="hidden"
         onChange={handleFile}
       />
@@ -106,7 +106,7 @@ export default function ImportClientsButton() {
         }
       >
         <Upload className="mr-2 h-4 w-4" />
-        Import
+        Import Excel / CSV
       </Button>
     </>
   );
