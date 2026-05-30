@@ -55,6 +55,7 @@ import { quoteKey } from "./ComparePanel";
 
 import { fmt } from "@/utils/helpers";
 import Toolbar from "./rateResultList/Toolbar";
+import Stats from "./rateResultList/Stats";
 
 // ---------------------------------------------------------------------------
 // Component
@@ -165,7 +166,7 @@ export default function RateResultsList() {
 
   return (
     <div className="space-y-4">
-      {/* ── Vendor errors ─────────────────────────────────────────────── */}
+      {/* ── Vendor errors -─-*/}
       {vendorErrors.length > 0 && (
         <Alert variant="default" className="border-amber-300 bg-amber-50">
           <AlertTriangle className="h-4 w-4 text-amber-600" />
@@ -185,50 +186,12 @@ export default function RateResultsList() {
 
       {processed.length > 0 || activeCarriers.length > 0 ? (
         <>
-          {/* ── Stats bar ─────────────────────────────────────────────── */}
+          {/* ── Stats bar -─-*/}
           {stats && (
-            <div className="grid grid-cols-3 divide-x divide-slate-100 rounded-xl border border-slate-100 bg-slate-50 overflow-hidden">
-              <div className="py-3 px-4 text-center">
-                <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400 mb-1">
-                  Options
-                </p>
-                <p className="text-2xl font-bold text-slate-800">
-                  {stats.count}
-                </p>
-                {stats.filtered !== stats.count && (
-                  <p className="text-[11px] text-slate-400">
-                    {stats.filtered} shown
-                  </p>
-                )}
-              </div>
-              <div className="py-3 px-4 text-center">
-                <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400 mb-1">
-                  Best price
-                </p>
-                <p className="text-2xl font-bold text-emerald-600">
-                  {stats.cheapest
-                    ? fmt(stats.cheapest.totalWithTax, stats.cheapest.currency)
-                    : "—"}
-                </p>
-                <p className="text-[11px] text-slate-400 truncate">
-                  {stats.cheapest?.vendorName}
-                </p>
-              </div>
-              <div className="py-3 px-4 text-center">
-                <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400 mb-1">
-                  Fastest
-                </p>
-                <p className="text-2xl font-bold text-blue-600">
-                  {stats.fastest ? `${stats.fastest.tatDays}d` : "—"}
-                </p>
-                <p className="text-[11px] text-slate-400 truncate">
-                  {stats.fastest?.vendorName ?? "N/A"}
-                </p>
-              </div>
-            </div>
+           <Stats stats={stats} />
           )}
 
-          {/* ── Toolbar ───────────────────────────────────────────────── */}
+          {/* ── Toolbar -───-*/}
           <Toolbar carriers={carriers} />
 
           {/* Compare hint */}
@@ -251,7 +214,7 @@ export default function RateResultsList() {
             </div>
           )}
 
-          {/* ── Cards grid / list ─────────────────────────────────────── */}
+          {/* ── Cards grid / list ─────-*/}
           {processed.length === 0 ? (
             <p className="py-8 text-center text-sm text-slate-400">
               No carriers match the active filters.
@@ -286,7 +249,7 @@ export default function RateResultsList() {
             </div>
           )}
 
-          {/* ── Compare panel (fixed overlay) ─────────────────────────── */}
+          {/* ── Compare panel (fixed overlay) --─── */}
           {compareMode && compareIds.length >= 2 && (
             <>
               <ComparePanel />
@@ -303,7 +266,7 @@ export default function RateResultsList() {
         )
       )}
 
-      {/* ── Quote sheet ───────────────────────────────────────────────── */}
+      {/* ── Quote sheet -───-*/}
       {selectedQuote && (
         <QuoteSheet
           open={sheetOpen}

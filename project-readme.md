@@ -44,7 +44,7 @@ Client POST /api/rates
         ▼
   rate-calculator.service.ts   ← fan out to N adapters in parallel
         │
-   ┌────┴───────────────┐
+   ┌────┴-───┐
    ▼                    ▼
 skart.adapter.ts   aramex.adapter.ts   (... more vendors)
    │                    │
@@ -53,7 +53,7 @@ skart.adapter.ts   aramex.adapter.ts   (... more vendors)
    │  2. callVendorApi()
    │  3. transformResponse()
    │                    │
-   └────────┬───────────┘
+   └────────┬- -──┘
             │  RateQuote[] from each
             ▼
   service merges + sorts by price

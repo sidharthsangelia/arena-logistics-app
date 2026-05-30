@@ -226,7 +226,7 @@ export default function QuoteSheet({ open, onOpenChange, quote }: Props) {
         side="right"
         className="flex w-full flex-col gap-0 overflow-y-auto p-0 sm:max-w-lg"
       >
-        {/* ── Header ────────────────────────────────────────────────── */}
+        {/* ── Header -────-*/}
         <SheetHeader className="sticky top-0 z-10 border-b bg-white px-6 py-4">
           <div className="flex items-center gap-2">
             {step === "preview" && (
@@ -253,7 +253,7 @@ export default function QuoteSheet({ open, onOpenChange, quote }: Props) {
         </SheetHeader>
 
         <div className="flex-1 px-6 py-5 space-y-5">
-          {/* ── Service summary card ──────────────────────────────── */}
+          {/* ── Service summary card --──────── */}
           <div className="rounded-xl border border-slate-100 bg-slate-50 p-3.5">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
@@ -291,7 +291,7 @@ export default function QuoteSheet({ open, onOpenChange, quote }: Props) {
             </div>
           </div>
 
-          {/* ── Step 1: form ──────────────────────────────────────── */}
+          {/* ── Step 1: form ──────-*/}
           {step === "form" && (
             <>
               <section className="space-y-3">
@@ -494,7 +494,7 @@ export default function QuoteSheet({ open, onOpenChange, quote }: Props) {
             </>
           )}
 
-          {/* ── Step 2: preview ───────────────────────────────────── */}
+          {/* ── Step 2: preview ───-*/}
           {step === "preview" && (
             <div className="space-y-4">
               {pdfUrl ? (

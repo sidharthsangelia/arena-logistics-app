@@ -24,7 +24,7 @@ interface Props {
   onClick: () => void;
 }
 
-// ─── vendor badge colour map ─────────────────────────────────────────────────
+// ─── vendor badge colour map ----─
 
 const VENDOR_BADGE: Record<string, string> = {
   skart:  "bg-blue-100   text-blue-800   border-blue-200",
@@ -35,7 +35,7 @@ function vendorBadgeClass(id: string) {
   return VENDOR_BADGE[id] ?? "bg-slate-100 text-slate-700 border-slate-200";
 }
 
-// ─── formatters ──────────────────────────────────────────────────────────────
+// ─── formatters -----──
 
 function fmt(amount: number, currency: string) {
   return new Intl.NumberFormat("en-IN", {
@@ -46,7 +46,7 @@ function fmt(amount: number, currency: string) {
   }).format(amount);
 }
 
-// ─── component ───────────────────────────────────────────────────────────────
+// ─── component -----───
 
 export default function RateResultCard({
   quote,
@@ -94,7 +94,7 @@ export default function RateResultCard({
           className={`pb-2 ${viewMode === "list" ? "flex-1 py-3" : ""}`}
         >
           <div className="flex items-start justify-between gap-3">
-            {/* ── left: badges + name + vendor ─────────────────────── */}
+            {/* ── left: badges + name + vendor -- -── */}
             <div className="min-w-0 flex-1 space-y-1.5">
               {/* status badges */}
               {!compareMode && (isCheapest || isFastest) && (
@@ -126,7 +126,7 @@ export default function RateResultCard({
               </Badge>
             </div>
 
-            {/* ── right: price OR compare checkbox ─────────────────── */}
+            {/* ── right: price OR compare checkbox -─────── */}
             {compareMode ? (
               <div className="flex shrink-0 items-center pt-0.5">
                 <Checkbox
@@ -156,7 +156,7 @@ export default function RateResultCard({
             )}
           </div>
 
-          {/* ── meta row ──────────────────────────────────────────── */}
+          {/* ── meta row - -─-*/}
           <div className="mt-1.5 flex items-center gap-3 text-xs text-slate-400">
             <span className="flex items-center gap-1">
               <Clock className="h-3 w-3" />
