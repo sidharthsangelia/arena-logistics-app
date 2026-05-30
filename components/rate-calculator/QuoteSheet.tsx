@@ -1,5 +1,36 @@
 "use client";
 
+/**
+ * QuoteSheet.tsx
+ *
+ * RESPONSIBILITY
+ * --------------
+ * Slide-over panel for generating and downloading a freight quote PDF.
+ *
+ * CHANGES FROM ORIGINAL
+ * ----------------------
+ * 1. `request` is no longer a prop — it is read from the Zustand store.
+ *    The original required `request` to be threaded through RateResultsList →
+ *    QuoteSheet as a prop. Since the store owns it, that prop is gone.
+ *
+ * 2. On PDF download, `history.saveQuote` is called so the quote is
+ *    recorded in the history slice. This prepares for the quote history
+ *    roadmap feature with zero additional wiring.
+ *
+ * 3. `step`, `client`, `markup`, `pdfUrl`, `generating`, `genError` remain
+ *    as local component state. These are genuinely ephemeral UI state: they
+ *    describe the in-progress form/generation flow inside this sheet and
+ *    have no meaning outside it. Moving them to the store would be
+ *    over-engineering — there is no other component that needs to read them.
+ *
+ * SERIALISATION NOTE
+ * ------------------
+ * `pdfUrl` is a blob: URL — it is intentionally local and must never be
+ * stored in Zustand (it's not JSON-serialisable and is invalid after the
+ * component unmounts). The SavedQuote in the history slice stores metadata
+ * (quote, request, markupPercent, quoteNumber) but NOT the blob URL.
+ */
+
 import { useState, useEffect } from "react";
 import {
   Sheet,
@@ -26,11 +57,16 @@ import {
   Phone,
   User,
 } from "lucide-react";
-import { RateQuote, RateRequest } from "@/lib/types";
 import { pdf } from "@react-pdf/renderer";
-import QuoteDocument from "./QuoteDocument";
 
-// ─── types ───────────────────────────────────────────────────────────────────
+
+import type { RateQuote } from "@/lib/types";
+import QuoteDocument from "./QuoteDocument";
+import { useAppStore } from "@/store";
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
 
 export interface ClientInfo {
   name: string;
@@ -44,10 +80,11 @@ interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   quote: RateQuote;
-  request: RateRequest;
 }
 
-// ─── helpers ─────────────────────────────────────────────────────────────────
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 function fmt(amount: number, currency: string) {
   return new Intl.NumberFormat("en-IN", {
@@ -58,7 +95,7 @@ function fmt(amount: number, currency: string) {
   }).format(amount);
 }
 
-const MARKUP_PRESETS = [5, 10, 15, 20];
+const MARKUP_PRESETS = [5, 10, 15, 20] as const;
 
 const defaultClient: ClientInfo = {
   name: "",
@@ -68,9 +105,17 @@ const defaultClient: ClientInfo = {
   address: "",
 };
 
-// ─── component ───────────────────────────────────────────────────────────────
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
 
-export default function QuoteSheet({ open, onOpenChange, quote, request }: Props) {
+export default function QuoteSheet({ open, onOpenChange, quote }: Props) {
+  // Read request from store — no longer a prop
+  const request = useAppStore((s) => s.request);
+  const saveQuote = useAppStore((s) => s.saveQuote);
+
+  // Local UI state — genuinely ephemeral, lives only for the duration of
+  // this sheet session.
   const [step, setStep] = useState<"form" | "preview">("form");
   const [client, setClient] = useState<ClientInfo>(defaultClient);
   const [markup, setMarkup] = useState<number>(0);
@@ -78,29 +123,34 @@ export default function QuoteSheet({ open, onOpenChange, quote, request }: Props
   const [generating, setGenerating] = useState(false);
   const [genError, setGenError] = useState<string | null>(null);
 
-  // Stable quote number for the session (regenerates per sheet open)
+  // Stable for the lifetime of this sheet instance
   const [quoteNumber] = useState(
-    () => `FQ-${new Date().getFullYear()}-${Math.floor(Math.random() * 90000 + 10000)}`
+    () =>
+      `FQ-${new Date().getFullYear()}-${Math.floor(Math.random() * 90000 + 10000)}`
   );
 
-  // Reset on close
+  // Reset local state when sheet closes
   useEffect(() => {
     if (!open) {
-      setTimeout(() => {
+      const t = setTimeout(() => {
         setStep("form");
+        setClient(defaultClient);
+        setMarkup(0);
         setPdfUrl(null);
         setGenError(null);
-      }, 300); // wait for close animation
+      }, 300); // after close animation
+      return () => clearTimeout(t);
     }
   }, [open]);
 
-  // Revoke blob URL on unmount
+  // Revoke blob URL on unmount to prevent memory leaks
   useEffect(() => {
     return () => {
       if (pdfUrl) URL.revokeObjectURL(pdfUrl);
     };
   }, [pdfUrl]);
 
+  // Derived values
   const markupFactor = 1 + markup / 100;
   const finalTotal   = quote.totalWithTax * markupFactor;
   const markupAmount = quote.totalWithTax * (markup / 100);
@@ -116,14 +166,16 @@ export default function QuoteSheet({ open, onOpenChange, quote, request }: Props
     client.email.trim().length > 0;
 
   const handleGenerate = async () => {
-
     if (!request) {
-    setGenError("Shipment request details are missing. Please close and try again.");
-    return;
-  }
-  setGenerating(true);
-  setGenError(null);
-    
+      setGenError(
+        "Shipment request details are missing. Please close and try again."
+      );
+      return;
+    }
+
+    setGenerating(true);
+    setGenError(null);
+
     try {
       const blob = await pdf(
         <QuoteDocument
@@ -135,9 +187,7 @@ export default function QuoteSheet({ open, onOpenChange, quote, request }: Props
         />
       ).toBlob();
 
-      // Revoke previous URL if any
       if (pdfUrl) URL.revokeObjectURL(pdfUrl);
-
       const url = URL.createObjectURL(blob);
       setPdfUrl(url);
       setStep("preview");
@@ -150,12 +200,24 @@ export default function QuoteSheet({ open, onOpenChange, quote, request }: Props
   };
 
   const handleDownload = () => {
-    if (!pdfUrl) return;
+    if (!pdfUrl || !request) return;
+
+    // Trigger download
     const a = document.createElement("a");
     a.href = pdfUrl;
-    const safeName = (client.company || "quote").replace(/[^a-z0-9]/gi, "_").toLowerCase();
+    const safeName = (client.company || "quote")
+      .replace(/[^a-z0-9]/gi, "_")
+      .toLowerCase();
     a.download = `${quoteNumber}_${safeName}.pdf`;
     a.click();
+
+    // Record in quote history for the upcoming saved-quotes feature
+    saveQuote({
+      request,
+      quote,
+      markupPercent: markup,
+      quoteNumber,
+    });
   };
 
   return (
@@ -164,7 +226,7 @@ export default function QuoteSheet({ open, onOpenChange, quote, request }: Props
         side="right"
         className="flex w-full flex-col gap-0 overflow-y-auto p-0 sm:max-w-lg"
       >
-        {/* ── header ──────────────────────────────────────────────────── */}
+        {/* ── Header ────────────────────────────────────────────────── */}
         <SheetHeader className="sticky top-0 z-10 border-b bg-white px-6 py-4">
           <div className="flex items-center gap-2">
             {step === "preview" && (
@@ -191,17 +253,14 @@ export default function QuoteSheet({ open, onOpenChange, quote, request }: Props
         </SheetHeader>
 
         <div className="flex-1 px-6 py-5 space-y-5">
-          {/* ── service summary card ────────────────────────────────── */}
+          {/* ── Service summary card ──────────────────────────────── */}
           <div className="rounded-xl border border-slate-100 bg-slate-50 p-3.5">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <p className="truncate text-sm font-semibold text-slate-800">
                   {quote.productName}
                 </p>
-                <Badge
-                  variant="outline"
-                  className="mt-1.5 text-[10px]"
-                >
+                <Badge variant="outline" className="mt-1.5 text-[10px]">
                   {quote.vendorName}
                 </Badge>
               </div>
@@ -220,7 +279,9 @@ export default function QuoteSheet({ open, onOpenChange, quote, request }: Props
             <div className="mt-2.5 flex items-center gap-3 text-xs text-slate-500">
               <span className="flex items-center gap-1">
                 <Clock className="h-3 w-3" />
-                {quote.tatDays > 0 ? `${quote.tatDays} days transit` : "TAT TBD"}
+                {quote.tatDays > 0
+                  ? `${quote.tatDays} days transit`
+                  : "TAT TBD"}
               </span>
               {markup > 0 && (
                 <span className="ml-auto rounded-full bg-emerald-50 border border-emerald-100 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
@@ -230,10 +291,9 @@ export default function QuoteSheet({ open, onOpenChange, quote, request }: Props
             </div>
           </div>
 
-          {/* ── STEP 1: form ────────────────────────────────────────── */}
+          {/* ── Step 1: form ──────────────────────────────────────── */}
           {step === "form" && (
             <>
-              {/* client info */}
               <section className="space-y-3">
                 <h3 className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">
                   Client Information
@@ -241,7 +301,10 @@ export default function QuoteSheet({ open, onOpenChange, quote, request }: Props
 
                 <div className="grid grid-cols-2 gap-2.5">
                   <div className="space-y-1.5">
-                    <Label htmlFor="q_name" className="text-xs flex items-center gap-1 text-slate-600">
+                    <Label
+                      htmlFor="q_name"
+                      className="text-xs flex items-center gap-1 text-slate-600"
+                    >
                       <User className="h-3 w-3" />
                       Full name <span className="text-red-400">*</span>
                     </Label>
@@ -254,7 +317,10 @@ export default function QuoteSheet({ open, onOpenChange, quote, request }: Props
                     />
                   </div>
                   <div className="space-y-1.5">
-                    <Label htmlFor="q_company" className="text-xs flex items-center gap-1 text-slate-600">
+                    <Label
+                      htmlFor="q_company"
+                      className="text-xs flex items-center gap-1 text-slate-600"
+                    >
                       <Building2 className="h-3 w-3" />
                       Company <span className="text-red-400">*</span>
                     </Label>
@@ -270,7 +336,10 @@ export default function QuoteSheet({ open, onOpenChange, quote, request }: Props
 
                 <div className="grid grid-cols-2 gap-2.5">
                   <div className="space-y-1.5">
-                    <Label htmlFor="q_email" className="text-xs flex items-center gap-1 text-slate-600">
+                    <Label
+                      htmlFor="q_email"
+                      className="text-xs flex items-center gap-1 text-slate-600"
+                    >
                       <Mail className="h-3 w-3" />
                       Email <span className="text-red-400">*</span>
                     </Label>
@@ -284,7 +353,10 @@ export default function QuoteSheet({ open, onOpenChange, quote, request }: Props
                     />
                   </div>
                   <div className="space-y-1.5">
-                    <Label htmlFor="q_phone" className="text-xs flex items-center gap-1 text-slate-600">
+                    <Label
+                      htmlFor="q_phone"
+                      className="text-xs flex items-center gap-1 text-slate-600"
+                    >
                       <Phone className="h-3 w-3" />
                       Phone
                     </Label>
@@ -299,7 +371,10 @@ export default function QuoteSheet({ open, onOpenChange, quote, request }: Props
                 </div>
 
                 <div className="space-y-1.5">
-                  <Label htmlFor="q_address" className="text-xs flex items-center gap-1 text-slate-600">
+                  <Label
+                    htmlFor="q_address"
+                    className="text-xs flex items-center gap-1 text-slate-600"
+                  >
                     <MapPin className="h-3 w-3" />
                     Billing address
                   </Label>
@@ -315,14 +390,16 @@ export default function QuoteSheet({ open, onOpenChange, quote, request }: Props
 
               <Separator />
 
-              {/* markup */}
               <section className="space-y-3">
                 <h3 className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">
                   Markup
                 </h3>
 
                 <div className="space-y-2">
-                  <Label htmlFor="q_markup" className="text-xs flex items-center gap-1 text-slate-600">
+                  <Label
+                    htmlFor="q_markup"
+                    className="text-xs flex items-center gap-1 text-slate-600"
+                  >
                     <Percent className="h-3 w-3" />
                     Markup percentage
                   </Label>
@@ -334,7 +411,9 @@ export default function QuoteSheet({ open, onOpenChange, quote, request }: Props
                       max={200}
                       step={0.5}
                       value={markup}
-                      onChange={(e) => setMarkup(Math.max(0, Number(e.target.value)))}
+                      onChange={(e) =>
+                        setMarkup(Math.max(0, Number(e.target.value)))
+                      }
                       className="h-8 pr-8 text-sm"
                     />
                     <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">
@@ -342,7 +421,6 @@ export default function QuoteSheet({ open, onOpenChange, quote, request }: Props
                     </span>
                   </div>
 
-                  {/* preset chips */}
                   <div className="flex gap-1.5">
                     {MARKUP_PRESETS.map((v) => (
                       <button
@@ -358,7 +436,7 @@ export default function QuoteSheet({ open, onOpenChange, quote, request }: Props
                         {v}%
                       </button>
                     ))}
-                    {markup > 0 && !MARKUP_PRESETS.includes(markup) && (
+                    {markup > 0 && !MARKUP_PRESETS.includes(markup as typeof MARKUP_PRESETS[number]) && (
                       <span className="rounded border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700">
                         {markup}% (custom)
                       </span>
@@ -366,7 +444,6 @@ export default function QuoteSheet({ open, onOpenChange, quote, request }: Props
                   </div>
                 </div>
 
-                {/* price breakdown preview */}
                 {markup > 0 && (
                   <div className="rounded-lg border border-slate-100 bg-slate-50 p-3 text-xs space-y-1.5">
                     <div className="flex justify-between text-slate-500">
@@ -375,7 +452,9 @@ export default function QuoteSheet({ open, onOpenChange, quote, request }: Props
                     </div>
                     <div className="flex justify-between text-slate-500">
                       <span>Markup ({markup}%)</span>
-                      <span className="text-emerald-600">+ {fmt(markupAmount, quote.currency)}</span>
+                      <span className="text-emerald-600">
+                        + {fmt(markupAmount, quote.currency)}
+                      </span>
                     </div>
                     <Separator className="!my-1.5" />
                     <div className="flex justify-between font-semibold text-slate-800">
@@ -415,7 +494,7 @@ export default function QuoteSheet({ open, onOpenChange, quote, request }: Props
             </>
           )}
 
-          {/* ── STEP 2: preview ─────────────────────────────────────── */}
+          {/* ── Step 2: preview ───────────────────────────────────── */}
           {step === "preview" && (
             <div className="space-y-4">
               {pdfUrl ? (

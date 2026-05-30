@@ -1,6 +1,47 @@
 "use client";
 
-import { useState, useMemo } from "react";
+/**
+ * RateResultsList.tsx
+ *
+ * RESPONSIBILITY
+ * --------------
+ * Renders the toolbar (sort, carrier filters, view toggle, compare button)
+ * and the cards grid/list. It does NOT own compare state, sort state, or
+ * sheet state — those live in the Zustand store.
+ *
+ * STATE OWNERSHIP AFTER REFACTOR
+ * --------------------------------
+ * All state previously held in useState hooks here is now in the store:
+ *
+ *   sortBy            → ui.slice
+ *   activeCarriers    → ui.slice
+ *   viewMode          → ui.slice
+ *   compareMode       → compare.slice
+ *   compareIds        → compare.slice
+ *   selectedQuote     → quoteSheet.slice
+ *   sheetOpen         → quoteSheet.slice
+ *
+ * This component is now only responsible for:
+ *   - Computing derived data (filtered + sorted quotes, stats, badge IDs)
+ *   - Rendering the toolbar and cards
+ *   - Delegating interactions to store actions
+ *
+ * MEMOIZATION NOTES
+ * -----------------
+ * `useMemo` is used for:
+ *   - `carriers` — depends only on quotes; stable across sort/filter changes
+ *   - `processed` — expensive sort+filter; only recomputes when inputs change
+ *   - `cheapestId` / `fastestId` — stable badge IDs; must not change on sort
+ *   - `stats` — summary bar values
+ *
+ * Individual cards are NOT wrapped in React.memo here because RateResultCard
+ * only re-renders when its own props change, and the key props
+ * (isCheapest, isFastest, compareMode, isCompareSelected, isCompareDisabled)
+ * are all derived from stable primitive comparisons. If profiling shows a
+ * problem, add memo to RateResultCard directly.
+ */
+
+import { useMemo } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
@@ -10,20 +51,26 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { AlertTriangle, GitCompare, LayoutGrid, List, X, ArrowUpDown } from "lucide-react";
+import {
+  AlertTriangle,
+  GitCompare,
+  LayoutGrid,
+  List,
+  X,
+  ArrowUpDown,
+} from "lucide-react";
+
+import { useAppStore } from "@/store"
+import type { SortOption } from "@/store"
+import type { RateQuote } from "@/lib/types";
 import RateResultCard from "./RateResultCard";
+import ComparePanel from "./ComparePanel";
 import QuoteSheet from "./QuoteSheet";
-import { RateQuote, VendorError, RateRequest } from "@/lib/types";
+import { quoteKey } from "./ComparePanel";
 
-interface Props {
-  quotes: RateQuote[];
-  vendorErrors: VendorError[];
-  request: RateRequest;
-}
-
-type SortOption = "price-asc" | "price-desc" | "tat-asc" | "tat-desc";
-
-// ─── helpers ────────────────────────────────────────────────────────────────
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 function fmt(amount: number, currency: string) {
   return new Intl.NumberFormat("en-IN", {
@@ -33,118 +80,59 @@ function fmt(amount: number, currency: string) {
   }).format(amount);
 }
 
-function quoteKey(q: RateQuote) {
-  return `${q.vendorId}::${q.productName}`;
-}
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
 
-// ─── compare panel (fixed bottom overlay) ───────────────────────────────────
+export default function RateResultsList() {
+  // -- Store reads -----------------------------------------------------------
+  const quotes = useAppStore((s) => s.quotes);
+  const vendorErrors = useAppStore((s) => s.vendorErrors);
 
-interface ComparePanelProps {
-  selectedIds: string[];
-  allQuotes: RateQuote[];
-  onRemove: (id: string) => void;
-  onClose: () => void;
-}
+  const sortBy = useAppStore((s) => s.sortBy);
+  const activeCarriers = useAppStore((s) => s.activeCarriers);
+  const viewMode = useAppStore((s) => s.viewMode);
 
-function ComparePanel({ selectedIds, allQuotes, onRemove, onClose }: ComparePanelProps) {
-  const selected = selectedIds
-    .map((id) => allQuotes.find((q) => quoteKey(q) === id))
-    .filter(Boolean) as RateQuote[];
+  const compareMode = useAppStore((s) => s.compareMode);
+  const compareIds = useAppStore((s) => s.compareIds);
 
-  if (selected.length < 2) return null;
+  const sheetOpen = useAppStore((s) => s.sheetOpen);
+  const selectedQuote = useAppStore((s) => s.selectedQuote);
 
-  return (
-    <div className="fixed bottom-0 left-0 right-0 z-50 border-t bg-white shadow-2xl">
-      <div className="max-w-5xl mx-auto px-6 py-4">
-        <div className="flex items-center justify-between mb-3">
-          <p className="text-sm font-semibold text-slate-700">
-            Comparing {selected.length} option{selected.length !== 1 ? "s" : ""}
-          </p>
-          <Button variant="ghost" size="sm" onClick={onClose} className="h-7 gap-1 text-xs">
-            <X className="h-3.5 w-3.5" />
-            Close
-          </Button>
-        </div>
+  // -- Store actions ---------------------------------------------------------
+  const setSortBy = useAppStore((s) => s.setSortBy);
+  const toggleCarrierFilter = useAppStore((s) => s.toggleCarrierFilter);
+  const clearCarrierFilters = useAppStore((s) => s.clearCarrierFilters);
+  const setViewMode = useAppStore((s) => s.setViewMode);
+  const enableCompareMode = useAppStore((s) => s.enableCompareMode);
+  const disableCompareMode = useAppStore((s) => s.disableCompareMode);
+  const toggleCompareId = useAppStore((s) => s.toggleCompareId);
+  const clearCompareIds = useAppStore((s) => s.clearCompareIds);
+  const openSheet = useAppStore((s) => s.openSheet);
+  const closeSheet = useAppStore((s) => s.closeSheet);
 
-        <div
-          className="grid gap-3"
-          style={{ gridTemplateColumns: `repeat(${selected.length}, 1fr)` }}
-        >
-          {selected.map((q) => {
-            const id = quoteKey(q);
-            return (
-              <div
-                key={id}
-                className="relative rounded-lg border border-slate-200 bg-slate-50 p-3"
-              >
-                <button
-                  onClick={() => onRemove(id)}
-                  className="absolute right-2 top-2 text-slate-300 hover:text-slate-500 transition-colors"
-                  aria-label="Remove"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
+  // -- Derived data ----------------------------------------------------------
 
-                <p className="text-[10px] font-medium uppercase tracking-wide text-slate-400 mb-1">
-                  {q.vendorName}
-                </p>
-                <p className="text-sm font-semibold text-slate-800 pr-5 leading-snug mb-2">
-                  {q.productName}
-                </p>
-
-                <div className="space-y-1 text-xs text-slate-500">
-                  <div className="flex justify-between">
-                    <span>Price (incl.)</span>
-                    <span className="font-semibold text-slate-800">
-                      {fmt(q.totalWithTax, q.currency)}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Price (excl.)</span>
-                    <span>{fmt(q.totalWithoutTax, q.currency)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Transit</span>
-                    <span>{q.tatDays > 0 ? `${q.tatDays} days` : "TBD"}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Charges</span>
-                    <span>{q.charges.length}</span>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── main component ──────────────────────────────────────────────────────────
-
-export default function RateResultsList({ quotes, vendorErrors, request }: Props) {
-  const [sortBy, setSortBy] = useState<SortOption>("price-asc");
-  const [activeCarriers, setActiveCarriers] = useState<string[]>([]);
-  const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
-  const [compareMode, setCompareMode] = useState(false);
-  const [compareIds, setCompareIds] = useState<string[]>([]);
-  const [selectedQuote, setSelectedQuote] = useState<RateQuote | null>(null);
-  const [sheetOpen, setSheetOpen] = useState(false);
-
-  // unique carriers for filter chips
+  // Unique carrier list for filter chips — stable reference as long as quotes
+  // doesn't change (i.e. does NOT recompute on sort/filter)
   const carriers = useMemo(
     () =>
-      [...new Map(quotes.map((q) => [q.vendorId, { id: q.vendorId, name: q.vendorName }])).values()],
+      [
+        ...new Map(
+          quotes.map((q) => [q.vendorId, { id: q.vendorId, name: q.vendorName }])
+        ).values(),
+      ],
     [quotes]
   );
 
-  // filtered + sorted
+  // Filtered and sorted result set
   const processed = useMemo(() => {
     let result = [...quotes];
+
     if (activeCarriers.length > 0) {
       result = result.filter((q) => activeCarriers.includes(q.vendorId));
     }
+
     result.sort((a, b) => {
       switch (sortBy) {
         case "price-asc":  return a.totalWithTax - b.totalWithTax;
@@ -154,67 +142,64 @@ export default function RateResultsList({ quotes, vendorErrors, request }: Props
         default:           return 0;
       }
     });
+
     return result;
   }, [quotes, activeCarriers, sortBy]);
 
-  // badge identifiers — stable across sort
-  const cheapestId = useMemo(() => {
+  // Badge IDs are derived from the FULL quotes array — not the processed slice.
+  // This ensures "Best price" and "Fastest" badges are stable even when the
+  // user filters out the cheapest/fastest carrier from view.
+  const cheapestId = useMemo<string | null>(() => {
     if (!quotes.length) return null;
-    return quoteKey(quotes.reduce((a, b) => (a.totalWithTax < b.totalWithTax ? a : b)));
+    return quoteKey(
+      quotes.reduce((a, b) => (a.totalWithTax < b.totalWithTax ? a : b))
+    );
   }, [quotes]);
 
-  const fastestId = useMemo(() => {
+  const fastestId = useMemo<string | null>(() => {
     const withTat = quotes.filter((q) => q.tatDays > 0);
     if (!withTat.length) return null;
-    return quoteKey(withTat.reduce((a, b) => (a.tatDays < b.tatDays ? a : b)));
+    return quoteKey(
+      withTat.reduce((a, b) => (a.tatDays < b.tatDays ? a : b))
+    );
   }, [quotes]);
 
-  // summary stats
+  // Summary stat bar
   const stats = useMemo(() => {
     if (!quotes.length) return null;
     const cheapest = quotes.find((q) => quoteKey(q) === cheapestId);
     const fastest  = quotes.find((q) => quoteKey(q) === fastestId);
-    return { cheapest, fastest, count: quotes.length, filtered: processed.length };
-  }, [quotes, processed, cheapestId, fastestId]);
+    return {
+      cheapest,
+      fastest,
+      count: quotes.length,
+      filtered: processed.length,
+    };
+  }, [quotes, processed.length, cheapestId, fastestId]);
 
-  // handlers
-  const toggleCarrier = (id: string) =>
-    setActiveCarriers((prev) =>
-      prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id]
-    );
-
-  const toggleCompareId = (id: string) =>
-    setCompareIds((prev) =>
-      prev.includes(id)
-        ? prev.filter((c) => c !== id)
-        : prev.length >= 3
-        ? prev // max 3
-        : [...prev, id]
-    );
+  // -- Handlers --------------------------------------------------------------
 
   const handleCardClick = (quote: RateQuote) => {
     if (compareMode) {
       toggleCompareId(quoteKey(quote));
     } else {
-      setSelectedQuote(quote);
-      setSheetOpen(true);
+      openSheet(quote);
     }
   };
 
-  const exitCompare = () => {
-    setCompareMode(false);
-    setCompareIds([]);
-  };
-
+  // -- Guard: nothing to render ----------------------------------------------
   if (!quotes.length && !vendorErrors.length) return null;
 
   return (
     <div className="space-y-4">
-      {/* ── vendor errors ───────────────────────────────────────────────── */}
+
+      {/* ── Vendor errors ─────────────────────────────────────────────── */}
       {vendorErrors.length > 0 && (
         <Alert variant="default" className="border-amber-300 bg-amber-50">
           <AlertTriangle className="h-4 w-4 text-amber-600" />
-          <AlertTitle className="text-amber-800">Some carriers could not be reached</AlertTitle>
+          <AlertTitle className="text-amber-800">
+            Some carriers could not be reached
+          </AlertTitle>
           <AlertDescription className="text-amber-700 space-y-1 mt-1">
             {vendorErrors.map((err) => (
               <p key={err.vendorId} className="text-sm">
@@ -227,7 +212,7 @@ export default function RateResultsList({ quotes, vendorErrors, request }: Props
 
       {processed.length > 0 || activeCarriers.length > 0 ? (
         <>
-          {/* ── stats bar ─────────────────────────────────────────────── */}
+          {/* ── Stats bar ─────────────────────────────────────────────── */}
           {stats && (
             <div className="grid grid-cols-3 divide-x divide-slate-100 rounded-xl border border-slate-100 bg-slate-50 overflow-hidden">
               <div className="py-3 px-4 text-center">
@@ -236,9 +221,7 @@ export default function RateResultsList({ quotes, vendorErrors, request }: Props
                 </p>
                 <p className="text-2xl font-bold text-slate-800">{stats.count}</p>
                 {stats.filtered !== stats.count && (
-                  <p className="text-[11px] text-slate-400">
-                    {stats.filtered} shown
-                  </p>
+                  <p className="text-[11px] text-slate-400">{stats.filtered} shown</p>
                 )}
               </div>
               <div className="py-3 px-4 text-center">
@@ -268,16 +251,16 @@ export default function RateResultsList({ quotes, vendorErrors, request }: Props
             </div>
           )}
 
-          {/* ── toolbar ───────────────────────────────────────────────── */}
+          {/* ── Toolbar ───────────────────────────────────────────────── */}
           <div className="flex flex-wrap items-center gap-2">
-            {/* carrier filter chips */}
+            {/* Carrier filter chips */}
             <div className="flex flex-wrap items-center gap-1.5 flex-1 min-w-0">
               {carriers.map((c) => {
                 const active = activeCarriers.includes(c.id);
                 return (
                   <button
                     key={c.id}
-                    onClick={() => toggleCarrier(c.id)}
+                    onClick={() => toggleCarrierFilter(c.id)}
                     className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
                       active
                         ? "border-blue-600 bg-blue-600 text-white"
@@ -291,7 +274,7 @@ export default function RateResultsList({ quotes, vendorErrors, request }: Props
               })}
               {activeCarriers.length > 0 && (
                 <button
-                  onClick={() => setActiveCarriers([])}
+                  onClick={clearCarrierFilters}
                   className="text-xs text-slate-400 hover:text-slate-600 underline underline-offset-2"
                 >
                   Clear
@@ -299,8 +282,11 @@ export default function RateResultsList({ quotes, vendorErrors, request }: Props
               )}
             </div>
 
-            {/* sort */}
-            <Select value={sortBy} onValueChange={(v) => setSortBy(v as SortOption)}>
+            {/* Sort */}
+            <Select
+              value={sortBy}
+              onValueChange={(v) => setSortBy(v as SortOption)}
+            >
               <SelectTrigger className="h-8 w-44 text-xs gap-1.5">
                 <ArrowUpDown className="h-3 w-3 text-slate-400 shrink-0" />
                 <SelectValue />
@@ -313,7 +299,7 @@ export default function RateResultsList({ quotes, vendorErrors, request }: Props
               </SelectContent>
             </Select>
 
-            {/* view toggle */}
+            {/* View toggle */}
             <div className="flex items-center rounded-md border border-slate-200 overflow-hidden h-8">
               <button
                 onClick={() => setViewMode("grid")}
@@ -339,19 +325,21 @@ export default function RateResultsList({ quotes, vendorErrors, request }: Props
               </button>
             </div>
 
-            {/* compare toggle */}
+            {/* Compare toggle */}
             <Button
               variant={compareMode ? "default" : "outline"}
               size="sm"
               className="h-8 text-xs gap-1.5"
-              onClick={() => (compareMode ? exitCompare() : setCompareMode(true))}
+              onClick={() =>
+                compareMode ? disableCompareMode() : enableCompareMode()
+              }
             >
               <GitCompare className="h-3.5 w-3.5" />
               {compareMode ? "Exit compare" : "Compare"}
             </Button>
           </div>
 
-          {/* compare hint */}
+          {/* Compare hint */}
           {compareMode && (
             <div className="flex items-center justify-between rounded-md border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-700">
               <span>
@@ -362,7 +350,7 @@ export default function RateResultsList({ quotes, vendorErrors, request }: Props
               </span>
               {compareIds.length > 0 && (
                 <button
-                  onClick={() => setCompareIds([])}
+                  onClick={clearCompareIds}
                   className="text-blue-500 underline underline-offset-2 hover:text-blue-700"
                 >
                   Clear selection
@@ -371,7 +359,7 @@ export default function RateResultsList({ quotes, vendorErrors, request }: Props
             </div>
           )}
 
-          {/* ── cards grid/list ───────────────────────────────────────── */}
+          {/* ── Cards grid / list ─────────────────────────────────────── */}
           {processed.length === 0 ? (
             <p className="py-8 text-center text-sm text-slate-400">
               No carriers match the active filters.
@@ -395,7 +383,9 @@ export default function RateResultsList({ quotes, vendorErrors, request }: Props
                     isFastest={id === fastestId}
                     compareMode={compareMode}
                     isCompareSelected={compareIds.includes(id)}
-                    isCompareDisabled={compareIds.length >= 3 && !compareIds.includes(id)}
+                    isCompareDisabled={
+                      compareIds.length >= 3 && !compareIds.includes(id)
+                    }
                     viewMode={viewMode}
                     onClick={() => handleCardClick(quote)}
                   />
@@ -404,19 +394,13 @@ export default function RateResultsList({ quotes, vendorErrors, request }: Props
             </div>
           )}
 
-          {/* ── compare panel ─────────────────────────────────────────── */}
+          {/* ── Compare panel (fixed overlay) ─────────────────────────── */}
           {compareMode && compareIds.length >= 2 && (
-            <ComparePanel
-              selectedIds={compareIds}
-              allQuotes={quotes}
-              onRemove={toggleCompareId}
-              onClose={exitCompare}
-            />
-          )}
-
-          {/* bottom padding so fixed compare panel doesn't cover cards */}
-          {compareMode && compareIds.length >= 2 && (
-            <div className="h-44" aria-hidden />
+            <>
+              <ComparePanel />
+              {/* Spacer so the fixed panel doesn't overlap the last card */}
+              <div className="h-44" aria-hidden />
+            </>
           )}
         </>
       ) : (
@@ -427,16 +411,14 @@ export default function RateResultsList({ quotes, vendorErrors, request }: Props
         )
       )}
 
-      {/* ── quote sheet ───────────────────────────────────────────────── */}
+      {/* ── Quote sheet ───────────────────────────────────────────────── */}
       {selectedQuote && (
         <QuoteSheet
           open={sheetOpen}
           onOpenChange={(open) => {
-            setSheetOpen(open);
-            if (!open) setSelectedQuote(null);
+            if (!open) closeSheet();
           }}
           quote={selectedQuote}
-          request={request}
         />
       )}
     </div>
