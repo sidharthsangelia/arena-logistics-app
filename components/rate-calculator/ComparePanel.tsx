@@ -21,18 +21,12 @@ import { Button } from "@/components/ui/button";
 
 import type { RateQuote } from "@/lib/types";
 import { useAppStore } from "@/store";
+import { fmt } from "@/utils/helpers";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-function fmt(amount: number, currency: string) {
-  return new Intl.NumberFormat("en-IN", {
-    style: "currency",
-    currency,
-    maximumFractionDigits: 0,
-  }).format(amount);
-}
 
 export function quoteKey(q: RateQuote): string {
   return `${q.vendorId}::${q.productName}`;
