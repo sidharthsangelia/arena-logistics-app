@@ -13,6 +13,7 @@ import {
   Settings,
   LogIn,
   UserPlus,
+  User,
 } from "lucide-react";
 import {
   Sidebar,
@@ -28,22 +29,18 @@ import {
   SidebarSeparator,
 } from "@/components/ui/sidebar";
 import { Badge } from "@/components/ui/badge";
-import {
-  Show,
-  SignInButton,
-  SignUpButton,
-  UserButton,
-} from "@clerk/nextjs";
+import { Show, SignInButton, SignUpButton, UserButton } from "@clerk/nextjs";
 
 // Nav items
 
 const NAV_MAIN = [
-  { label: "Overview",        href: "/",          icon: LayoutDashboard, badge: null },
-  { label: "Rate Calculator", href: "/rates",      icon: Calculator,      badge: null },
-  { label: "Book Order",      href: "/book",       icon: PackagePlus,     badge: null },
-  { label: "Track Shipment",  href: "/track",      icon: MapPin,          badge: null },
-  { label: "Shipments",       href: "/shipments",  icon: Package,         badge: "3"  },
-  { label: "Invoices",        href: "/invoices",   icon: FileText,        badge: null },
+  { label: "Overview", href: "/", icon: LayoutDashboard, badge: null },
+  { label: "Clients", href: "/clients", icon: User, badge: null },
+  { label: "Rate Calculator", href: "/rates", icon: Calculator, badge: null },
+  { label: "Book Order", href: "/book", icon: PackagePlus, badge: null },
+  { label: "Track Shipment", href: "/track", icon: MapPin, badge: null },
+  { label: "Shipments", href: "/shipments", icon: Package, badge: "3" },
+  { label: "Invoices", href: "/invoices", icon: FileText, badge: null },
 ] as const;
 
 const NAV_SYSTEM = [
@@ -61,7 +58,12 @@ export function AppSidebar() {
       {/* Brand header */}
       <SidebarHeader className="px-3 py-4">
         <div className="flex items-center gap-2.5 px-1">
-          <Image src="/arena_logo.png" alt="Arena Cargo Logo" width={84} height={32} />
+          <Image
+            src="/arena_logo.png"
+            alt="Arena Cargo Logo"
+            width={84}
+            height={32}
+          />
           <div className="group-data-[collapsible=icon]:hidden overflow-hidden">
             <p className="text-sm font-semibold leading-none text-sidebar-foreground truncate">
               Arena Cargo
@@ -169,7 +171,9 @@ export function AppSidebar() {
                 <SignInButton mode="modal">
                   <button className="flex w-full items-center gap-2 text-sm">
                     <LogIn className="h-4 w-4 shrink-0" />
-                    <span className="group-data-[collapsible=icon]:hidden">Sign In</span>
+                    <span className="group-data-[collapsible=icon]:hidden">
+                      Sign In
+                    </span>
                   </button>
                 </SignInButton>
               </SidebarMenuButton>
@@ -180,7 +184,9 @@ export function AppSidebar() {
                 <SignUpButton mode="modal">
                   <button className="flex w-full items-center gap-2 text-sm font-medium text-blue-600 dark:text-blue-400">
                     <UserPlus className="h-4 w-4 shrink-0" />
-                    <span className="group-data-[collapsible=icon]:hidden">Create Account</span>
+                    <span className="group-data-[collapsible=icon]:hidden">
+                      Create Account
+                    </span>
                   </button>
                 </SignUpButton>
               </SidebarMenuButton>

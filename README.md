@@ -63,10 +63,10 @@ src/
 │       ├── RateResultCard.tsx
 │       ├── ComparePanel.tsx
 │       └── QuoteSheet.tsx
-│
+│--actions/
+│      └── rates.actions.ts
+|
 ├── lib/
-│   ├── actions/
-│   │   └── rates.actions.ts
 │   │
 │   ├── adapters/
 │   │   ├── core/

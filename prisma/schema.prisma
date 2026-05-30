@@ -1,0 +1,36 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Client {
+  id           String   @id @default(cuid())
+
+  companyName  String
+
+  contactName  String?
+
+  email        String?
+  phone        String?
+
+  addressLine1 String?
+  city         String?
+  state        String?
+  country      String?
+  postalCode   String?
+
+  notes        String?
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  deletedAt    DateTime?
+
+  @@index([companyName])
+  @@index([email])
+  @@index([deletedAt])
+}
