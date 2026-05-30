@@ -15,17 +15,12 @@ model Client {
   contactName  String?
 
   email        String?
-
   phone        String?
 
   addressLine1 String?
-
   city         String?
-
   state        String?
-
   country      String?
-
   postalCode   String?
 
   notes        String?
@@ -33,6 +28,9 @@ model Client {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
+  deletedAt    DateTime?
+
   @@index([companyName])
   @@index([email])
+  @@index([deletedAt])
 }

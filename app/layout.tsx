@@ -12,6 +12,7 @@ import { AppSidebar } from "@/components/dashboard/AppSideBar";
 import { Separator } from "@/components/ui/separator";
 import { DashboardBreadcrumb } from "@/components/dashboard/DashboardBreadcrumb";
 import { ClerkProvider } from "@clerk/nextjs";
+import { Toaster } from "@/components/ui/sonner";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 
@@ -51,6 +52,7 @@ export default function RootLayout({
       <body className="min-h-full flex flex-col">
         <ClerkProvider>
           <TooltipProvider>
+            <Toaster richColors position="top-right" closeButton />
             {children}
           </TooltipProvider>
         </ClerkProvider>
