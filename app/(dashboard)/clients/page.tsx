@@ -3,6 +3,8 @@ import { prisma } from "@/utils/db";
 import type { Prisma } from "@/generated/prisma";
 import ClientsToolbar from "@/components/clients/ClientsToolbar";
 import ClientsTable from "@/components/clients/ClientsTable";
+import { Suspense } from "react";
+import ClientsTableSkeleton from "@/components/clients/ClientTableSkeleton";
 
 
 const PAGE_SIZE = 25;
@@ -78,6 +80,9 @@ export default async function ClientsPage({
     <div className="space-y-6 px-4 py-6 sm:px-6 lg:px-8">
       <ClientsToolbar />
 
+<Suspense fallback={<ClientsTableSkeleton/>}>
+
+
       <ClientsTable
         clients={clients}
         page={page}
@@ -85,6 +90,11 @@ export default async function ClientsPage({
         pageSize={PAGE_SIZE}
         query={query}
       />
+
+
+</Suspense>
+
+
     </div>
   );
 }
