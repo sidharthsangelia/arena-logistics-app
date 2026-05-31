@@ -6,7 +6,6 @@ import ClientsTable from "@/components/clients/ClientsTable";
 import { Suspense } from "react";
 import ClientsTableSkeleton from "@/components/clients/ClientTableSkeleton";
 
-
 const PAGE_SIZE = 25;
 
 type PageProps = {
@@ -16,17 +15,12 @@ type PageProps = {
   }>;
 };
 
-export default async function ClientsPage({
-  searchParams,
-}: PageProps) {
+export default async function ClientsPage({ searchParams }: PageProps) {
   const params = await searchParams;
 
   const query = params.q?.trim() ?? "";
 
-  const page = Math.max(
-    1,
-    Number.parseInt(params.page ?? "1", 10) || 1,
-  );
+  const page = Math.max(1, Number.parseInt(params.page ?? "1", 10) || 1);
 
   const skip = (page - 1) * PAGE_SIZE;
 
@@ -80,21 +74,15 @@ export default async function ClientsPage({
     <div className="space-y-6 px-4 py-6 sm:px-6 lg:px-8">
       <ClientsToolbar />
 
-<Suspense fallback={<ClientsTableSkeleton/>}>
-
-
-      <ClientsTable
-        clients={clients}
-        page={page}
-        total={total}
-        pageSize={PAGE_SIZE}
-        query={query}
-      />
-
-
-</Suspense>
-
-
+      <Suspense fallback={<ClientsTableSkeleton />}>
+        <ClientsTable
+          clients={clients}
+          page={page}
+          total={total}
+          pageSize={PAGE_SIZE}
+          query={query}
+        />
+      </Suspense>
     </div>
   );
 }

@@ -1,5 +1,7 @@
-import type { Client } from "@/generated/prisma";
+"use client";
 
+import type { Client } from "@/generated/prisma";
+import { useRouter } from "next/navigation";
 import {
   Table,
   TableBody,
@@ -8,7 +10,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-
 import ClientRowActions from "@/components/clients/ClientRow";
 import ClientsPagination from "@/components/clients/ClientsPagination";
 
@@ -27,21 +28,20 @@ export default function ClientsTable({
   pageSize,
   query,
 }: Props) {
-  const totalPages = Math.ceil(
-    total / pageSize,
-  );
+  const router = useRouter();
+  const totalPages = Math.ceil(total / pageSize);
 
   return (
     <div className="space-y-4">
       <div className="rounded-lg border">
         <Table>
           <TableHeader>
-            <TableRow>
-              <TableHead>Company</TableHead>
-              <TableHead>Contact</TableHead>
-              <TableHead>Email</TableHead>
-              <TableHead>Phone</TableHead>
-              <TableHead>Location</TableHead>
+            <TableRow className="bg-muted/50 hover:bg-muted/50">
+              <TableHead className="text-xs uppercase tracking-wide">Company</TableHead>
+              <TableHead className="text-xs uppercase tracking-wide">Contact</TableHead>
+              <TableHead className="text-xs uppercase tracking-wide">Email</TableHead>
+              <TableHead className="text-xs uppercase tracking-wide">Phone</TableHead>
+              <TableHead className="text-xs uppercase tracking-wide">Location</TableHead>
               <TableHead className="w-[60px]" />
             </TableRow>
           </TableHeader>
@@ -51,40 +51,44 @@ export default function ClientsTable({
               <TableRow>
                 <TableCell
                   colSpan={6}
-                  className="py-10 text-center text-muted-foreground"
+                  className="py-10 text-center text-sm text-muted-foreground"
                 >
                   No clients found.
                 </TableCell>
               </TableRow>
             ) : (
               clients.map((client) => (
-                <TableRow key={client.id}>
+                <TableRow
+                  key={client.id}
+                  className="cursor-pointer"
+                  onClick={(e) => {
+                    // prevent navigation when clicking the actions menu
+                    if ((e.target as HTMLElement).closest("[data-stop-propagation]")) return;
+                    router.push(`/clients/${client.id}`);
+                  }}
+                >
                   <TableCell className="font-medium">
                     {client.companyName}
                   </TableCell>
 
-                  <TableCell>
+                  <TableCell className="text-muted-foreground">
                     {client.contactName ?? "—"}
                   </TableCell>
 
-                  <TableCell>
+                  <TableCell className="text-muted-foreground">
                     {client.email ?? "—"}
                   </TableCell>
 
-                  <TableCell>
+                  <TableCell className="text-muted-foreground">
                     {client.phone ?? "—"}
                   </TableCell>
 
-                  <TableCell>
-                    {[client.city, client.country]
-                      .filter(Boolean)
-                      .join(", ") || "—"}
+                  <TableCell className="text-muted-foreground">
+                    {[client.city, client.country].filter(Boolean).join(", ") || "—"}
                   </TableCell>
 
-                  <TableCell>
-                    <ClientRowActions
-                      client={client}
-                    />
+                  <TableCell data-stop-propagation>
+                    <ClientRowActions client={client} />
                   </TableCell>
                 </TableRow>
               ))
@@ -93,11 +97,7 @@ export default function ClientsTable({
         </Table>
       </div>
 
-      <ClientsPagination
-        page={page}
-        totalPages={totalPages}
-        query={query}
-      />
+      <ClientsPagination page={page} totalPages={totalPages} query={query} />
     </div>
   );
 }
