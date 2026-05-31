@@ -14,6 +14,7 @@ import {
   LogIn,
   UserPlus,
   User,
+  FileUser,
 } from "lucide-react";
 import {
   Sidebar,
@@ -39,6 +40,7 @@ const NAV_MAIN = [
   { label: "Rate Calculator", href: "/rates", icon: Calculator, badge: null },
   { label: "Book Order", href: "/book", icon: PackagePlus, badge: null },
   { label: "Track Shipment", href: "/track", icon: MapPin, badge: null },
+  { label: "Quotes", href: "/quotes", icon: FileUser, badge: null },
   { label: "Shipments", href: "/shipments", icon: Package, badge: "3" },
   { label: "Invoices", href: "/invoices", icon: FileText, badge: null },
 ] as const;
@@ -57,7 +59,7 @@ export function AppSidebar() {
     <Sidebar collapsible="icon" className="border-r border-sidebar-border">
       {/* Brand header */}
       <SidebarHeader className="px-3 py-4">
-        <div className="flex items-center gap-2.5 px-1">
+        <Link href="/" className="flex items-center gap-2.5 px-1">
           <Image
             src="/arena_logo.png"
             alt="Arena Cargo Logo"
@@ -72,7 +74,7 @@ export function AppSidebar() {
               &amp; Logistics
             </p>
           </div>
-        </div>
+        </Link>
       </SidebarHeader>
 
       <SidebarSeparator />

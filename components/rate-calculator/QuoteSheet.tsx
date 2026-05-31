@@ -75,6 +75,7 @@ import AddClientForm from "./AddClientForm";
 import { useAppStore } from "@/store";
 import { ClientSearchResult } from "@/actions/clientSrearch.action";
 import { saveQuoteAction } from "@/actions/quotes.action";
+import { useUploadQuotePdf } from "@/hooks/useUploadPdfQuote";
 
 
 // ---------------------------------------------------------------------------
@@ -90,7 +91,7 @@ import { saveQuoteAction } from "@/actions/quotes.action";
  */
 export interface ClientInfo {
   clientId?: string;
-  name: string;        // contactName or companyName fallback
+  name: string; // contactName or companyName fallback
   company: string;
   email: string;
   phone: string;
@@ -124,9 +125,7 @@ function clientInfoFromResult(c: ClientSearchResult): ClientInfo {
     company: c.companyName,
     email: c.email ?? "",
     phone: c.phone ?? "",
-    address: [c.addressLine1, c.city, c.country]
-      .filter(Boolean)
-      .join(", "),
+    address: [c.addressLine1, c.city, c.country].filter(Boolean).join(", "),
   };
 }
 
@@ -154,8 +153,11 @@ export default function QuoteSheet({ open, onOpenChange, quote }: Props) {
 
   // PDF
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  const [pdfBlob, setPdfBlob] = useState<Blob | null>(null);
+
   const [generating, setGenerating] = useState(false);
   const [genError, setGenError] = useState<string | null>(null);
+  const [uploadedPdf, setUploadedPdf] = useState(false);
 
   // Saved quote DB id (used later by UploadThing integration)
   const [savedQuoteId, setSavedQuoteId] = useState<string | null>(null);
@@ -173,6 +175,7 @@ export default function QuoteSheet({ open, onOpenChange, quote }: Props) {
     if (!open) {
       const t = setTimeout(() => {
         setStep("form");
+        setPdfBlob(null);
         setSelectedClient(null);
         setShowAddForm(false);
         setMarkup(0);
@@ -185,11 +188,13 @@ export default function QuoteSheet({ open, onOpenChange, quote }: Props) {
   }, [open]);
 
   // ── Revoke blob URL on unmount ────────────────────────────────────────────
-  useEffect(() => {
-    return () => {
-      if (pdfUrl) URL.revokeObjectURL(pdfUrl);
-    };
-  }, [pdfUrl]);
+useEffect(() => {
+  return () => {
+    if (pdfUrl) {
+      URL.revokeObjectURL(pdfUrl);
+    }
+  };
+}, [pdfUrl]);
 
   // ── Derived values ────────────────────────────────────────────────────────
   const markupFactor = 1 + markup / 100;
@@ -205,6 +210,8 @@ export default function QuoteSheet({ open, onOpenChange, quote }: Props) {
   const isFormValid = clientInfo !== null;
 
   // ── Handlers ──────────────────────────────────────────────────────────────
+
+  const { uploadPdf, isUploading, uploadError } = useUploadQuotePdf();
 
   const handleClientSelect = (client: ClientSearchResult) => {
     setSelectedClient(client);
@@ -236,7 +243,10 @@ export default function QuoteSheet({ open, onOpenChange, quote }: Props) {
         />,
       ).toBlob();
 
+      setPdfBlob(blob);
+
       if (pdfUrl) URL.revokeObjectURL(pdfUrl);
+
       setPdfUrl(URL.createObjectURL(blob));
       setStep("preview");
     } catch (err) {
@@ -248,45 +258,65 @@ export default function QuoteSheet({ open, onOpenChange, quote }: Props) {
   };
 
   const handleDownload = async () => {
-    if (!pdfUrl || !request || !clientInfo) return;
+    if (!pdfUrl || !pdfBlob || !request || !clientInfo) {
+      return;
+    }
 
-    // 1. Trigger browser download
-    const a = document.createElement("a");
-    a.href = pdfUrl;
     const safeName = (clientInfo.company || "quote")
       .replace(/[^a-z0-9]/gi, "_")
       .toLowerCase();
-    a.download = `${quoteNumber}_${safeName}.pdf`;
+
+    const fileName = `${quoteNumber}_${safeName}.pdf`;
+
+    // Download locally
+    const a = document.createElement("a");
+    a.href = pdfUrl;
+    a.download = fileName;
     a.click();
 
-    // 2. Persist to DB (fire-and-forget from the UX perspective; toast on error)
-    if (!savedQuoteId) {
-      const result = await saveQuoteAction({
-        quoteNumber,
-        quote,
-        request,
-        client: clientInfo,
-        markupPercent: markup,
-        // pdfUrl is a blob: URL here — do NOT pass it. The CDN URL arrives
-        // after UploadThing upload via updateQuotePdfAction.
-        pdfUrl: null,
-        pdfKey: null,
-      });
+    try {
+      let quoteId = savedQuoteId;
 
-      if (result.success) {
-        setSavedQuoteId(result.quoteId);
-      } else {
-        toast.error("Quote could not be saved to history.");
+      // Save DB record first if not already saved
+      if (!quoteId) {
+        const result = await saveQuoteAction({
+          quoteNumber,
+          quote,
+          request,
+          client: clientInfo,
+          markupPercent: markup,
+          pdfUrl: null,
+          pdfKey: null,
+        });
+
+        if (!result.success) {
+          toast.error("Quote could not be saved.");
+          return;
+        }
+
+        quoteId = result.quoteId;
+        setSavedQuoteId(quoteId);
       }
-    }
 
-    // 3. Update Zustand in-memory history (tab-session breadcrumb)
-    saveQuote({
-      request,
-      quote,
-      markupPercent: markup,
-      quoteNumber,
-    });
+      // Upload PDF to UploadThing
+if (!uploadedPdf) {
+  await uploadPdf({
+        blob: pdfBlob,
+        quoteId,
+        fileName,
+      });
+  setUploadedPdf(true);
+}
+      saveQuote({
+        request,
+        quote,
+        markupPercent: markup,
+        quoteNumber,
+      });
+    } catch (error) {
+      console.error(error);
+      toast.error("Failed to save quote.");
+    }
   };
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -553,6 +583,12 @@ export default function QuoteSheet({ open, onOpenChange, quote }: Props) {
                 </div>
               )}
 
+              {uploadError && (
+  <p className="rounded border border-destructive/20 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+    {uploadError}
+  </p>
+)}
+
               <div className="flex gap-2.5">
                 <Button
                   variant="outline"
@@ -565,10 +601,19 @@ export default function QuoteSheet({ open, onOpenChange, quote }: Props) {
                 <Button
                   className="flex-1"
                   onClick={handleDownload}
-                  disabled={!pdfUrl}
+                  disabled={!pdfUrl || isUploading}
                 >
-                  <Download className="mr-2 h-4 w-4" />
-                  Download PDF
+                  {isUploading ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Uploading...
+                    </>
+                  ) : (
+                    <>
+                      <Download className="mr-2 h-4 w-4" />
+                      Download PDF
+                    </>
+                  )}
                 </Button>
               </div>
 
