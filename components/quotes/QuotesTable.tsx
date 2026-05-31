@@ -2,11 +2,10 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import { FileText } from "lucide-react";
 
 import type { QuoteStatus } from "@/generated/prisma";
 import type { QuoteRow } from "@/actions/quotesList.action";
-
- 
 
 import {
   Table,
@@ -16,7 +15,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-
 import {
   Select,
   SelectContent,
@@ -24,9 +22,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import QuoteStatusBadge from "./QuotesStatusBadge";
 import QuoteActions from "./QuoteAction";
 
@@ -40,13 +45,29 @@ interface Props {
 }
 
 const STATUS_OPTIONS = [
-  { value: "", label: "All statuses" },
+  { value: "all", label: "All statuses" },
   { value: "DRAFT", label: "Draft" },
   { value: "SENT", label: "Sent" },
   { value: "ACCEPTED", label: "Accepted" },
   { value: "EXPIRED", label: "Expired" },
   { value: "CANCELLED", label: "Cancelled" },
 ] as const;
+
+function fmt(amount: number, currency: string) {
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency,
+    maximumFractionDigits: 0,
+  }).format(amount);
+}
+
+function fmtDate(date: string | Date) {
+  return new Date(date).toLocaleDateString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "2-digit",
+  });
+}
 
 export default function QuotesTable({
   quotes,
@@ -58,51 +79,37 @@ export default function QuotesTable({
 }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
-
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   const updateParams = (updates: Record<string, string | undefined>) => {
     const params = new URLSearchParams(searchParams);
-
     Object.entries(updates).forEach(([key, value]) => {
-      if (!value) {
-        params.delete(key);
-      } else {
-        params.set(key, value);
-      }
+      if (!value) params.delete(key);
+      else params.set(key, value);
     });
-
     params.delete("page");
-
     router.push(`/quotes?${params.toString()}`);
   };
 
   const changePage = (newPage: number) => {
     const params = new URLSearchParams(searchParams);
-
-    if (newPage <= 1) {
-      params.delete("page");
-    } else {
-      params.set("page", String(newPage));
-    }
-
+    if (newPage <= 1) params.delete("page");
+    else params.set("page", String(newPage));
     router.push(`/quotes?${params.toString()}`);
   };
 
   return (
     <div className="space-y-4">
-      {/* Filters */}
 
-      <div className="flex flex-col gap-3 md:flex-row md:items-center">
+      {/* Filters */}
+      <div className="flex flex-wrap items-center gap-2">
         <Input
-          placeholder="Search quotes..."
+          placeholder="Search by quote, client, vendor…"
           defaultValue={query}
-          className="max-w-sm"
+          className="h-8 w-[220px] text-sm"
           onKeyDown={(e) => {
             if (e.key === "Enter") {
-              updateParams({
-                q: (e.target as HTMLInputElement).value,
-              });
+              updateParams({ q: (e.target as HTMLInputElement).value || undefined });
             }
           }}
         />
@@ -110,43 +117,40 @@ export default function QuotesTable({
         <Select
           value={status || "all"}
           onValueChange={(value) =>
-            updateParams({
-              status: value === "all" ? undefined : value,
-            })
+            updateParams({ status: value === "all" ? undefined : value })
           }
         >
-          <SelectTrigger className="w-[180px]">
+          <SelectTrigger className="h-8 w-[160px] text-sm">
             <SelectValue />
           </SelectTrigger>
-
           <SelectContent>
             {STATUS_OPTIONS.map((item) => (
-              <SelectItem
-                key={item.value || "all"}
-                value={item.value || "all"}
-              >
+              <SelectItem key={item.value} value={item.value}>
                 {item.label}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
+
+        <span className="ml-auto text-xs text-muted-foreground">
+          {total.toLocaleString()} quote{total !== 1 ? "s" : ""}
+        </span>
       </div>
 
       {/* Table */}
-
       <div className="rounded-lg border">
         <Table>
           <TableHeader>
-            <TableRow>
-              <TableHead>Quote</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Client</TableHead>
-              <TableHead>Vendor</TableHead>
-              <TableHead>Product</TableHead>
-              <TableHead>Total</TableHead>
-              <TableHead>Validity</TableHead>
-              <TableHead>Created</TableHead>
-              <TableHead className="w-[60px]" />
+            <TableRow className="bg-muted/50 hover:bg-muted/50">
+              <TableHead className="text-xs uppercase tracking-wide">Quote</TableHead>
+              <TableHead className="text-xs uppercase tracking-wide">Status</TableHead>
+              <TableHead className="text-xs uppercase tracking-wide">Client</TableHead>
+              <TableHead className="text-xs uppercase tracking-wide">Vendor</TableHead>
+              <TableHead className="text-xs uppercase tracking-wide">Product</TableHead>
+              <TableHead className="text-right text-xs uppercase tracking-wide">Total</TableHead>
+              <TableHead className="text-xs uppercase tracking-wide">Valid until</TableHead>
+              <TableHead className="text-xs uppercase tracking-wide">Created</TableHead>
+              <TableHead className="w-10" />
             </TableRow>
           </TableHeader>
 
@@ -155,81 +159,82 @@ export default function QuotesTable({
               <TableRow>
                 <TableCell
                   colSpan={9}
-                  className="h-24 text-center text-muted-foreground"
+                  className="h-32 text-center text-sm text-muted-foreground"
                 >
-                  No quotes found.
+                  No quotes match your filters.
                 </TableCell>
               </TableRow>
             ) : (
               quotes.map((quote) => (
                 <TableRow key={quote.id}>
-                  <TableCell>
-                    <div className="space-y-1">
-                      <div className="font-medium">
-                        {quote.quoteNumber}
-                      </div>
 
-                      {quote.pdfUrl && (
-                        <Link
-                          href={quote.pdfUrl}
-                          target="_blank"
-                          className="text-xs text-muted-foreground hover:underline"
-                        >
-                          View PDF
-                        </Link>
-                      )}
-                    </div>
+                  {/* Quote number + PDF link */}
+                  <TableCell>
+                    <span className="block text-sm font-medium">
+                      {quote.quoteNumber}
+                    </span>
+                    {quote.pdfUrl && (
+                      <Link
+                        href={quote.pdfUrl}
+                        target="_blank"
+                        className="mt-0.5 inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:underline"
+                      >
+                        <FileText className="h-3 w-3" />
+                        View PDF
+                      </Link>
+                    )}
                   </TableCell>
 
+                  {/* Status */}
                   <TableCell>
                     <QuoteStatusBadge status={quote.status} />
                   </TableCell>
 
+                  {/* Client */}
                   <TableCell>
-                    <div className="space-y-1">
-                      <div>
-                        {quote.client?.companyName ?? "—"}
-                      </div>
-
-                      {quote.client?.contactName && (
-                        <div className="text-xs text-muted-foreground">
-                          {quote.client.contactName}
-                        </div>
-                      )}
-                    </div>
+                    <span className="block truncate text-sm">
+                      {quote.client?.companyName ?? "—"}
+                    </span>
+                    {quote.client?.contactName && (
+                      <span className="block truncate text-[11px] text-muted-foreground">
+                        {quote.client.contactName}
+                      </span>
+                    )}
                   </TableCell>
 
-                  <TableCell>{quote.vendorName}</TableCell>
-
-                  <TableCell>{quote.productName}</TableCell>
-
-                  <TableCell>
-                    {quote.currency}{" "}
-                    {quote.quotedTotal.toLocaleString()}
+                  {/* Vendor */}
+                  <TableCell className="truncate text-sm text-muted-foreground">
+                    {quote.vendorName}
                   </TableCell>
 
-                  <TableCell>
-                    <div className="space-y-1">
-                      <div>
-                        {new Date(
-                          quote.validUntil,
-                        ).toLocaleDateString()}
-                      </div>
-
-                      {quote.isExpired && (
-                        <div className="text-xs text-destructive">
-                          Expired
-                        </div>
-                      )}
-                    </div>
+                  {/* Product */}
+                  <TableCell className="max-w-[130px] truncate text-sm">
+                    {quote.productName}
                   </TableCell>
 
-                  <TableCell>
-                    {new Date(
-                      quote.createdAt,
-                    ).toLocaleDateString()}
+                  {/* Total */}
+                  <TableCell className="text-right text-sm tabular-nums">
+                    {fmt(quote.quotedTotal, quote.currency)}
                   </TableCell>
 
+                  {/* Valid until */}
+                  <TableCell>
+                    <span className="block text-sm">
+                      {fmtDate(quote.validUntil)}
+                    </span>
+                    {quote.isExpired && (
+                      <span className="text-[10px] text-destructive">
+                        Expired
+                      </span>
+                    )}
+                  </TableCell>
+
+                  {/* Created */}
+                  <TableCell className="text-sm text-muted-foreground">
+                    {fmtDate(quote.createdAt)}
+                  </TableCell>
+
+                  {/* Actions */}
                   <TableCell>
                     <QuoteActions
                       quoteId={quote.id}
@@ -237,6 +242,7 @@ export default function QuotesTable({
                       status={quote.status}
                     />
                   </TableCell>
+
                 </TableRow>
               ))
             )}
@@ -245,12 +251,10 @@ export default function QuotesTable({
       </div>
 
       {/* Pagination */}
-
       <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">
-          {total.toLocaleString()} quotes
+        <p className="text-xs text-muted-foreground">
+          Page {page} of {totalPages}
         </p>
-
         <div className="flex gap-2">
           <Button
             variant="outline"
@@ -258,16 +262,15 @@ export default function QuotesTable({
             disabled={page <= 1}
             onClick={() => changePage(page - 1)}
           >
-            Previous
+            ← Previous
           </Button>
-
           <Button
             variant="outline"
             size="sm"
             disabled={page >= totalPages}
             onClick={() => changePage(page + 1)}
           >
-            Next
+            Next →
           </Button>
         </div>
       </div>
