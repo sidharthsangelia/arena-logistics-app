@@ -127,3 +127,22 @@ export async function updateQuotePdfAction(
     return { success: false, message: "Failed to update PDF record." };
   }
 }
+
+
+
+
+export async function bulkDeleteQuotesAction(
+  ids: string[],
+): Promise<{ success: true } | { success: false; message: string }> {
+  try {
+    await prisma.quote.deleteMany({
+      where: { id: { in: ids } },
+    });
+
+    revalidatePath("/quotes");
+    return { success: true };
+  } catch (error) {
+    console.error("bulkDeleteQuotesAction", error);
+    return { success: false, message: "Failed to delete quotes." };
+  }
+}

@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { FileText } from "lucide-react";
+import { FileText, Trash2 } from "lucide-react";
+import { useState, useTransition } from "react";
 
 import type { QuoteStatus } from "@/generated/prisma";
 import type { QuoteRow } from "@/actions/quotesList.action";
@@ -23,17 +24,23 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import QuoteStatusBadge from "./QuotesStatusBadge";
 import QuoteActions from "./QuoteAction";
+import { toast } from "sonner";
+import { bulkDeleteQuotesAction } from "@/actions/quotes.action";
 
 interface Props {
   quotes: QuoteRow[];
@@ -81,6 +88,39 @@ export default function QuotesTable({
   const searchParams = useSearchParams();
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [isPending, startTransition] = useTransition();
+
+  const allIds = quotes.map((q) => q.id);
+  const allSelected = allIds.length > 0 && allIds.every((id) => selected.has(id));
+  const someSelected = selected.size > 0;
+
+  const toggleAll = () => {
+    setSelected(allSelected ? new Set() : new Set(allIds));
+  };
+
+  const toggleOne = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  const handleBulkDelete = () => {
+    startTransition(async () => {
+      const ids = Array.from(selected);
+      const result = await bulkDeleteQuotesAction(ids);
+      if (result.success) {
+        toast.success(`${ids.length} quote${ids.length !== 1 ? "s" : ""} deleted`);
+        setSelected(new Set());
+        router.refresh();
+      } else {
+        toast.error(result.message);
+      }
+    });
+  };
+
   const updateParams = (updates: Record<string, string | undefined>) => {
     const params = new URLSearchParams(searchParams);
     Object.entries(updates).forEach(([key, value]) => {
@@ -101,36 +141,88 @@ export default function QuotesTable({
   return (
     <div className="space-y-4">
 
-      {/* Filters */}
+      {/* Filters + bulk action bar */}
       <div className="flex flex-wrap items-center gap-2">
-        <Input
-          placeholder="Search by quote, client, vendor…"
-          defaultValue={query}
-          className="h-8 w-[220px] text-sm"
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              updateParams({ q: (e.target as HTMLInputElement).value || undefined });
-            }
-          }}
-        />
+        {someSelected ? (
+          <>
+            <span className="text-sm text-muted-foreground">
+              {selected.size} selected
+            </span>
 
-        <Select
-          value={status || "all"}
-          onValueChange={(value) =>
-            updateParams({ status: value === "all" ? undefined : value })
-          }
-        >
-          <SelectTrigger className="h-8 w-[160px] text-sm">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {STATUS_OPTIONS.map((item) => (
-              <SelectItem key={item.value} value={item.value}>
-                {item.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  disabled={isPending}
+                  className="h-8"
+                >
+                  <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                  Delete {selected.size}
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Delete {selected.size} quote{selected.size !== 1 ? "s" : ""}?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This will permanently delete the selected quote{selected.size !== 1 ? "s" : ""}. This action cannot be undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={handleBulkDelete}
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  >
+                    Delete
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8"
+              onClick={() => setSelected(new Set())}
+            >
+              Clear selection
+            </Button>
+          </>
+        ) : (
+          <>
+            <Input
+              placeholder="Search by quote, client, vendor…"
+              defaultValue={query}
+              className="h-8 w-[220px] text-sm"
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  updateParams({
+                    q: (e.target as HTMLInputElement).value || undefined,
+                  });
+                }
+              }}
+            />
+
+            <Select
+              value={status || "all"}
+              onValueChange={(value) =>
+                updateParams({ status: value === "all" ? undefined : value })
+              }
+            >
+              <SelectTrigger className="h-8 w-[160px] text-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {STATUS_OPTIONS.map((item) => (
+                  <SelectItem key={item.value} value={item.value}>
+                    {item.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </>
+        )}
 
         <span className="ml-auto text-xs text-muted-foreground">
           {total.toLocaleString()} quote{total !== 1 ? "s" : ""}
@@ -142,6 +234,13 @@ export default function QuotesTable({
         <Table>
           <TableHeader>
             <TableRow className="bg-muted/50 hover:bg-muted/50">
+              <TableHead className="w-10 pl-4">
+                <Checkbox
+                  checked={allSelected}
+                  onCheckedChange={toggleAll}
+                  aria-label="Select all"
+                />
+              </TableHead>
               <TableHead className="text-xs uppercase tracking-wide">Quote</TableHead>
               <TableHead className="text-xs uppercase tracking-wide">Status</TableHead>
               <TableHead className="text-xs uppercase tracking-wide">Client</TableHead>
@@ -158,7 +257,7 @@ export default function QuotesTable({
             {quotes.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={9}
+                  colSpan={10}
                   className="h-32 text-center text-sm text-muted-foreground"
                 >
                   No quotes match your filters.
@@ -166,9 +265,18 @@ export default function QuotesTable({
               </TableRow>
             ) : (
               quotes.map((quote) => (
-                <TableRow key={quote.id}>
+                <TableRow
+                  key={quote.id}
+                  data-state={selected.has(quote.id) ? "selected" : undefined}
+                >
+                  <TableCell className="pl-4">
+                    <Checkbox
+                      checked={selected.has(quote.id)}
+                      onCheckedChange={() => toggleOne(quote.id)}
+                      aria-label={`Select ${quote.quoteNumber}`}
+                    />
+                  </TableCell>
 
-                  {/* Quote number + PDF link */}
                   <TableCell>
                     <span className="block text-sm font-medium">
                       {quote.quoteNumber}
@@ -185,12 +293,10 @@ export default function QuotesTable({
                     )}
                   </TableCell>
 
-                  {/* Status */}
                   <TableCell>
                     <QuoteStatusBadge status={quote.status} />
                   </TableCell>
 
-                  {/* Client */}
                   <TableCell>
                     <span className="block truncate text-sm">
                       {quote.client?.companyName ?? "—"}
@@ -202,22 +308,18 @@ export default function QuotesTable({
                     )}
                   </TableCell>
 
-                  {/* Vendor */}
                   <TableCell className="truncate text-sm text-muted-foreground">
                     {quote.vendorName}
                   </TableCell>
 
-                  {/* Product */}
                   <TableCell className="max-w-[130px] truncate text-sm">
                     {quote.productName}
                   </TableCell>
 
-                  {/* Total */}
                   <TableCell className="text-right text-sm tabular-nums">
                     {fmt(quote.quotedTotal, quote.currency)}
                   </TableCell>
 
-                  {/* Valid until */}
                   <TableCell>
                     <span className="block text-sm">
                       {fmtDate(quote.validUntil)}
@@ -229,20 +331,17 @@ export default function QuotesTable({
                     )}
                   </TableCell>
 
-                  {/* Created */}
                   <TableCell className="text-sm text-muted-foreground">
                     {fmtDate(quote.createdAt)}
                   </TableCell>
 
-                  {/* Actions */}
-                  <TableCell>
+                  <TableCell data-stop-propagation>
                     <QuoteActions
                       quoteId={quote.id}
                       quoteNumber={quote.quoteNumber}
                       status={quote.status}
                     />
                   </TableCell>
-
                 </TableRow>
               ))
             )}
