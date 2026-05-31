@@ -4,31 +4,40 @@
  * QuoteSheet.tsx
  *
  * RESPONSIBILITY
- * --------------
+ * ──────────────
  * Slide-over panel for generating and downloading a freight quote PDF.
  *
- * CHANGES FROM ORIGINAL
- * ----------------------
- * 1. `request` is no longer a prop — it is read from the Zustand store.
- *    The original required `request` to be threaded through RateResultsList →
- *    QuoteSheet as a prop. Since the store owns it, that prop is gone.
+ * CHANGES FROM V1
+ * ───────────────
+ * 1. Manual client fields replaced by <ClientSelector> (combobox against
+ *    the DB) + <AddClientForm> (inline create-and-select). The user never
+ *    types client details by hand unless they are a brand-new client.
  *
- * 2. On PDF download, `history.saveQuote` is called so the quote is
- *    recorded in the history slice. This prepares for the quote history
- *    roadmap feature with zero additional wiring.
+ * 2. On PDF download, `saveQuoteAction` is called to persist the quote to
+ *    the database (Quote model). The Zustand `saveQuote` action is kept for
+ *    the in-memory history slice (tab-session breadcrumb) but the source of
+ *    truth is now the DB.
  *
- * 3. `step`, `client`, `markup`, `pdfUrl`, `generating`, `genError` remain
- *    as local component state. These are genuinely ephemeral UI state: they
- *    describe the in-progress form/generation flow inside this sheet and
- *    have no meaning outside it. Moving them to the store would be
- *    over-engineering — there is no other component that needs to read them.
+ * 3. `ClientInfo` now carries an optional `clientId` field. When the user
+ *    selects an existing client this is populated and the DB quote record
+ *    is linked via the Client → Quote relation. Ad-hoc quotes (no client
+ *    found / form fallback) save with clientId = null.
  *
- * SERIALISATION NOTE
- * ------------------
- * `pdfUrl` is a blob: URL — it is intentionally local and must never be
- * stored in Zustand (it's not JSON-serialisable and is invalid after the
- * component unmounts). The SavedQuote in the history slice stores metadata
- * (quote, request, markupPercent, quoteNumber) but NOT the blob URL.
+ * 4. `pdfUrl` is still a blob: URL — local, non-serialisable, revoked on
+ *    unmount. It is never stored in Zustand or the DB. The DB receives the
+ *    UploadThing CDN URL only after upload (via updateQuotePdfAction).
+ *
+ * STATE THAT STAYS LOCAL (genuinely ephemeral UI)
+ * ────────────────────────────────────────────────
+ *   step          — which screen the sheet is showing
+ *   selectedClient — the picked ClientSearchResult (cleared on close)
+ *   showAddForm   — whether the inline new-client form is visible
+ *   markup        — current markup input value
+ *   pdfUrl        — blob: URL for the iframe preview
+ *   generating    — PDF generation pending flag
+ *   genError      — generation error message
+ *   savedQuoteId  — DB id returned after saveQuoteAction; used by the
+ *                   future UploadThing integration to call updateQuotePdfAction
  */
 
 import { useState, useEffect } from "react";
@@ -40,36 +49,48 @@ import {
   SheetDescription,
 } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   ArrowLeft,
-  Building2,
   Clock,
   Download,
   FileText,
   Loader2,
-  Mail,
-  MapPin,
   Percent,
+  Building2,
+  Mail,
   Phone,
-  User,
+  MapPin,
 } from "lucide-react";
 import { pdf } from "@react-pdf/renderer";
-
+import { toast } from "sonner";
 
 import type { RateQuote } from "@/lib/types";
 import QuoteDocument from "./QuoteDocument";
+import ClientSelector from "./ClientSelector";
+import AddClientForm from "./AddClientForm";
 import { useAppStore } from "@/store";
+import { ClientSearchResult } from "@/actions/clientSrearch.action";
+import { saveQuoteAction } from "@/actions/quotes.action";
+
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
+/**
+ * ClientInfo is the runtime view of "who this quote is for".
+ * It is consumed by QuoteDocument (PDF rendering) and saveQuoteAction.
+ *
+ * clientId is optional: present when an existing DB client was selected,
+ * absent for ad-hoc quotes.
+ */
 export interface ClientInfo {
-  name: string;
+  clientId?: string;
+  name: string;        // contactName or companyName fallback
   company: string;
   email: string;
   phone: string;
@@ -95,81 +116,109 @@ function fmt(amount: number, currency: string) {
   }).format(amount);
 }
 
-const MARKUP_PRESETS = [5, 10, 15, 20] as const;
+/** Build a ClientInfo from a DB search result. */
+function clientInfoFromResult(c: ClientSearchResult): ClientInfo {
+  return {
+    clientId: c.id || undefined,
+    name: c.contactName ?? c.companyName,
+    company: c.companyName,
+    email: c.email ?? "",
+    phone: c.phone ?? "",
+    address: [c.addressLine1, c.city, c.country]
+      .filter(Boolean)
+      .join(", "),
+  };
+}
 
-const defaultClient: ClientInfo = {
-  name: "",
-  company: "",
-  email: "",
-  phone: "",
-  address: "",
-};
+const MARKUP_PRESETS = [5, 10, 15, 20] as const;
 
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
 export default function QuoteSheet({ open, onOpenChange, quote }: Props) {
-  // Read request from store — no longer a prop
+  // Store
   const request = useAppStore((s) => s.request);
   const saveQuote = useAppStore((s) => s.saveQuote);
 
-  // Local UI state — genuinely ephemeral, lives only for the duration of
-  // this sheet session.
+  // Local UI
   const [step, setStep] = useState<"form" | "preview">("form");
-  const [client, setClient] = useState<ClientInfo>(defaultClient);
+
+  // Client selection
+  const [selectedClient, setSelectedClient] =
+    useState<ClientSearchResult | null>(null);
+  const [showAddForm, setShowAddForm] = useState(false);
+
+  // Markup
   const [markup, setMarkup] = useState<number>(0);
+
+  // PDF
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
   const [genError, setGenError] = useState<string | null>(null);
 
-  // Stable for the lifetime of this sheet instance
+  // Saved quote DB id (used later by UploadThing integration)
+  const [savedQuoteId, setSavedQuoteId] = useState<string | null>(null);
+
+  // Stable quote number for the lifetime of this sheet instance
   const [quoteNumber] = useState(
     () =>
-      `FQ-${new Date().getFullYear()}-${Math.floor(Math.random() * 90000 + 10000)}`
+      `FQ-${new Date().getFullYear()}-${Math.floor(
+        Math.random() * 90000 + 10000,
+      )}`,
   );
 
-  // Reset local state when sheet closes
+  // ── Reset on close ────────────────────────────────────────────────────────
   useEffect(() => {
     if (!open) {
       const t = setTimeout(() => {
         setStep("form");
-        setClient(defaultClient);
+        setSelectedClient(null);
+        setShowAddForm(false);
         setMarkup(0);
         setPdfUrl(null);
         setGenError(null);
-      }, 300); // after close animation
+        setSavedQuoteId(null);
+      }, 300);
       return () => clearTimeout(t);
     }
   }, [open]);
 
-  // Revoke blob URL on unmount to prevent memory leaks
+  // ── Revoke blob URL on unmount ────────────────────────────────────────────
   useEffect(() => {
     return () => {
       if (pdfUrl) URL.revokeObjectURL(pdfUrl);
     };
   }, [pdfUrl]);
 
-  // Derived values
+  // ── Derived values ────────────────────────────────────────────────────────
   const markupFactor = 1 + markup / 100;
-  const finalTotal   = quote.totalWithTax * markupFactor;
+  const finalTotal = quote.totalWithTax * markupFactor;
   const markupAmount = quote.totalWithTax * (markup / 100);
 
-  const setField =
-    (field: keyof ClientInfo) =>
-    (e: React.ChangeEvent<HTMLInputElement>) =>
-      setClient((p) => ({ ...p, [field]: e.target.value }));
+  // The client info object fed to QuoteDocument + saveQuoteAction
+  const clientInfo: ClientInfo | null = selectedClient
+    ? clientInfoFromResult(selectedClient)
+    : null;
 
-  const isFormValid =
-    client.name.trim().length > 0 &&
-    client.company.trim().length > 0 &&
-    client.email.trim().length > 0;
+  // Form is valid when a client is selected (either from DB or freshly added)
+  const isFormValid = clientInfo !== null;
+
+  // ── Handlers ──────────────────────────────────────────────────────────────
+
+  const handleClientSelect = (client: ClientSearchResult) => {
+    setSelectedClient(client);
+    setShowAddForm(false);
+  };
+
+  const handleClientAdded = (client: ClientSearchResult) => {
+    setSelectedClient(client);
+    setShowAddForm(false);
+  };
 
   const handleGenerate = async () => {
-    if (!request) {
-      setGenError(
-        "Shipment request details are missing. Please close and try again."
-      );
+    if (!request || !clientInfo) {
+      setGenError("Client or shipment details are missing.");
       return;
     }
 
@@ -181,15 +230,14 @@ export default function QuoteSheet({ open, onOpenChange, quote }: Props) {
         <QuoteDocument
           quote={quote}
           request={request}
-          client={client}
+          client={clientInfo}
           markupPercent={markup}
           quoteNumber={quoteNumber}
-        />
+        />,
       ).toBlob();
 
       if (pdfUrl) URL.revokeObjectURL(pdfUrl);
-      const url = URL.createObjectURL(blob);
-      setPdfUrl(url);
+      setPdfUrl(URL.createObjectURL(blob));
       setStep("preview");
     } catch (err) {
       console.error("PDF generation failed:", err);
@@ -199,19 +247,40 @@ export default function QuoteSheet({ open, onOpenChange, quote }: Props) {
     }
   };
 
-  const handleDownload = () => {
-    if (!pdfUrl || !request) return;
+  const handleDownload = async () => {
+    if (!pdfUrl || !request || !clientInfo) return;
 
-    // Trigger download
+    // 1. Trigger browser download
     const a = document.createElement("a");
     a.href = pdfUrl;
-    const safeName = (client.company || "quote")
+    const safeName = (clientInfo.company || "quote")
       .replace(/[^a-z0-9]/gi, "_")
       .toLowerCase();
     a.download = `${quoteNumber}_${safeName}.pdf`;
     a.click();
 
-    // Record in quote history for the upcoming saved-quotes feature
+    // 2. Persist to DB (fire-and-forget from the UX perspective; toast on error)
+    if (!savedQuoteId) {
+      const result = await saveQuoteAction({
+        quoteNumber,
+        quote,
+        request,
+        client: clientInfo,
+        markupPercent: markup,
+        // pdfUrl is a blob: URL here — do NOT pass it. The CDN URL arrives
+        // after UploadThing upload via updateQuotePdfAction.
+        pdfUrl: null,
+        pdfKey: null,
+      });
+
+      if (result.success) {
+        setSavedQuoteId(result.quoteId);
+      } else {
+        toast.error("Quote could not be saved to history.");
+      }
+    }
+
+    // 3. Update Zustand in-memory history (tab-session breadcrumb)
     saveQuote({
       request,
       quote,
@@ -220,14 +289,16 @@ export default function QuoteSheet({ open, onOpenChange, quote }: Props) {
     });
   };
 
+  // ── Render ────────────────────────────────────────────────────────────────
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
         className="flex w-full flex-col gap-0 overflow-y-auto p-0 sm:max-w-lg"
       >
-        {/* ── Header -────-*/}
-        <SheetHeader className="sticky top-0 z-10 border-b bg-white px-6 py-4">
+        {/* Header */}
+        <SheetHeader className="sticky top-0 z-10 border-b bg-background px-6 py-4">
           <div className="flex items-center gap-2">
             {step === "preview" && (
               <Button
@@ -245,7 +316,7 @@ export default function QuoteSheet({ open, onOpenChange, quote }: Props) {
               </SheetTitle>
               <SheetDescription className="mt-0.5 text-xs">
                 {step === "form"
-                  ? "Fill in client details and markup to create a professional PDF quote"
+                  ? "Select a client and set markup to create a professional PDF quote"
                   : `${quoteNumber} — ready to download`}
               </SheetDescription>
             </div>
@@ -253,11 +324,11 @@ export default function QuoteSheet({ open, onOpenChange, quote }: Props) {
         </SheetHeader>
 
         <div className="flex-1 px-6 py-5 space-y-5">
-          {/* ── Service summary card --──────── */}
-          <div className="rounded-xl border border-slate-100 bg-slate-50 p-3.5">
+          {/* Service summary card */}
+          <div className="rounded-lg border bg-muted/40 p-3.5">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <p className="truncate text-sm font-semibold text-slate-800">
+                <p className="truncate text-sm font-semibold">
                   {quote.productName}
                 </p>
                 <Badge variant="outline" className="mt-1.5 text-[10px]">
@@ -265,18 +336,18 @@ export default function QuoteSheet({ open, onOpenChange, quote }: Props) {
                 </Badge>
               </div>
               <div className="shrink-0 text-right">
-                <p className="text-base font-bold text-slate-900">
+                <p className="text-base font-bold">
                   {fmt(finalTotal, quote.currency)}
                 </p>
                 {markup > 0 && (
-                  <p className="text-[10px] text-slate-400">
+                  <p className="text-[10px] text-muted-foreground">
                     Base: {fmt(quote.totalWithTax, quote.currency)}
                   </p>
                 )}
               </div>
             </div>
 
-            <div className="mt-2.5 flex items-center gap-3 text-xs text-slate-500">
+            <div className="mt-2.5 flex items-center gap-3 text-xs text-muted-foreground">
               <span className="flex items-center gap-1">
                 <Clock className="h-3 w-3" />
                 {quote.tatDays > 0
@@ -284,121 +355,90 @@ export default function QuoteSheet({ open, onOpenChange, quote }: Props) {
                   : "TAT TBD"}
               </span>
               {markup > 0 && (
-                <span className="ml-auto rounded-full bg-emerald-50 border border-emerald-100 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
-                  +{markup}% markup applied
-                </span>
+                <Badge variant="secondary" className="ml-auto text-[10px]">
+                  +{markup}% markup
+                </Badge>
               )}
             </div>
           </div>
 
-          {/* ── Step 1: form ──────-*/}
+          {/* ── STEP 1: form ──────────────────────────────────────────────── */}
           {step === "form" && (
             <>
+              {/* Client selector section */}
               <section className="space-y-3">
-                <h3 className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">
-                  Client Information
+                <h3 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                  Client
                 </h3>
 
-                <div className="grid grid-cols-2 gap-2.5">
-                  <div className="space-y-1.5">
-                    <Label
-                      htmlFor="q_name"
-                      className="text-xs flex items-center gap-1 text-slate-600"
-                    >
-                      <User className="h-3 w-3" />
-                      Full name <span className="text-red-400">*</span>
-                    </Label>
-                    <Input
-                      id="q_name"
-                      value={client.name}
-                      onChange={setField("name")}
-                      placeholder="John Smith"
-                      className="h-8 text-sm"
+                {!showAddForm ? (
+                  <>
+                    <ClientSelector
+                      value={selectedClient}
+                      onSelect={handleClientSelect}
+                      onAddNew={() => setShowAddForm(true)}
                     />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label
-                      htmlFor="q_company"
-                      className="text-xs flex items-center gap-1 text-slate-600"
-                    >
-                      <Building2 className="h-3 w-3" />
-                      Company <span className="text-red-400">*</span>
-                    </Label>
-                    <Input
-                      id="q_company"
-                      value={client.company}
-                      onChange={setField("company")}
-                      placeholder="Acme Corp"
-                      className="h-8 text-sm"
-                    />
-                  </div>
-                </div>
 
-                <div className="grid grid-cols-2 gap-2.5">
-                  <div className="space-y-1.5">
-                    <Label
-                      htmlFor="q_email"
-                      className="text-xs flex items-center gap-1 text-slate-600"
-                    >
-                      <Mail className="h-3 w-3" />
-                      Email <span className="text-red-400">*</span>
-                    </Label>
-                    <Input
-                      id="q_email"
-                      type="email"
-                      value={client.email}
-                      onChange={setField("email")}
-                      placeholder="john@acme.com"
-                      className="h-8 text-sm"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label
-                      htmlFor="q_phone"
-                      className="text-xs flex items-center gap-1 text-slate-600"
-                    >
-                      <Phone className="h-3 w-3" />
-                      Phone
-                    </Label>
-                    <Input
-                      id="q_phone"
-                      value={client.phone}
-                      onChange={setField("phone")}
-                      placeholder="+91 98765 43210"
-                      className="h-8 text-sm"
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-1.5">
-                  <Label
-                    htmlFor="q_address"
-                    className="text-xs flex items-center gap-1 text-slate-600"
-                  >
-                    <MapPin className="h-3 w-3" />
-                    Billing address
-                  </Label>
-                  <Input
-                    id="q_address"
-                    value={client.address}
-                    onChange={setField("address")}
-                    placeholder="123 Business Park, Mumbai 400001"
-                    className="h-8 text-sm"
+                    {/* Selected client summary */}
+                    {selectedClient && (
+                      <div className="rounded-md border bg-muted/30 px-3 py-2.5 space-y-1">
+                        <div className="flex items-center gap-1.5 text-xs font-medium">
+                          <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
+                          {selectedClient.companyName}
+                        </div>
+                        {selectedClient.contactName && (
+                          <p className="text-xs text-muted-foreground pl-5">
+                            {selectedClient.contactName}
+                          </p>
+                        )}
+                        {selectedClient.email && (
+                          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                            <Mail className="h-3 w-3" />
+                            {selectedClient.email}
+                          </div>
+                        )}
+                        {selectedClient.phone && (
+                          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                            <Phone className="h-3 w-3" />
+                            {selectedClient.phone}
+                          </div>
+                        )}
+                        {(selectedClient.addressLine1 ||
+                          selectedClient.city) && (
+                          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                            <MapPin className="h-3 w-3" />
+                            {[
+                              selectedClient.addressLine1,
+                              selectedClient.city,
+                              selectedClient.country,
+                            ]
+                              .filter(Boolean)
+                              .join(", ")}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <AddClientForm
+                    onSaved={handleClientAdded}
+                    onCancel={() => setShowAddForm(false)}
                   />
-                </div>
+                )}
               </section>
 
               <Separator />
 
+              {/* Markup section */}
               <section className="space-y-3">
-                <h3 className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">
+                <h3 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
                   Markup
                 </h3>
 
                 <div className="space-y-2">
                   <Label
                     htmlFor="q_markup"
-                    className="text-xs flex items-center gap-1 text-slate-600"
+                    className="text-xs flex items-center gap-1"
                   >
                     <Percent className="h-3 w-3" />
                     Markup percentage
@@ -416,7 +456,7 @@ export default function QuoteSheet({ open, onOpenChange, quote }: Props) {
                       }
                       className="h-8 pr-8 text-sm"
                     />
-                    <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">
+                    <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
                       %
                     </span>
                   </div>
@@ -429,39 +469,40 @@ export default function QuoteSheet({ open, onOpenChange, quote }: Props) {
                         onClick={() => setMarkup(v)}
                         className={`rounded border px-2.5 py-1 text-xs font-medium transition-colors ${
                           markup === v
-                            ? "border-blue-600 bg-blue-600 text-white"
-                            : "border-slate-200 bg-white text-slate-600 hover:border-blue-300 hover:text-blue-600"
+                            ? "border-primary bg-primary text-primary-foreground"
+                            : "border-border bg-background text-muted-foreground hover:border-primary/50 hover:text-foreground"
                         }`}
                       >
                         {v}%
                       </button>
                     ))}
-                    {markup > 0 && !MARKUP_PRESETS.includes(markup as typeof MARKUP_PRESETS[number]) && (
-                      <span className="rounded border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700">
-                        {markup}% (custom)
-                      </span>
-                    )}
+                    {markup > 0 &&
+                      !MARKUP_PRESETS.includes(
+                        markup as (typeof MARKUP_PRESETS)[number],
+                      ) && (
+                        <span className="rounded border border-border bg-muted px-2.5 py-1 text-xs font-medium text-foreground">
+                          {markup}% (custom)
+                        </span>
+                      )}
                   </div>
                 </div>
 
                 {markup > 0 && (
-                  <div className="rounded-lg border border-slate-100 bg-slate-50 p-3 text-xs space-y-1.5">
-                    <div className="flex justify-between text-slate-500">
+                  <div className="rounded-md border bg-muted/30 p-3 text-xs space-y-1.5">
+                    <div className="flex justify-between text-muted-foreground">
                       <span>Carrier price (incl. tax)</span>
                       <span>{fmt(quote.totalWithTax, quote.currency)}</span>
                     </div>
-                    <div className="flex justify-between text-slate-500">
+                    <div className="flex justify-between text-muted-foreground">
                       <span>Markup ({markup}%)</span>
-                      <span className="text-emerald-600">
-                        + {fmt(markupAmount, quote.currency)}
-                      </span>
+                      <span>+ {fmt(markupAmount, quote.currency)}</span>
                     </div>
                     <Separator className="!my-1.5" />
-                    <div className="flex justify-between font-semibold text-slate-800">
+                    <div className="flex justify-between font-medium">
                       <span>Client quoted price</span>
                       <span>{fmt(finalTotal, quote.currency)}</span>
                     </div>
-                    <p className="text-[10px] text-slate-400 pt-0.5">
+                    <p className="text-[10px] text-muted-foreground pt-0.5">
                       Markup is not shown on the generated quote.
                     </p>
                   </div>
@@ -469,14 +510,14 @@ export default function QuoteSheet({ open, onOpenChange, quote }: Props) {
               </section>
 
               {genError && (
-                <p className="text-xs text-red-500 bg-red-50 border border-red-100 rounded px-3 py-2">
+                <p className="text-xs text-destructive bg-destructive/10 border border-destructive/20 rounded px-3 py-2">
                   {genError}
                 </p>
               )}
 
               <Button
                 className="w-full"
-                disabled={!isFormValid || generating}
+                disabled={!isFormValid || generating || showAddForm}
                 onClick={handleGenerate}
               >
                 {generating ? (
@@ -494,11 +535,11 @@ export default function QuoteSheet({ open, onOpenChange, quote }: Props) {
             </>
           )}
 
-          {/* ── Step 2: preview ───-*/}
+          {/* ── STEP 2: preview ───────────────────────────────────────────── */}
           {step === "preview" && (
             <div className="space-y-4">
               {pdfUrl ? (
-                <div className="overflow-hidden rounded-lg border border-slate-200 bg-slate-100">
+                <div className="overflow-hidden rounded-lg border">
                   <iframe
                     src={pdfUrl}
                     title="Quote Preview"
@@ -507,8 +548,8 @@ export default function QuoteSheet({ open, onOpenChange, quote }: Props) {
                   />
                 </div>
               ) : (
-                <div className="flex h-48 items-center justify-center rounded-lg border border-slate-200 bg-slate-50">
-                  <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
+                <div className="flex h-48 items-center justify-center rounded-lg border bg-muted/30">
+                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
                 </div>
               )}
 
@@ -531,7 +572,7 @@ export default function QuoteSheet({ open, onOpenChange, quote }: Props) {
                 </Button>
               </div>
 
-              <p className="text-center text-[10px] text-slate-400">
+              <p className="text-center text-[10px] text-muted-foreground">
                 {quoteNumber} · Valid 30 days · Markup not disclosed
               </p>
             </div>

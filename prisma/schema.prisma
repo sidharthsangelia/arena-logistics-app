@@ -8,14 +8,14 @@ datasource db {
 }
 
 model Client {
-  id           String   @id @default(cuid())
+  id String @id @default(cuid())
 
-  companyName  String
+  companyName String
 
-  contactName  String?
+  contactName String?
 
-  email        String?
-  phone        String?
+  email String?
+  phone String?
 
   addressLine1 String?
   city         String?
@@ -23,14 +23,72 @@ model Client {
   country      String?
   postalCode   String?
 
-  notes        String?
+  notes String?
 
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  deletedAt    DateTime?
+  deletedAt DateTime?
+  quotes    Quote[]
 
   @@index([companyName])
   @@index([email])
   @@index([deletedAt])
+}
+
+model Quote {
+  id String @id @default(cuid())
+
+  quoteNumber String @unique // e.g. "FQ-2025-48291"
+
+  // ── Carrier / product ──────────────────────────────────────────────────
+  vendorId    String
+  vendorName  String
+  productName String
+
+  // ── Pricing ────────────────────────────────────────────────────────────
+  currency      String
+  subtotal      Decimal @db.Decimal(14, 4) // totalWithoutTax
+  tax           Decimal @db.Decimal(14, 4) // tax portion
+  total         Decimal @db.Decimal(14, 4) // totalWithTax (carrier price)
+  markupPercent Decimal @db.Decimal(6, 3) // 0 = no markup
+  quotedTotal   Decimal @db.Decimal(14, 4) // total × (1 + markup/100)
+
+  // ── Transit ────────────────────────────────────────────────────────────
+  tatDays Int? // null means "TBA"
+
+  // ── Snapshots (immutable audit trail) ──────────────────────────────────
+  chargesSnapshot Json // RateQuote.charges[]
+  requestSnapshot Json // RateRequest — origin, destination, shipment
+
+  // ── Document ───────────────────────────────────────────────────────────
+  pdfUrl String? // UploadThing CDN URL; null until uploaded
+  pdfKey String? // UploadThing file key for deletion
+
+  // ── Validity ───────────────────────────────────────────────────────────
+  validUntil DateTime
+
+  // ── Workflow ───────────────────────────────────────────────────────────
+  status QuoteStatus @default(DRAFT)
+
+  // ── Relations ──────────────────────────────────────────────────────────
+  clientId String?
+  client   Client? @relation(fields: [clientId], references: [id])
+
+  // ── Timestamps ─────────────────────────────────────────────────────────
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([clientId])
+  @@index([status])
+  @@index([createdAt])
+  @@index([quoteNumber])
+}
+
+enum QuoteStatus {
+  DRAFT // Generated, not yet sent
+  SENT // Emailed / shared with client
+  ACCEPTED // Client confirmed
+  EXPIRED // Past validUntil date
+  CANCELLED
 }
