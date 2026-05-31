@@ -102,7 +102,7 @@ export default async function ClientDetailPage({ params }: Props) {
         <div className="flex items-center gap-2">
           <ClientEditSheet client={client} />
           <Button size="sm" asChild>
-            <Link href={`/?clientId=${client.id}`}>
+            <Link href="/rates">
               <FileText className="mr-1.5 h-3.5 w-3.5" />
               New quote
             </Link>
