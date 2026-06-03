@@ -30,6 +30,7 @@ model Client {
 
   deletedAt DateTime?
   quotes    Quote[]
+  documents  ClientDocument[]
 
   @@index([companyName])
   @@index([email])
@@ -91,4 +92,44 @@ enum QuoteStatus {
   ACCEPTED // Client confirmed
   EXPIRED // Past validUntil date
   CANCELLED
+}
+
+
+enum KycDocType {
+  PAN_CARD
+  ADHAR_CARD
+  GST_CERTIFICATE
+  IEC_CODE
+  MSME_CERTIFICATE
+  INCORPORATION_CERT
+  CANCELLED_CHEQUE
+  BANK_STATEMENT
+  TRADE_LICENSE
+  AUTHORIZED_SIGNATORY
+  OTHER
+}
+
+
+model ClientDocument {
+  id String @id @default(cuid())
+
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id])
+
+  docType     KycDocType
+  label       String
+  description String?
+
+  fileUrl  String
+  fileKey  String
+  fileName String
+  fileSize Int
+  mimeType String
+
+  uploadedAt DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([clientId])
+  @@index([docType])
+  @@index([clientId, docType])
 }

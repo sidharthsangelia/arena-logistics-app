@@ -1,14 +1,12 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { prisma } from "@/utils/db";
-import { ArrowLeft, FileText, Pencil } from "lucide-react";
+import { ArrowLeft, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
-
-import { Separator } from "@/components/ui/separator";
 import ClientEditSheet from "@/components/clients/clientDetailPage/ClientEditSheet";
 import ClientDetailStats from "@/components/clients/clientDetailPage/ClientDetailStats";
 import ClientQuoteHistory from "@/components/clients/clientDetailPage/ClientQuoteHistory";
-
+import KycVault from "@/components/clients/clientDetailPage/KycVault";
 
 type Props = {
   params: Promise<{ id: string }>;
@@ -50,6 +48,21 @@ export default async function ClientDetailPage({ params }: Props) {
           pdfUrl: true,
           createdAt: true,
           validUntil: true,
+        },
+      },
+      // ── Fetch KYC documents ordered newest first ──────────────────────
+      documents: {
+        orderBy: { uploadedAt: "desc" },
+        select: {
+          id: true,
+          docType: true,
+          label: true,
+          description: true,
+          fileUrl: true,
+          fileName: true,
+          fileSize: true,
+          mimeType: true,
+          uploadedAt: true,
         },
       },
     },
@@ -122,7 +135,7 @@ export default async function ClientDetailPage({ params }: Props) {
       {/* Body grid */}
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-[280px_1fr]">
 
-        {/* Left sidebar */}
+        {/* ── Left sidebar ──────────────────────────────────────────────── */}
         <div className="space-y-4">
 
           {/* Contact info */}
@@ -171,8 +184,27 @@ export default async function ClientDetailPage({ params }: Props) {
 
         </div>
 
-        {/* Quote history */}
-        <ClientQuoteHistory quotes={client.quotes} />
+        {/* ── Right column: Quote history + KYC Vault ───────────────────── */}
+        <div className="space-y-5">
+          <ClientQuoteHistory quotes={client.quotes} />
+
+          {/* KYC Vault — seamlessly integrated below quote history */}
+          <KycVault
+            clientId={client.id}
+            documents={client.documents.map((d) => ({
+              id:          d.id,
+              docType:     d.docType as any,
+              label:       d.label,
+              description: d.description,
+              fileUrl:     d.fileUrl,
+              fileName:    d.fileName,
+              fileSize:    d.fileSize,
+              mimeType:    d.mimeType,
+              uploadedAt:  d.uploadedAt,
+            }))}
+          />
+        </div>
+
       </div>
     </div>
   );
@@ -191,9 +223,7 @@ function InfoRow({
     <div className="flex flex-col gap-0.5 py-3">
       <span className="text-[11px] text-muted-foreground">{label}</span>
       {value ? (
-        <span
-          className={`text-sm ${mono ? "font-mono text-xs" : ""}`}
-        >
+        <span className={`text-sm ${mono ? "font-mono text-xs" : ""}`}>
           {value}
         </span>
       ) : (
