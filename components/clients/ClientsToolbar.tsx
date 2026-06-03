@@ -8,6 +8,7 @@ import ImportClientsButton from "./ImportClientButton";
 export default function ClientsToolbar() {
   return (
     <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      {/* Always visible — no client hooks, no data dependency */}
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Clients</h1>
         <p className="text-sm text-muted-foreground">
@@ -15,16 +16,24 @@ export default function ClientsToolbar() {
         </p>
       </div>
 
-      <div className="flex items-center gap-2">
-        {/* useSearchParams() inside ClientsSearch requires a Suspense boundary */}
-        <Suspense fallback={<Skeleton className="h-9 w-[280px] rounded-md" />}>
+      {/* Only this section suspends — useSearchParams lives inside ClientsSearch */}
+      <Suspense
+        fallback={
+          <div className="flex items-center gap-2">
+            <Skeleton className="h-9 w-[280px] rounded-md" />
+            <Skeleton className="h-9 w-24 rounded-md" />
+            <Skeleton className="h-9 w-24 rounded-md" />
+            <Skeleton className="h-9 w-28 rounded-md" />
+          </div>
+        }
+      >
+        <div className="flex items-center gap-2">
           <ClientsSearch />
-        </Suspense>
-
-        <ImportClientsButton />
-        <ExportClientsButton />
-        <CreateClientDialog />
-      </div>
+          <ImportClientsButton />
+          <ExportClientsButton />
+          <CreateClientDialog />
+        </div>
+      </Suspense>
     </div>
   );
 }
