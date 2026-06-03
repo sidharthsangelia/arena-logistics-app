@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import {
   FileText,
   ImageIcon,
@@ -13,7 +13,6 @@ import {
 import { toast } from "sonner";
 
 import type { KycDocType } from "@/generated/prisma";
-
 
 import {
   Table,
@@ -45,11 +44,12 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
-import { KYC_DOC_TYPE_LABELS, KYC_DOC_TYPES } from "@/lib/validations/clientsDocument.schema";
+import {
+  KYC_DOC_TYPE_LABELS,
+  KYC_DOC_TYPES,
+} from "@/lib/validations/clientsDocument.schema";
 import { VaultDocumentRow } from "@/actions/documentVault/documentValut.action";
 import { deleteKycDocumentAction } from "@/actions/documentVault/clientsDocument.action";
-
-
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -65,16 +65,16 @@ const DOC_TYPE_OPTIONS = [
 // ─────────────────────────────────────────────────────────────────────────────
 
 function formatBytes(bytes: number): string {
-  if (bytes < 1024)        return `${bytes} B`;
+  if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
 }
 
 function formatDate(d: Date): string {
   return new Intl.DateTimeFormat("en-IN", {
-    day:   "2-digit",
+    day: "2-digit",
     month: "short",
-    year:  "2-digit",
+    year: "2-digit",
   }).format(new Date(d));
 }
 
@@ -88,11 +88,11 @@ function isImage(mimeType: string) {
 
 interface Props {
   documents: VaultDocumentRow[];
-  page:      number;
-  total:     number;
-  pageSize:  number;
-  query:     string;
-  docType:   KycDocType | "";
+  page: number;
+  total: number;
+  pageSize: number;
+  query: string;
+  docType: KycDocType | "";
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -107,16 +107,65 @@ export default function VaultTable({
   query,
   docType,
 }: Props) {
-  const router       = useRouter();
+  const router = useRouter();
   const searchParams = useSearchParams();
-  const totalPages   = Math.max(1, Math.ceil(total / pageSize));
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
-  const [selected, setSelected]   = useState<Set<string>>(new Set());
+  const [searchValue, setSearchValue] = useState(query);
+
+  useEffect(() => {
+  setSearchValue(query);
+}, [query]);
+
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [isPending, startTransition] = useTransition();
 
-  const allIds      = documents.map((d) => d.id);
-  const allSelected = allIds.length > 0 && allIds.every((id) => selected.has(id));
+  const [documentToDelete, setDocumentToDelete] = useState<{
+    id: string;
+    label: string;
+  } | null>(null);
+
+  const allIds = documents.map((d) => d.id);
+  const allSelected =
+    allIds.length > 0 && allIds.every((id) => selected.has(id));
   const someSelected = selected.size > 0;
+
+
+  const searchParamsString = searchParams.toString();
+
+useEffect(() => {
+  const timer = setTimeout(() => {
+    const params = new URLSearchParams(searchParamsString);
+
+    if (searchValue.trim()) {
+      params.set("q", searchValue.trim());
+    } else {
+      params.delete("q");
+    }
+
+    params.delete("page");
+
+    const nextUrl =
+      `/document-vault?${params.toString()}`;
+
+    const currentUrl =
+      `/document-vault?${searchParamsString}`;
+
+    if (nextUrl === currentUrl) {
+      return;
+    }
+
+    startTransition(() => {
+      router.replace(nextUrl);
+    });
+  }, 400);
+
+  return () => clearTimeout(timer);
+}, [
+  searchValue,
+  searchParamsString,
+  router,
+]);
 
   // ── Selection handlers ─────────────────────────────────────────────────────
 
@@ -130,11 +179,29 @@ export default function VaultTable({
       return next;
     });
 
+  const handleSingleDelete = () => {
+    if (!documentToDelete) return;
+
+    startTransition(async () => {
+      const result = await deleteKycDocumentAction(documentToDelete.id);
+
+      if (result.success) {
+        toast.success("Document deleted.");
+
+        setDocumentToDelete(null);
+
+        router.refresh();
+      } else {
+        toast.error(result.message);
+      }
+    });
+  };
+
   // ── Bulk delete ────────────────────────────────────────────────────────────
 
   const handleBulkDelete = () => {
     startTransition(async () => {
-      const ids    = Array.from(selected);
+      const ids = Array.from(selected);
       const errors: string[] = [];
 
       // deleteKycDocumentAction handles one doc at a time (also deletes from UT)
@@ -168,14 +235,14 @@ export default function VaultTable({
       else params.set(key, value);
     });
     params.delete("page");
-    router.push(`/document-vault?${params.toString()}`);
+    router.replace(`/document-vault?${params.toString()}`);
   };
 
   const changePage = (newPage: number) => {
     const params = new URLSearchParams(searchParams);
     if (newPage <= 1) params.delete("page");
     else params.set("page", String(newPage));
-    router.push(`/document-vault?${params.toString()}`);
+    router.replace(`/document-vault?${params.toString()}`);
   };
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -184,7 +251,6 @@ export default function VaultTable({
 
   return (
     <div className="space-y-4">
-
       {/* Filter bar / bulk action bar */}
       <div className="flex flex-wrap items-center gap-2">
         {someSelected ? (
@@ -209,7 +275,8 @@ export default function VaultTable({
               <AlertDialogContent>
                 <AlertDialogHeader>
                   <AlertDialogTitle>
-                    Delete {selected.size} document{selected.size !== 1 ? "s" : ""}?
+                    Delete {selected.size} document
+                    {selected.size !== 1 ? "s" : ""}?
                   </AlertDialogTitle>
                   <AlertDialogDescription>
                     Selected document{selected.size !== 1 ? "s" : ""} will be
@@ -241,28 +308,12 @@ export default function VaultTable({
         ) : (
           /* ── Filter mode ── */
           <>
-           <Input
-  placeholder="Search documents, clients, GST, IEC, PAN..."
-  defaultValue={query}
-  className="h-8 w-[320px] text-sm"
-  onChange={(e) => {
-    const params = new URLSearchParams(
-      searchParams.toString()
-    );
-
-    const value = e.target.value;
-
-    if (value) {
-      params.set("q", value);
-    } else {
-      params.delete("q");
-    }
-
-    params.delete("page");
-
-    router.replace(`/document-vault?${params.toString()}`);
-  }}
-/>
+            <Input
+              placeholder="Search documents, clients, GST, IEC, PAN..."
+              value={searchValue}
+              className="h-8 w-[320px] text-sm"
+              onChange={(e) => setSearchValue(e.target.value)}
+            />
 
             <Select
               value={docType || "all"}
@@ -283,31 +334,28 @@ export default function VaultTable({
             </Select>
 
             <div className="flex flex-wrap gap-2">
-  {[
-    { label: "GST", value: "GST_CERTIFICATE" },
-    { label: "IEC", value: "IEC_CODE" },
-    { label: "PAN", value: "PAN_CARD" },
-    { label: "Bank", value: "BANK_STATEMENT" },
-    { label: "Cheque", value: "CANCELLED_CHEQUE" },
-  ].map((chip) => (
-    <Button
-      key={chip.value}
-      variant={docType === chip.value ? "default" : "outline"}
-      size="sm"
-      className="h-7"
-      onClick={() =>
-        updateParams({
-          docType:
-            docType === chip.value
-              ? undefined
-              : chip.value,
-        })
-      }
-    >
-      {chip.label}
-    </Button>
-  ))}
-</div>
+              {[
+                { label: "GST", value: "GST_CERTIFICATE" },
+                { label: "IEC", value: "IEC_CODE" },
+                { label: "PAN", value: "PAN_CARD" },
+                { label: "Bank", value: "BANK_STATEMENT" },
+                { label: "Cheque", value: "CANCELLED_CHEQUE" },
+              ].map((chip) => (
+                <Button
+                  key={chip.value}
+                  variant={docType === chip.value ? "default" : "outline"}
+                  size="sm"
+                  className="h-7"
+                  onClick={() =>
+                    updateParams({
+                      docType: docType === chip.value ? undefined : chip.value,
+                    })
+                  }
+                >
+                  {chip.label}
+                </Button>
+              ))}
+            </div>
           </>
         )}
 
@@ -328,12 +376,24 @@ export default function VaultTable({
                   aria-label="Select all"
                 />
               </TableHead>
-              <TableHead className="text-xs uppercase tracking-wide">Document</TableHead>
-              <TableHead className="text-xs uppercase tracking-wide">Type</TableHead>
-              <TableHead className="text-xs uppercase tracking-wide">Client</TableHead>
-              <TableHead className="text-xs uppercase tracking-wide">File</TableHead>
-              <TableHead className="text-xs uppercase tracking-wide">Size</TableHead>
-              <TableHead className="text-xs uppercase tracking-wide">Uploaded</TableHead>
+              <TableHead className="text-xs uppercase tracking-wide">
+                Document
+              </TableHead>
+              <TableHead className="text-xs uppercase tracking-wide">
+                Type
+              </TableHead>
+              <TableHead className="text-xs uppercase tracking-wide">
+                Client
+              </TableHead>
+              <TableHead className="text-xs uppercase tracking-wide">
+                File
+              </TableHead>
+              <TableHead className="text-xs uppercase tracking-wide">
+                Size
+              </TableHead>
+              <TableHead className="text-xs uppercase tracking-wide">
+                Uploaded
+              </TableHead>
               <TableHead className="w-10" />
             </TableRow>
           </TableHeader>
@@ -365,23 +425,30 @@ export default function VaultTable({
 
                   {/* Label + open link */}
                   <TableCell>
-                    <Link    href={doc.fileUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-sm font-medium hover:underline ">
-                     <span className="block text-sm font-medium leading-tight">
-                      {doc.label}
-                    </span>
+                    <Link
+                      href={doc.fileUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-sm font-medium hover:underline "
+                    >
+                      <span className="block text-sm font-medium leading-tight">
+                        {doc.label}
+                      </span>
                     </Link>
-                   
+
                     {doc.description && (
                       <span className="mt-0.5 block truncate text-[11px] text-muted-foreground max-w-[200px]">
                         {doc.description}
                       </span>
                     )}
-                 
                   </TableCell>
 
                   {/* Doc type badge */}
                   <TableCell>
-                    <Badge variant="secondary" className="text-[11px] font-normal">
+                    <Badge
+                      variant="secondary"
+                      className="text-[11px] font-normal"
+                    >
                       {KYC_DOC_TYPE_LABELS[doc.docType]}
                     </Badge>
                   </TableCell>
@@ -412,7 +479,9 @@ export default function VaultTable({
                       ) : (
                         <FileText className="h-3.5 w-3.5 shrink-0" />
                       )}
-                      <span className="max-w-[140px] truncate">{doc.fileName}</span>
+                      <span className="max-w-[140px] truncate">
+                        {doc.fileName}
+                      </span>
                     </span>
                   </TableCell>
 
@@ -428,11 +497,19 @@ export default function VaultTable({
 
                   {/* Single-row delete */}
                   <TableCell>
-                    <SingleDeleteButton
-                      id={doc.id}
-                      label={doc.label}
-                      onDeleted={() => router.refresh()}
-                    />
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                      onClick={() =>
+                        setDocumentToDelete({
+                          id: doc.id,
+                          label: doc.label,
+                        })
+                      }
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
                   </TableCell>
                 </TableRow>
               ))
@@ -465,70 +542,36 @@ export default function VaultTable({
           </Button>
         </div>
       </div>
+      <AlertDialog
+        open={!!documentToDelete}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDocumentToDelete(null);
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete document?</AlertDialogTitle>
+
+            <AlertDialogDescription>
+              <strong>{documentToDelete?.label}</strong> will be permanently
+              deleted from the vault and storage. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+
+            <AlertDialogAction
+              onClick={handleSingleDelete}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// SingleDeleteButton
-//
-// Inline delete with confirmation — avoids polluting VaultTable state.
-// ─────────────────────────────────────────────────────────────────────────────
-
-function SingleDeleteButton({
-  id,
-  label,
-  onDeleted,
-}: {
-  id:        string;
-  label:     string;
-  onDeleted: () => void;
-}) {
-  const [isPending, startTransition] = useTransition();
-
-  function handleDelete() {
-    startTransition(async () => {
-      const result = await deleteKycDocumentAction(id);
-      if (result.success) {
-        toast.success("Document deleted.");
-        onDeleted();
-      } else {
-        toast.error(result.message);
-      }
-    });
-  }
-
-  return (
-    <AlertDialog>
-      <AlertDialogTrigger asChild>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-7 w-7 text-muted-foreground hover:text-destructive"
-          disabled={isPending}
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-          <span className="sr-only">Delete {label}</span>
-        </Button>
-      </AlertDialogTrigger>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>Delete document?</AlertDialogTitle>
-          <AlertDialogDescription>
-            <strong>{label}</strong> will be permanently deleted from the vault
-            and storage. This cannot be undone.
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
-          <AlertDialogAction
-            onClick={handleDelete}
-            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-          >
-            Delete
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
   );
 }
