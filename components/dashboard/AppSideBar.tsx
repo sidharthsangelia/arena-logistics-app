@@ -1,8 +1,9 @@
 "use client";
 
-import { usePathname } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
+import { usePathname } from "next/navigation";
+
 import {
   LayoutDashboard,
   Calculator,
@@ -11,12 +12,13 @@ import {
   Package,
   FileText,
   Settings,
-  LogIn,
-  UserPlus,
   User,
   FileUser,
   Shield,
+  LogIn,
+  UserPlus,
 } from "lucide-react";
+
 import {
   Sidebar,
   SidebarContent,
@@ -28,83 +30,150 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
-  SidebarSeparator,
 } from "@/components/ui/sidebar";
-import { Badge } from "@/components/ui/badge";
+
 import { Show, SignInButton, SignUpButton, UserButton } from "@clerk/nextjs";
 
-// Nav items
+// -----------------------------------------------------------------------------
+// Navigation
+// -----------------------------------------------------------------------------
 
-const NAV_MAIN = [
-  { label: "Overview", href: "/", icon: LayoutDashboard, badge: null },
-  { label: "Clients", href: "/clients", icon: User, badge: null },
-  { label: "Rate Calculator", href: "/rates", icon: Calculator, badge: null },
-  { label: "Book Order", href: "/book", icon: PackagePlus, badge: null },
-  { label: "Track Shipment", href: "/track", icon: MapPin, badge: null },
-  { label: "Quotes", href: "/quotes", icon: FileUser, badge: null },
-  { label: "Shipments", href: "/shipments", icon: Package, badge: "3" },
-  { label: "Invoices", href: "/invoices", icon: FileText, badge: null },
-  { label: "Document Vault", href: "/document-vault", icon: Shield, badge: null },
+const OPERATIONS = [
+  {
+    title: "Dashboard",
+    href: "/",
+    icon: LayoutDashboard,
+  },
+  {
+    title: "Clients",
+    href: "/clients",
+    icon: User,
+  },
+  {
+    title: "Quotes",
+    href: "/quotes",
+    icon: FileUser,
+  },
+  {
+    title: "Document Vault",
+    href: "/document-vault",
+    icon: Shield,
+  },
 ] as const;
 
-const NAV_SYSTEM = [
-  { label: "Settings", href: "/settings", icon: Settings },
+const SHIPPING = [
+  {
+    title: "Rate Calculator",
+    href: "/rates",
+    icon: Calculator,
+  },
+  {
+    title: "Book Shipment",
+    href: "/book",
+    icon: PackagePlus,
+  },
+  {
+    title: "Track Shipment",
+    href: "/track",
+    icon: MapPin,
+  },
+  {
+    title: "Shipments",
+    href: "/shipments",
+    icon: Package,
+  },
 ] as const;
+
+const ADMIN = [
+  {
+    title: "Invoices",
+    href: "/invoices",
+    icon: FileText,
+  },
+  {
+    title: "Settings",
+    href: "/settings",
+    icon: Settings,
+  },
+] as const;
+
+// -----------------------------------------------------------------------------
+// Component
+// -----------------------------------------------------------------------------
 
 export function AppSidebar() {
   const pathname = usePathname();
 
-  const isActive = (href: string) =>
-    pathname === href || (href !== "/" && pathname.startsWith(href));
+  const isActive = (href: string) => {
+    if (href === "/") return pathname === "/";
+    return pathname.startsWith(href);
+  };
 
   return (
-    <Sidebar collapsible="icon" className="border-r border-sidebar-border">
-      {/* Brand header */}
-      <SidebarHeader className="px-3 py-4">
-        <Link href="/" className="flex items-center gap-2.5 px-1">
+    <Sidebar
+      collapsible="icon"
+      className="border-r bg-sidebar"
+    >
+      {/* ------------------------------------------------------------------ */}
+      {/* Brand */}
+      {/* ------------------------------------------------------------------ */}
+
+      <SidebarHeader className="px-4 py-4">
+        <Link
+          href="/"
+          className="flex items-center gap-3"
+        >
           <Image
             src="/arena_logo.png"
-            alt="Arena Cargo Logo"
-            width={84}
-            height={32}
+            alt="Arena Cargo"
+            width={90}
+            height={34}
+            priority
           />
-          <div className="group-data-[collapsible=icon]:hidden overflow-hidden">
-            <p className="text-sm font-semibold leading-none text-sidebar-foreground truncate">
+
+          <div className="group-data-[collapsible=icon]:hidden min-w-0">
+            <p className="truncate text-sm font-semibold">
               Arena Cargo
             </p>
-            <p className="text-xs text-sidebar-foreground/50 mt-0.5 truncate">
-              &amp; Logistics
+
+            <p className="truncate text-xs text-muted-foreground">
+              Operations Platform
             </p>
           </div>
         </Link>
       </SidebarHeader>
 
-      <SidebarSeparator />
+      {/* ------------------------------------------------------------------ */}
+      {/* Navigation */}
+      {/* ------------------------------------------------------------------ */}
 
-      {/* Main nav */}
       <SidebarContent>
+
+        {/* Operations */}
+
         <SidebarGroup>
-          <SidebarGroupLabel>Main Menu</SidebarGroupLabel>
+          <SidebarGroupLabel>
+            Operations
+          </SidebarGroupLabel>
+
           <SidebarGroupContent>
             <SidebarMenu>
-              {NAV_MAIN.map((item) => (
+              {OPERATIONS.map((item) => (
                 <SidebarMenuItem key={item.href}>
                   <SidebarMenuButton
                     asChild
+                    tooltip={item.title}
                     isActive={isActive(item.href)}
-                    tooltip={item.label}
                   >
-                    <Link href={item.href} className="flex items-center gap-2">
-                      <item.icon className="shrink-0" />
-                      <span className="flex-1 truncate">{item.label}</span>
-                      {item.badge && (
-                        <Badge
-                          variant="secondary"
-                          className="ml-auto h-5 min-w-5 px-1 text-xs group-data-[collapsible=icon]:hidden"
-                        >
-                          {item.badge}
-                        </Badge>
-                      )}
+                    <Link
+                      href={item.href}
+                      className="flex items-center gap-3"
+                    >
+                      <item.icon className="h-4 w-4 shrink-0" />
+
+                      <span className="truncate">
+                        {item.title}
+                      </span>
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
@@ -113,20 +182,31 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
 
+        {/* Shipping */}
+
         <SidebarGroup>
-          <SidebarGroupLabel>System</SidebarGroupLabel>
+          <SidebarGroupLabel>
+            Shipping
+          </SidebarGroupLabel>
+
           <SidebarGroupContent>
             <SidebarMenu>
-              {NAV_SYSTEM.map((item) => (
+              {SHIPPING.map((item) => (
                 <SidebarMenuItem key={item.href}>
                   <SidebarMenuButton
                     asChild
+                    tooltip={item.title}
                     isActive={isActive(item.href)}
-                    tooltip={item.label}
                   >
-                    <Link href={item.href}>
-                      <item.icon className="shrink-0" />
-                      <span>{item.label}</span>
+                    <Link
+                      href={item.href}
+                      className="flex items-center gap-3"
+                    >
+                      <item.icon className="h-4 w-4 shrink-0" />
+
+                      <span className="truncate">
+                        {item.title}
+                      </span>
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
@@ -134,47 +214,79 @@ export function AppSidebar() {
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
+
+        {/* Admin */}
+
+        <SidebarGroup>
+          <SidebarGroupLabel>
+            Administration
+          </SidebarGroupLabel>
+
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {ADMIN.map((item) => (
+                <SidebarMenuItem key={item.href}>
+                  <SidebarMenuButton
+                    asChild
+                    tooltip={item.title}
+                    isActive={isActive(item.href)}
+                  >
+                    <Link
+                      href={item.href}
+                      className="flex items-center gap-3"
+                    >
+                      <item.icon className="h-4 w-4 shrink-0" />
+
+                      <span className="truncate">
+                        {item.title}
+                      </span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
       </SidebarContent>
 
-      {/* Footer / auth */}
-      <SidebarFooter className="p-3">
-        <SidebarSeparator className="mb-2" />
+      {/* ------------------------------------------------------------------ */}
+      {/* Footer */}
+      {/* ------------------------------------------------------------------ */}
 
-        {/* Signed in: Clerk UserButton */}
+      <SidebarFooter className="border-t p-3">
+
         <Show when="signed-in">
-          <SidebarMenu>
-            <SidebarMenuItem>
-              <SidebarMenuButton
-                size="lg"
-                className="group-data-[collapsible=icon]:justify-center gap-3 h-auto py-2"
-                tooltip="Account"
-              >
-                <UserButton
-                  appearance={{
-                    elements: { avatarBox: "h-7 w-7 shrink-0" },
-                  }}
-                />
-                <div className="flex flex-col items-start text-left group-data-[collapsible=icon]:hidden min-w-0 flex-1">
-                  <span className="text-xs font-medium truncate leading-none">
-                    My Account
-                  </span>
-                  <span className="text-xs text-sidebar-foreground/50 truncate mt-0.5">
-                    Manage profile &amp; billing
-                  </span>
-                </div>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          </SidebarMenu>
+          <div className="flex items-center gap-3 rounded-lg px-2 py-2">
+            <UserButton
+              appearance={{
+                elements: {
+                  avatarBox: "h-8 w-8",
+                },
+              }}
+            />
+
+            <div className="group-data-[collapsible=icon]:hidden min-w-0 flex-1">
+              <p className="truncate text-sm font-medium">
+                Workspace Account
+              </p>
+
+              <p className="truncate text-xs text-muted-foreground">
+                Manage profile and security
+              </p>
+            </div>
+          </div>
         </Show>
 
-        {/* Signed out: Sign In + Sign Up */}
         <Show when="signed-out">
           <SidebarMenu>
+
             <SidebarMenuItem>
-              <SidebarMenuButton tooltip="Sign In" asChild>
+              <SidebarMenuButton asChild>
                 <SignInButton mode="modal">
-                  <button className="flex w-full items-center gap-2 text-sm">
-                    <LogIn className="h-4 w-4 shrink-0" />
+                  <button className="flex w-full items-center gap-3">
+                    <LogIn className="h-4 w-4" />
+
                     <span className="group-data-[collapsible=icon]:hidden">
                       Sign In
                     </span>
@@ -184,10 +296,11 @@ export function AppSidebar() {
             </SidebarMenuItem>
 
             <SidebarMenuItem>
-              <SidebarMenuButton tooltip="Create Account" asChild>
+              <SidebarMenuButton asChild>
                 <SignUpButton mode="modal">
-                  <button className="flex w-full items-center gap-2 text-sm font-medium text-blue-600 dark:text-blue-400">
-                    <UserPlus className="h-4 w-4 shrink-0" />
+                  <button className="flex w-full items-center gap-3">
+                    <UserPlus className="h-4 w-4" />
+
                     <span className="group-data-[collapsible=icon]:hidden">
                       Create Account
                     </span>
@@ -195,8 +308,10 @@ export function AppSidebar() {
                 </SignUpButton>
               </SidebarMenuButton>
             </SidebarMenuItem>
+
           </SidebarMenu>
         </Show>
+
       </SidebarFooter>
     </Sidebar>
   );

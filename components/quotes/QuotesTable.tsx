@@ -278,19 +278,12 @@ export default function QuotesTable({
                   </TableCell>
 
                   <TableCell>
-                    <span className="block text-sm font-medium">
+                    <Link  href={quote.pdfUrl!} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-sm font-medium hover:underline ">
+                     <span className="block text-sm font-medium leading-tight">
                       {quote.quoteNumber}
                     </span>
-                    {quote.pdfUrl && (
-                      <Link
-                        href={quote.pdfUrl}
-                        target="_blank"
-                        className="mt-0.5 inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:underline"
-                      >
-                        <FileText className="h-3 w-3" />
-                        View PDF
-                      </Link>
-                    )}
+                    </Link>
+                   
                   </TableCell>
 
                   <TableCell>

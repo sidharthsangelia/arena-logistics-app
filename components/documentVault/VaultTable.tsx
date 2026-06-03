@@ -365,23 +365,18 @@ export default function VaultTable({
 
                   {/* Label + open link */}
                   <TableCell>
-                    <span className="block text-sm font-medium leading-tight">
+                    <Link    href={doc.fileUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-sm font-medium hover:underline ">
+                     <span className="block text-sm font-medium leading-tight">
                       {doc.label}
                     </span>
+                    </Link>
+                   
                     {doc.description && (
                       <span className="mt-0.5 block truncate text-[11px] text-muted-foreground max-w-[200px]">
                         {doc.description}
                       </span>
                     )}
-                    <a
-                      href={doc.fileUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="mt-0.5 inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:underline"
-                    >
-                      <ExternalLink className="h-3 w-3" />
-                      Open file
-                    </a>
+                 
                   </TableCell>
 
                   {/* Doc type badge */}

@@ -31,6 +31,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { deleteKycDocumentAction } from "@/actions/documentVault/clientsDocument.action";
 import { KycDocType, KYC_DOC_TYPE_LABELS } from "@/lib/validations/clientsDocument.schema";
+import Link from "next/link";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -106,91 +107,90 @@ export default function KycDocumentCard({
 
   return (
     <>
-      <div className="group flex items-start gap-3 rounded-lg border bg-card p-3 transition-colors hover:bg-muted/40">
+  <Link
+  href={fileUrl}
+  target="_blank"
+  rel="noopener noreferrer"
+  className="
+    group relative flex items-start gap-3
+    rounded-lg border bg-card p-3
+    transition-colors hover:bg-muted/40
+  "
+>
+  {/* Delete button */}
 
-        {/* File type icon */}
-        <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-muted">
-          {fileIsImage ? (
-            <ImageIcon className="h-4 w-4 text-muted-foreground" />
-          ) : (
-            <FileText className="h-4 w-4 text-muted-foreground" />
-          )}
-        </div>
+  <Button
+    type="button"
+    variant="ghost"
+    size="icon"
+    onClick={(e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setConfirmOpen(true);
+    }}
+    className="
+      absolute right-2 top-2
+      h-7 w-7
+      text-muted-foreground
+      opacity-0
+      transition-opacity
+      hover:text-destructive
+      group-hover:opacity-100
+    "
+  >
+    <Trash2 className="h-3.5 w-3.5" />
+    <span className="sr-only">Delete document</span>
+  </Button>
 
-        {/* Body */}
-        <div className="min-w-0 flex-1">
-          <div className="flex items-start justify-between gap-2">
-            <div className="min-w-0">
-              <p className="truncate text-sm font-medium leading-tight">
-                {label}
-              </p>
-              <p className="mt-0.5 text-[11px] text-muted-foreground">
-                {fileName} · {formatBytes(fileSize)}
-              </p>
-            </div>
+  {/* File icon */}
 
-            {/* Actions menu */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7 shrink-0 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100"
-                >
-                  <MoreVertical className="h-3.5 w-3.5" />
-                  <span className="sr-only">Document actions</span>
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-40">
-                <DropdownMenuItem asChild>
-                  <a
-                    href={fileUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-2"
-                  >
-                    <ExternalLink className="h-3.5 w-3.5" />
-                    Open file
-                  </a>
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  className="text-destructive focus:text-destructive"
-                  onClick={() => setConfirmOpen(true)}
-                  disabled={deleting}
-                >
-                  <Trash2 className="mr-2 h-3.5 w-3.5" />
-                  Delete
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
+  <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-muted">
+    {fileIsImage ? (
+      <ImageIcon className="h-4 w-4 text-muted-foreground" />
+    ) : (
+      <FileText className="h-4 w-4 text-muted-foreground" />
+    )}
+  </div>
 
-          {/* Badges row */}
-          <div className="mt-2 flex flex-wrap items-center gap-1.5">
-            <Badge variant="secondary" className="px-1.5 py-0 text-[10px] font-normal">
-              {typeLabel}
-            </Badge>
-            <span className="text-[10px] text-muted-foreground">
-              Added {formatDate(uploadedAt)}
-            </span>
-          </div>
+  {/* Content */}
 
-          {/* Description */}
-          {description && (
-            <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">
-              {description}
-            </p>
-          )}
-        </div>
+  <div className="min-w-0 flex-1 pr-8">
+    <p className="truncate text-sm font-medium leading-tight">
+      {label}
+    </p>
 
-        {/* Loading overlay while deleting */}
-        {deleting && (
-          <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-background/70">
-            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-          </div>
-        )}
-      </div>
+    <p className="mt-0.5 text-[11px] text-muted-foreground">
+      {fileName} · {formatBytes(fileSize)}
+    </p>
+
+    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+      <Badge
+        variant="secondary"
+        className="px-1.5 py-0 text-[10px] font-normal"
+      >
+        {typeLabel}
+      </Badge>
+
+      <span className="text-[10px] text-muted-foreground">
+        Added {formatDate(uploadedAt)}
+      </span>
+    </div>
+
+    {description && (
+      <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">
+        {description}
+      </p>
+    )}
+  </div>
+
+  {/* Loading */}
+
+  {deleting && (
+    <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-background/70">
+      <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+    </div>
+  )}
+</Link>
 
       {/* Delete confirmation */}
       <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
