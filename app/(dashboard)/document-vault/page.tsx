@@ -63,9 +63,9 @@ export default async function VaultPage({ searchParams }: PageProps) {
 
   return (
     <div className="space-y-6 px-4 py-6 sm:px-6 lg:px-8">
-      <Suspense>
+   
         <VaultToolbar />
-      </Suspense>
+    
 
       <Suspense fallback={<VaultTableSkeleton />}>
         <VaultTable
