@@ -46,8 +46,8 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { KYC_DOC_TYPE_LABELS, KYC_DOC_TYPES } from "@/lib/validations/clientsDocument.schema";
-import { VaultDocumentRow } from "@/actions/documentValut.action";
-import { deleteKycDocumentAction } from "@/actions/clientsDocument.action";
+import { VaultDocumentRow } from "@/actions/documentVault/documentValut.action";
+import { deleteKycDocumentAction } from "@/actions/documentVault/clientsDocument.action";
 
 
 
@@ -168,14 +168,14 @@ export default function VaultTable({
       else params.set(key, value);
     });
     params.delete("page");
-    router.push(`/vault?${params.toString()}`);
+    router.push(`/document-vault?${params.toString()}`);
   };
 
   const changePage = (newPage: number) => {
     const params = new URLSearchParams(searchParams);
     if (newPage <= 1) params.delete("page");
     else params.set("page", String(newPage));
-    router.push(`/vault?${params.toString()}`);
+    router.push(`/document-vault?${params.toString()}`);
   };
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -241,18 +241,28 @@ export default function VaultTable({
         ) : (
           /* ── Filter mode ── */
           <>
-            <Input
-              placeholder="Search by label, client, file…"
-              defaultValue={query}
-              className="h-8 w-[220px] text-sm"
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  updateParams({
-                    q: (e.target as HTMLInputElement).value || undefined,
-                  });
-                }
-              }}
-            />
+           <Input
+  placeholder="Search documents, clients, GST, IEC, PAN..."
+  defaultValue={query}
+  className="h-8 w-[320px] text-sm"
+  onChange={(e) => {
+    const params = new URLSearchParams(
+      searchParams.toString()
+    );
+
+    const value = e.target.value;
+
+    if (value) {
+      params.set("q", value);
+    } else {
+      params.delete("q");
+    }
+
+    params.delete("page");
+
+    router.replace(`/document-vault?${params.toString()}`);
+  }}
+/>
 
             <Select
               value={docType || "all"}
@@ -271,6 +281,33 @@ export default function VaultTable({
                 ))}
               </SelectContent>
             </Select>
+
+            <div className="flex flex-wrap gap-2">
+  {[
+    { label: "GST", value: "GST_CERTIFICATE" },
+    { label: "IEC", value: "IEC_CODE" },
+    { label: "PAN", value: "PAN_CARD" },
+    { label: "Bank", value: "BANK_STATEMENT" },
+    { label: "Cheque", value: "CANCELLED_CHEQUE" },
+  ].map((chip) => (
+    <Button
+      key={chip.value}
+      variant={docType === chip.value ? "default" : "outline"}
+      size="sm"
+      className="h-7"
+      onClick={() =>
+        updateParams({
+          docType:
+            docType === chip.value
+              ? undefined
+              : chip.value,
+        })
+      }
+    >
+      {chip.label}
+    </Button>
+  ))}
+</div>
           </>
         )}
 

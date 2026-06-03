@@ -6,6 +6,7 @@ import { UTApi } from "uploadthing/server";
 import { SaveKycDocumentInput, saveKycDocumentSchema } from "@/lib/validations/clientsDocument.schema";
 
 
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
@@ -17,6 +18,10 @@ type ActionResult =
 type SaveResult =
   | { success: true; documentId: string }
   | { success: false; message: string };
+
+
+
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // saveKycDocumentAction

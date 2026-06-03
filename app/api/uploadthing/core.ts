@@ -1,7 +1,7 @@
 import { createUploadthing, type FileRouter } from "uploadthing/next";
 import { updateQuotePdfAction } from "@/actions/quotes.action";
 import { auth } from "@clerk/nextjs/server";
-import { saveKycDocumentAction } from "@/actions/clientsDocument.action";
+import { saveKycDocumentAction } from "@/actions/documentVault/clientsDocument.action";
 
 const f = createUploadthing();
 

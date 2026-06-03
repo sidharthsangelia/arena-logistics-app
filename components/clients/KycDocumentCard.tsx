@@ -29,7 +29,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { deleteKycDocumentAction } from "@/actions/clientsDocument.action";
+import { deleteKycDocumentAction } from "@/actions/documentVault/clientsDocument.action";
 import { KycDocType, KYC_DOC_TYPE_LABELS } from "@/lib/validations/clientsDocument.schema";
 
 // ─────────────────────────────────────────────────────────────────────────────

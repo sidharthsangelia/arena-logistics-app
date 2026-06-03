@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 
 import type { KycDocType } from "@/generated/prisma";
-import { getVaultDocumentsAction } from "@/actions/documentValut.action";
+import { getVaultDocumentsAction } from "@/actions/documentVault/documentValut.action";
 import VaultToolbar from "@/components/documentVault/VaultToolbar";
 import VaultTableSkeleton from "@/components/documentVault/VaultTableSkeleton";
 import VaultTable from "@/components/documentVault/VaultTable";
