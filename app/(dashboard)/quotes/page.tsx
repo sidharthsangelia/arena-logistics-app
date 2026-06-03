@@ -13,7 +13,6 @@ import QuotesToolbar from "@/components/quotes/QuotesToolbar";
 import QuotesTableSkeleton from "@/components/quotes/QuotesTableSkeleton";
 import QuotesTable from "@/components/quotes/QuotesTable";
 
-
 type PageProps = {
   searchParams: Promise<{
     q?: string;
@@ -39,28 +38,24 @@ function toStatus(raw: string | undefined): QuoteStatus | "" {
 export default async function QuotesPage({ searchParams }: PageProps) {
   const params = await searchParams;
 
-  const query  = params.q?.trim() ?? "";
+  const query = params.q?.trim() ?? "";
   const status = toStatus(params.status);
-  const page   = Math.max(1, Number.parseInt(params.page ?? "1", 10) || 1);
+  const page = Math.max(1, Number.parseInt(params.page ?? "1", 10) || 1);
 
   const { quotes, total } = await getQuotesAction({ q: query, status, page });
 
   const PAGE_SIZE = 25;
 
   return (
-    <div className="space-y-6 px-4 py-6 sm:px-6 lg:px-8">
-      <QuotesToolbar />
-
-      <Suspense fallback={<QuotesTableSkeleton />}>
-        <QuotesTable
-          quotes={quotes}
-          page={page}
-          total={total}
-          pageSize={PAGE_SIZE}
-          query={query}
-          status={status}
-        />
-      </Suspense>
-    </div>
+    <>
+      <QuotesTable
+        quotes={quotes}
+        page={page}
+        total={total}
+        pageSize={PAGE_SIZE}
+        query={query}
+        status={status}
+      />
+    </>
   );
 }

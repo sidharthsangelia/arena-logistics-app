@@ -71,18 +71,14 @@ export default async function ClientsPage({ searchParams }: PageProps) {
   ]);
 
   return (
-    <div className="space-y-6 px-4 py-6 sm:px-6 lg:px-8">
-      <ClientsToolbar />
-
-      <Suspense fallback={<ClientsTableSkeleton />}>
-        <ClientsTable
-          clients={clients}
-          page={page}
-          total={total}
-          pageSize={PAGE_SIZE}
-          query={query}
-        />
-      </Suspense>
-    </div>
+    <>
+      <ClientsTable
+        clients={clients}
+        page={page}
+        total={total}
+        pageSize={PAGE_SIZE}
+        query={query}
+      />
+    </>
   );
 }
