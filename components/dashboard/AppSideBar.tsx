@@ -15,6 +15,7 @@ import {
   UserPlus,
   User,
   FileUser,
+  Shield,
 } from "lucide-react";
 import {
   Sidebar,
@@ -43,6 +44,7 @@ const NAV_MAIN = [
   { label: "Quotes", href: "/quotes", icon: FileUser, badge: null },
   { label: "Shipments", href: "/shipments", icon: Package, badge: "3" },
   { label: "Invoices", href: "/invoices", icon: FileText, badge: null },
+  { label: "Document Vault", href: "/document-vault", icon: Shield, badge: null },
 ] as const;
 
 const NAV_SYSTEM = [
