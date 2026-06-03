@@ -13,6 +13,7 @@ import { Separator } from "@/components/ui/separator";
 import { DashboardBreadcrumb } from "@/components/dashboard/DashboardBreadcrumb";
 import { ClerkProvider } from "@clerk/nextjs";
 import { Toaster } from "@/components/ui/sonner";
+import { ThemeProvider } from "@/providers/theme-provider";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 
@@ -53,8 +54,16 @@ export default function RootLayout({
         <ClerkProvider>
           <TooltipProvider>
             <Toaster richColors position="top-right" closeButton />
+           {/* <ThemeProvider
+            attribute="class"
+            defaultTheme="system"
+            enableSystem
+            disableTransitionOnChange
+          > */}
             {children}
+          {/* </ThemeProvider> */}
           </TooltipProvider>
+          
         </ClerkProvider>
       </body>
     </html>

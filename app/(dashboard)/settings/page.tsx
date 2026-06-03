@@ -1,4 +1,4 @@
-import { Settings } from "lucide-react";
+import { Settings, Palette } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -10,15 +10,17 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import { ThemeToggler } from "@/components/ui/themeToggler";
+
 
 export default function SettingsPage() {
   return (
     <div className="max-w-2xl mx-auto px-6 py-8 space-y-8">
       <div>
-        <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
+        <h1 className="text-2xl font-bold tracking-tight">
           Settings
         </h1>
-        <p className="text-sm text-slate-500 mt-1">
+        <p className="text-sm text-muted-foreground mt-1">
           Manage your account and preferences.
         </p>
       </div>
@@ -27,7 +29,7 @@ export default function SettingsPage() {
       <Card className="shadow-sm">
         <CardHeader>
           <div className="flex items-center gap-2">
-            <Settings className="h-4 w-4 text-slate-500" />
+            <Settings className="h-4 w-4 text-muted-foreground" />
             <CardTitle className="text-base">Profile</CardTitle>
           </div>
           <CardDescription>Your account information</CardDescription>
@@ -44,15 +46,45 @@ export default function SettingsPage() {
               <Input id="email" type="email" defaultValue="arena@cargo.com" />
             </div>
           </div>
+
           <div className="space-y-1.5">
             <Label htmlFor="company">Company Name</Label>
             <Input id="company" defaultValue="Arena Cargo And Logistics" />
           </div>
+
           <Button disabled className="mt-2">
             Save Changes
           </Button>
         </CardContent>
       </Card>
+
+      {/* Appearance */}
+      {/* <Card className="shadow-sm">
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <Palette className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-base">Appearance</CardTitle>
+          </div>
+          <CardDescription>
+            Customize how Arena looks on your device
+          </CardDescription>
+        </CardHeader>
+
+        <Separator />
+
+        <CardContent className="pt-5">
+          <div className="flex items-center justify-between">
+            <div>
+              <Label>Theme</Label>
+              <p className="text-sm text-muted-foreground mt-1">
+                Switch between light, dark, and system theme.
+              </p>
+            </div>
+
+            <ThemeToggler />
+          </div>
+        </CardContent>
+      </Card> */}
 
       {/* API Keys */}
       <Card className="shadow-sm">
@@ -62,17 +94,29 @@ export default function SettingsPage() {
             Credentials used to fetch live rates from carriers
           </CardDescription>
         </CardHeader>
+
         <Separator />
+
         <CardContent className="pt-5 space-y-4">
           <div className="space-y-1.5">
             <Label htmlFor="aramex-key">Aramex API Key</Label>
-            <Input id="aramex-key" type="password" placeholder="••••••••••••••••" />
+            <Input
+              id="aramex-key"
+              type="password"
+              placeholder="••••••••••••••••"
+            />
           </div>
+
           <div className="space-y-1.5">
             <Label htmlFor="skart-key">Skart API Key</Label>
-            <Input id="skart-key" type="password" placeholder="••••••••••••••••" />
+            <Input
+              id="skart-key"
+              type="password"
+              placeholder="••••••••••••••••"
+            />
           </div>
-          <p className="text-xs text-slate-400">
+
+          <p className="text-xs text-muted-foreground">
             Keys are stored server-side as environment variables.
           </p>
         </CardContent>
