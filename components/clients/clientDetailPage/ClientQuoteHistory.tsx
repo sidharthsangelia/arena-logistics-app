@@ -88,13 +88,17 @@ export default function ClientQuoteHistory({ quotes }: { quotes: QuoteRow[] }) {
             {quotes.map((q) => (
               <TableRow key={q.id}>
                 <TableCell>
-                  <Link  href={q.pdfUrl!} target="_blank" className="inline-flex items-center gap-1 text-sm font-medium hover:underline ">
-                  <span className="block text-sm font-medium">
-                    {q.quoteNumber}
-                  </span>
-                  </Link>
-                  
-                  
+                  {q.pdfUrl ? (
+                    <Link href={q.pdfUrl} target="_blank" className="inline-flex items-center gap-1 text-sm font-medium hover:underline">
+                      <span className="block text-sm font-medium">
+                        {q.quoteNumber}
+                      </span>
+                    </Link>
+                  ) : (
+                    <span className="block text-sm font-medium text-muted-foreground">
+                      {q.quoteNumber}
+                    </span>
+                  )}
                 </TableCell>
                 <TableCell>
                   <Badge variant={STATUS_VARIANT[q.status]} className="text-[11px]">

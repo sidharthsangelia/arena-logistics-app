@@ -42,18 +42,18 @@ function toDocType(raw: string | undefined): KycDocType | "" {
 
 type PageProps = {
   searchParams: Promise<{
-    q?:       string;
+    q?: string;
     docType?: string;
-    page?:    string;
+    page?: string;
   }>;
 };
 
 export default async function VaultPage({ searchParams }: PageProps) {
   const params = await searchParams;
 
-  const query   = params.q?.trim() ?? "";
+  const query = params.q?.trim() ?? "";
   const docType = toDocType(params.docType);
-  const page    = Math.max(1, Number.parseInt(params.page ?? "1", 10) || 1);
+  const page = Math.max(1, Number.parseInt(params.page ?? "1", 10) || 1);
 
   const { documents, total } = await getVaultDocumentsAction({
     q: query,
@@ -62,12 +62,8 @@ export default async function VaultPage({ searchParams }: PageProps) {
   });
 
   return (
-    <div className="space-y-6 px-4 py-6 sm:px-6 lg:px-8">
-   
-        <VaultToolbar />
-    
-
-      <Suspense fallback={<VaultTableSkeleton />}>
+    <div>
+      
         <VaultTable
           documents={documents}
           page={page}
@@ -76,7 +72,7 @@ export default async function VaultPage({ searchParams }: PageProps) {
           query={query}
           docType={docType}
         />
-      </Suspense>
+   
     </div>
   );
 }
