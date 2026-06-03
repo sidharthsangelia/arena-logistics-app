@@ -1,6 +1,4 @@
-// app/(auth)/layout.tsx
 
-import VaultToolbar from "@/components/documentVault/VaultToolbar";
 import QuotesToolbar from "@/components/quotes/QuotesToolbar";
 
 export default function QuotesPageLayout({

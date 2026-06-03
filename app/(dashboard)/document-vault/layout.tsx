@@ -1,4 +1,4 @@
-// app/(auth)/layout.tsx
+
 
 import VaultToolbar from "@/components/documentVault/VaultToolbar";
 

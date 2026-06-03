@@ -1,9 +1,9 @@
-// app/(auth)/layout.tsx
+
 
 import ClientsToolbar from "@/components/clients/ClientsToolbar";
 
 
-export default function DocumentVaultLayout({
+export default function ClientPageLayout({
   children,
 }: {
   children: React.ReactNode;
