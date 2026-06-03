@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { prisma } from "@/utils/db";
-import { ArrowLeft, FileText } from "lucide-react";
+import { FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import ClientEditSheet from "@/components/clients/clientDetailPage/ClientEditSheet";
 import ClientDetailStats from "@/components/clients/clientDetailPage/ClientDetailStats";
@@ -11,6 +11,8 @@ import KycVault from "@/components/clients/clientDetailPage/KycVault";
 type Props = {
   params: Promise<{ id: string }>;
 };
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
 
 function getInitials(name: string) {
   return name
@@ -28,6 +30,33 @@ function formatDate(date: Date) {
     year: "numeric",
   }).format(date);
 }
+
+// ─── InfoRow (static, but only used inside page content) ────────────────────
+
+function InfoRow({
+  label,
+  value,
+  mono,
+}: {
+  label: string;
+  value: string | null | undefined;
+  mono?: boolean;
+}) {
+  return (
+    <div className="flex flex-col gap-0.5 py-3">
+      <span className="text-[11px] text-muted-foreground">{label}</span>
+      {value ? (
+        <span className={`text-sm ${mono ? "font-mono text-xs" : ""}`}>
+          {value}
+        </span>
+      ) : (
+        <span className="text-sm text-muted-foreground/50">—</span>
+      )}
+    </div>
+  );
+}
+
+// ─── Page ───────────────────────────────────────────────────────────────────
 
 export default async function ClientDetailPage({ params }: Props) {
   const { id } = await params;
@@ -50,7 +79,6 @@ export default async function ClientDetailPage({ params }: Props) {
           validUntil: true,
         },
       },
-      // ── Fetch KYC documents ordered newest first ──────────────────────
       documents: {
         orderBy: { uploadedAt: "desc" },
         select: {
@@ -70,6 +98,7 @@ export default async function ClientDetailPage({ params }: Props) {
 
   if (!client) notFound();
 
+  // ── Derived stats ──────────────────────────────────────────────────────────
   const acceptedQuotes = client.quotes.filter((q) => q.status === "ACCEPTED");
   const totalRevenue = acceptedQuotes.reduce(
     (sum, q) => sum + Number(q.quotedTotal),
@@ -84,17 +113,7 @@ export default async function ClientDetailPage({ params }: Props) {
   const location = [client.city, client.country].filter(Boolean).join(", ");
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6 px-4 py-6 sm:px-6 lg:px-8">
-
-      {/* Back */}
-      <Link
-        href="/clients"
-        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
-      >
-        <ArrowLeft className="h-3.5 w-3.5" />
-        All clients
-      </Link>
-
+    <>
       {/* Header */}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex items-center gap-4">
@@ -135,10 +154,10 @@ export default async function ClientDetailPage({ params }: Props) {
       {/* Body grid */}
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-[280px_1fr]">
 
-        {/* ── Left sidebar ──────────────────────────────────────────────── */}
+        {/* Left sidebar */}
         <div className="space-y-4">
 
-          {/* Contact info */}
+          {/* Contact */}
           <div className="rounded-lg border">
             <div className="border-b px-4 py-3">
               <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
@@ -184,11 +203,10 @@ export default async function ClientDetailPage({ params }: Props) {
 
         </div>
 
-        {/* ── Right column: Quote history + KYC Vault ───────────────────── */}
+        {/* Right column */}
         <div className="space-y-5">
           <ClientQuoteHistory quotes={client.quotes} />
 
-          {/* KYC Vault — seamlessly integrated below quote history */}
           <KycVault
             clientId={client.id}
             documents={client.documents.map((d) => ({
@@ -206,29 +224,6 @@ export default async function ClientDetailPage({ params }: Props) {
         </div>
 
       </div>
-    </div>
-  );
-}
-
-function InfoRow({
-  label,
-  value,
-  mono,
-}: {
-  label: string;
-  value: string | null | undefined;
-  mono?: boolean;
-}) {
-  return (
-    <div className="flex flex-col gap-0.5 py-3">
-      <span className="text-[11px] text-muted-foreground">{label}</span>
-      {value ? (
-        <span className={`text-sm ${mono ? "font-mono text-xs" : ""}`}>
-          {value}
-        </span>
-      ) : (
-        <span className="text-sm text-muted-foreground/50">—</span>
-      )}
-    </div>
+    </>
   );
 }
