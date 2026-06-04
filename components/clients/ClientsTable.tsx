@@ -1,7 +1,7 @@
-"use client";
+
 
 import type { Client } from "@/generated/prisma";
-import { useRouter } from "next/navigation";
+
 import {
   Table,
   TableBody,
@@ -12,6 +12,8 @@ import {
 } from "@/components/ui/table";
 import ClientRowActions from "@/components/clients/ClientRow";
 import ClientsPagination from "@/components/clients/ClientsPagination";
+import Link from "next/link";
+
 
 type Props = {
   clients: Client[];
@@ -28,7 +30,7 @@ export default function ClientsTable({
   pageSize,
   query,
 }: Props) {
-  const router = useRouter();
+ 
   const totalPages = Math.ceil(total / pageSize);
 
   return (
@@ -60,16 +62,16 @@ export default function ClientsTable({
               clients.map((client) => (
                 <TableRow
                   key={client.id}
-                  className="cursor-pointer"
-                  onClick={(e) => {
-                    // prevent navigation when clicking the actions menu
-                    if ((e.target as HTMLElement).closest("[data-stop-propagation]")) return;
-                    router.push(`/clients/${client.id}`);
-                  }}
+                
+            
                 >
-                  <TableCell className="font-medium">
+                  <Link href={`/clients/${client.id}`} className="h-4 w-4 text-muted-foreground hover:underline" >
+                  
+                   <TableCell className="font-medium">
                     {client.companyName}
                   </TableCell>
+                  </Link>
+                 
 
                   <TableCell className="text-muted-foreground">
                     {client.contactName ?? "—"}

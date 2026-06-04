@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { FileText } from "lucide-react";
+import QuoteActionsMenu from "@/components/quotes/QuoteActionsMenu";
 
 type QuoteRow = {
   id: string;
@@ -18,10 +19,16 @@ type QuoteRow = {
   vendorName: string;
   productName: string;
   currency: string;
-  quotedTotal: any; // Decimal from Prisma
+  quotedTotal: any;
   pdfUrl: string | null;
   createdAt: Date;
   validUntil: Date;
+};
+
+type ClientInfo = {
+  companyName: string;
+  contactName: string | null;
+  email: string | null;
 };
 
 const STATUS_VARIANT: Record<QuoteStatus, "default" | "secondary" | "outline" | "destructive"> = {
@@ -56,7 +63,13 @@ function fmtDate(d: Date) {
   }).format(d);
 }
 
-export default function ClientQuoteHistory({ quotes }: { quotes: QuoteRow[] }) {
+export default function ClientQuoteHistory({
+  quotes,
+  client,
+}: {
+  quotes: QuoteRow[];
+  client: ClientInfo;
+}) {
   return (
     <div className="rounded-lg border p-4">
       <div className="flex items-center justify-between border-b px-4 py-3">
@@ -82,6 +95,7 @@ export default function ClientQuoteHistory({ quotes }: { quotes: QuoteRow[] }) {
               <TableHead className="text-xs uppercase tracking-wide">Product</TableHead>
               <TableHead className="text-right text-xs uppercase tracking-wide">Total</TableHead>
               <TableHead className="text-xs uppercase tracking-wide">Date</TableHead>
+              <TableHead className="w-10" />
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -117,6 +131,22 @@ export default function ClientQuoteHistory({ quotes }: { quotes: QuoteRow[] }) {
                 <TableCell className="text-sm text-muted-foreground">
                   {fmtDate(q.createdAt)}
                 </TableCell>
+                <TableCell>
+  <QuoteActionsMenu
+    quote={{
+      id: q.id,
+      quoteNumber: q.quoteNumber,
+      productName: q.productName,
+      vendorName: q.vendorName,
+      quotedTotal: Number(q.quotedTotal),
+      currency: q.currency,
+      status: q.status,
+      validUntil: q.validUntil,
+      pdfUrl: q.pdfUrl,
+    }}
+    client={client}
+  />
+</TableCell>
               </TableRow>
             ))}
           </TableBody>

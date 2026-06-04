@@ -23,7 +23,12 @@ type Props = {
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 function getInitials(name: string) {
-  return name.split(" ").map((w) => w[0]).slice(0, 2).join("").toUpperCase();
+  return name
+    .split(" ")
+    .map((w) => w[0])
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
 }
 
 function formatDate(date: Date) {
@@ -241,7 +246,17 @@ async function ClientQuotes({
   clientPromise: ReturnType<typeof fetchClient>;
 }) {
   const client = await clientPromise;
-  return <ClientQuoteHistory quotes={client.quotes} />;
+
+  return (
+    <ClientQuoteHistory
+      quotes={client.quotes}
+      client={{
+        companyName: client.companyName,
+        contactName: client.contactName,
+        email: client.email,
+      }}
+    />
+  );
 }
 
 async function ClientDocuments({
@@ -255,15 +270,15 @@ async function ClientDocuments({
     <KycVault
       clientId={client.id}
       documents={client.documents.map((d) => ({
-        id:          d.id,
-        docType:     d.docType as any,
-        label:       d.label,
+        id: d.id,
+        docType: d.docType as any,
+        label: d.label,
         description: d.description,
-        fileUrl:     d.fileUrl,
-        fileName:    d.fileName,
-        fileSize:    d.fileSize,
-        mimeType:    d.mimeType,
-        uploadedAt:  d.uploadedAt,
+        fileUrl: d.fileUrl,
+        fileName: d.fileName,
+        fileSize: d.fileSize,
+        mimeType: d.mimeType,
+        uploadedAt: d.uploadedAt,
       }))}
     />
   );
@@ -307,7 +322,6 @@ export default async function ClientDetailPage({ params }: Props) {
 
       {/* Body grid — layout shell is instant, content suspends per-section */}
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-[280px_1fr]">
-
         {/* Left sidebar — contact + address values are dynamic */}
         <div className="space-y-4">
           <Suspense fallback={<ContactSidebarSkeleton />}>
@@ -325,7 +339,6 @@ export default async function ClientDetailPage({ params }: Props) {
             <ClientDocuments clientPromise={clientPromise} />
           </Suspense>
         </div>
-
       </div>
     </>
   );

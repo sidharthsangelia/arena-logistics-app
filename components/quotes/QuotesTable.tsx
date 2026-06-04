@@ -41,6 +41,7 @@ import QuoteStatusBadge from "./QuotesStatusBadge";
 import QuoteActions from "./QuoteAction";
 import { toast } from "sonner";
 import { bulkDeleteQuotesAction } from "@/actions/quotes.action";
+import QuoteActionsMenu from "./QuoteActionsMenu";
 
 interface Props {
   quotes: QuoteRow[];
@@ -92,7 +93,8 @@ export default function QuotesTable({
   const [isPending, startTransition] = useTransition();
 
   const allIds = quotes.map((q) => q.id);
-  const allSelected = allIds.length > 0 && allIds.every((id) => selected.has(id));
+  const allSelected =
+    allIds.length > 0 && allIds.every((id) => selected.has(id));
   const someSelected = selected.size > 0;
 
   const toggleAll = () => {
@@ -112,7 +114,9 @@ export default function QuotesTable({
       const ids = Array.from(selected);
       const result = await bulkDeleteQuotesAction(ids);
       if (result.success) {
-        toast.success(`${ids.length} quote${ids.length !== 1 ? "s" : ""} deleted`);
+        toast.success(
+          `${ids.length} quote${ids.length !== 1 ? "s" : ""} deleted`,
+        );
         setSelected(new Set());
         router.refresh();
       } else {
@@ -140,7 +144,6 @@ export default function QuotesTable({
 
   return (
     <div className="space-y-4">
-
       {/* Filters + bulk action bar */}
       <div className="flex flex-wrap items-center gap-2">
         {someSelected ? (
@@ -163,9 +166,14 @@ export default function QuotesTable({
               </AlertDialogTrigger>
               <AlertDialogContent>
                 <AlertDialogHeader>
-                  <AlertDialogTitle>Delete {selected.size} quote{selected.size !== 1 ? "s" : ""}?</AlertDialogTitle>
+                  <AlertDialogTitle>
+                    Delete {selected.size} quote{selected.size !== 1 ? "s" : ""}
+                    ?
+                  </AlertDialogTitle>
                   <AlertDialogDescription>
-                    This will permanently delete the selected quote{selected.size !== 1 ? "s" : ""}. This action cannot be undone.
+                    This will permanently delete the selected quote
+                    {selected.size !== 1 ? "s" : ""}. This action cannot be
+                    undone.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
@@ -241,14 +249,30 @@ export default function QuotesTable({
                   aria-label="Select all"
                 />
               </TableHead>
-              <TableHead className="text-xs uppercase tracking-wide">Quote</TableHead>
-              <TableHead className="text-xs uppercase tracking-wide">Status</TableHead>
-              <TableHead className="text-xs uppercase tracking-wide">Client</TableHead>
-              <TableHead className="text-xs uppercase tracking-wide">Vendor</TableHead>
-              <TableHead className="text-xs uppercase tracking-wide">Product</TableHead>
-              <TableHead className="text-right text-xs uppercase tracking-wide">Total</TableHead>
-              <TableHead className="text-xs uppercase tracking-wide">Valid until</TableHead>
-              <TableHead className="text-xs uppercase tracking-wide">Created</TableHead>
+              <TableHead className="text-xs uppercase tracking-wide">
+                Quote
+              </TableHead>
+              <TableHead className="text-xs uppercase tracking-wide">
+                Status
+              </TableHead>
+              <TableHead className="text-xs uppercase tracking-wide">
+                Client
+              </TableHead>
+              <TableHead className="text-xs uppercase tracking-wide">
+                Vendor
+              </TableHead>
+              <TableHead className="text-xs uppercase tracking-wide">
+                Product
+              </TableHead>
+              <TableHead className="text-right text-xs uppercase tracking-wide">
+                Total
+              </TableHead>
+              <TableHead className="text-xs uppercase tracking-wide">
+                Valid until
+              </TableHead>
+              <TableHead className="text-xs uppercase tracking-wide">
+                Created
+              </TableHead>
               <TableHead className="w-10" />
             </TableRow>
           </TableHeader>
@@ -278,12 +302,16 @@ export default function QuotesTable({
                   </TableCell>
 
                   <TableCell>
-                    <Link  href={quote.pdfUrl!} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-sm font-medium hover:underline ">
-                     <span className="block text-sm font-medium leading-tight">
-                      {quote.quoteNumber}
-                    </span>
+                    <Link
+                      href={quote.pdfUrl!}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-sm font-medium hover:underline "
+                    >
+                      <span className="block text-sm font-medium leading-tight">
+                        {quote.quoteNumber}
+                      </span>
                     </Link>
-                   
                   </TableCell>
 
                   <TableCell>
@@ -329,10 +357,18 @@ export default function QuotesTable({
                   </TableCell>
 
                   <TableCell data-stop-propagation>
-                    <QuoteActions
-                      quoteId={quote.id}
-                      quoteNumber={quote.quoteNumber}
-                      status={quote.status}
+                    <QuoteActionsMenu
+                      quote={{
+                        ...quote,
+                        validUntil: quote.validUntil
+                          ? new Date(quote.validUntil)
+                          : null,
+                      }}
+                      client={{
+                        companyName: quote.client?.companyName ?? "",
+                        contactName: quote.client?.contactName ?? null,
+                        email: null,
+                      }}
                     />
                   </TableCell>
                 </TableRow>
