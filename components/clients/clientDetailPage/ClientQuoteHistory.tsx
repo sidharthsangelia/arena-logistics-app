@@ -31,13 +31,20 @@ type ClientInfo = {
   email: string | null;
 };
 
-const STATUS_VARIANT: Record<QuoteStatus, "default" | "secondary" | "outline" | "destructive"> = {
-  DRAFT: "outline",
-  SENT: "secondary",
-  ACCEPTED: "default",
-  EXPIRED: "destructive",
-  CANCELLED: "outline",
+const STATUS_STYLES: Record<QuoteStatus, string> = {
+  DRAFT:
+    "bg-zinc-100 text-zinc-600 ring-1 ring-zinc-200 dark:bg-zinc-800/60 dark:text-zinc-400 dark:ring-zinc-700",
+  SENT:
+    "bg-blue-50 text-blue-700 ring-1 ring-blue-200 dark:bg-blue-950/50 dark:text-blue-400 dark:ring-blue-800",
+  ACCEPTED:
+    "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-400 dark:ring-emerald-800",
+  EXPIRED:
+    "bg-amber-50 text-amber-700 ring-1 ring-amber-200 dark:bg-amber-950/50 dark:text-amber-400 dark:ring-amber-800",
+  CANCELLED:
+    "bg-red-50 text-red-600 ring-1 ring-red-200 dark:bg-red-950/50 dark:text-red-400 dark:ring-red-800",
 };
+
+ 
 
 const STATUS_LABEL: Record<QuoteStatus, string> = {
   DRAFT: "Draft",
@@ -114,11 +121,14 @@ export default function ClientQuoteHistory({
                     </span>
                   )}
                 </TableCell>
-                <TableCell>
-                  <Badge variant={STATUS_VARIANT[q.status]} className="text-[11px]">
-                    {STATUS_LABEL[q.status]}
-                  </Badge>
-                </TableCell>
+              <TableCell>
+  <span
+    className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium ${STATUS_STYLES[q.status]}`}
+  >
+ 
+    {STATUS_LABEL[q.status]}
+  </span>
+</TableCell>
                 <TableCell className="text-sm text-muted-foreground">
                   {q.vendorName}
                 </TableCell>
