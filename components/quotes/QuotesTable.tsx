@@ -301,18 +301,25 @@ export default function QuotesTable({
                     />
                   </TableCell>
 
-                  <TableCell>
-                    <Link
-                      href={quote.pdfUrl!}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 text-sm font-medium hover:underline "
-                    >
-                      <span className="block text-sm font-medium leading-tight">
-                        {quote.quoteNumber}
-                      </span>
-                    </Link>
-                  </TableCell>
+          <TableCell>
+  {quote.pdfUrl ? (
+    <Link
+      href={quote.pdfUrl}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="inline-flex items-center gap-1 text-sm font-medium hover:underline"
+    >
+      {quote.quoteNumber}
+    </Link>
+  ) : (
+    <span className="inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground">
+      {quote.quoteNumber}
+      <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-900/40 dark:text-amber-400">
+        No PDF
+      </span>
+    </span>
+  )}
+</TableCell>
 
                   <TableCell>
                     <QuoteStatusBadge status={quote.status} />

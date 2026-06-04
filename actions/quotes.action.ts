@@ -23,6 +23,11 @@ export type SaveQuoteResult =
   | { success: true; quoteId: string }
   | { success: false; message: string };
 
+
+  export type RetryQuotePdfResult =
+  | { success: true }
+  | { success: false; message: string };
+
 // ---------------------------------------------------------------------------
 // saveQuoteAction
 //
@@ -144,5 +149,84 @@ export async function bulkDeleteQuotesAction(
   } catch (error) {
     console.error("bulkDeleteQuotesAction", error);
     return { success: false, message: "Failed to delete quotes." };
+  }
+}
+
+
+
+// quotes.action.ts — add this
+
+
+
+/**
+ * Fetches full quote data needed to regenerate the PDF client-side.
+ * The actual PDF generation + upload happens in the browser.
+ */
+export async function getQuoteForPdfRetryAction(quoteId: string): Promise<
+  | {
+      success: true;
+      quote: {
+        id: string;
+        quoteNumber: string;
+        vendorName: string;
+        productName: string;
+        currency: string;
+        markupPercent: number;
+        chargesSnapshot: object[];
+        requestSnapshot: object;
+        client: {
+          companyName: string;
+          contactName: string | null;
+          email: string | null;
+          phone: string | null;
+          addressLine1: string | null;
+          city: string | null;
+          country: string | null;
+        } | null;
+      };
+    }
+  | { success: false; message: string }
+> {
+  try {
+    const quote = await prisma.quote.findUnique({
+      where: { id: quoteId },
+      select: {
+        id: true,
+        quoteNumber: true,
+        vendorName: true,
+        productName: true,
+        currency: true,
+        markupPercent: true,
+        chargesSnapshot: true,
+        requestSnapshot: true,
+        pdfUrl: true,
+        client: {
+          select: {
+            companyName: true,
+            contactName: true,
+            email: true,
+            phone: true,
+            addressLine1: true,
+            city: true,
+            country: true,
+          },
+        },
+      },
+    });
+
+    if (!quote) return { success: false, message: "Quote not found." };
+    if (quote.pdfUrl) return { success: false, message: "Quote already has a PDF." };
+
+    return {
+      success: true,
+      quote: {
+        ...quote,
+        markupPercent: Number(quote.markupPercent),
+        chargesSnapshot: quote.chargesSnapshot as object[],
+        requestSnapshot: quote.requestSnapshot as object,
+      },
+    };
+  } catch (err: any) {
+    return { success: false, message: err?.message ?? "Failed to fetch quote." };
   }
 }

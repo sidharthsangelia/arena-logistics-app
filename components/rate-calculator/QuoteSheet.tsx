@@ -257,67 +257,69 @@ useEffect(() => {
     }
   };
 
-  const handleDownload = async () => {
-    if (!pdfUrl || !pdfBlob || !request || !clientInfo) {
-      return;
-    }
+// In QuoteSheet.tsx — handleDownload
+const handleDownload = async () => {
+  if (!pdfUrl || !pdfBlob || !request || !clientInfo) return;
 
-    const safeName = (clientInfo.company || "quote")
-      .replace(/[^a-z0-9]/gi, "_")
-      .toLowerCase();
+  const safeName = (clientInfo.company || "quote")
+    .replace(/[^a-z0-9]/gi, "_")
+    .toLowerCase();
+  const fileName = `${quoteNumber}_${safeName}.pdf`;
 
-    const fileName = `${quoteNumber}_${safeName}.pdf`;
+  // 1. Trigger local download immediately — don't wait for upload
+  const a = document.createElement("a");
+  a.href = pdfUrl;
+  a.download = fileName;
+  a.click();
 
-    // Download locally
-    const a = document.createElement("a");
-    a.href = pdfUrl;
-    a.download = fileName;
-    a.click();
+  try {
+    // 2. Save DB record
+    let quoteId = savedQuoteId;
+    if (!quoteId) {
+      const result = await saveQuoteAction({
+        quoteNumber,
+        quote,
+        request,
+        client: clientInfo,
+        markupPercent: markup,
+        pdfUrl: null,
+        pdfKey: null,
+      });
 
-    try {
-      let quoteId = savedQuoteId;
-
-      // Save DB record first if not already saved
-      if (!quoteId) {
-        const result = await saveQuoteAction({
-          quoteNumber,
-          quote,
-          request,
-          client: clientInfo,
-          markupPercent: markup,
-          pdfUrl: null,
-          pdfKey: null,
-        });
-
-        if (!result.success) {
-          toast.error("Quote could not be saved.");
-          return;
-        }
-
-        quoteId = result.quoteId;
-        setSavedQuoteId(quoteId);
+      if (!result.success) {
+        toast.error("Quote downloaded but could not be saved to database.");
+        return;
       }
 
-      // Upload PDF to UploadThing
-if (!uploadedPdf) {
-  await uploadPdf({
-        blob: pdfBlob,
-        quoteId,
-        fileName,
-      });
-  setUploadedPdf(true);
-}
-      saveQuote({
-        request,
-        quote,
-        markupPercent: markup,
-        quoteNumber,
-      });
-    } catch (error) {
-      console.error(error);
-      toast.error("Failed to save quote.");
+      quoteId = result.quoteId;
+      setSavedQuoteId(quoteId);
     }
-  };
+
+    // 3. Upload with retry
+    if (!uploadedPdf) {
+      const uploadResult = await uploadPdf({ blob: pdfBlob, quoteId, fileName });
+
+      if (uploadResult.success) {
+        setUploadedPdf(true);
+        toast.success("Quote saved and PDF uploaded.");
+      } else {
+        // Upload failed after all retries
+        toast.error(
+          "PDF downloaded locally but could not be saved to cloud. " +
+          "You can re-upload it from the Quotes page.",
+          { duration: 8000 }
+        );
+        // Don't throw — the quote DB record exists, just without a pdfUrl.
+        // Fix 1 above means the /quotes page handles this gracefully.
+      }
+    }
+
+    saveQuote({ request, quote, markupPercent: markup, quoteNumber });
+  } catch (error) {
+    console.error(error);
+    toast.error("Something went wrong saving the quote.");
+  }
+};
 
   // ── Render ────────────────────────────────────────────────────────────────
 
