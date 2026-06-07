@@ -12,13 +12,13 @@
  *   - Optionally accepts a `vendorIds` filter to query specific vendors only
  */
 
-import { adapterRegistry } from "../adapters/vendors/index";
+import { adapterRegistry } from "../rate-adapters/vendors/index";
 import type {
   CanonicalRateRequest,
   CanonicalRateResponse,
   RateQuote,
   VendorError,
-} from "../adapters/core/types";
+} from "../rate-adapters/core/types";
 
 export interface GetRatesOptions {
   /** If provided, only these vendor IDs are queried. Default: all vendors. */

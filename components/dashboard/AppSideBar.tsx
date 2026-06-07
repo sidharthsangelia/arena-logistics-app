@@ -32,69 +32,35 @@ import {
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
 
-import { Show, SignInButton, SignUpButton, UserButton } from "@clerk/nextjs";
+import {
+  OrganizationSwitcher,
+  Show,
+  SignInButton,
+  SignUpButton,
+  UserButton,
+} from "@clerk/nextjs";
 
 // -----------------------------------------------------------------------------
 // Navigation
 // -----------------------------------------------------------------------------
 
 const OPERATIONS = [
-  {
-    title: "Dashboard",
-    href: "/",
-    icon: LayoutDashboard,
-  },
-  {
-    title: "Clients",
-    href: "/clients",
-    icon: User,
-  },
-  {
-    title: "Quotes",
-    href: "/quotes",
-    icon: FileUser,
-  },
-  {
-    title: "Document Vault",
-    href: "/document-vault",
-    icon: Shield,
-  },
+  { title: "Dashboard", href: "/", icon: LayoutDashboard },
+  { title: "Clients", href: "/clients", icon: User },
+  { title: "Quotes", href: "/quotes", icon: FileUser },
+  { title: "Document Vault", href: "/document-vault", icon: Shield },
 ] as const;
 
 const SHIPPING = [
-  {
-    title: "Rate Calculator",
-    href: "/rates",
-    icon: Calculator,
-  },
-  {
-    title: "Book Shipment",
-    href: "/book",
-    icon: PackagePlus,
-  },
-  {
-    title: "Track Shipment",
-    href: "/track",
-    icon: MapPin,
-  },
-  {
-    title: "Shipments",
-    href: "/shipments",
-    icon: Package,
-  },
+  { title: "Rate Calculator", href: "/rates", icon: Calculator },
+  { title: "Book Shipment", href: "/book", icon: PackagePlus },
+  { title: "Track Shipment", href: "/track", icon: MapPin },
+  { title: "Shipments", href: "/shipments", icon: Package },
 ] as const;
 
 const ADMIN = [
-  {
-    title: "Invoices",
-    href: "/invoices",
-    icon: FileText,
-  },
-  {
-    title: "Settings",
-    href: "/settings",
-    icon: Settings,
-  },
+  { title: "Invoices", href: "/invoices", icon: FileText },
+  { title: "Settings", href: "/settings", icon: Settings },
 ] as const;
 
 // -----------------------------------------------------------------------------
@@ -115,23 +81,20 @@ export function AppSidebar() {
       className="border-r bg-sidebar"
     >
       {/* ------------------------------------------------------------------ */}
-      {/* Brand */}
+      {/* Header */}
       {/* ------------------------------------------------------------------ */}
 
-      <SidebarHeader className="px-4 py-4">
-        <Link
-          href="/"
-          className="flex items-center gap-3"
-        >
+      <SidebarHeader className="gap-4 px-4 py-4">
+        <Link href="/" className="flex items-center gap-3">
           <Image
             src="/arena_logo.png"
             alt="Arena Cargo"
-            width={90}
-            height={34}
+            width={100}
+            height={36}
             priority
           />
 
-          <div className="group-data-[collapsible=icon]:hidden min-w-0">
+          <div className="min-w-0 group-data-[collapsible=icon]:hidden">
             <p className="truncate text-sm font-semibold">
               Arena Cargo
             </p>
@@ -141,20 +104,29 @@ export function AppSidebar() {
             </p>
           </div>
         </Link>
+
+        <Show when="signed-in">
+          <div className="group-data-[collapsible=icon]:hidden">
+            <OrganizationSwitcher
+              appearance={{
+                elements: {
+                  rootBox: "w-full",
+                  organizationSwitcherTrigger:
+                    "w-full justify-between",
+                },
+              }}
+            />
+          </div>
+        </Show>
       </SidebarHeader>
 
       {/* ------------------------------------------------------------------ */}
-      {/* Navigation */}
+      {/* Content */}
       {/* ------------------------------------------------------------------ */}
 
-      <SidebarContent>
-
-        {/* Operations */}
-
+      <SidebarContent className="gap-2">
         <SidebarGroup>
-          <SidebarGroupLabel>
-            Operations
-          </SidebarGroupLabel>
+          <SidebarGroupLabel>Operations</SidebarGroupLabel>
 
           <SidebarGroupContent>
             <SidebarMenu>
@@ -164,16 +136,11 @@ export function AppSidebar() {
                     asChild
                     tooltip={item.title}
                     isActive={isActive(item.href)}
+                    className="h-10"
                   >
-                    <Link
-                      href={item.href}
-                      className="flex items-center gap-3"
-                    >
+                    <Link href={item.href}>
                       <item.icon className="h-4 w-4 shrink-0" />
-
-                      <span className="truncate">
-                        {item.title}
-                      </span>
+                      <span>{item.title}</span>
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
@@ -182,12 +149,8 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
 
-        {/* Shipping */}
-
         <SidebarGroup>
-          <SidebarGroupLabel>
-            Shipping
-          </SidebarGroupLabel>
+          <SidebarGroupLabel>Shipping</SidebarGroupLabel>
 
           <SidebarGroupContent>
             <SidebarMenu>
@@ -197,16 +160,11 @@ export function AppSidebar() {
                     asChild
                     tooltip={item.title}
                     isActive={isActive(item.href)}
+                    className="h-10"
                   >
-                    <Link
-                      href={item.href}
-                      className="flex items-center gap-3"
-                    >
+                    <Link href={item.href}>
                       <item.icon className="h-4 w-4 shrink-0" />
-
-                      <span className="truncate">
-                        {item.title}
-                      </span>
+                      <span>{item.title}</span>
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
@@ -215,12 +173,8 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
 
-        {/* Admin */}
-
         <SidebarGroup>
-          <SidebarGroupLabel>
-            Administration
-          </SidebarGroupLabel>
+          <SidebarGroupLabel>Administration</SidebarGroupLabel>
 
           <SidebarGroupContent>
             <SidebarMenu>
@@ -230,16 +184,11 @@ export function AppSidebar() {
                     asChild
                     tooltip={item.title}
                     isActive={isActive(item.href)}
+                    className="h-10"
                   >
-                    <Link
-                      href={item.href}
-                      className="flex items-center gap-3"
-                    >
+                    <Link href={item.href}>
                       <item.icon className="h-4 w-4 shrink-0" />
-
-                      <span className="truncate">
-                        {item.title}
-                      </span>
+                      <span>{item.title}</span>
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
@@ -247,7 +196,6 @@ export function AppSidebar() {
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
-
       </SidebarContent>
 
       {/* ------------------------------------------------------------------ */}
@@ -255,38 +203,25 @@ export function AppSidebar() {
       {/* ------------------------------------------------------------------ */}
 
       <SidebarFooter className="border-t p-3">
-
         <Show when="signed-in">
-          <div className="flex items-center gap-3 rounded-lg px-2 py-2">
+          <div className="flex items-center justify-center group-data-[collapsible=expanded]:justify-start">
             <UserButton
               appearance={{
                 elements: {
-                  avatarBox: "h-8 w-8",
+                  avatarBox: "h-9 w-9",
                 },
               }}
             />
-
-            <div className="group-data-[collapsible=icon]:hidden min-w-0 flex-1">
-              <p className="truncate text-sm font-medium">
-                Workspace Account
-              </p>
-
-              <p className="truncate text-xs text-muted-foreground">
-                Manage profile and security
-              </p>
-            </div>
           </div>
         </Show>
 
         <Show when="signed-out">
           <SidebarMenu>
-
             <SidebarMenuItem>
               <SidebarMenuButton asChild>
                 <SignInButton mode="modal">
                   <button className="flex w-full items-center gap-3">
                     <LogIn className="h-4 w-4" />
-
                     <span className="group-data-[collapsible=icon]:hidden">
                       Sign In
                     </span>
@@ -300,7 +235,6 @@ export function AppSidebar() {
                 <SignUpButton mode="modal">
                   <button className="flex w-full items-center gap-3">
                     <UserPlus className="h-4 w-4" />
-
                     <span className="group-data-[collapsible=icon]:hidden">
                       Create Account
                     </span>
@@ -308,10 +242,8 @@ export function AppSidebar() {
                 </SignUpButton>
               </SidebarMenuButton>
             </SidebarMenuItem>
-
           </SidebarMenu>
         </Show>
-
       </SidebarFooter>
     </Sidebar>
   );

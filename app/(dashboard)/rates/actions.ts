@@ -1,7 +1,7 @@
 "use server";
 
 import { getRates } from "@/lib/services/rate-calculator.service";
-import type { CanonicalRateRequest } from "@/lib/adapters/core/types";
+import type { CanonicalRateRequest } from "@/lib/rate-adapters/core/types";
 
 export async function getRatesAction(
   request: CanonicalRateRequest,

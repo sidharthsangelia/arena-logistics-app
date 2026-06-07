@@ -4,96 +4,28 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider  = "postgresql"
+
 }
 
-model Client {
-  id String @id @default(cuid())
+// ─────────────────────────────────────────────
+// Enums
+// ─────────────────────────────────────────────
 
-  companyName String
-
-  contactName String?
-
-  email String?
-  phone String?
-
-  addressLine1 String?
-  city         String?
-  state        String?
-  country      String?
-  postalCode   String?
-
-  notes String?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  deletedAt DateTime?
-  quotes    Quote[]
-  documents  ClientDocument[]
-
-  @@index([companyName])
-  @@index([email])
-  @@index([deletedAt])
-}
-
-model Quote {
-  id String @id @default(cuid())
-
-  quoteNumber String @unique // e.g. "FQ-2025-48291"
-
-  // ── Carrier / product ──────────────────────────────────────────────────
-  vendorId    String
-  vendorName  String
-  productName String
-
-  // ── Pricing ────────────────────────────────────────────────────────────
-  currency      String
-  subtotal      Decimal @db.Decimal(14, 4) // totalWithoutTax
-  tax           Decimal @db.Decimal(14, 4) // tax portion
-  total         Decimal @db.Decimal(14, 4) // totalWithTax (carrier price)
-  markupPercent Decimal @db.Decimal(6, 3) // 0 = no markup
-  quotedTotal   Decimal @db.Decimal(14, 4) // total × (1 + markup/100)
-
-  // ── Transit ────────────────────────────────────────────────────────────
-  tatDays Int? // null means "TBA"
-
-  // ── Snapshots (immutable audit trail) ──────────────────────────────────
-  chargesSnapshot Json // RateQuote.charges[]
-  requestSnapshot Json // RateRequest — origin, destination, shipment
-
-  // ── Document ───────────────────────────────────────────────────────────
-  pdfUrl String? // UploadThing CDN URL; null until uploaded
-  pdfKey String? // UploadThing file key for deletion
-
-  // ── Validity ───────────────────────────────────────────────────────────
-  validUntil DateTime
-
-  // ── Workflow ───────────────────────────────────────────────────────────
-  status QuoteStatus @default(DRAFT)
-
-  // ── Relations ──────────────────────────────────────────────────────────
-  clientId String?
-  client   Client? @relation(fields: [clientId], references: [id])
-
-  // ── Timestamps ─────────────────────────────────────────────────────────
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([clientId])
-  @@index([status])
-  @@index([createdAt])
-  @@index([quoteNumber])
+enum OrgPlan {
+  FREE
+  STARTER
+  GROWTH
+  ENTERPRISE
 }
 
 enum QuoteStatus {
-  DRAFT // Generated, not yet sent
-  SENT // Emailed / shared with client
-  ACCEPTED // Client confirmed
-  EXPIRED // Past validUntil date
+  DRAFT
+  SENT
+  ACCEPTED
+  EXPIRED
   CANCELLED
 }
-
 
 enum KycDocType {
   PAN_CARD
@@ -109,12 +41,165 @@ enum KycDocType {
   OTHER
 }
 
+// NOTE: Vendor is intentionally NOT an enum.
+// Your adapter registry already uses string IDs ("aramex", "skart", "fedex").
+// A DB enum means a migration every time you add a carrier — avoid it.
+
+// ─────────────────────────────────────────────
+// Org (tenant root)
+// ─────────────────────────────────────────────
+
+model Org {
+  id         String  @id @default(cuid())
+  clerkOrgId String  @unique
+  slug       String  @unique
+  name       String
+  logoUrl    String?
+  plan       OrgPlan @default(FREE)
+
+  // Razorpay billing stubs — optional, populate when payment is wired up
+  razorpayCustomerId     String? @unique
+  razorpaySubscriptionId String? @unique
+
+  // Relations
+  vendorKeys VendorKey[]
+  clients    Client[]
+  quotes     Quote[]
+  documents  ClientDocument[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([slug])
+  @@index([deletedAt])
+}
+
+// ─────────────────────────────────────────────
+// VendorKey (BYOK — one row per carrier per org)
+// ─────────────────────────────────────────────
+
+model VendorKey {
+  id    String @id @default(cuid())
+  orgId String
+  org   Org    @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  vendorId String  // "aramex" | "skart" | "fedex" — matches adapter registry
+  label    String  // display name e.g. "Aramex Production"
+  notes    String?
+
+  encryptedPayload String
+  iv               String
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([orgId, vendorId])
+  @@index([orgId])
+}
+
+// ─────────────────────────────────────────────
+// Client
+// ─────────────────────────────────────────────
+
+model Client {
+  id    String @id @default(cuid())
+  orgId String
+  org   Org    @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  companyName  String
+  contactName  String?
+  email        String?
+  phone        String?
+  addressLine1 String?
+  city         String?
+  state        String?
+  country      String?
+  postalCode   String?
+  notes        String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  quotes    Quote[]
+  documents ClientDocument[]
+
+  @@index([orgId])
+  @@index([orgId, companyName])
+  @@index([email])
+  @@index([deletedAt])
+}
+
+// ─────────────────────────────────────────────
+// Quote
+// ─────────────────────────────────────────────
+
+model Quote {
+  id    String @id @default(cuid())
+  orgId String
+  org   Org    @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  quoteNumber String
+
+  // Carrier / product
+  vendorId    String
+  vendorName  String
+  productName String
+
+  // Pricing
+  currency      String
+  subtotal      Decimal @db.Decimal(14, 4)
+  tax           Decimal @db.Decimal(14, 4)
+  total         Decimal @db.Decimal(14, 4)
+  markupPercent Decimal @db.Decimal(6, 3)
+  quotedTotal   Decimal @db.Decimal(14, 4)
+
+  // Transit
+  tatDays Int?
+
+  // Immutable snapshots
+  chargesSnapshot Json
+  requestSnapshot Json
+
+  // Generated PDF
+  pdfUrl String?
+  pdfKey String?
+
+  // Validity
+  validUntil DateTime
+
+  // Workflow
+  status QuoteStatus @default(DRAFT)
+
+  // Client (optional — may be assigned after creation)
+  clientId String?
+  client   Client? @relation(fields: [clientId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([orgId, quoteNumber])
+  @@index([orgId])
+  @@index([orgId, status])
+  @@index([clientId])
+  @@index([createdAt])
+}
+
+// ─────────────────────────────────────────────
+// ClientDocument (KYC / document vault)
+// ─────────────────────────────────────────────
 
 model ClientDocument {
-  id String @id @default(cuid())
+  id    String @id @default(cuid())
+
+  orgId String
+  org   Org    @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
   clientId String
-  client   Client @relation(fields: [clientId], references: [id])
+  client   Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
 
   docType     KycDocType
   label       String
@@ -129,7 +214,8 @@ model ClientDocument {
   uploadedAt DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
+  @@index([orgId])
   @@index([clientId])
-  @@index([docType])
+  @@index([orgId, docType])
   @@index([clientId, docType])
 }
