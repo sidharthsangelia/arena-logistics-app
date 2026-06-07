@@ -55,11 +55,12 @@ export function OnboardingForm() {
     });
   }, [debouncedSlug]);
 
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
+function handleSubmit(e: React.FormEvent) {
+  e.preventDefault();
+  setError(null);
 
-    startTransition(async () => {
+  startTransition(async () => {
+    try {
       const result = await createOrgAction({ name, slug });
 
       if (!result.success) {
@@ -67,19 +68,24 @@ export function OnboardingForm() {
         return;
       }
 
-      // Tell Clerk to switch to the newly created org
-      // so auth().orgId is populated immediately
-      if (setActive) {
-        const { clerkClient } = await import("@clerk/nextjs/server");
-        // The org was just created — find it by slug from Clerk's response
-        // setActive accepts an orgId; we stored it during creation
-        // For now just hard-navigate — middleware will resolve the org
+      // Immediately switch the user's active organization
+      if (setActive && result.organizationId) {
+        await setActive({
+          organization: result.organizationId,
+        });
       }
 
       router.push(result.redirectUrl);
       router.refresh();
-    });
-  }
+    } catch (error) {
+      console.error(error);
+
+      setError(
+        "Something went wrong while creating your workspace. Please try again."
+      );
+    }
+  });
+}
 
   const slugValid = /^[a-z0-9-]+$/.test(slug) && slug.length >= 2;
   const canSubmit =
