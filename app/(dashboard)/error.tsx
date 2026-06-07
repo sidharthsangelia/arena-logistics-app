@@ -1,5 +1,7 @@
+// app/(dashboard)/error.tsx
 "use client";
 
+import * as Sentry from "@sentry/nextjs";
 import { useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { AlertTriangle } from "lucide-react";
@@ -12,8 +14,10 @@ export default function DashboardError({
   reset: () => void;
 }) {
   useEffect(() => {
-    // When you add Sentry: Sentry.captureException(error)
-    console.error(error);
+    // This sends the error to Sentry with full context
+    Sentry.captureException(error, {
+      extra: { digest: error.digest },
+    });
   }, [error]);
 
   return (
@@ -22,11 +26,11 @@ export default function DashboardError({
       <div>
         <h2 className="text-lg font-semibold">Something went wrong</h2>
         <p className="mt-1 text-sm text-muted-foreground max-w-sm">
-          An error occurred while loading this page. Try again or contact support if it persists.
+          An error occurred. Our team has been notified.
         </p>
         {error.digest && (
           <p className="mt-2 font-mono text-xs text-muted-foreground">
-            Error ID: {error.digest}
+            Ref: {error.digest}
           </p>
         )}
       </div>
