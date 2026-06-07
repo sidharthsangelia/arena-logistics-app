@@ -11,7 +11,7 @@ export default async function OnboardingPage() {
   const { userId, orgId } = await auth();
 
   // Already has an org — skip onboarding
-  if (orgId) redirect("/dashboard");
+  if (orgId) redirect("/");
   if (!userId) redirect("/sign-in");
 
   return (

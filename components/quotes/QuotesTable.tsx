@@ -145,7 +145,7 @@ function EmailEventBadge({ event }: { event: EmailEvent | null }) {
   if (!event) {
     return (
       <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
-        —
+        No Event Yet
       </span>
     );
   }

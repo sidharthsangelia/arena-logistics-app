@@ -90,7 +90,7 @@ export async function createOrgAction(
 
   return {
     success: true,
-    redirectUrl: "/dashboard",
+    redirectUrl: "/",
     organizationId: clerkOrg.id,
   };
 }
