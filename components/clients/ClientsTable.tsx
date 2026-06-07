@@ -65,13 +65,14 @@ export default function ClientsTable({
                 
             
                 >
+                   <TableCell className="font-medium">
                   <Link href={`/clients/${client.id}`} className="h-4 w-4 text-muted-foreground hover:underline" >
                   
-                   <TableCell className="font-medium">
+                  
                     {client.companyName}
-                  </TableCell>
+              
                   </Link>
-                 
+                     </TableCell>
 
                   <TableCell className="text-muted-foreground">
                     {client.contactName ?? "—"}

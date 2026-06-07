@@ -1,4 +1,6 @@
+import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/utils/db";
+import { redirect } from "next/navigation";
 import type { Prisma } from "@/generated/prisma";
 import ClientsToolbar from "@/components/clients/ClientsToolbar";
 import ClientsTable from "@/components/clients/ClientsTable";
@@ -12,14 +14,31 @@ type PageProps = {
   }>;
 };
 
+async function getDbOrgId(): Promise<string> {
+  const { orgId: clerkOrgId } = await auth();
+  if (!clerkOrgId) redirect("/onboarding");
+
+  const org = await prisma.org.findUnique({
+    where: { clerkOrgId },
+    select: { id: true },
+  });
+  if (!org) redirect("/onboarding");
+
+  return org.id;
+}
+
 export default async function ClientsPage({ searchParams }: PageProps) {
-  const params = await searchParams;
+  const [orgId, params] = await Promise.all([
+    getDbOrgId(),
+    searchParams,
+  ]);
 
   const query = params.q?.trim() ?? "";
-  const page = Math.max(1, Number.parseInt(params.page ?? "1", 10) || 1);
-  const skip = (page - 1) * PAGE_SIZE;
+  const page  = Math.max(1, Number.parseInt(params.page ?? "1", 10) || 1);
+  const skip  = (page - 1) * PAGE_SIZE;
 
   const where: Prisma.ClientWhereInput = {
+    orgId,          // ← only this org's clients
     deletedAt: null,
     ...(query
       ? {
