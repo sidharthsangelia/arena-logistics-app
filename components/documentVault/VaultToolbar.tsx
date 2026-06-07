@@ -1,10 +1,14 @@
 import { ShieldCheck } from "lucide-react";
 import { prisma } from "@/utils/db";
+import { getDbOrgId } from "@/utils/tenant";
 
 // Server component — fetches the total doc count for the header stat.
 export default async function VaultToolbar() {
+
+  const orgId = await getDbOrgId();
+
   const total = await prisma.clientDocument.count({
-    where: { client: { deletedAt: null } },
+    where: { client: { deletedAt: null, orgId } },
   });
 
   return (
