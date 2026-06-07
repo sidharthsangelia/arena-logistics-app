@@ -1,14 +1,16 @@
-// lib/tenant.ts
 import { auth } from "@clerk/nextjs/server";
+import { redirect } from "next/navigation";
 import { prisma } from "@/utils/db";
-
+ 
 export async function getDbOrgId(): Promise<string> {
   const { orgId: clerkOrgId } = await auth();
-  if (!clerkOrgId) throw new Error("No active organisation in session.");
+  if (!clerkOrgId) redirect("/onboarding");
+ 
   const org = await prisma.org.findUnique({
     where: { clerkOrgId },
     select: { id: true },
   });
-  if (!org) throw new Error(`Org not found for clerkOrgId: ${clerkOrgId}`);
+  if (!org) redirect("/onboarding");
+ 
   return org.id;
 }
