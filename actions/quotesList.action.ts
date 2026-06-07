@@ -2,7 +2,7 @@
  
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/utils/db";
-import type { Prisma, QuoteStatus } from "@/generated/prisma";
+import type { EmailEvent, Prisma, QuoteStatus } from "@/generated/prisma";
 import { getDbOrgId } from "@/utils/tenant";
  
 export interface QuoteRow {
@@ -13,6 +13,7 @@ export interface QuoteRow {
   productName:   string;
   currency:      string;
   quotedTotal:   number;
+lastEmailEvent: EmailEvent | null;
   markupPercent: number;
   tatDays:       number | null;
   pdfUrl:        string | null;
@@ -78,6 +79,15 @@ export async function getQuotesAction(params: {
         pdfUrl:        true,
         validUntil:    true,
         createdAt:     true,
+        emailEvents: {
+  orderBy: {
+    createdAt: "desc",
+  },
+  take: 1,
+  select: {
+    event: true,
+  },
+},
         client: {
           select: {
             id:          true,
@@ -101,6 +111,7 @@ export async function getQuotesAction(params: {
     markupPercent: Number(r.markupPercent),
     tatDays:       r.tatDays,
     pdfUrl:        r.pdfUrl,
+    lastEmailEvent: r.emailEvents[0]?.event ?? null,
     validUntil:    r.validUntil.toISOString(),
     createdAt:     r.createdAt.toISOString(),
     client:        r.client,
