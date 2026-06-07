@@ -11,7 +11,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getRates } from "@/lib/services/rate-calculator.service";
-import type { CanonicalRateRequest } from "@/lib/adapters/core/types";
+import type { CanonicalRateRequest } from "@/lib/rate-adapters/core/types";
 
 export async function POST(req: NextRequest) {
   let body: unknown;
