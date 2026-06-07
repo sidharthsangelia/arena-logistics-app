@@ -71,6 +71,8 @@ model Org {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
+   emailEvents QuoteEmailEvent[]
+
   @@index([slug])
   @@index([deletedAt])
 }
@@ -177,6 +179,9 @@ model Quote {
   // Client (optional — may be assigned after creation)
   clientId String?
   client   Client? @relation(fields: [clientId], references: [id], onDelete: SetNull)
+    emailEvents QuoteEmailEvent[]
+  // Store the last Resend email ID so we can correlate webhook events
+  lastResendEmailId String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -218,4 +223,38 @@ model ClientDocument {
   @@index([clientId])
   @@index([orgId, docType])
   @@index([clientId, docType])
+}
+
+model QuoteEmailEvent {
+  id        String   @id @default(cuid())
+  orgId     String
+  org       Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  quoteId   String
+  quote     Quote    @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+
+  // Resend's email ID — links all events for the same send
+  resendEmailId String
+
+  event     EmailEvent
+  // Resend sends recipient's IP/userAgent on open/click — useful for ops
+  userAgent String?
+  ipAddress String?
+  // For click events
+  clickedUrl String?
+
+  createdAt DateTime @default(now())
+
+  @@index([quoteId])
+  @@index([orgId])
+  @@index([resendEmailId])
+}
+
+enum EmailEvent {
+  SENT
+  DELIVERED
+  OPENED
+  CLICKED
+  BOUNCED
+  COMPLAINED
 }

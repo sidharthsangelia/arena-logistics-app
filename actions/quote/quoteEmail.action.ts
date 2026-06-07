@@ -1,12 +1,13 @@
 "use server";
- 
+
 import { Resend } from "resend";
 import { prisma } from "@/utils/db";
 import { revalidatePath } from "next/cache";
 import { getDbOrgId } from "@/utils/tenant";
- 
+import * as Sentry from "@sentry/nextjs";
+
 const resend = new Resend(process.env.RESEND_API_KEY);
- 
+
 export type SendQuoteEmailInput = {
   quoteId:    string;
   to:         string;
@@ -15,55 +16,89 @@ export type SendQuoteEmailInput = {
   pdfUrl:     string;
   markAsSent: boolean;
 };
- 
+
 export type SendQuoteEmailResult =
   | { success: true }
   | { success: false; error: string };
- 
+
 export async function sendQuoteEmailAction(
   input: SendQuoteEmailInput,
 ): Promise<SendQuoteEmailResult> {
   const { quoteId, to, subject, body, pdfUrl, markAsSent } = input;
- 
+
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if (!emailRegex.test(to)) {
     return { success: false, error: "Invalid email address." };
   }
- 
+
+  const orgId = await getDbOrgId();
+
+  let resendEmailId: string | null = null;
+
   try {
-    const { error } = await resend.emails.send({
+    const { data, error } = await resend.emails.send({
       from:    process.env.RESEND_FROM_EMAIL ?? "quotes@yourdomain.com",
       to,
       subject,
       html:    bodyToHtml(body, pdfUrl),
+      // Tag with quoteId and orgId so webhook can correlate without a DB lookup
+      tags: [
+        { name: "quoteId", value: quoteId },
+        { name: "orgId",   value: orgId   },
+      ],
     });
- 
+
     if (error) {
-      console.error("[sendQuoteEmail] Resend error:", error);
+      Sentry.captureException(error, {
+        tags:  { location: "sendQuoteEmailAction" },
+        extra: { quoteId, to },
+      });
       return { success: false, error: error.message };
     }
+
+    resendEmailId = data?.id ?? null;
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Failed to send email.";
-    console.error("[sendQuoteEmail] Unexpected error:", err);
+    Sentry.captureException(err, {
+      tags:  { location: "sendQuoteEmailAction" },
+      extra: { quoteId, to },
+    });
     return { success: false, error: message };
   }
- 
-  if (markAsSent) {
+
+  // Update quote: status + store the Resend email ID for webhook correlation
+  if (markAsSent || resendEmailId) {
     try {
-      const orgId = await getDbOrgId();
- 
       await prisma.quote.update({
-        where: { id: quoteId, orgId },   // ← org-scoped
-        data:  { status: "SENT" },
+        where: { id: quoteId, orgId },
+        data: {
+          ...(markAsSent    ? { status: "SENT" }            : {}),
+          ...(resendEmailId ? { lastResendEmailId: resendEmailId } : {}),
+        },
       });
- 
+
+      // Record the SENT event immediately — don't wait for webhook
+      if (resendEmailId) {
+        await prisma.quoteEmailEvent.create({
+          data: {
+            orgId,
+            quoteId,
+            resendEmailId,
+            event: "SENT",
+          },
+        });
+      }
+
       revalidatePath("/quotes");
     } catch (err) {
-      // Email sent — don't fail the whole action over a status update.
-      console.error("[sendQuoteEmail] Failed to mark as sent:", err);
+      // Email sent successfully — don't fail the action over a DB update
+      Sentry.captureException(err, {
+        tags:  { location: "sendQuoteEmailAction:postSend" },
+        extra: { quoteId, resendEmailId },
+      });
     }
   }
- 
+
   return { success: true };
 }
  
