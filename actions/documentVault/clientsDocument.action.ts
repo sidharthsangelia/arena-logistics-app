@@ -42,28 +42,31 @@ type SaveResult =
 // ---------------------------------------------------------------------------
 
 export async function saveKycDocumentAction(
-  input: SaveKycDocumentInput,
+  input: SaveKycDocumentInput & { orgId?: string },
 ): Promise<SaveResult> {
   try {
-    const orgId = await getDbOrgId();
-    const data = saveKycDocumentSchema.parse(input);
-
-    // Verify client exists, belongs to this org, and isn't soft-deleted
-    const client = await prisma.client.findFirst({
-      where: { id: data.clientId, orgId, deletedAt: null },
-      select: { id: true },
-    });
-    if (!client) {
-      return { success: false, message: "Client not found." };
+    // Use the supplied orgId if present (UploadThing callback context),
+    // otherwise resolve from the Clerk session (normal server action context).
+    const orgId = input.orgId ?? (await getDbOrgId());
+    const data  = saveKycDocumentSchema.parse(input);
+ 
+    // Client ownership already verified in UploadThing middleware when orgId
+    // is supplied. Only re-verify when called from a session context.
+    if (!input.orgId) {
+      const client = await prisma.client.findFirst({
+        where: { id: data.clientId, orgId, deletedAt: null },
+        select: { id: true },
+      });
+      if (!client) return { success: false, message: "Client not found." };
     }
-
+ 
     const doc = await prisma.clientDocument.create({
       data: {
-        orgId,                       // direct org reference for vault queries
+        orgId,
         clientId:    data.clientId,
         docType:     data.docType,
         label:       data.label,
-        description: data.description,
+        description: data.description ?? null,
         fileUrl:     data.fileUrl,
         fileKey:     data.fileKey,
         fileName:    data.fileName,
@@ -72,7 +75,7 @@ export async function saveKycDocumentAction(
       },
       select: { id: true },
     });
-
+ 
     revalidatePath(`/clients/${data.clientId}`);
     return { success: true, documentId: doc.id };
   } catch (error) {
@@ -80,7 +83,7 @@ export async function saveKycDocumentAction(
     return { success: false, message: "Failed to save document." };
   }
 }
-
+ 
 // ---------------------------------------------------------------------------
 // updateKycDocumentAction
 // ---------------------------------------------------------------------------

@@ -101,11 +101,15 @@ export async function saveQuoteAction(
 // ---------------------------------------------------------------------------
 // updateQuotePdfAction
 // ---------------------------------------------------------------------------
+// Paste this into your quotes.action.ts — replaces updateQuotePdfAction
 
 export interface UpdateQuotePdfInput {
   quoteId: string;
   pdfUrl:  string;
   pdfKey:  string;
+  // orgId can be supplied directly (from UploadThing metadata) OR
+  // resolved from the session when called from a normal server action.
+  orgId?:  string;
 }
 
 export type UpdateQuotePdfResult =
@@ -116,9 +120,10 @@ export async function updateQuotePdfAction(
   input: UpdateQuotePdfInput,
 ): Promise<UpdateQuotePdfResult> {
   try {
-    const orgId = await getDbOrgId();
+    // Use the supplied orgId if present (UploadThing callback context),
+    // otherwise resolve from the Clerk session (normal server action context).
+    const orgId = input.orgId ?? (await getDbOrgId());
 
-    // orgId in where clause prevents updating another org's quote
     await prisma.quote.update({
       where: { id: input.quoteId, orgId },
       data: {
