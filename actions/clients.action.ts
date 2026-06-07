@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/utils/db";
 import {
   clientSchema,
@@ -8,6 +9,24 @@ import {
 } from "@/lib/validations/clients.schema";
 import { ClientSearchResult } from "./clientSrearch.action";
 
+// ---------------------------------------------------------------------------
+// Tenant context
+// Resolves Clerk orgId → internal DB Org.id
+// ---------------------------------------------------------------------------
+
+async function getDbOrgId(): Promise<string> {
+  const { orgId: clerkOrgId } = await auth();
+  if (!clerkOrgId) throw new Error("No active organisation in session.");
+
+  const org = await prisma.org.findUnique({
+    where: { clerkOrgId },
+    select: { id: true },
+  });
+
+  if (!org) throw new Error(`Org not found for clerkOrgId: ${clerkOrgId}`);
+
+  return org.id;
+}
 
 // ---------------------------------------------------------------------------
 // Shared result types
@@ -17,26 +36,26 @@ type ActionResult =
   | { success: true }
   | { success: false; message: string };
 
-// ---------------------------------------------------------------------------
-// createClientAction
-//
-// CHANGED: now returns the full created record so callers (e.g. AddClientForm
-// inside QuoteSheet) can pre-populate the client selector without a second
-// round-trip to the DB.
-// ---------------------------------------------------------------------------
-
 export type CreateClientResult =
   | { success: true; client: ClientSearchResult }
   | { success: false; message: string };
+
+// ---------------------------------------------------------------------------
+// createClientAction
+// ---------------------------------------------------------------------------
 
 export async function createClientAction(
   input: ClientFormValues,
 ): Promise<CreateClientResult> {
   try {
+    const orgId = await getDbOrgId();
     const data = clientSchema.parse(input);
 
     const created = await prisma.client.create({
-      data,
+      data: {
+        ...data,
+        orgId,
+      },
       select: {
         id: true,
         companyName: true,
@@ -52,7 +71,6 @@ export async function createClientAction(
     });
 
     revalidatePath("/clients");
-
     return { success: true, client: created };
   } catch (error) {
     console.error("createClientAction", error);
@@ -69,9 +87,13 @@ export async function updateClientAction(
   input: ClientFormValues,
 ): Promise<ActionResult> {
   try {
+    const orgId = await getDbOrgId();
     const data = clientSchema.parse(input);
 
-    await prisma.client.update({ where: { id }, data });
+    await prisma.client.update({
+      where: { id, orgId },
+      data,
+    });
 
     revalidatePath("/clients");
     return { success: true };
@@ -87,8 +109,10 @@ export async function updateClientAction(
 
 export async function deleteClientAction(id: string): Promise<ActionResult> {
   try {
+    const orgId = await getDbOrgId();
+
     await prisma.client.update({
-      where: { id },
+      where: { id, orgId },
       data: { deletedAt: new Date() },
     });
 
