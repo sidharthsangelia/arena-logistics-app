@@ -1,15 +1,33 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/utils/db";
 import { UTApi } from "uploadthing/server";
-import { SaveKycDocumentInput, saveKycDocumentSchema } from "@/lib/validations/clientsDocument.schema";
+import {
+  SaveKycDocumentInput,
+  saveKycDocumentSchema,
+} from "@/lib/validations/clientsDocument.schema";
 
+// ---------------------------------------------------------------------------
+// Tenant context
+// ---------------------------------------------------------------------------
 
+async function getDbOrgId(): Promise<string> {
+  const { orgId: clerkOrgId } = await auth();
+  if (!clerkOrgId) throw new Error("No active organisation in session.");
 
-// ─────────────────────────────────────────────────────────────────────────────
+  const org = await prisma.org.findUnique({
+    where: { clerkOrgId },
+    select: { id: true },
+  });
+  if (!org) throw new Error(`Org not found for clerkOrgId: ${clerkOrgId}`);
+  return org.id;
+}
+
+// ---------------------------------------------------------------------------
 // Types
-// ─────────────────────────────────────────────────────────────────────────────
+// ---------------------------------------------------------------------------
 
 type ActionResult =
   | { success: true }
@@ -19,26 +37,20 @@ type SaveResult =
   | { success: true; documentId: string }
   | { success: false; message: string };
 
-
-
-
-
-// ─────────────────────────────────────────────────────────────────────────────
+// ---------------------------------------------------------------------------
 // saveKycDocumentAction
-//
-// Called by UploadThing's onUploadComplete callback (server-side).
-// Creates the DB record after the file has landed in UT storage.
-// ─────────────────────────────────────────────────────────────────────────────
+// ---------------------------------------------------------------------------
 
 export async function saveKycDocumentAction(
   input: SaveKycDocumentInput,
 ): Promise<SaveResult> {
   try {
+    const orgId = await getDbOrgId();
     const data = saveKycDocumentSchema.parse(input);
 
-    // Verify the client exists and isn't soft-deleted
+    // Verify client exists, belongs to this org, and isn't soft-deleted
     const client = await prisma.client.findFirst({
-      where: { id: data.clientId, deletedAt: null },
+      where: { id: data.clientId, orgId, deletedAt: null },
       select: { id: true },
     });
     if (!client) {
@@ -47,6 +59,7 @@ export async function saveKycDocumentAction(
 
     const doc = await prisma.clientDocument.create({
       data: {
+        orgId,                       // direct org reference for vault queries
         clientId:    data.clientId,
         docType:     data.docType,
         label:       data.label,
@@ -68,20 +81,20 @@ export async function saveKycDocumentAction(
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ---------------------------------------------------------------------------
 // updateKycDocumentAction
-//
-// Allows editing the label / description of an existing document
-// without re-uploading the file.
-// ─────────────────────────────────────────────────────────────────────────────
+// ---------------------------------------------------------------------------
 
 export async function updateKycDocumentAction(
   documentId: string,
   input: { label: string; description?: string },
 ): Promise<ActionResult> {
   try {
-    const doc = await prisma.clientDocument.findUnique({
-      where: { id: documentId },
+    const orgId = await getDbOrgId();
+
+    // orgId in where clause prevents editing another org's document
+    const doc = await prisma.clientDocument.findFirst({
+      where: { id: documentId, orgId },
       select: { clientId: true },
     });
     if (!doc) return { success: false, message: "Document not found." };
@@ -102,38 +115,32 @@ export async function updateKycDocumentAction(
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ---------------------------------------------------------------------------
 // deleteKycDocumentAction
-//
-// Hard-deletes the DB record AND removes the file from UploadThing storage.
-// We always attempt both; if UT deletion fails we still remove the DB record
-// and log the orphan key so it can be cleaned up manually.
-// ─────────────────────────────────────────────────────────────────────────────
+// ---------------------------------------------------------------------------
 
 export async function deleteKycDocumentAction(
   documentId: string,
 ): Promise<ActionResult> {
   try {
-    const doc = await prisma.clientDocument.findUnique({
-      where: { id: documentId },
+    const orgId = await getDbOrgId();
+
+    // orgId in where clause prevents deleting another org's document
+    const doc = await prisma.clientDocument.findFirst({
+      where: { id: documentId, orgId },
       select: { clientId: true, fileKey: true },
     });
     if (!doc) return { success: false, message: "Document not found." };
 
-    // Delete from UploadThing storage first
+    // Delete from UploadThing first
     try {
       const utapi = new UTApi();
       await utapi.deleteFiles(doc.fileKey);
     } catch (utError) {
       // Log but don't block — orphan keys can be swept via UT dashboard
-      console.error(
-        "[KYC] UploadThing deletion failed for key:",
-        doc.fileKey,
-        utError,
-      );
+      console.error("[KYC] UploadThing deletion failed for key:", doc.fileKey, utError);
     }
 
-    // Remove from DB
     await prisma.clientDocument.delete({ where: { id: documentId } });
 
     revalidatePath(`/clients/${doc.clientId}`);
