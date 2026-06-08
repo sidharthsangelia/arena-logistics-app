@@ -3,24 +3,46 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/utils/db";
 import * as Sentry from "@sentry/nextjs";
+import { Webhook } from "svix";
 
-// Resend webhook event shape (relevant fields only)
+// ---------------------------------------------------------------------------
+// Actual Resend webhook payload shape (from live payload inspection)
+// ---------------------------------------------------------------------------
+
 type ResendWebhookEvent = {
   type: string;
+  created_at: string;
   data: {
     email_id:   string;
     from:       string;
-    to:         string[];
     subject:    string;
-    click?:     { link: string };
-    tags?:      { name: string; value: string }[];
-    // Resend sends these for open/click events
-    user_agent?: string;
-    ip_address?: string;
+    to:         string[];
+    created_at: string;
+
+    // Tags come as a plain key-value object, NOT an array
+    tags?: Record<string, string>;
+
+    // Click data is nested under data.click (not top-level)
+    click?: {
+      ipAddress: string;
+      link:      string;
+      timestamp: string;
+      userAgent: string;
+    };
+
+    // Open data (for email.opened)
+    open?: {
+      ipAddress: string;
+      timestamp: string;
+      userAgent: string;
+    };
   };
 };
 
-// Map Resend event types to our DB enum
+// ---------------------------------------------------------------------------
+// Map Resend event type → DB enum value
+// ---------------------------------------------------------------------------
+
 const EVENT_MAP: Record<string, string> = {
   "email.sent":       "SENT",
   "email.delivered":  "DELIVERED",
@@ -30,93 +52,112 @@ const EVENT_MAP: Record<string, string> = {
   "email.complained": "COMPLAINED",
 };
 
+// ---------------------------------------------------------------------------
+// POST handler
+// ---------------------------------------------------------------------------
+
 export async function POST(req: NextRequest) {
-  // ── Verify webhook signature ─────────────────────────────────────────────
-  // Resend signs webhooks with the svix library — same as Clerk
   const webhookSecret = process.env.RESEND_WEBHOOK_SECRET;
   if (!webhookSecret) {
+    console.error("[resend-webhook] RESEND_WEBHOOK_SECRET not set");
     return NextResponse.json(
-      { error: "RESEND_WEBHOOK_SECRET not configured" },
+      { error: "Webhook secret not configured" },
       { status: 500 }
     );
   }
 
+  // ── Verify svix signature ──────────────────────────────────────────────
   const svixId        = req.headers.get("svix-id");
   const svixTimestamp = req.headers.get("svix-timestamp");
   const svixSignature = req.headers.get("svix-signature");
 
   if (!svixId || !svixTimestamp || !svixSignature) {
-    return NextResponse.json({ error: "Missing svix headers" }, { status: 400 });
+    return NextResponse.json(
+      { error: "Missing svix signature headers" },
+      { status: 400 }
+    );
   }
 
-  const body = await req.text();
-
-  // Verify signature
-  const { Webhook } = await import("svix");
+  const rawBody = await req.text();
   const wh = new Webhook(webhookSecret);
 
   let event: ResendWebhookEvent;
   try {
-    event = wh.verify(body, {
+    event = wh.verify(rawBody, {
       "svix-id":        svixId,
       "svix-timestamp": svixTimestamp,
       "svix-signature": svixSignature,
     }) as ResendWebhookEvent;
-  } catch {
-    return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
+  } catch (err) {
+    console.error("[resend-webhook] Signature verification failed:", err);
+    return NextResponse.json(
+      { error: "Invalid signature" },
+      { status: 400 }
+    );
   }
 
-  // ── Map event type ───────────────────────────────────────────────────────
+  // ── Map event type ─────────────────────────────────────────────────────
   const dbEvent = EVENT_MAP[event.type];
   if (!dbEvent) {
-    // Event type we don't handle — acknowledge and move on
+    // Unknown event type — acknowledge so Resend doesn't retry
     return NextResponse.json({ received: true });
   }
 
-  const { email_id, tags, click, user_agent, ip_address } = event.data;
+  const { data } = event;
 
-  // ── Extract quoteId and orgId from tags ──────────────────────────────────
-  // We embedded these when sending — no DB lookup needed to correlate
-  const quoteId = tags?.find((t) => t.name === "quoteId")?.value;
-  const orgId   = tags?.find((t) => t.name === "orgId")?.value;
+  // ── Extract quoteId + orgId from tags object ───────────────────────────
+  // Resend sends tags as { key: value } plain object, not [{name, value}]
+  const quoteId = data.tags?.quoteId;
+  const orgId   = data.tags?.orgId;
 
   if (!quoteId || !orgId) {
-    // Old email sent before tracking was added — skip gracefully
+    // Email sent before tracking tags were added — skip gracefully
+    console.warn(
+      "[resend-webhook] No quoteId/orgId tags on email:",
+      data.email_id
+    );
     return NextResponse.json({ received: true });
   }
 
+  // ── Extract event-specific metadata ───────────────────────────────────
+  // click and open data are nested under data.click / data.open
+  const clickedUrl = data.click?.link      ?? null;
+  const ipAddress  = data.click?.ipAddress ?? data.open?.ipAddress ?? null;
+  const userAgent  = data.click?.userAgent ?? data.open?.userAgent ?? null;
+
   try {
-    // ── Record the event ────────────────────────────────────────────────────
+    // ── Write event to DB ────────────────────────────────────────────────
     await prisma.quoteEmailEvent.create({
       data: {
         orgId,
         quoteId,
-        resendEmailId: email_id,
+        resendEmailId: data.email_id,
         event:         dbEvent as any,
-        userAgent:     user_agent  ?? null,
-        ipAddress:     ip_address  ?? null,
-        clickedUrl:    click?.link ?? null,
+        clickedUrl,
+        ipAddress,
+        userAgent,
       },
     });
 
-    // ── Side effects per event ──────────────────────────────────────────────
+    // ── Side effects ─────────────────────────────────────────────────────
+    // On bounce: no status change but Sentry alert so you can act on it
     if (event.type === "email.bounced") {
-      // Mark the quote so ops team knows the email didn't reach the client
-      await prisma.quote.update({
-        where: { id: quoteId, orgId },
-        data:  { status: "SENT" }, // keep SENT — bounce is surfaced via events
+      Sentry.captureMessage(`Quote email bounced: ${quoteId}`, {
+        level: "warning",
+        extra: { quoteId, orgId, emailId: data.email_id, to: data.to },
       });
     }
 
-    // For OPENED: no status change — just the event record is enough.
-    // The quotes table UI will show "Opened" based on the event log.
-
+    console.log(
+      `[resend-webhook] ${event.type} recorded for quote ${quoteId}`
+    );
   } catch (err) {
     Sentry.captureException(err, {
       tags:  { location: "resend-webhook" },
-      extra: { quoteId, orgId, event: event.type, email_id },
+      extra: { quoteId, orgId, event: event.type, emailId: data.email_id },
     });
-    // Return 500 so Resend retries the webhook
+
+    // Return 500 so Resend retries
     return NextResponse.json(
       { error: "Failed to record email event" },
       { status: 500 }

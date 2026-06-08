@@ -32,7 +32,6 @@ export async function sendQuoteEmailAction(
   }
 
   const orgId = await getDbOrgId();
-
   let resendEmailId: string | null = null;
 
   try {
@@ -41,7 +40,8 @@ export async function sendQuoteEmailAction(
       to,
       subject,
       html:    bodyToHtml(body, pdfUrl),
-      // Tag with quoteId and orgId so webhook can correlate without a DB lookup
+      // SDK expects Tag[] with {name, value} — Resend echoes these back
+      // as a plain object in webhook payloads (handled in the webhook handler)
       tags: [
         { name: "quoteId", value: quoteId },
         { name: "orgId",   value: orgId   },
@@ -66,18 +66,16 @@ export async function sendQuoteEmailAction(
     return { success: false, error: message };
   }
 
-  // Update quote: status + store the Resend email ID for webhook correlation
   if (markAsSent || resendEmailId) {
     try {
       await prisma.quote.update({
         where: { id: quoteId, orgId },
         data: {
-          ...(markAsSent    ? { status: "SENT" }            : {}),
-          ...(resendEmailId ? { lastResendEmailId: resendEmailId } : {}),
+          ...(markAsSent    ? { status: "SENT" }                    : {}),
+          ...(resendEmailId ? { lastResendEmailId: resendEmailId }   : {}),
         },
       });
 
-      // Record the SENT event immediately — don't wait for webhook
       if (resendEmailId) {
         await prisma.quoteEmailEvent.create({
           data: {
@@ -91,7 +89,6 @@ export async function sendQuoteEmailAction(
 
       revalidatePath("/quotes");
     } catch (err) {
-      // Email sent successfully — don't fail the action over a DB update
       Sentry.captureException(err, {
         tags:  { location: "sendQuoteEmailAction:postSend" },
         extra: { quoteId, resendEmailId },
@@ -101,22 +98,20 @@ export async function sendQuoteEmailAction(
 
   return { success: true };
 }
- 
+
 export type MarkQuoteSentResult =
   | { success: true }
   | { success: false; error: string };
- 
+
 export async function markQuoteAsSentAction(
   quoteId: string,
 ): Promise<MarkQuoteSentResult> {
   try {
     const orgId = await getDbOrgId();
- 
     await prisma.quote.update({
-      where: { id: quoteId, orgId },   // ← org-scoped
+      where: { id: quoteId, orgId },
       data:  { status: "SENT" },
     });
- 
     revalidatePath("/quotes");
     return { success: true };
   } catch (err: unknown) {
@@ -124,19 +119,18 @@ export async function markQuoteAsSentAction(
     return { success: false, error: message };
   }
 }
- 
+
 export type GetQuoteClientEmailResult =
   | { success: true; email: string | null; contactName: string | null; companyName: string }
   | { success: false; error: string };
- 
+
 export async function getQuoteClientEmailAction(
   quoteId: string,
 ): Promise<GetQuoteClientEmailResult> {
   try {
     const orgId = await getDbOrgId();
- 
     const quote = await prisma.quote.findFirst({
-      where: { id: quoteId, orgId },   // ← org-scoped; findFirst not findUnique
+      where: { id: quoteId, orgId },
       select: {
         client: {
           select: {
@@ -147,9 +141,7 @@ export async function getQuoteClientEmailAction(
         },
       },
     });
- 
     if (!quote) return { success: false, error: "Quote not found." };
- 
     return {
       success:     true,
       email:       quote.client?.email       ?? null,
@@ -161,20 +153,20 @@ export async function getQuoteClientEmailAction(
     return { success: false, error: message };
   }
 }
- 
-// ── Helper ───────────────────────────────────────────────────────────────────
- 
+
+// ── Helper ────────────────────────────────────────────────────────────────────
+
 function bodyToHtml(text: string, pdfUrl: string): string {
   const escaped = text
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
- 
+
   const paragraphs = escaped
     .split(/\n{2,}/)
     .map((para) => `<p style="margin:0 0 16px 0">${para.replace(/\n/g, "<br/>")}</p>`)
     .join("");
- 
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -221,4 +213,3 @@ function bodyToHtml(text: string, pdfUrl: string): string {
 </body>
 </html>`;
 }
- 
