@@ -454,7 +454,7 @@ export default function QuoteDocument({
   const today = new Date();
 
   const validity = new Date(today);
-  validity.setDate(validity.getDate() + 30);
+  validity.setDate(validity.getDate() + 7);
 
   const factor = 1 + markupPercent / 100;
 
@@ -675,8 +675,7 @@ export default function QuoteDocument({
           <Text style={s.sectionTitle}>Operational Notes</Text>
 
           <Text style={s.noteText}>
-            Rates valid until {fmtDate(validity)}
-            subject to carrier approval and available capacity.
+            Rates valid until {fmtDate(validity)} subject to carrier approval and available capacity.
           </Text>
 
           <Text style={s.noteText}>

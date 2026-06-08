@@ -620,7 +620,7 @@ const handleDownload = async () => {
               </div>
 
               <p className="text-center text-[10px] text-muted-foreground">
-                {quoteNumber} · Valid 30 days · Markup not disclosed
+                {quoteNumber} · Valid 7 days · Markup not disclosed
               </p>
             </div>
           )}

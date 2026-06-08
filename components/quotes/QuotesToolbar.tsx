@@ -6,6 +6,8 @@
  * so they can be co-located with the table they control.
  */
 
+import { QuotesExportButton } from "./QuotesExportButton";
+
 export default function QuotesToolbar() {
   return (
     <div>

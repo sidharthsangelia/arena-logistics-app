@@ -63,7 +63,7 @@ export async function saveQuoteAction(
     const quotedTotal = total * factor;
 
     const validUntil = new Date();
-    validUntil.setDate(validUntil.getDate() + 30);
+    validUntil.setDate(validUntil.getDate() + 7);
 
     const saved = await prisma.quote.create({
       data: {

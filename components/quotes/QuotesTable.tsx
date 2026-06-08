@@ -47,6 +47,7 @@ import QuoteStatusBadge from "./QuotesStatusBadge";
 import QuoteActionsMenu from "./QuoteActionsMenu";
 import { toast } from "sonner";
 import { bulkDeleteQuotesAction } from "@/actions/quotes.action";
+import { QuotesExportButton } from "./QuotesExportButton";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -324,7 +325,9 @@ export default function QuotesTable({
             </Select>
           </>
         )}
-
+   <div className="flex items-center gap-2">
+        <QuotesExportButton />
+      </div>
         <span className="ml-auto text-xs text-muted-foreground">
           {total.toLocaleString()} quote{total !== 1 ? "s" : ""}
         </span>
