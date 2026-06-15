@@ -2,14 +2,6 @@
  * ARAMEX ADAPTER
  * -----------------------------------------------------------------------------
  * Handles all Aramex API communication and data transformation.
- *
- * Note how different Aramex's API is from Skart's:
- *   - Full address objects instead of pincodes
- *   - Nested dimensions and weight
- *   - Different auth mechanism (ClientInfo block)
- *   - Single quote back instead of an array of products
- *
- * None of this complexity leaks outside this folder.
  */
 
 import { BaseVendorAdapter } from "../../core/base.adapter";
@@ -19,13 +11,9 @@ import type {
   AramexRateResponse,
 } from "./aramex.types";
 
-// --- CONFIG ------------------------------------------------------------------
-
 const ARAMEX_API_URL =
   process.env.ARAMEX_API_URL ??
   "https://ws.aramex.net/ShippingAPI.V2/RateCalculator/Service_1_0.svc/json/CalculateRate";
-
-// --- ADAPTER -----------------------------------------------------------------
 
 export class AramexAdapter extends BaseVendorAdapter<
   AramexRateRequest,
@@ -34,8 +22,9 @@ export class AramexAdapter extends BaseVendorAdapter<
   readonly vendorId = "aramex";
   readonly vendorName = "Aramex";
 
-  // -- Step 1: Canonical → Vendor ------------------------------------------
-
+  /**
+   * Canonical → Aramex
+   */
   protected transformRequest(input: CanonicalRateRequest): AramexRateRequest {
     return {
       ClientInfo: {
@@ -44,39 +33,59 @@ export class AramexAdapter extends BaseVendorAdapter<
         Version: "v1.0",
         AccountNumber: process.env.ARAMEX_ACCOUNT_NUMBER ?? "",
         AccountPin: process.env.ARAMEX_ACCOUNT_PIN ?? "",
-        AccountEntity: process.env.ARAMEX_ACCOUNT_ENTITY ?? "BOM",
-        AccountCountryCode: input.origin.countryCode,
+        AccountEntity: process.env.ARAMEX_ACCOUNT_ENTITY ?? "GGN",
+        AccountCountryCode:
+          process.env.ARAMEX_ACCOUNT_COUNTRY_CODE ?? "IN",
         Source: 24,
       },
+
       OriginAddress: {
         Line1: input.origin.line1 ?? "",
+        Line2: "",
+        Line3: "",
+        StateOrProvinceCode: "",
         City: input.origin.city,
         PostCode: input.origin.pincode ?? "",
         CountryCode: input.origin.countryCode,
       },
+
       DestinationAddress: {
         Line1: input.destination.line1 ?? "",
+        Line2: "",
+        Line3: "",
+        StateOrProvinceCode: "",
         City: input.destination.city,
         PostCode: input.destination.pincode ?? "",
         CountryCode: input.destination.countryCode,
       },
+
       ShipmentDetails: {
         Dimensions: {
           Length: input.shipment.dimensions.length,
           Width: input.shipment.dimensions.width,
           Height: input.shipment.dimensions.height,
-          Unit: input.shipment.dimensions.unit,
+          Unit: "cm",
         },
+
         ActualWeight: {
           Unit: "KG",
           Value: input.shipment.weight,
         },
+
         ChargeableWeight: null,
-        DescriptionOfGoods: input.shipment.description ?? "Goods",
-        GoodsOriginCountry: input.shipment.goodsOriginCountry ?? input.origin.countryCode,
+
+        DescriptionOfGoods:
+          input.shipment.description ?? "Goods",
+
+        GoodsOriginCountry:
+          input.shipment.goodsOriginCountry ??
+          input.origin.countryCode,
+
         NumberOfPieces: input.shipment.quantity,
+
         ProductGroup: "EXP",
         ProductType: "PPX",
+
         PaymentType: "P",
         PaymentOptions: "",
         Services: "",
@@ -84,60 +93,90 @@ export class AramexAdapter extends BaseVendorAdapter<
     };
   }
 
-  // -- Step 2: HTTP call ----------------------------------------------------
-
+  /**
+   * Call Aramex API
+   */
   protected async callVendorApi(
     request: AramexRateRequest
   ): Promise<AramexRateResponse> {
     const res = await fetch(ARAMEX_API_URL, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
       body: JSON.stringify(request),
       cache: "no-store",
     });
 
+    const rawBody = await res.text();
+
     if (!res.ok) {
-      throw new Error(`Aramex API returned ${res.status} ${res.statusText}`);
+      throw new Error(
+        `Aramex API returned ${res.status}: ${rawBody}`
+      );
     }
 
-    const json = await res.json() as AramexRateResponse;
+    let json: AramexRateResponse;
+
+    try {
+      json = JSON.parse(rawBody) as AramexRateResponse;
+    } catch {
+      throw new Error(
+        `Failed to parse Aramex response: ${rawBody}`
+      );
+    }
 
     if (json.HasErrors) {
-      const messages = json.Notifications.map((n) => n.Message).join("; ");
+      const messages =
+        json.Notifications?.map((n) => n.Message).join("; ") ??
+        "Unknown Aramex error";
+
       throw new Error(`Aramex API error: ${messages}`);
     }
 
     return json;
   }
 
-  // -- Step 3: Vendor → Canonical ------------------------------------------
-  // Aramex returns one rate object, not an array of products.
-  // We still return RateQuote[] to keep the contract uniform.
+  /**
+   * Aramex → Canonical
+   */
+  protected transformResponse(
+    response: AramexRateResponse
+  ): RateQuote[] {
+    if (!response.RateDetails) {
+      return [];
+    }
 
-  protected transformResponse(response: AramexRateResponse): RateQuote[] {
-    if (!response.RateDetails) return [];
-
-    const { RateDetails: rate } = response;
-    const currency = rate.TotalAmount?.CurrencyCode ?? "USD";
+    const currency =
+      response.TotalAmount?.CurrencyCode ?? "INR";
 
     return [
       {
         vendorId: this.vendorId,
         vendorName: this.vendorName,
-        productName: rate.ProductName ?? rate.ProductCode,
+
+        productName: "Aramex Express",
+
         currency,
-        totalWithTax: response.TotalAmount?.Value ?? rate.TotalAmount?.Value ?? 0,
+
+        totalWithTax:
+          response.TotalAmount?.Value ?? 0,
+
         totalWithoutTax:
-          response.TotalAmountBeforeTax?.Value ??
-          rate.TotalAmountBeforeTax?.Value ??
-          0,
-        tatDays: rate.TransitDays ?? 0,
+          response.RateDetails.TotalAmountBeforeTax ?? 0,
+
+        tatDays: 0,
+
         charges: [
-          // Aramex doesn't give us a breakdown in the basic rate API,
-          // so we synthesise a single "Freight" line.
           {
             name: "FREIGHT",
-            amount: rate.TotalAmountBeforeTax?.Value ?? 0,
+            amount: response.RateDetails.Amount,
+            currency,
+          },
+          {
+            name: "TAX",
+            amount: response.RateDetails.TaxAmount,
             currency,
           },
         ],

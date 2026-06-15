@@ -195,6 +195,10 @@ If a vendor fails, its quotes are absent but `vendorErrors` is populated —
 
 # Todo
 
-- add auth using clerk 
-- add orgs
-- add db to store client info and quotes history 
+1. Inngest setup + email job migration    ← biggest UX win, 1 day
+2. Quote duplication button              ← ops teams will love this, 2 hours  
+3. Dashboard expiry + follow-up widgets  ← immediate value, half day
+4. Husky + lint-staged                   ← DX, 30 mins
+5. Client tracking portal (public)       ← killer feature, 2-3 days
+6. Cmd+K palette                         ← polish, 1 day
+7. PDF preview before send               ← nice to have, half day

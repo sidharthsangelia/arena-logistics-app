@@ -4,8 +4,7 @@ generator client {
 }
 
 datasource db {
-  provider  = "postgresql"
-
+  provider = "postgresql"
 }
 
 // ─────────────────────────────────────────────
@@ -71,7 +70,7 @@ model Org {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
-   emailEvents QuoteEmailEvent[]
+  emailEvents QuoteEmailEvent[]
 
   @@index([slug])
   @@index([deletedAt])
@@ -86,8 +85,8 @@ model VendorKey {
   orgId String
   org   Org    @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
-  vendorId String  // "aramex" | "skart" | "fedex" — matches adapter registry
-  label    String  // display name e.g. "Aramex Production"
+  vendorId String // "aramex" | "skart" | "fedex" — matches adapter registry
+  label    String // display name e.g. "Aramex Production"
   notes    String?
 
   encryptedPayload String
@@ -177,9 +176,9 @@ model Quote {
   status QuoteStatus @default(DRAFT)
 
   // Client (optional — may be assigned after creation)
-  clientId String?
-  client   Client? @relation(fields: [clientId], references: [id], onDelete: SetNull)
-    emailEvents QuoteEmailEvent[]
+  clientId          String?
+  client            Client?           @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  emailEvents       QuoteEmailEvent[]
   // Store the last Resend email ID so we can correlate webhook events
   lastResendEmailId String?
 
@@ -198,7 +197,7 @@ model Quote {
 // ─────────────────────────────────────────────
 
 model ClientDocument {
-  id    String @id @default(cuid())
+  id String @id @default(cuid())
 
   orgId String
   org   Org    @relation(fields: [orgId], references: [id], onDelete: Cascade)
@@ -226,20 +225,20 @@ model ClientDocument {
 }
 
 model QuoteEmailEvent {
-  id        String   @id @default(cuid())
-  orgId     String
-  org       Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  id    String @id @default(cuid())
+  orgId String
+  org   Org    @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
-  quoteId   String
-  quote     Quote    @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  quoteId String
+  quote   Quote  @relation(fields: [quoteId], references: [id], onDelete: Cascade)
 
   // Resend's email ID — links all events for the same send
   resendEmailId String
 
-  event     EmailEvent
+  event      EmailEvent
   // Resend sends recipient's IP/userAgent on open/click — useful for ops
-  userAgent String?
-  ipAddress String?
+  userAgent  String?
+  ipAddress  String?
   // For click events
   clickedUrl String?
 
@@ -257,4 +256,223 @@ enum EmailEvent {
   CLICKED
   BOUNCED
   COMPLAINED
+}
+
+// Domestic Air Shipment excel parsed rate data
+
+enum RateVendor {
+  EDS
+  INDIGO
+  AIR_INDIA
+}
+
+enum CargoType {
+  GCR
+  LEAN
+  SCR
+  HEA
+  XPS
+  DGR
+  PRIME
+}
+
+model Airport {
+  iataCode String @id @db.Char(3)
+
+  city     String?
+  state    String?
+  isActive Boolean @default(true)
+
+  originRateCards      RateCard[] @relation("OriginAirport")
+  destinationRateCards RateCard[] @relation("DestinationAirport")
+
+  createdAt DateTime @default(now())
+
+  @@map("airports")
+}
+
+model RateVersion {
+  id String @id @default(cuid())
+
+  vendor RateVendor
+
+  effectiveFrom DateTime
+  effectiveTo   DateTime?
+
+  isActive Boolean @default(false)
+  isStaged Boolean @default(true)
+
+  sourceFilename String
+
+  uploadedBy String?
+
+  uploadedAt DateTime @default(now())
+
+  activatedAt DateTime?
+  activatedBy String?
+
+  notes String?
+
+  rateCards  RateCard[]
+  awbCharges VendorAwbCharge[]
+
+  @@index([vendor, isActive])
+}
+
+model RateCard {
+  id String @id @default(cuid())
+
+  versionId String
+  version   RateVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  vendor RateVendor
+
+  origin      String
+  destination String
+
+  originAirport      Airport @relation("OriginAirport", fields: [origin], references: [iataCode])
+  destinationAirport Airport @relation("DestinationAirport", fields: [destination], references: [iataCode])
+
+  cargoType CargoType
+
+  commodity String?
+
+  volDivisor Int @default(6000)
+
+  rateIncludesSurcharges Boolean @default(false)
+
+  region String?
+
+  flightNo String?
+  airline  String?
+  depTime  String?
+  arrTime  String?
+  timeSlab String?
+
+  consolCode String?
+
+  isTransit         Boolean @default(false)
+  opsSuspended      Boolean @default(false)
+  componentMismatch Boolean @default(false)
+
+  sector String?
+
+  applicableFlightScope String?
+
+  effectiveDate DateTime?
+
+  remarks String?
+
+  slabs      RateSlab[]
+  surcharges FlightSurcharge[]
+
+  createdAt DateTime @default(now())
+
+  @@index([origin, destination])
+  @@index([vendor, origin, destination, cargoType])
+}
+
+model RateSlab {
+  id String @id @default(cuid())
+
+  rateCardId String
+
+  rateCard RateCard @relation(fields: [rateCardId], references: [id], onDelete: Cascade)
+
+  slabLabel String
+
+  weightMin Decimal @db.Decimal(10, 2)
+
+  weightMax Decimal? @db.Decimal(10, 2)
+
+  ratePerKg Decimal @db.Decimal(12, 4)
+
+  minCharge Decimal? @db.Decimal(12, 2)
+
+  rate100kg Decimal? @db.Decimal(12, 4)
+
+  flatRate Decimal? @db.Decimal(12, 4)
+
+  miscCharges Decimal? @db.Decimal(12, 4)
+
+  airportOut Decimal? @db.Decimal(12, 4)
+
+  airportRet Decimal? @db.Decimal(12, 4)
+
+  surchargeComp Decimal? @db.Decimal(12, 4)
+
+  createdAt DateTime @default(now())
+
+  @@index([rateCardId])
+}
+
+model FlightSurcharge {
+  id String @id @default(cuid())
+
+  rateCardId String
+
+  rateCard RateCard @relation(fields: [rateCardId], references: [id], onDelete: Cascade)
+
+  surchargeType String
+
+  flightNo String?
+
+  surchargePerKg Decimal @db.Decimal(12, 4)
+
+  surchargeText String?
+
+  appliesToCommodity String?
+
+  createdAt DateTime @default(now())
+
+  @@index([rateCardId])
+}
+
+model VendorAwbCharge {
+  id String @id @default(cuid())
+
+  versionId String
+
+  version RateVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  vendor RateVendor
+
+  chargeType String
+
+  amountPerKg Decimal? @db.Decimal(12, 4)
+
+  amountFlat Decimal? @db.Decimal(12, 4)
+
+  minAmount Decimal? @db.Decimal(12, 4)
+
+  appliesTo String?
+
+  notes String?
+
+  createdAt DateTime @default(now())
+
+  @@index([versionId])
+}
+
+model QuoteLog {
+  id String @id @default(cuid())
+
+  origin      String
+  destination String
+
+  cargoType String
+
+  actualWeightKg Decimal @db.Decimal(12, 2)
+
+  chargeableWeight Decimal @db.Decimal(12, 2)
+
+  selectedVendor String?
+
+  totalQuote Decimal? @db.Decimal(12, 2)
+
+  bookingId String?
+
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
 }

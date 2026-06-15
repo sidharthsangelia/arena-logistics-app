@@ -69,13 +69,14 @@ export interface AramexMoneyValue {
 }
 
 export interface AramexRateDetails {
-  ProductCode: string;
-  ProductName: string;
-  TotalAmount: AramexMoneyValue;
-  TotalAmountBeforeTax: AramexMoneyValue;
-  TransitDays: number;
-  Weight: AramexMoneyValue;
-  WeightUnit: string;
+  Amount: number;
+  OtherAmount1: number;
+  OtherAmount2: number;
+  OtherAmount3: number;
+  OtherAmount4: number;
+  OtherAmount5: number;
+  TotalAmountBeforeTax: number;
+  TaxAmount: number;
 }
 
 export interface AramexNotification {
@@ -84,9 +85,9 @@ export interface AramexNotification {
 }
 
 export interface AramexRateResponse {
+  Transaction: unknown | null;
   HasErrors: boolean;
   Notifications: AramexNotification[];
   RateDetails: AramexRateDetails | null;
   TotalAmount: AramexMoneyValue | null;
-  TotalAmountBeforeTax: AramexMoneyValue | null;
 }

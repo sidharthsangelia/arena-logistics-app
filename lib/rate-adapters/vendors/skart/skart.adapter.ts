@@ -21,7 +21,8 @@ import type { SkartRateRequest, SkartRateResponse, SkartProduct } from "./skart.
 
 const SKART_API_URL =
   process.env.SKART_API_URL ??
-  "https://devapiv2.skart-express.com/api/v1/booking/rate-calculator";
+  "https://apiv2.skart-express.com/api/v1/booking/rate-calculator";
+  
 
 const SKART_USERNAME = process.env.SKART_USERNAME ?? "";
 const SKART_PASSWORD = process.env.SKART_PASSWORD ?? "";

@@ -121,6 +121,21 @@ export const ourFileRouter = {
       };
     }),
 
+
+
+
+  rateSheetUploader: f({
+    blob: {
+      maxFileSize: "64MB",
+      maxFileCount: 1,
+    },
+  }).onUploadComplete(async ({ file }) => {
+    return {
+      url: file.url,
+      name: file.name,
+    };
+  }),
+
 } satisfies FileRouter;
 
 export type OurFileRouter = typeof ourFileRouter;
