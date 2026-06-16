@@ -26,6 +26,7 @@ import {
   LogOut,
   ChevronsUpDown,
   User,
+  SquareSigma,
 } from "lucide-react";
 
 import {
@@ -51,6 +52,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 import { cn } from "@/lib/utils";
+import { title } from "process";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Nav config
@@ -64,7 +66,8 @@ const OPERATIONS = [
 ] as const;
 
 const SHIPPING = [
-  { title: "Rate Calculator", href: "/rates", icon: Calculator },
+  { title: "International Rate Calculator", href: "/rates", icon: Calculator },
+  {title:"Domestic Rate Calculator", href: "/domestic-rates", icon: SquareSigma},
   { title: "Book Shipment", href: "/book", icon: PackagePlus },
   { title: "Track Shipment", href: "/track", icon: MapPin },
   { title: "Shipments", href: "/shipments", icon: Package },
