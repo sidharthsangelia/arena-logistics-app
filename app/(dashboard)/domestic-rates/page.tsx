@@ -9,7 +9,8 @@
  */
 
 import type { Metadata } from "next";
-import DomesticRatesClient from "./DomesticRatesClient";
+import DomesticRateCalculatorForm from "@/components/rate-calculator/domestic/DomesticRateCalculatorForm";
+import { prisma } from "@/utils/db";
  
 
 export const metadata: Metadata = {
@@ -17,6 +18,14 @@ export const metadata: Metadata = {
   description:
     "Get instant domestic air freight rate quotes from EDS, IndiGo CarGo, and Air India Cargo.",
 };
+
+const airports = await prisma.airport.findMany({
+  where: { isActive: true },
+  orderBy: { iataCode: "asc" },
+  select: {
+    iataCode: true,
+  },
+});
 
 export default function DomesticRatesPage() {
   return (
@@ -34,7 +43,7 @@ export default function DomesticRatesPage() {
         </div>
 
         {/* Interactive client subtree */}
-        <DomesticRatesClient />
+        <DomesticRateCalculatorForm airports={airports} />
       </div>
     </main>
   );

@@ -71,6 +71,8 @@ export default function DomesticRateResultsList({
     null,
   );
 
+  
+
   const toggleCompareId = (id: string) => {
     setCompareIds((prev) =>
       prev.includes(id)
