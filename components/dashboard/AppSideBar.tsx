@@ -128,7 +128,7 @@ const NAV_CONFIGS: Record<string, NavConfig> = {
         label: "Rate Management",
         items: [
           { title: "Rate Cards",   href: "/rate-cards",        icon: BarChart3 },
-          { title: "Upload Rates", href: "/rate-cards/upload", icon: Upload },
+          { title: "Upload Domestic Rates", href: "/domestic-rates/upload", icon: Upload },
         ],
       },
       {
