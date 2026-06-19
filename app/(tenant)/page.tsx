@@ -22,7 +22,8 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
-
+ 
+ 
 // -- Mock data ----
 
 const KPI_CARDS = [
@@ -169,7 +170,10 @@ function StatusBadge({ status }: { status: ShipmentStatus }) {
 
 // 
 
+
 export default function DashboardPage() {
+
+ 
   return (
     <div className="p-6 space-y-8 max-w-6xl mx-auto">
 

@@ -9,24 +9,26 @@ import {
   OrganizationSwitcher,
   useClerk,
 } from "@clerk/nextjs";
-import { useState } from "react";
 
 import {
   LayoutDashboard,
+  Building2,
+  FileUser,
+  Shield,
   Calculator,
   PackagePlus,
   MapPin,
   Package,
   FileText,
   Settings,
-  FileUser,
-  Shield,
-  ChevronDown,
-  Building2,
-  LogOut,
+  SquareSigma,
+  PackageCheck,
+  Users,
+  BarChart3,
+  Upload,
   ChevronsUpDown,
   User,
-  SquareSigma,
+  LogOut,
 } from "lucide-react";
 
 import {
@@ -52,31 +54,104 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 import { cn } from "@/lib/utils";
-import { title } from "process";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Nav config
+// Types
 // ─────────────────────────────────────────────────────────────────────────────
 
-const OPERATIONS = [
-  { title: "Dashboard", href: "/", icon: LayoutDashboard },
-  { title: "Clients", href: "/clients", icon: Building2 },
-  { title: "Quotes", href: "/quotes", icon: FileUser },
-  { title: "Document Vault", href: "/document-vault", icon: Shield },
-] as const;
+interface NavItem {
+  title: string;
+  href: string;
+  icon: React.ElementType;
+}
 
-const SHIPPING = [
-  { title: "International Rate Calculator", href: "/rates", icon: Calculator },
-  {title:"Domestic Rate Calculator", href: "/domestic-rates", icon: SquareSigma},
-  { title: "Book Shipment", href: "/book", icon: PackagePlus },
-  { title: "Track Shipment", href: "/track", icon: MapPin },
-  { title: "Shipments", href: "/shipments", icon: Package },
-] as const;
+interface NavSection {
+  label: string;
+  items: NavItem[];
+}
 
-const ADMIN = [
-  { title: "Invoices", href: "/invoices", icon: FileText },
-  { title: "Settings", href: "/settings", icon: Settings },
-] as const;
+interface NavConfig {
+  subtitle: string;
+  sections: NavSection[];
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Nav configs — defined here (client file) so icons never cross the
+// Server → Client boundary. Only the string variant key is passed as a prop.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const NAV_CONFIGS: Record<string, NavConfig> = {
+  tenant: {
+    subtitle: "Freight Operations",
+    sections: [
+      {
+        label: "Operations",
+        items: [
+          { title: "Dashboard",      href: "/",               icon: LayoutDashboard },
+          { title: "Clients",        href: "/clients",        icon: Building2 },
+          { title: "Quotes",         href: "/quotes",         icon: FileUser },
+          { title: "Document Vault", href: "/document-vault", icon: Shield },
+        ],
+      },
+      {
+        label: "Shipping",
+        items: [
+          { title: "International Rates", href: "/rates",          icon: Calculator },
+          { title: "Domestic Rates",      href: "/domestic-rates", icon: SquareSigma },
+          { title: "Book Shipment",       href: "/book",           icon: PackagePlus },
+          { title: "Track Shipment",      href: "/track",          icon: MapPin },
+          { title: "Shipments",           href: "/shipments",      icon: Package },
+        ],
+      },
+      {
+        label: "Admin",
+        items: [
+          { title: "Invoices", href: "/invoices", icon: FileText },
+          { title: "Settings", href: "/settings", icon: Settings },
+        ],
+      },
+    ],
+  },
+
+  arena: {
+    subtitle: "Internal Ops",
+    sections: [
+      {
+        label: "Operations",
+        items: [
+          { title: "Overview",  href: "/",         icon: LayoutDashboard },
+          { title: "Bookings",  href: "/bookings", icon: PackageCheck },
+          { title: "Clients",   href: "/clients",  icon: Users },
+        ],
+      },
+      {
+        label: "Rate Management",
+        items: [
+          { title: "Rate Cards",   href: "/rate-cards",        icon: BarChart3 },
+          { title: "Upload Rates", href: "/rate-cards/upload", icon: Upload },
+        ],
+      },
+      {
+        label: "Admin",
+        items: [
+          { title: "Settings", href: "/settings", icon: Settings },
+        ],
+      },
+    ],
+  },
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Props — only serializable values cross the Server → Client boundary
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface AppSidebarProps {
+  /** "tenant" | "arena" — selects the nav config defined above */
+  variant: keyof typeof NAV_CONFIGS;
+  /** Base path for href resolution and active detection
+   *  e.g. "/dashboard" or "/arena-dashboard" */
+  basePath: string;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // OrgAvatar
@@ -122,7 +197,7 @@ function OrgAvatar({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// NavSection label
+// SectionLabel
 // ─────────────────────────────────────────────────────────────────────────────
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
@@ -134,14 +209,14 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// NavItem
+// NavItemRow
 // ─────────────────────────────────────────────────────────────────────────────
 
-function NavItem({
+function NavItemRow({
   item,
   isActive,
 }: {
-  item: { title: string; href: string; icon: React.ElementType };
+  item: NavItem;
   isActive: boolean;
 }) {
   const { state } = useSidebar();
@@ -168,7 +243,7 @@ function NavItem({
             collapsed && "justify-center",
           )}
         >
-          <Icon   
+          <Icon
             className={cn(
               "h-[15px] w-[15px] shrink-0",
               isActive
@@ -186,31 +261,12 @@ function NavItem({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Collapsed icon button (used in collapsed state for org + user)
-// ─────────────────────────────────────────────────────────────────────────────
-
-function CollapsedIconBtn({
-  children,
-  tooltip,
-}: {
-  children: React.ReactNode;
-  tooltip: string;
-}) {
-  return (
-    <SidebarMenuButton
-      tooltip={tooltip}
-      className="h-9 w-9 rounded-md flex items-center justify-center hover:bg-sidebar-accent/60 p-0 mx-auto"
-    >
-      {children}
-    </SidebarMenuButton>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // AppSidebar
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function AppSidebar() {
+export function AppSidebar({ variant, basePath }: AppSidebarProps) {
+  const { subtitle, sections } = NAV_CONFIGS[variant];
+
   const pathname = usePathname();
   const router = useRouter();
   const { state } = useSidebar();
@@ -219,8 +275,19 @@ export function AppSidebar() {
   const { user } = useUser();
   const { signOut } = useClerk();
 
-  const isActive = (href: string) =>
-    href === "/" ? pathname === "/" : pathname.startsWith(href);
+  // Resolve full href by prepending basePath to relative hrefs
+  // e.g. basePath="/dashboard", href="/clients" → "/dashboard/clients"
+  // e.g. href="/" → basePath itself (the index route)
+  const resolveHref = (href: string) =>
+    href === "/" ? basePath : `${basePath}${href}`;
+
+  // Active check against full resolved path
+  const isActive = (href: string) => {
+    const full = resolveHref(href);
+    return full === basePath
+      ? pathname === basePath
+      : pathname.startsWith(full);
+  };
 
   const displayName =
     user?.fullName ??
@@ -229,15 +296,34 @@ export function AppSidebar() {
   const email = user?.primaryEmailAddress?.emailAddress ?? "";
   const avatarUrl = user?.imageUrl;
 
+  const UserAvatar = ({ size }: { size: number }) =>
+    avatarUrl ? (
+      <Image
+        src={avatarUrl}
+        alt={displayName}
+        width={size}
+        height={size}
+        className="rounded-full shrink-0"
+      />
+    ) : (
+      <div
+        className="rounded-full bg-primary flex items-center justify-center font-semibold text-primary-foreground shrink-0"
+        style={{ width: size, height: size, fontSize: size * 0.4 }}
+      >
+        {displayName[0]?.toUpperCase()}
+      </div>
+    );
+
   return (
     <Sidebar collapsible="icon" className="border-r border-border/60">
+
       {/* ── Header ──────────────────────────────────────────────────────── */}
       <SidebarHeader
         className={cn("pb-2", collapsed ? "px-2 pt-3" : "px-3 pt-3")}
       >
         {/* Logo */}
         <Link
-          href="/"
+          href={basePath}
           className={cn(
             "flex items-center rounded-lg transition-colors hover:bg-sidebar-accent/50",
             collapsed ? "justify-center p-1.5" : "gap-3 px-1.5 py-2",
@@ -257,7 +343,7 @@ export function AppSidebar() {
                 Arena Cargo
               </p>
               <p className="text-[11px] leading-tight text-muted-foreground truncate mt-0.5">
-                Operations Platform
+                {subtitle}
               </p>
             </div>
           )}
@@ -268,36 +354,32 @@ export function AppSidebar() {
 
         {/* Org switcher */}
         {collapsed ? (
-          // Collapsed: org avatar as tooltip button
-          // Collapsed org — replace the SidebarMenu/SidebarMenuItem wrapper with just:
-<SidebarMenu>
-  <SidebarMenuItem>
-
-          <div className="flex justify-center py-1 relative">
-            <div className="h-9 w-9 flex items-center justify-center rounded-md hover:bg-sidebar-accent/60 transition-colors cursor-pointer relative">
-              <OrgAvatar
-                name={organization?.name ?? "O"}
-                logoUrl={organization?.imageUrl}
-                size={28}
-              />
-              <div className="absolute inset-0 opacity-0 overflow-hidden rounded-md">
-                <OrganizationSwitcher
-                  hidePersonal
-                  appearance={{
-                    elements: {
-                      rootBox: "w-full h-full",
-                      organizationSwitcherTrigger:
-                        "w-full h-full absolute inset-0 opacity-0",
-                    },
-                  }}
-                />
+          <SidebarMenu>
+            <SidebarMenuItem>
+              <div className="flex justify-center py-1 relative">
+                <div className="h-9 w-9 flex items-center justify-center rounded-md hover:bg-sidebar-accent/60 transition-colors cursor-pointer relative">
+                  <OrgAvatar
+                    name={organization?.name ?? "O"}
+                    logoUrl={organization?.imageUrl}
+                    size={28}
+                  />
+                  <div className="absolute inset-0 opacity-0 overflow-hidden rounded-md">
+                    <OrganizationSwitcher
+                      hidePersonal
+                      appearance={{
+                        elements: {
+                          rootBox: "w-full h-full",
+                          organizationSwitcherTrigger:
+                            "w-full h-full absolute inset-0 opacity-0",
+                        },
+                      }}
+                    />
+                  </div>
+                </div>
               </div>
-            </div>
-          </div>
-  </SidebarMenuItem>
-</SidebarMenu>
+            </SidebarMenuItem>
+          </SidebarMenu>
         ) : (
-          // Expanded: full org row
           <div className="relative rounded-lg border border-border/50 bg-sidebar-accent/30 hover:bg-sidebar-accent/50 transition-colors cursor-pointer">
             <div className="flex items-center gap-2.5 px-2.5 py-2">
               <OrgAvatar
@@ -318,7 +400,6 @@ export function AppSidebar() {
               </div>
               <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground/50" />
             </div>
-            {/* Invisible Clerk overlay — covers the entire row */}
             <div className="absolute inset-0 opacity-0 overflow-hidden rounded-lg">
               <OrganizationSwitcher
                 hidePersonal
@@ -337,59 +418,29 @@ export function AppSidebar() {
 
       {/* ── Content ─────────────────────────────────────────────────────── */}
       <SidebarContent className={cn("py-2", collapsed ? "px-2" : "px-2.5")}>
-        {/* Operations */}
-        <SidebarGroup className="p-0 mb-1">
-          {!collapsed && <SectionLabel>Operations</SectionLabel>}
-          <SidebarGroupContent>
-            <SidebarMenu className="gap-px">
-              {OPERATIONS.map((item) => (
-                <NavItem
-                  key={item.href}
-                  item={item}
-                  isActive={isActive(item.href)}
-                />
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+        {sections.map((section, sectionIndex) => (
+          <div key={section.label}>
+            {/* Divider between sections (not before the first) */}
+            {sectionIndex > 0 && (
+              <div className={cn("h-px bg-border/40 my-2", collapsed && "mx-1")} />
+            )}
 
-        {/* Divider */}
-        <div className={cn("h-px bg-border/40 my-2", collapsed && "mx-1")} />
-
-        {/* Shipping */}
-        <SidebarGroup className="p-0 mb-1">
-          {!collapsed && <SectionLabel>Shipping</SectionLabel>}
-          <SidebarGroupContent>
-            <SidebarMenu className="gap-px">
-              {SHIPPING.map((item) => (
-                <NavItem
-                  key={item.href}
-                  item={item}
-                  isActive={isActive(item.href)}
-                />
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-
-        {/* Divider */}
-        <div className={cn("h-px bg-border/40 my-2", collapsed && "mx-1")} />
-
-        {/* Admin */}
-        <SidebarGroup className="p-0">
-          {!collapsed && <SectionLabel>Admin</SectionLabel>}
-          <SidebarGroupContent>
-            <SidebarMenu className="gap-px">
-              {ADMIN.map((item) => (
-                <NavItem
-                  key={item.href}
-                  item={item}
-                  isActive={isActive(item.href)}
-                />
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+            <SidebarGroup className="p-0 mb-1">
+              {!collapsed && <SectionLabel>{section.label}</SectionLabel>}
+              <SidebarGroupContent>
+                <SidebarMenu className="gap-px">
+                  {section.items.map((item) => (
+                    <NavItemRow
+                      key={item.href}
+                      item={{ ...item, href: resolveHref(item.href) }}
+                      isActive={isActive(item.href)}
+                    />
+                  ))}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          </div>
+        ))}
       </SidebarContent>
 
       {/* ── Footer ──────────────────────────────────────────────────────── */}
@@ -402,45 +453,26 @@ export function AppSidebar() {
         <SidebarMenu>
           <SidebarMenuItem>
             {collapsed ? (
-              // Collapsed: avatar only, dropdown on click
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <SidebarMenuButton
                     tooltip={displayName}
                     className="h-9 w-9 rounded-md flex items-center justify-center hover:bg-sidebar-accent/60 p-0 mx-auto"
                   >
-                    {avatarUrl ? (
-                      <Image
-                        src={avatarUrl}
-                        alt={displayName}
-                        width={28}
-                        height={28}
-                        className="rounded-full"
-                      />
-                    ) : (
-                      <div className="h-7 w-7 rounded-full bg-primary flex items-center justify-center text-[11px] font-semibold text-primary-foreground">
-                        {displayName[0]?.toUpperCase()}
-                      </div>
-                    )}
+                    <UserAvatar size={28} />
                   </SidebarMenuButton>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent side="right" align="end" className="w-52">
                   <DropdownMenuLabel className="font-normal">
-                    <p className="text-[13px] font-medium truncate">
-                      {displayName}
-                    </p>
-                    <p className="text-[11px] text-muted-foreground truncate">
-                      {email}
-                    </p>
+                    <p className="text-[13px] font-medium truncate">{displayName}</p>
+                    <p className="text-[11px] text-muted-foreground truncate">{email}</p>
                   </DropdownMenuLabel>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => router.push("/settings")}>
+                  <DropdownMenuItem onClick={() => router.push(`${basePath}/settings`)}>
                     <Settings className="mr-2 h-4 w-4" />
                     Settings
                   </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={() => router.push("/settings/profile")}
-                  >
+                  <DropdownMenuItem onClick={() => router.push(`${basePath}/settings/profile`)}>
                     <User className="mr-2 h-4 w-4" />
                     Profile
                   </DropdownMenuItem>
@@ -455,7 +487,6 @@ export function AppSidebar() {
                 </DropdownMenuContent>
               </DropdownMenu>
             ) : (
-              // Expanded: full user card as dropdown trigger
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <SidebarMenuButton
@@ -465,22 +496,7 @@ export function AppSidebar() {
                       "data-[state=open]:bg-sidebar-accent/60",
                     )}
                   >
-                    {/* Avatar */}
-                    {avatarUrl ? (
-                      <Image
-                        src={avatarUrl}
-                        alt={displayName}
-                        width={32}
-                        height={32}
-                        className="rounded-full shrink-0"
-                      />
-                    ) : (
-                      <div className="h-8 w-8 shrink-0 rounded-full bg-primary flex items-center justify-center text-[12px] font-semibold text-primary-foreground">
-                        {displayName[0]?.toUpperCase()}
-                      </div>
-                    )}
-
-                    {/* Name + email */}
+                    <UserAvatar size={32} />
                     <div className="min-w-0 flex-1 text-left">
                       <p className="text-[12px] font-medium leading-tight truncate text-foreground">
                         {displayName}
@@ -489,51 +505,26 @@ export function AppSidebar() {
                         {email}
                       </p>
                     </div>
-
-                    {/* Chevron */}
                     <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground/50" />
                   </SidebarMenuButton>
                 </DropdownMenuTrigger>
 
-                <DropdownMenuContent
-                  side="top"
-                  align="end"
-                  sideOffset={8}
-                  className="w-56"
-                >
+                <DropdownMenuContent side="top" align="end" sideOffset={8} className="w-56">
                   <DropdownMenuLabel className="font-normal pb-2">
                     <div className="flex items-center gap-2.5">
-                      {avatarUrl ? (
-                        <Image
-                          src={avatarUrl}
-                          alt={displayName}
-                          width={32}
-                          height={32}
-                          className="rounded-full shrink-0"
-                        />
-                      ) : (
-                        <div className="h-8 w-8 shrink-0 rounded-full bg-primary flex items-center justify-center text-[12px] font-semibold text-primary-foreground">
-                          {displayName[0]?.toUpperCase()}
-                        </div>
-                      )}
+                      <UserAvatar size={32} />
                       <div className="min-w-0">
-                        <p className="text-[13px] font-medium truncate">
-                          {displayName}
-                        </p>
-                        <p className="text-[11px] text-muted-foreground truncate">
-                          {email}
-                        </p>
+                        <p className="text-[13px] font-medium truncate">{displayName}</p>
+                        <p className="text-[11px] text-muted-foreground truncate">{email}</p>
                       </div>
                     </div>
                   </DropdownMenuLabel>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => router.push("/settings")}>
+                  <DropdownMenuItem onClick={() => router.push(`${basePath}/settings`)}>
                     <Settings className="mr-2 h-4 w-4" />
                     Settings
                   </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={() => router.push("/settings/profile")}
-                  >
+                  <DropdownMenuItem onClick={() => router.push(`${basePath}/settings/profile`)}>
                     <User className="mr-2 h-4 w-4" />
                     Profile
                   </DropdownMenuItem>

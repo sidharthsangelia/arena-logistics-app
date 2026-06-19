@@ -12,21 +12,66 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 
-const ROUTE_LABELS: Record<string, string> = {
+// ─────────────────────────────────────────────────────────────────────────────
+// Route label maps — tenant and arena have different route vocabularies
+// ─────────────────────────────────────────────────────────────────────────────
+
+const TENANT_LABELS: Record<string, string> = {
+  dashboard: "Overview",
   clients: "Clients",
   rates: "Rate Calculator",
+  "domestic-rates": "Domestic Rates",
   book: "Book Shipment",
   track: "Track Shipment",
   shipments: "Shipments",
   quotes: "Quotes",
   invoices: "Invoices",
   settings: "Settings",
-  vault: "Document Vault",
+  "document-vault": "Document Vault",
+  debug: "Debug",
+  upload: "Upload",
 };
 
-function formatSegment(segment: string) {
+const ARENA_LABELS: Record<string, string> = {
+  "arena-dashboard": "Overview",
+  bookings: "Bookings",
+  clients: "Clients",
+  "rate-cards": "Rate Cards",
+  upload: "Upload Rates",
+  settings: "Settings",
+  orgs: "Organisations",
+};
+
+const LABEL_MAPS: Record<string, Record<string, string>> = {
+  tenant: TENANT_LABELS,
+  arena: ARENA_LABELS,
+};
+
+// Root label shown as the first crumb
+const ROOT_LABELS: Record<string, string> = {
+  tenant: "Overview",
+  arena: "Overview",
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Props
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface DashboardBreadcrumbProps {
+  /** Matches AppSidebar variant — "tenant" | "arena" */
+  variant: "tenant" | "arena";
+  /** Base path for this variant — e.g. "/dashboard" or "/arena-dashboard"
+   *  Segments matching this path are stripped from the breadcrumb trail */
+  basePath: string;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+function formatSegment(segment: string, labelMap: Record<string, string>) {
   return (
-    ROUTE_LABELS[segment] ??
+    labelMap[segment] ??
     segment
       .replace(/-/g, " ")
       .replace(/_/g, " ")
@@ -34,57 +79,68 @@ function formatSegment(segment: string) {
   );
 }
 
-export function DashboardBreadcrumb() {
-  const pathname = usePathname();
+// ─────────────────────────────────────────────────────────────────────────────
+// Component
+// ─────────────────────────────────────────────────────────────────────────────
 
-  const segments = pathname.split("/").filter(Boolean);
+export function DashboardBreadcrumb({ variant, basePath }: DashboardBreadcrumbProps) {
+  const pathname = usePathname();
+  const labelMap = LABEL_MAPS[variant];
+  const rootLabel = ROOT_LABELS[variant];
+
+  // Strip leading slash and split — e.g. "/dashboard/clients/123" → ["dashboard","clients","123"]
+  const allSegments = pathname.split("/").filter(Boolean);
+
+  // Strip the basePath segments so breadcrumb starts after the root
+  // e.g. basePath="/dashboard" removes the "dashboard" segment
+  // e.g. basePath="/arena-dashboard" removes "arena-dashboard"
+  const baseSegments = basePath.split("/").filter(Boolean);
+  const segments = allSegments.slice(baseSegments.length);
+
+  const isRoot = segments.length === 0;
 
   return (
     <Breadcrumb>
       <BreadcrumbList>
 
-        {/* Root */}
-
+        {/* Root crumb — always first */}
         <BreadcrumbItem>
-          {pathname === "/" ? (
-            <BreadcrumbPage>Overview</BreadcrumbPage>
+          {isRoot ? (
+            <BreadcrumbPage>{rootLabel}</BreadcrumbPage>
           ) : (
             <BreadcrumbLink asChild>
-              <Link href="/">Overview</Link>
+              <Link href={basePath}>{rootLabel}</Link>
             </BreadcrumbLink>
           )}
         </BreadcrumbItem>
 
+        {/* Remaining segments */}
         {segments.map((segment, index) => {
-          const href =
-            "/" + segments.slice(0, index + 1).join("/");
+          // Build href relative to basePath
+          const href = basePath + "/" + segments.slice(0, index + 1).join("/");
+          const isLast = index === segments.length - 1;
 
-          const isLast =
-            index === segments.length - 1;
+          // Skip dynamic segments that look like IDs (cuid, uuid, numeric)
+          // They render as the parent's detail view — not useful as crumb labels
+          const isDynamic = /^[a-z0-9]{20,}$|^\d+$|^[0-9a-f-]{36}$/.test(segment);
+          const label = isDynamic ? "Detail" : formatSegment(segment, labelMap);
 
           return (
-            <div
-              key={href}
-              className="flex items-center"
-            >
+            <div key={href} className="flex items-center">
               <BreadcrumbSeparator />
-
               <BreadcrumbItem>
                 {isLast ? (
-                  <BreadcrumbPage>
-                    {formatSegment(segment)}
-                  </BreadcrumbPage>
+                  <BreadcrumbPage>{label}</BreadcrumbPage>
                 ) : (
                   <BreadcrumbLink asChild>
-                    <Link href={href}>
-                      {formatSegment(segment)}
-                    </Link>
+                    <Link href={href}>{label}</Link>
                   </BreadcrumbLink>
                 )}
               </BreadcrumbItem>
             </div>
           );
         })}
+
       </BreadcrumbList>
     </Breadcrumb>
   );

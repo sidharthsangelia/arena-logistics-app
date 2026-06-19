@@ -9,7 +9,7 @@ export default function GlobalError({
   return (
     <html>
       <body>
-        <div style={{ padding: 40, textAlign: "center" }}>
+        <div className="  " style={{ padding: 40, textAlign: "center" }}>
           <h2>Something went wrong</h2>
           <button onClick={reset}>Try again</button>
         </div>

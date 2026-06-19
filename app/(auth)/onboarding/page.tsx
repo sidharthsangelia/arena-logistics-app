@@ -10,9 +10,13 @@ import { redirect } from "next/navigation";
 export default async function OnboardingPage() {
   const { userId, orgId } = await auth();
 
-  // Already has an org — skip onboarding
-  if (orgId) redirect("/");
-  if (!userId) redirect("/sign-in");
+const ARENA_ORG_ID = process.env.ARENA_ORG_ID!;
+
+if (orgId === ARENA_ORG_ID) redirect("/arena-dashboard");
+if (orgId) redirect("/");  // tenant already onboarded
+if (!userId) redirect("/sign-in");
+
+
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-6">
