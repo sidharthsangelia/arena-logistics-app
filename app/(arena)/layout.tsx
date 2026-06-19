@@ -8,14 +8,6 @@ import {
 } from "@/components/ui/sidebar";
 import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
-import {
-  LayoutDashboard,
-  PackageCheck,
-  Users,
-  BarChart3,
-  Settings,
-  Upload,
-} from "lucide-react";
 
 const ARENA_ORG_ID = process.env.ARENA_ORG_ID!;
 
