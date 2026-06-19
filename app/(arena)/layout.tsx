@@ -6,23 +6,47 @@ import {
   SidebarProvider,
   SidebarTrigger,
 } from "@/components/ui/sidebar";
+import { auth } from "@clerk/nextjs/server";
+import { redirect } from "next/navigation";
+import {
+  LayoutDashboard,
+  PackageCheck,
+  Users,
+  BarChart3,
+  Settings,
+  Upload,
+} from "lucide-react";
 
-export default function DashboardLayout({
+const ARENA_ORG_ID = process.env.ARENA_ORG_ID!;
+
+ 
+
+export default async function ArenaDashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const { userId, orgId } = await auth();
+
+  if (!userId) redirect("/sign-in");
+  if (orgId !== ARENA_ORG_ID) redirect("/dashboard");
+
+  console.log("ARENA LAYOUT CHECK:", {
+    userId,
+    orgId,
+    ARENA_ORG_ID: process.env.ARENA_ORG_ID,
+  });
   return (
     <main>
       <SidebarProvider>
-        <AppSidebar />
+       <AppSidebar variant="arena" basePath="/arena-dashboard" />
 
         <SidebarInset>
           {/* Top header bar */}
           <header className="flex h-14 shrink-0 items-center gap-2 border-b bg-white px-4">
             <SidebarTrigger className="-ml-1" />
             <Separator orientation="vertical" className="mr-2 h-4" />
-            <DashboardBreadcrumb />
+          <DashboardBreadcrumb variant="arena" basePath="/arena-dashboard" />
           </header>
 
           {/* Page content */}
