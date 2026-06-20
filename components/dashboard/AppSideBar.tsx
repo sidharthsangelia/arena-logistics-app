@@ -278,16 +278,21 @@ export function AppSidebar({ variant, basePath }: AppSidebarProps) {
   // Resolve full href by prepending basePath to relative hrefs
   // e.g. basePath="/dashboard", href="/clients" → "/dashboard/clients"
   // e.g. href="/" → basePath itself (the index route)
-  const resolveHref = (href: string) =>
-    href === "/" ? basePath : `${basePath}${href}`;
+const resolveHref = (href: string) => {
+  if (href === "/") return basePath;
+  // Avoid double slash when basePath is "/"
+  if (basePath === "/") return href;
+  return `${basePath}${href}`;
+};
 
   // Active check against full resolved path
-  const isActive = (href: string) => {
-    const full = resolveHref(href);
-    return full === basePath
-      ? pathname === basePath
-      : pathname.startsWith(full);
-  };
+const isActive = (href: string) => {
+  const full = resolveHref(href);
+  // For basePath="/" the root is just "/"
+  return full === "/"
+    ? pathname === "/"
+    : pathname.startsWith(full);
+};
 
   const displayName =
     user?.fullName ??
