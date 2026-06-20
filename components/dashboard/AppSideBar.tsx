@@ -29,6 +29,7 @@ import {
   ChevronsUpDown,
   User,
   LogOut,
+  Handshake,
 } from "lucide-react";
 
 import {
@@ -121,7 +122,8 @@ const NAV_CONFIGS: Record<string, NavConfig> = {
         items: [
           { title: "Overview",  href: "/",         icon: LayoutDashboard },
           { title: "Bookings",  href: "/bookings", icon: PackageCheck },
-          { title: "Clients",   href: "/clients",  icon: Users },
+          {title: "Business Associates", href: "/business-associates", icon: Handshake},
+          { title: "All Clients",   href: "/clients",  icon: Users },
         ],
       },
       {
