@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import {
   useOrganization,
   useUser,
@@ -138,6 +138,7 @@ const NAV_CONFIGS: Record<string, NavConfig> = {
       {
         label: "Admin",
         items: [
+           { title: "Invoices", href: "/invoices", icon: FileText },
           { title: "Settings", href: "/settings", icon: Settings },
         ],
       },
@@ -272,12 +273,30 @@ export function AppSidebar({ variant, basePath }: AppSidebarProps) {
   const { subtitle, sections } = NAV_CONFIGS[variant];
 
   const pathname = usePathname();
-  const router = useRouter();
   const { state } = useSidebar();
   const collapsed = state === "collapsed";
   const { organization } = useOrganization();
   const { user } = useUser();
-  const { signOut } = useClerk();
+  // openUserProfile / openOrganizationProfile mount Clerk's own modal UI —
+  // that's what makes the "Clerk popup" actually appear, as opposed to
+  // router.push-ing to an app route that may not exist.
+  const { signOut, openUserProfile, openOrganizationProfile } = useClerk();
+
+  // "Settings" maps to the org profile modal (members, roles, domains) since
+  // it pairs naturally with the org switcher above. If there's no active
+  // org yet (e.g. mid-onboarding), fall back to the user profile instead of
+  // calling openOrganizationProfile with nothing to operate on.
+  const handleOpenSettings = () => {
+    if (organization) {
+      openOrganizationProfile();
+    } else {
+      openUserProfile();
+    }
+  };
+
+  const handleOpenProfile = () => {
+    openUserProfile();
+  };
 
   // Resolve full href by prepending basePath to relative hrefs
   // e.g. basePath="/dashboard", href="/clients" → "/dashboard/clients"
@@ -477,11 +496,11 @@ const isActive = (href: string) => {
                     <p className="text-[11px] text-muted-foreground truncate">{email}</p>
                   </DropdownMenuLabel>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => router.push(`${basePath}/settings`)}>
+                  <DropdownMenuItem onClick={handleOpenSettings}>
                     <Settings className="mr-2 h-4 w-4" />
                     Settings
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => router.push(`${basePath}/settings/profile`)}>
+                  <DropdownMenuItem onClick={handleOpenProfile}>
                     <User className="mr-2 h-4 w-4" />
                     Profile
                   </DropdownMenuItem>
@@ -529,11 +548,11 @@ const isActive = (href: string) => {
                     </div>
                   </DropdownMenuLabel>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => router.push(`${basePath}/settings`)}>
+                  <DropdownMenuItem onClick={handleOpenSettings}>
                     <Settings className="mr-2 h-4 w-4" />
                     Settings
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => router.push(`${basePath}/settings/profile`)}>
+                  <DropdownMenuItem onClick={handleOpenProfile}>
                     <User className="mr-2 h-4 w-4" />
                     Profile
                   </DropdownMenuItem>
