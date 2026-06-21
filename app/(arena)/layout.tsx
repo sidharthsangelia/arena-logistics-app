@@ -23,11 +23,11 @@ export default async function ArenaDashboardLayout({
   if (!userId) redirect("/sign-in");
   if (orgId !== ARENA_ORG_ID) redirect("/dashboard");
 
-  console.log("ARENA LAYOUT CHECK:", {
-    userId,
-    orgId,
-    ARENA_ORG_ID: process.env.ARENA_ORG_ID,
-  });
+  // console.log("ARENA LAYOUT CHECK:", {
+  //   userId,
+  //   orgId,
+  //   ARENA_ORG_ID: process.env.ARENA_ORG_ID,
+  // });
   return (
     <main>
       <SidebarProvider>

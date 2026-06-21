@@ -124,6 +124,8 @@ const NAV_CONFIGS: Record<string, NavConfig> = {
           { title: "Bookings",  href: "/bookings", icon: PackageCheck },
           {title: "Business Associates", href: "/business-associates", icon: Handshake},
           { title: "All Clients",   href: "/clients",  icon: Users },
+          { title: "All Quotes",         href: "/quotes",         icon: FileUser },
+          { title: "Document Vault", href: "/document-vault", icon: Shield },
         ],
       },
       {
