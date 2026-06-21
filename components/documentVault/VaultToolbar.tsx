@@ -19,7 +19,7 @@ export default async function VaultToolbar() {
           <h1 className="text-xl font-semibold tracking-tight">Document Vault</h1>
         </div>
         <p className="mt-0.5 text-sm text-muted-foreground">
-          {total.toLocaleString()} KYC document{total !== 1 ? "s" : ""} across all clients
+          {total.toLocaleString()} KYC and compliance doucment{total !== 1 ? "s" : ""} across every business associate.
         </p>
       </div>
     </div>

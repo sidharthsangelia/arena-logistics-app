@@ -43,7 +43,7 @@ export default function ClientsTableInternal({
           <TableHeader>
             <TableRow className="bg-muted/50 hover:bg-muted/50">
               <TableHead className="text-xs uppercase tracking-wide">
-                Company
+                Client
               </TableHead>
 
               <TableHead className="text-xs uppercase tracking-wide">
@@ -96,10 +96,10 @@ export default function ClientsTableInternal({
                     </Link>
                   </TableCell>
 
-                  <TableCell>
+                  <TableCell className="max-w-50 truncate">
                     <Link
                       href={`/arena-dashboard/business-associates/${client.org.id}`}
-                      className="text-muted-foreground hover:underline"
+                      className="text-muted-foreground truncate hover:underline  "
                     >
                       {client.org.name}
                     </Link>
