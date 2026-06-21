@@ -1,17 +1,18 @@
 /**
- * src/app/quotes/page.tsx
+ * src/app/arena-dashboard/quotes/page.tsx
  *
- * Server component. Reads searchParams, fetches quotes, renders the page.
- * Follows the exact same pattern as ClientsPage.
+ * Company-side view across every tenant org. Unlike /quotes (tenant-scoped,
+ * see src/app/quotes/page.tsx), this intentionally shows quotes regardless
+ * of which org generated them, so ops can search the whole platform from
+ * one place.
  */
 
-import { Suspense } from "react";
-
+import { getAllQuotesAction } from "@/actions/quote/quotesListAdmin.action";
+import AdminQuotesTable from "@/components/quotes/AdminQuotesTable";
 import type { QuoteStatus } from "@/generated/prisma";
-import { getQuotesAction } from "@/actions/quotesList.action";
-import QuotesToolbar from "@/components/quotes/QuotesToolbar";
-import QuotesTableSkeleton from "@/components/quotes/QuotesTableSkeleton";
-import QuotesTable from "@/components/quotes/QuotesTable";
+
+
+const PAGE_SIZE = 25;
 
 type PageProps = {
   searchParams: Promise<{
@@ -35,20 +36,20 @@ function toStatus(raw: string | undefined): QuoteStatus | "" {
   return VALID_STATUSES.includes(upper) ? upper : "";
 }
 
-export default async function QuotesPage({ searchParams }: PageProps) {
+export default async function ArenaQuotesPage({ searchParams }: PageProps) {
   const params = await searchParams;
 
   const query = params.q?.trim() ?? "";
   const status = toStatus(params.status);
   const page = Math.max(1, Number.parseInt(params.page ?? "1", 10) || 1);
 
-  const { quotes, total } = await getQuotesAction({ q: query, status, page });
-
-  const PAGE_SIZE = 25;
+  const { quotes, total } = await getAllQuotesAction({ q: query, status, page });
 
   return (
-    <>
-      <QuotesTable
+    <div className="space-y-6">
+   
+
+      <AdminQuotesTable
         quotes={quotes}
         page={page}
         total={total}
@@ -56,6 +57,6 @@ export default async function QuotesPage({ searchParams }: PageProps) {
         query={query}
         status={status}
       />
-    </>
+    </div>
   );
 }

@@ -8,7 +8,7 @@
 import { Suspense } from "react";
 
 import type { QuoteStatus } from "@/generated/prisma";
-import { getQuotesAction } from "@/actions/quotesList.action";
+import { getQuotesAction } from "@/actions/quote/quotesList.action";
 import QuotesToolbar from "@/components/quotes/QuotesToolbar";
 import QuotesTableSkeleton from "@/components/quotes/QuotesTableSkeleton";
 import QuotesTable from "@/components/quotes/QuotesTable";
