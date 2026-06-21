@@ -39,7 +39,7 @@ import { MoreHorizontal } from "lucide-react";
 import { toast } from "sonner";
 
 import type { QuoteStatus } from "@/generated/prisma";
-import { deleteQuoteAction, updateQuoteStatusAction } from "@/actions/quotesList.action";
+import { deleteQuoteAction, updateQuoteStatusAction } from "@/actions/quote/quotesList.action";
 
 // ---------------------------------------------------------------------------
 // Status transition map

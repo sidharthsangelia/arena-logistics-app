@@ -3,7 +3,7 @@
 import { createUploadthing, type FileRouter } from "uploadthing/next";
 import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/utils/db";
-import { updateQuotePdfAction } from "@/actions/quotes.action";
+import { updateQuotePdfAction } from "@/actions/quote/quotes.action";
 import { saveKycDocumentAction } from "@/actions/documentVault/clientsDocument.action";
 
 const f = createUploadthing();
