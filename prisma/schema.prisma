@@ -40,6 +40,8 @@ enum KycDocType {
   OTHER
 }
 
+
+
 // NOTE: Vendor is intentionally NOT an enum.
 // Your adapter registry already uses string IDs ("aramex", "skart", "fedex").
 // A DB enum means a migration every time you add a carrier — avoid it.
@@ -65,6 +67,15 @@ model Org {
   clients    Client[]
   quotes     Quote[]
   documents  ClientDocument[]
+
+    markupPercent Decimal @default(30.000) @db.Decimal(6, 3)
+  isBusinessAssociate Boolean @default(false) // flips markup down (e.g. to 15%) when true — set by you/ops, not self-serve; gates the /clients route
+
+  wallet      Wallet?
+  kycDocuments KycDocument[]
+  addresses    Address[]
+  shipments    Shipment[]
+  baApplications BaApplication[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -124,6 +135,12 @@ model Client {
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
+
+    companyKind CompanyKind @default(INDIVIDUAL)
+
+  kycDocuments KycDocument[]
+  addresses    Address[]
+  shipments    Shipment[]
 
   quotes    Quote[]
   documents ClientDocument[]
@@ -475,4 +492,402 @@ model QuoteLog {
   createdAt DateTime @default(now())
 
   @@index([createdAt])
+}
+
+
+enum PartyType {
+  ORG // KYC/Address owner is the Org itself (shipping for itself)
+  CLIENT // KYC/Address owner is a Client (Org booking on their behalf)
+}
+
+enum CompanyKind {
+  INDIVIDUAL
+  COMPANY
+}
+
+enum AddressKind {
+  PICKUP
+  DELIVERY
+  BILLING
+}
+
+enum ShipmentStatus {
+  DRAFT // form in progress, not yet submitted
+  PENDING_PAYMENT // service selected, awaiting wallet debit
+  BOOKED // payment captured, sitting in ops queue
+  PROCESSING // ops has picked it up
+  DOCUMENTS_PENDING // ops needs more docs (AWB etc.) before moving
+  IN_TRANSIT
+  CUSTOMS_HOLD
+  OUT_FOR_DELIVERY
+  DELIVERED
+  CANCELLED
+  ON_HOLD
+}
+
+enum ShipmentDocType {
+  INVOICE // mandatory, fresh per shipment
+  AIRWAY_BILL
+  PACKING_LIST
+  CUSTOMS_DECLARATION
+  CERTIFICATE_OF_ORIGIN
+  INSURANCE_CERT
+  POD // proof of delivery
+  OTHER
+}
+
+enum WalletTxnType {
+  TOP_UP
+  SHIPMENT_DEBIT
+  REFUND
+  ADJUSTMENT
+}
+
+enum WalletTxnStatus {
+  PENDING
+  SUCCESS
+  FAILED
+  REVERSED
+}
+
+enum BaApplicationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+// ─────────────────────────────────────────────
+// KycDocument — polymorphic: belongs to an Org
+// (shipping for itself) OR a Client (Org booking
+// on their behalf). Exactly one FK is set.
+// Same spirit as your existing ClientDocument —
+// this is the generalized successor; once this
+// is in place you can fold ClientDocument's data
+// into it, or keep both running side by side.
+// ─────────────────────────────────────────────
+
+model KycDocument {
+  id String @id @default(cuid())
+
+  partyType PartyType
+  orgId     String?
+  org       Org?    @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  clientId  String?
+  client    Client? @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  docType     KycDocType
+  label       String
+  docNumber   String? // e.g. PAN number, GSTIN — queryable without opening the file
+  description String?
+
+  fileUrl  String
+  fileKey  String
+  fileName String
+  fileSize Int
+  mimeType String
+
+  verifiedAt DateTime? // ops marks this once checked
+  verifiedBy String?
+  expiresAt  DateTime? // optional — IEC/trade license renewals etc.
+
+  uploadedAt DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([orgId])
+  @@index([clientId])
+  @@index([orgId, docType])
+  @@index([clientId, docType])
+  // exactly one of orgId / clientId should be non-null — enforce in app layer
+  // (add a DB CHECK constraint via raw SQL migration if you want belt-and-braces)
+}
+
+// ─────────────────────────────────────────────
+// Address — polymorphic, same pattern as KycDocument.
+// Reusable address-book entries for pickup/delivery/billing.
+// ─────────────────────────────────────────────
+
+model Address {
+  id String @id @default(cuid())
+
+  orgId    String?
+  org      Org?    @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  clientId String?
+  client   Client? @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  label String? // "Warehouse 2", "Registered office" — optional nickname for reuse
+  kind  AddressKind? // default/suggested use (pickup/delivery/billing) for address-book filtering — not enforced; any saved address can still be picked for any role on a shipment
+
+  contactName  String?
+  contactPhone String?
+
+  line1      String
+  line2      String?
+  city       String
+  state      String?
+  country    String
+  postalCode String
+
+  // for serviceability lookups against your rate cards / pincode coverage
+  latitude  Float?
+  longitude Float?
+
+  isDefault Boolean @default(false)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  pickupShipments   Shipment[] @relation("PickupAddress")
+  deliveryShipments Shipment[] @relation("DeliveryAddress")
+  billingShipments  Shipment[] @relation("BillingAddress")
+
+  @@index([orgId])
+  @@index([clientId])
+  @@index([postalCode])
+  @@index([orgId, kind])
+  @@index([clientId, kind])
+}
+
+// ─────────────────────────────────────────────
+// Wallet + ledger — Org only.
+// Org's wallet pays for its own shipments AND
+// any shipment it books on behalf of a Client
+// (confirmed: BA fronts the cost, Client has no
+// separate wallet of its own).
+// Balance cached on Wallet for fast reads;
+// WalletTransaction is the append-only source of
+// truth. Razorpay fields are nullable stubs for now.
+// ─────────────────────────────────────────────
+
+model Wallet {
+  id    String @id @default(cuid())
+  orgId String @unique
+  org   Org    @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  balance  Decimal @default(0) @db.Decimal(14, 4)
+  currency String  @default("INR")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  transactions WalletTransaction[]
+}
+
+model WalletTransaction {
+  id       String @id @default(cuid())
+  walletId String
+  wallet   Wallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
+  type   WalletTxnType
+  status WalletTxnStatus @default(PENDING)
+
+  amount   Decimal @db.Decimal(14, 4) // always positive; type determines direction
+  currency String  @default("INR")
+
+  balanceAfter Decimal? @db.Decimal(14, 4) // running balance after this txn, set at write time
+
+  shipmentId String?
+  shipment   Shipment? @relation(fields: [shipmentId], references: [id], onDelete: SetNull)
+
+  // Razorpay stubs — populate once payments are wired up
+  razorpayOrderId   String?
+  razorpayPaymentId String?
+  razorpaySignature String?
+
+  notes String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([walletId])
+  @@index([shipmentId])
+  @@index([razorpayPaymentId])
+  @@index([walletId, createdAt])
+}
+
+// ─────────────────────────────────────────────
+// Shipment — the actual booking.
+// orgId = who's booking/paying (always set).
+// clientId = who it's FOR, if not the Org itself
+//   (null = Org shipping for itself,
+//    set  = Org booking on behalf of that Client).
+// ─────────────────────────────────────────────
+
+model Shipment {
+  id    String @id @default(cuid())
+  orgId String
+  org   Org    @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  shipmentNumber String @unique // human-facing tracking-style ID, e.g. "SHP-2026-00123"
+
+  clientId String?
+  client   Client? @relation(fields: [clientId], references: [id], onDelete: SetNull)
+
+  // ── addresses ──
+  pickupAddressId String
+  pickupAddress   Address @relation("PickupAddress", fields: [pickupAddressId], references: [id])
+
+  deliveryAddressId String
+  deliveryAddress   Address @relation("DeliveryAddress", fields: [deliveryAddressId], references: [id])
+
+  billingAddressId     String?
+  billingAddress        Address? @relation("BillingAddress", fields: [billingAddressId], references: [id])
+  billingSameAsDelivery Boolean  @default(true)
+
+  // ── package / cargo details ──
+  packages PackageItem[]
+
+  declaredCargoType       String? // free text, or map to your existing CargoType enum if useful here too
+  totalActualWeightKg     Decimal? @db.Decimal(12, 2)
+  totalChargeableWeightKg Decimal? @db.Decimal(12, 2)
+
+  // ── selected service / rate snapshot ──
+  // mirrors Quote's snapshot philosophy: price/service locked at booking time.
+  // markupPercentApplied records what was actually used for THIS shipment,
+  // even though it's normally just copied from Org.markupPercent at booking time —
+  // keeps the historical record correct if you ever change an Org's markup later.
+  selectedVendorId        String?
+  selectedVendorName      String?
+  selectedProductName     String?
+  markupPercentApplied    Decimal? @db.Decimal(6, 3)
+  quotedTotal             Decimal? @db.Decimal(14, 4)
+  currency                String   @default("INR")
+  chargesSnapshot         Json? // full breakdown shown to customer at selection time
+  serviceabilitySnapshot  Json? // raw list of options shown, for audit/debugging
+
+  status ShipmentStatus @default(DRAFT)
+
+  walletTransactions WalletTransaction[]
+  documents          ShipmentDocument[]
+  statusHistory      ShipmentStatusEvent[]
+
+  internalNotes String? // free-form ops notes, separate from customer-facing status
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  bookedAt  DateTime? // set when payment succeeds / status -> BOOKED
+
+  @@index([orgId])
+  @@index([orgId, status])
+  @@index([clientId])
+  @@index([createdAt])
+}
+
+// ─────────────────────────────────────────────
+// PackageItem — dimensions + contents per package
+// (a shipment can have multiple packages/cartons)
+// ─────────────────────────────────────────────
+
+model PackageItem {
+  id         String   @id @default(cuid())
+  shipmentId String
+  shipment   Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+
+  description String // contents description, e.g. "Cotton t-shirts"
+  quantity    Int    @default(1)
+
+  lengthCm Decimal @db.Decimal(8, 2)
+  widthCm  Decimal @db.Decimal(8, 2)
+  heightCm Decimal @db.Decimal(8, 2)
+  weightKg Decimal @db.Decimal(8, 2)
+
+  declaredValue    Decimal? @db.Decimal(14, 2)
+  declaredCurrency String?  @default("INR")
+
+  hsCode String? // harmonized system code — international shipments will need this eventually
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([shipmentId])
+}
+
+// ─────────────────────────────────────────────
+// ShipmentDocument — invoice (mandatory, per-shipment)
+// + ops-added docs (AWB etc.) over the shipment lifecycle
+// ─────────────────────────────────────────────
+
+model ShipmentDocument {
+  id         String   @id @default(cuid())
+  shipmentId String
+  shipment   Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+
+  docType ShipmentDocType
+  label   String
+
+  fileUrl  String
+  fileKey  String
+  fileName String
+  fileSize Int
+  mimeType String
+
+  uploadedByType String // "ORG" | "OPS" — keep simple, avoid a second enum unless you need more roles
+  uploadedById   String? // orgId's user id, or staff/ops user id, depending on uploadedByType
+
+  uploadedAt DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([shipmentId])
+  @@index([shipmentId, docType])
+}
+
+// ─────────────────────────────────────────────
+// ShipmentStatusEvent — audit trail / timeline.
+// Every status change, who made it, optional note.
+// Powers the dashboard timeline + any customer tracking view.
+// ─────────────────────────────────────────────
+
+model ShipmentStatusEvent {
+  id         String   @id @default(cuid())
+  shipmentId String
+  shipment   Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+
+  fromStatus ShipmentStatus?
+  toStatus   ShipmentStatus
+
+  note String?
+
+  changedByType String // "ORG" | "OPS" | "SYSTEM"
+  changedById   String?
+
+  createdAt DateTime @default(now())
+
+  @@index([shipmentId])
+  @@index([shipmentId, createdAt])
+}
+
+// ─────────────────────────────────────────────
+// BaApplication — tracks an Org's request to
+// become a Business Associate (lower markup,
+// gains access to the /clients route once approved).
+// Kept even after approval, as a history record —
+// don't delete on approve/reject, just update status.
+// ─────────────────────────────────────────────
+
+model BaApplication {
+  id    String @id @default(cuid())
+  orgId String
+  org   Org    @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  status BaApplicationStatus @default(PENDING)
+
+  // whatever you want to collect on the application form —
+  // expected volume, business type, existing client base, etc.
+  // kept as JSON so the form can evolve without a migration.
+  formData Json?
+
+  reviewedBy String? // ops/admin user id who approved/rejected
+  reviewedAt DateTime?
+  reviewNotes String?
+
+  // snapshot of the markup granted on approval — copy into
+  // Org.markupPercent when you flip isBusinessAssociate, but
+  // keep it here too so you know what was offered vs. later changed
+  approvedMarkupPercent Decimal? @db.Decimal(6, 3)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orgId])
+  @@index([status])
 }
