@@ -8,6 +8,8 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
+import BookingMultiStepForm from "@/components/book/BookingMultiStepForm";
+import BookingWizard from "@/components/booking/BookingWizard";
 
 export default function BookPage() {
   return (
@@ -20,7 +22,7 @@ export default function BookPage() {
           Create and confirm a new shipment booking.
         </p>
       </div>
-
+{/* 
       <Card className="shadow-sm">
         <CardHeader className="text-center py-16">
           <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-emerald-50">
@@ -37,7 +39,11 @@ export default function BookPage() {
             <Link href="/rates">Get a Rate Quote First</Link>
           </Button>
         </CardContent>
-      </Card>
+      </Card> */}
+{/* 
+      <BookingMultiStepForm/> */}
+
+      <BookingWizard/>
     </div>
   );
 }
