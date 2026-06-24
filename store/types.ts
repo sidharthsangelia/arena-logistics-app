@@ -133,3 +133,4 @@ export type AppStore = RatesSlice &
   CompareSlice &
   QuoteSheetSlice &
   HistorySlice;
+

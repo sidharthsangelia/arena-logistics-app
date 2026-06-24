@@ -136,6 +136,27 @@ export const ourFileRouter = {
     };
   }),
 
+
+  bookingDocument: f({
+  pdf: { maxFileSize: "16MB" },
+  image: { maxFileSize: "8MB" },
+})
+.middleware(async () => {
+  const orgId = await resolveDbOrgId();
+
+  return { orgId };
+})
+.onUploadComplete(async ({ file }) => {
+  return {
+    url: file.ufsUrl,
+    key: file.key,
+    fileName: file.name,
+    fileSize: file.size,
+    mimeType: file.type,
+  };
+}),
+
+
 } satisfies FileRouter;
 
 export type OurFileRouter = typeof ourFileRouter;

@@ -2,7 +2,7 @@
  
 import { prisma } from "@/utils/db";
 import { getDbOrgId } from "@/utils/tenant";
- 
+import { CompanyKind } from "@/generated/prisma";
  
 export interface ClientSearchResult {
   id:           string;
@@ -15,6 +15,8 @@ export interface ClientSearchResult {
   state:        string | null;
   country:      string | null;
   postalCode:   string | null;
+  companyKind:  CompanyKind
+ 
 }
  
 export async function searchClientsAction(
@@ -48,6 +50,7 @@ export async function searchClientsAction(
       state:        true,
       country:      true,
       postalCode:   true,
+      companyKind: true,
     },
     orderBy: trimmed ? { companyName: "asc" } : { createdAt: "desc" },
     take: 20,
