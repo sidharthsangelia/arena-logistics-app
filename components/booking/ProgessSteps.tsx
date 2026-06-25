@@ -1,70 +1,72 @@
 "use client";
 
-import React from 'react'
+import React from "react";
 import { Check } from "lucide-react";
-
 import { cn } from "@/lib/utils";
-
-import type {
-  BookingStep,
-} from "@/types/booking.types";
+import type { BookingStep } from "@/types/booking.types";
 
 interface Props {
   currentStep: number;
   steps: BookingStep[];
 }
 
-export default function ProgressSteps({
-  currentStep,
-  steps,
-}: Props) {
+export default function ProgressSteps({ currentStep, steps }: Props) {
+  const progress = (currentStep / (steps.length - 1)) * 100;
+
   return (
-    <div className="overflow-x-auto">
-      <div className="flex min-w-max items-center">
-        {steps.map(
-          (step, index) => {
-            const Icon = step.icon;
+    <div className="space-y-3 pb-2">
+      {/* Step label row */}
+      <div className="flex items-center justify-between">
+        <p className="text-sm font-medium text-foreground">
+          {steps[currentStep]?.name}
+        </p>
+        <p className="text-xs text-muted-foreground">
+          Step {currentStep + 1} of {steps.length}
+        </p>
+      </div>
 
-            const completed =
-              index < currentStep;
+      {/* Progress bar */}
+      <div className="relative h-1.5 w-full rounded-full bg-muted overflow-hidden">
+        <div
+          className="h-full rounded-full bg-primary transition-all duration-500 ease-out"
+          style={{ width: `${progress}%` }}
+        />
+      </div>
 
-            const active =
-              index === currentStep;
+      {/* Step dots */}
+      <div className="flex items-center justify-between">
+        {steps.map((step, index) => {
+          const completed = index < currentStep;
+          const active = index === currentStep;
+          const Icon = step.icon;
 
-            return (
-              <React.Fragment
-                key={step.id}
-              >
-                <div className="flex flex-col items-center gap-2">
-                  <div
-                    className={cn(
-                      "flex h-10 w-10 items-center justify-center rounded-full border",
-                      completed &&
-                        "border-primary bg-primary text-primary-foreground",
-                      active &&
-                        "border-primary",
-                    )}
-                  >
-                    {completed ? (
-                      <Check className="h-4 w-4" />
-                    ) : (
-                      <Icon className="h-4 w-4" />
-                    )}
-                  </div>
-
-                  <span className="text-xs font-medium whitespace-nowrap">
-                    {step.name}
-                  </span>
-                </div>
-
-                {index <
-                  steps.length - 1 && (
-                  <div className="mx-4 h-px w-14 bg-border" />
+          return (
+            <div key={step.id} className="flex flex-col items-center gap-1.5">
+              <div
+                className={cn(
+                  "flex h-7 w-7 items-center justify-center rounded-full border transition-all duration-200",
+                  completed && "border-primary bg-primary text-primary-foreground",
+                  active && "border-primary bg-background text-primary shadow-sm ring-2 ring-primary/20",
+                  !completed && !active && "border-muted-foreground/30 bg-muted text-muted-foreground",
                 )}
-              </React.Fragment>
-            );
-          },
-        )}
+              >
+                {completed ? (
+                  <Check className="h-3.5 w-3.5" />
+                ) : (
+                  <Icon className="h-3.5 w-3.5" />
+                )}
+              </div>
+              <span
+                className={cn(
+                  "hidden text-[10px] font-medium sm:block whitespace-nowrap",
+                  active ? "text-foreground" : "text-muted-foreground",
+                )}
+              >
+                {step.name}
+              </span>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
