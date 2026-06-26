@@ -40,8 +40,6 @@ enum KycDocType {
   OTHER
 }
 
-
-
 // NOTE: Vendor is intentionally NOT an enum.
 // Your adapter registry already uses string IDs ("aramex", "skart", "fedex").
 // A DB enum means a migration every time you add a carrier — avoid it.
@@ -68,18 +66,30 @@ model Org {
   quotes     Quote[]
   documents  ClientDocument[]
 
-    markupPercent Decimal @default(30.000) @db.Decimal(6, 3)
+  markupPercent       Decimal @default(30.000) @db.Decimal(6, 3)
   isBusinessAssociate Boolean @default(false) // flips markup down (e.g. to 15%) when true — set by you/ops, not self-serve; gates the /clients route
 
-  wallet      Wallet?
-  kycDocuments KycDocument[]
-  addresses    Address[]
-  shipments    Shipment[]
+  wallet         Wallet?
+  kycDocuments   KycDocument[]
+  addresses      Address[]
+  shipments      Shipment[]
   baApplications BaApplication[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
+
+
+  companyName  String?
+  contactName  String?
+  email        String?
+  phone        String?
+  addressLine1 String?
+  city         String?
+  state        String?
+  country      String?
+  postalCode   String?
+  notes        String?
 
   emailEvents QuoteEmailEvent[]
 
@@ -136,7 +146,7 @@ model Client {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
-    companyKind CompanyKind @default(INDIVIDUAL)
+  companyKind CompanyKind @default(INDIVIDUAL)
 
   kycDocuments KycDocument[]
   addresses    Address[]
@@ -494,7 +504,6 @@ model QuoteLog {
   @@index([createdAt])
 }
 
-
 enum PartyType {
   ORG // KYC/Address owner is the Org itself (shipping for itself)
   CLIENT // KYC/Address owner is a Client (Org booking on their behalf)
@@ -571,9 +580,9 @@ model KycDocument {
 
   partyType PartyType
   orgId     String?
-  org       Org?    @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  org       Org?      @relation(fields: [orgId], references: [id], onDelete: Cascade)
   clientId  String?
-  client    Client? @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  client    Client?   @relation(fields: [clientId], references: [id], onDelete: Cascade)
 
   docType     KycDocType
   label       String
@@ -592,13 +601,13 @@ model KycDocument {
 
   uploadedAt DateTime @default(now())
   updatedAt  DateTime @updatedAt
+  // exactly one of orgId / clientId should be non-null — enforce in app layer
+  // (add a DB CHECK constraint via raw SQL migration if you want belt-and-braces)
 
   @@index([orgId])
   @@index([clientId])
   @@index([orgId, docType])
   @@index([clientId, docType])
-  // exactly one of orgId / clientId should be non-null — enforce in app layer
-  // (add a DB CHECK constraint via raw SQL migration if you want belt-and-braces)
 }
 
 // ─────────────────────────────────────────────
@@ -730,7 +739,7 @@ model Shipment {
   deliveryAddressId String
   deliveryAddress   Address @relation("DeliveryAddress", fields: [deliveryAddressId], references: [id])
 
-  billingAddressId     String?
+  billingAddressId      String?
   billingAddress        Address? @relation("BillingAddress", fields: [billingAddressId], references: [id])
   billingSameAsDelivery Boolean  @default(true)
 
@@ -746,14 +755,14 @@ model Shipment {
   // markupPercentApplied records what was actually used for THIS shipment,
   // even though it's normally just copied from Org.markupPercent at booking time —
   // keeps the historical record correct if you ever change an Org's markup later.
-  selectedVendorId        String?
-  selectedVendorName      String?
-  selectedProductName     String?
-  markupPercentApplied    Decimal? @db.Decimal(6, 3)
-  quotedTotal             Decimal? @db.Decimal(14, 4)
-  currency                String   @default("INR")
-  chargesSnapshot         Json? // full breakdown shown to customer at selection time
-  serviceabilitySnapshot  Json? // raw list of options shown, for audit/debugging
+  selectedVendorId       String?
+  selectedVendorName     String?
+  selectedProductName    String?
+  markupPercentApplied   Decimal? @db.Decimal(6, 3)
+  quotedTotal            Decimal? @db.Decimal(14, 4)
+  currency               String   @default("INR")
+  chargesSnapshot        Json? // full breakdown shown to customer at selection time
+  serviceabilitySnapshot Json? // raw list of options shown, for audit/debugging
 
   status ShipmentStatus @default(DRAFT)
 
@@ -876,8 +885,8 @@ model BaApplication {
   // kept as JSON so the form can evolve without a migration.
   formData Json?
 
-  reviewedBy String? // ops/admin user id who approved/rejected
-  reviewedAt DateTime?
+  reviewedBy  String? // ops/admin user id who approved/rejected
+  reviewedAt  DateTime?
   reviewNotes String?
 
   // snapshot of the markup granted on approval — copy into
