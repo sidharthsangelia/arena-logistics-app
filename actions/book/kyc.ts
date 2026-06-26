@@ -13,7 +13,7 @@
 
 import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/utils/db";         // same import as your existing action
-import { KycDocType } from "@/generated/prisma";
+import { KycDocType, PartyType } from "@/generated/prisma";
 
 // ---------------------------------------------------------------------------
 // Helpers — same pattern as your getDbOrgId()
@@ -121,3 +121,69 @@ export async function getOrgKycDocs(): Promise<GetOrgKycDocsResult> {
     };
   }
 }
+
+
+export interface SaveOrgKycDocInput {
+  docType:  KycDocType;
+  label:    string;
+  fileUrl:  string;
+  fileKey:  string;
+  fileName: string;
+  fileSize: number;
+  mimeType: string;
+}
+ 
+// ---------------------------------------------------------------------------
+// Return type
+// ---------------------------------------------------------------------------
+ 
+export type SaveOrgKycDocResult =
+  | { success: true;  docId: string }
+  | { success: false; message: string };
+ 
+// ---------------------------------------------------------------------------
+// Action
+// ---------------------------------------------------------------------------
+ 
+export async function saveOrgKycDocAction(
+  input: SaveOrgKycDocInput,
+): Promise<SaveOrgKycDocResult> {
+  try {
+    const { orgId: clerkOrgId } = await auth();
+    if (!clerkOrgId) {
+      return { success: false, message: "Not authenticated." };
+    }
+ 
+    const org = await prisma.org.findUnique({
+      where:  { clerkOrgId },
+      select: { id: true },
+    });
+    if (!org) {
+      return { success: false, message: "Organisation not found." };
+    }
+ 
+    const doc = await prisma.kycDocument.create({
+      data: {
+        partyType: PartyType.ORG,
+        orgId:     org.id,
+        docType:   input.docType,
+        label:     input.label,
+        fileUrl:   input.fileUrl,
+        fileKey:   input.fileKey,
+        fileName:  input.fileName,
+        fileSize:  input.fileSize,
+        mimeType:  input.mimeType,
+      },
+      select: { id: true },
+    });
+ 
+    return { success: true, docId: doc.id };
+  } catch (err) {
+    console.error("[saveOrgKycDocAction]", err);
+    return {
+      success: false,
+      message: err instanceof Error ? err.message : "Failed to save document.",
+    };
+  }
+}
+ 
