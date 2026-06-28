@@ -8,12 +8,11 @@ import {
 import { useForm } from "react-hook-form";
 import type { ZodSchema } from "zod";
 
-import { Button }                   from "@/components/ui/button";
+import { Button }                        from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 
 import type { BookingFormData, ClientSummary } from "@/types/booking.types";
 import { bookingSteps, useBookingWizard }      from "@/hooks/useBookingWizard";
- 
 
 import ProgressSteps        from "./ProgessSteps";
 import ReviewStep           from "./steps/ReviewStep";
@@ -27,8 +26,9 @@ import { ShipmentOwnerStep } from "./steps/ShipmentOwnerStep";
 import { createShipmentAction } from "@/actions/book/createShipment.action";
 
 // ---------------------------------------------------------------------------
-// Maps a ClientSummary → consignor shape so ConsignorStep opens pre-filled
+// Helpers
 // ---------------------------------------------------------------------------
+
 function clientToConsignor(client: ClientSummary): BookingFormData["consignor"] {
   return {
     contactName:  client.contactName  ?? "",
@@ -50,6 +50,7 @@ const SELF_MANAGED_STEPS = new Set([4, 5]);
 // ---------------------------------------------------------------------------
 // Success screen
 // ---------------------------------------------------------------------------
+
 function SuccessScreen({
   shipmentNumber,
   shipmentId,
@@ -63,16 +64,16 @@ function SuccessScreen({
     <div className="mx-auto max-w-xl py-20">
       <Card>
         <CardContent className="flex flex-col items-center py-16 text-center">
-          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-green-100">
-            <CheckCircle2 className="h-8 w-8 text-green-600" />
+          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-muted">
+            <CheckCircle2 className="h-8 w-8 text-foreground" />
           </div>
-          <h2 className="mt-6 text-xl font-semibold">Shipment Booked</h2>
+          <h2 className="mt-6 text-xl font-semibold">Shipment booked</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Your booking has been confirmed and is now in the ops queue.
+            Your booking is confirmed and now in the ops queue.
           </p>
           <div className="mt-4 rounded-lg border bg-muted/40 px-6 py-3 text-center">
-            <p className="text-xs text-muted-foreground uppercase tracking-wide">
-              Shipment Number
+            <p className="text-xs text-muted-foreground uppercase tracking-wider">
+              Shipment number
             </p>
             <p className="mt-1 text-2xl font-bold font-mono tracking-wider text-foreground">
               {shipmentNumber}
@@ -82,10 +83,10 @@ function SuccessScreen({
             <Button variant="outline" asChild>
               <a href={`/shipments/${shipmentId}`}>
                 <ExternalLink className="mr-2 h-4 w-4" />
-                View Shipment
+                View shipment
               </a>
             </Button>
-            <Button onClick={onReset}>Book Another</Button>
+            <Button onClick={onReset}>Book another</Button>
           </div>
         </CardContent>
       </Card>
@@ -96,6 +97,7 @@ function SuccessScreen({
 // ---------------------------------------------------------------------------
 // BookingWizard
 // ---------------------------------------------------------------------------
+
 export default function BookingWizard() {
   const {
     currentStep,
@@ -109,8 +111,6 @@ export default function BookingWizard() {
     getCurrentStepSchema,
   } = useBookingWizard();
 
-  // Submission state lives here — not in the hook — because it needs the
-  // server action result (shipmentId, shipmentNumber, error message).
   const [submitting, setSubmitting]   = React.useState(false);
   const [submitError, setSubmitError] = React.useState<string | null>(null);
   const [submitted, setSubmitted]     = React.useState<{
@@ -136,14 +136,12 @@ export default function BookingWizard() {
     reset(formData);
   }, [currentStep, formData, reset]);
 
-  // ── Submit to DB ──────────────────────────────────────────────────────────
+  // ── Submit ───────────────────────────────────────────────────────────────
   const handleSubmit = async (finalData: BookingFormData) => {
     setSubmitError(null);
     setSubmitting(true);
-
     try {
       const result = await createShipmentAction(finalData);
-
       if (result.success) {
         setSubmitted({
           shipmentId:     result.shipmentId,
@@ -151,26 +149,23 @@ export default function BookingWizard() {
         });
         return;
       }
-
-      // Surface field-level errors back into RHF if returned
       if (result.fieldErrors) {
         Object.entries(result.fieldErrors).forEach(([path, msg]) => {
           setError(path as any, { type: "server", message: msg });
         });
       }
       setSubmitError(result.message);
-    } catch (err) {
+    } catch {
       setSubmitError("Something went wrong. Please try again.");
     } finally {
       setSubmitting(false);
     }
   };
 
-  // ── Next / Submit button handler ──────────────────────────────────────────
+  // ── Next / Submit ────────────────────────────────────────────────────────
   const handleNext = async () => {
     setSubmitError(null);
 
-    // Self-managed steps (Invoice, Packages) — advance without RHF validation
     if (SELF_MANAGED_STEPS.has(currentStep)) {
       if (isLastStep) {
         await handleSubmit(formData);
@@ -181,10 +176,8 @@ export default function BookingWizard() {
     }
 
     const currentValues = getValues();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const merged: BookingFormData & Record<string, any> = { ...formData, ...currentValues };
 
-    // Step 0: copy client → consignor for pre-fill
     if (currentStep === 0 && merged.shipmentOwnerMode === "EXISTING_CLIENT") {
       if (!merged.selectedClient) {
         setError("selectedClient" as any, {
@@ -196,7 +189,6 @@ export default function BookingWizard() {
       merged.consignor = clientToConsignor(merged.selectedClient);
     }
 
-    // Step 3 (KYC): inject declared total so schema can conditionally require IEC
     if (currentStep === 3) {
       merged._totalDeclaredValue = formData.packages.reduce(
         (sum, p) => sum + p.declaredValue * p.quantity,
@@ -204,7 +196,6 @@ export default function BookingWizard() {
       );
     }
 
-    // Per-step Zod validation
     const schema = getCurrentStepSchema() as ZodSchema;
     const result = schema.safeParse(merged);
 
@@ -228,7 +219,7 @@ export default function BookingWizard() {
     }
   };
 
-  // ── Success screen ────────────────────────────────────────────────────────
+  // ── Success ──────────────────────────────────────────────────────────────
   if (submitted) {
     return (
       <SuccessScreen
@@ -242,7 +233,9 @@ export default function BookingWizard() {
     );
   }
 
-  // ── Main form ─────────────────────────────────────────────────────────────
+  const isSelfMode = watch("shipmentOwnerMode") === "SELF";
+
+  // ── Main render ──────────────────────────────────────────────────────────
   return (
     <div className="mx-auto max-w-6xl py-8">
       <Card>
@@ -271,7 +264,13 @@ export default function BookingWizard() {
             )}
 
             {currentStep === 1 && (
-              <ConsignorStep register={register} errors={errors} />
+              <ConsignorStep
+                register={register}
+                errors={errors}
+                watch={watch}
+                setValue={setValue}
+                isSelfMode={isSelfMode}
+              />
             )}
 
             {currentStep === 2 && (
@@ -324,7 +323,7 @@ export default function BookingWizard() {
 
             {currentStep === 7 && <ReviewStep data={formData} />}
 
-            {/* Server-side submission error */}
+            {/* Submit error */}
             {submitError && (
               <div className="flex items-start gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
@@ -355,7 +354,7 @@ export default function BookingWizard() {
                     Submitting…
                   </>
                 ) : isLastStep ? (
-                  "Submit Booking"
+                  "Submit booking"
                 ) : (
                   <>
                     Next
