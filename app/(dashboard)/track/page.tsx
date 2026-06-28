@@ -13,6 +13,11 @@ import {
   RotateCcw,
   Box,
   Navigation,
+  Search,
+  CalendarDays,
+  Weight,
+  Layers,
+  Globe,
 } from "lucide-react";
 import {
   Card,
@@ -23,113 +28,183 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
- 
+
 import { trackShipmentAction } from "@/actions/tracking/tracking.actions";
-import type { CanonicalTrackResult, TrackingEvent, TrackingEventType } from "@/lib/tracking-adapters/core/tracking.types";
+import type {
+  CanonicalTrackResult,
+  TrackingEvent,
+  TrackingEventType,
+} from "@/lib/tracking-adapters/core/tracking.types";
 
 // --- EVENT TYPE CONFIG -------------------------------------------------------
 
 const EVENT_CONFIG: Record<
   TrackingEventType,
-  { label: string; icon: React.ElementType; color: string; badgeVariant: "default" | "secondary" | "destructive" | "outline" }
+  {
+    label: string;
+    icon: React.ElementType;
+    badgeVariant: "default" | "secondary" | "destructive" | "outline";
+  }
 > = {
-  booked:           { label: "Booked",            icon: Box,          color: "text-slate-500",  badgeVariant: "secondary" },
-  picked_up:        { label: "Picked Up",          icon: Package,      color: "text-blue-500",   badgeVariant: "default" },
-  in_transit:       { label: "In Transit",         icon: Truck,        color: "text-amber-500",  badgeVariant: "default" },
-  out_for_delivery: { label: "Out for Delivery",   icon: Navigation,   color: "text-indigo-500", badgeVariant: "default" },
-  delivered:        { label: "Delivered",          icon: CheckCircle2, color: "text-green-500",  badgeVariant: "default" },
-  attempted:        { label: "Delivery Attempted", icon: AlertCircle,  color: "text-orange-500", badgeVariant: "outline" },
-  exception:        { label: "Exception",          icon: AlertCircle,  color: "text-red-500",    badgeVariant: "destructive" },
-  returned:         { label: "Returned",           icon: RotateCcw,    color: "text-rose-500",   badgeVariant: "destructive" },
-  unknown:          { label: "Update",             icon: Clock,        color: "text-slate-400",  badgeVariant: "secondary" },
+  booked:           { label: "Booked",             icon: Box,          badgeVariant: "secondary"    },
+  picked_up:        { label: "Picked Up",           icon: Package,      badgeVariant: "default"      },
+  in_transit:       { label: "In Transit",          icon: Truck,        badgeVariant: "default"      },
+  out_for_delivery: { label: "Out for Delivery",    icon: Navigation,   badgeVariant: "default"      },
+  delivered:        { label: "Delivered",           icon: CheckCircle2, badgeVariant: "default"      },
+  attempted:        { label: "Delivery Attempted",  icon: AlertCircle,  badgeVariant: "outline"      },
+  exception:        { label: "Exception",           icon: AlertCircle,  badgeVariant: "destructive"  },
+  returned:         { label: "Returned",            icon: RotateCcw,    badgeVariant: "destructive"  },
+  unknown:          { label: "Update",              icon: Clock,        badgeVariant: "secondary"    },
 };
 
-// --- SUB-COMPONENTS ----------------------------------------------------------
+// --- HELPERS -----------------------------------------------------------------
+
+function formatDateTime(iso: string) {
+  return new Date(iso).toLocaleString("en-IN", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function formatShortDate(iso: string) {
+  return new Date(iso).toLocaleDateString("en-IN", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+function formatTime(iso: string) {
+  return new Date(iso).toLocaleTimeString("en-IN", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function formatGroupDate(iso: string) {
+  return new Date(iso).toLocaleDateString("en-IN", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+}
+
+// --- STATUS BADGE ------------------------------------------------------------
+
+function StatusBadge({
+  eventType,
+  isDelivered,
+}: {
+  eventType: TrackingEventType;
+  isDelivered: boolean;
+}) {
+  const config = EVENT_CONFIG[eventType];
+  const Icon = config.icon;
+  return (
+    <Badge
+      variant={isDelivered ? "default" : config.badgeVariant}
+      className="gap-1.5 px-2.5 py-1 text-xs font-medium"
+    >
+      <Icon className="h-3 w-3" />
+      {config.label}
+    </Badge>
+  );
+}
+
+// --- SHIPMENT META CARD ------------------------------------------------------
 
 function ShipmentMetaCard({ result }: { result: CanonicalTrackResult }) {
   const { shipmentInfo, latestEvent, isDelivered, vendorName } = result;
-  const config = latestEvent ? EVENT_CONFIG[latestEvent.eventType] : EVENT_CONFIG.unknown;
-  const StatusIcon = config.icon;
+
+  const meta = [
+    shipmentInfo.weight !== undefined && {
+      icon: Weight,
+      label: "Weight",
+      value: `${shipmentInfo.weight} KG`,
+    },
+    shipmentInfo.numberOfPieces !== undefined && {
+      icon: Layers,
+      label: "Pieces",
+      value: String(shipmentInfo.numberOfPieces),
+    },
+    shipmentInfo.shipDate && {
+      icon: CalendarDays,
+      label: "Shipped",
+      value: formatShortDate(shipmentInfo.shipDate),
+    },
+    shipmentInfo.destination && {
+      icon: Globe,
+      label: "Destination",
+      value: shipmentInfo.destination,
+    },
+  ].filter(Boolean) as { icon: React.ElementType; label: string; value: string }[];
 
   return (
-    <Card className="shadow-sm">
-      <CardHeader className="pb-3">
-        <div className="flex items-start justify-between">
-          <div>
-            <CardTitle className="text-base font-semibold text-slate-900">
-              AWB {shipmentInfo.awb}
+    <Card>
+      <CardHeader className="pb-4">
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+          <div className="space-y-1">
+            <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">
+              Tracking Number
+            </p>
+            <CardTitle className="text-xl font-mono tracking-wider">
+              {shipmentInfo.awb}
             </CardTitle>
-            <CardDescription className="mt-0.5">
+            <CardDescription>
               {shipmentInfo.service ?? vendorName}
-              {shipmentInfo.destination && (
-                <> &rarr; {shipmentInfo.destination}</>
-              )}
             </CardDescription>
           </div>
-          <Badge
-            variant={isDelivered ? "default" : "secondary"}
-            className={isDelivered ? "bg-green-600 hover:bg-green-700" : ""}
-          >
-            {latestEvent ? config.label : "No data"}
-          </Badge>
+          {latestEvent && (
+            <StatusBadge
+              eventType={latestEvent.eventType}
+              isDelivered={isDelivered}
+            />
+          )}
         </div>
       </CardHeader>
-      <CardContent>
-        <div className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-4 text-sm">
-          {shipmentInfo.weight !== undefined && (
-            <div>
-              <p className="text-slate-400 text-xs uppercase tracking-wide font-medium mb-0.5">Weight</p>
-              <p className="text-slate-800 font-medium">{shipmentInfo.weight} KG</p>
+
+      <CardContent className="pt-0 space-y-4">
+        {meta.length > 0 && (
+          <>
+            <Separator />
+            <div className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-4">
+              {meta.map(({ icon: Icon, label, value }) => (
+                <div key={label} className="space-y-1">
+                  <div className="flex items-center gap-1.5 text-muted-foreground">
+                    <Icon className="h-3.5 w-3.5" />
+                    <p className="text-xs font-medium">{label}</p>
+                  </div>
+                  <p className="text-sm font-semibold">{value}</p>
+                </div>
+              ))}
             </div>
-          )}
-          {shipmentInfo.numberOfPieces !== undefined && (
-            <div>
-              <p className="text-slate-400 text-xs uppercase tracking-wide font-medium mb-0.5">Pieces</p>
-              <p className="text-slate-800 font-medium">{shipmentInfo.numberOfPieces}</p>
-            </div>
-          )}
-          {shipmentInfo.shipDate && (
-            <div>
-              <p className="text-slate-400 text-xs uppercase tracking-wide font-medium mb-0.5">Ship Date</p>
-              <p className="text-slate-800 font-medium">
-                {new Date(shipmentInfo.shipDate).toLocaleDateString("en-IN", {
-                  day: "numeric",
-                  month: "short",
-                  year: "numeric",
-                })}
-              </p>
-            </div>
-          )}
-          {latestEvent?.location && (
-            <div>
-              <p className="text-slate-400 text-xs uppercase tracking-wide font-medium mb-0.5">Last Location</p>
-              <p className="text-slate-800 font-medium">{latestEvent.location}</p>
-            </div>
-          )}
-        </div>
+          </>
+        )}
 
         {latestEvent && (
           <>
-            <Separator className="my-4" />
-            <div className="flex items-center gap-3">
-              <div className={`rounded-full p-2 bg-slate-50 ${config.color}`}>
-                <StatusIcon className="h-4 w-4" />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-slate-800">{latestEvent.status}</p>
-                <p className="text-xs text-slate-400">
-                  {new Date(latestEvent.timestamp).toLocaleString("en-IN", {
-                    day: "numeric",
-                    month: "short",
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
-                  {latestEvent.location ? ` · ${latestEvent.location}` : ""}
-                </p>
-              </div>
+            <Separator />
+            {/* Latest event — location is the headline */}
+            <div className="rounded-md border bg-muted/40 px-4 py-3 space-y-1.5">
+              <p className="text-xs text-muted-foreground font-medium">
+                Current status
+              </p>
+              <p className="text-sm font-semibold">{latestEvent.status}</p>
+              {latestEvent.location && (
+                <div className="flex items-center gap-1.5">
+                  <MapPin className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                  <p className="text-sm font-medium">{latestEvent.location}</p>
+                </div>
+              )}
+              <p className="text-xs text-muted-foreground">
+                {formatDateTime(latestEvent.timestamp)}
+              </p>
             </div>
           </>
         )}
@@ -138,77 +213,148 @@ function ShipmentMetaCard({ result }: { result: CanonicalTrackResult }) {
   );
 }
 
+// --- TIMELINE EVENT ROW ------------------------------------------------------
+
+function EventRow({
+  event,
+  isFirst,
+  isLast,
+}: {
+  event: TrackingEvent;
+  isFirst: boolean;
+  isLast: boolean;
+}) {
+  const config = EVENT_CONFIG[event.eventType];
+  const EventIcon = config.icon;
+
+  return (
+    <div className="flex gap-3">
+      {/* Spine */}
+      <div className="flex flex-col items-center shrink-0">
+        <div
+          className={`
+            h-7 w-7 rounded-full flex items-center justify-center border-2 mt-0.5
+            ${isFirst
+              ? "border-primary bg-primary text-primary-foreground"
+              : "border-border bg-background text-muted-foreground"
+            }
+          `}
+        >
+          <EventIcon className="h-3.5 w-3.5" />
+        </div>
+        {!isLast && (
+          <div className="w-px flex-1 bg-border my-1" style={{ minHeight: 20 }} />
+        )}
+      </div>
+
+      {/* Content */}
+      <div className={`flex-1 min-w-0 ${isLast ? "pb-0" : "pb-5"}`}>
+        {/* Location — big and prominent */}
+        {event.location ? (
+          <div className="flex items-start gap-1.5 mb-0.5">
+            <MapPin className={`h-3.5 w-3.5 mt-0.5 shrink-0 ${isFirst ? "text-foreground" : "text-muted-foreground"}`} />
+            <p className={`text-sm font-semibold leading-snug ${isFirst ? "text-foreground" : "text-muted-foreground"}`}>
+              {event.location}
+            </p>
+          </div>
+        ) : null}
+
+        {/* Status label */}
+        <p className={`text-sm leading-snug ${event.location ? "text-muted-foreground" : `font-semibold ${isFirst ? "text-foreground" : "text-muted-foreground"}`}`}>
+          {event.status}
+        </p>
+
+        {/* Description — only if meaningfully different from status */}
+        {event.description &&
+          event.description !== event.status &&
+          event.description !== event.location && (
+            <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
+              {event.description}
+            </p>
+          )}
+
+        {/* Time */}
+        <p className="text-xs text-muted-foreground/60 mt-1">
+          {formatTime(event.timestamp)}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// --- TRACKING TIMELINE -------------------------------------------------------
+
 function TrackingTimeline({ events }: { events: TrackingEvent[] }) {
   if (events.length === 0) {
     return (
-      <div className="text-center py-8 text-slate-400 text-sm">
-        No tracking events available.
+      <div className="flex flex-col items-center justify-center py-12 text-center">
+        <Package className="h-8 w-8 text-muted-foreground/40 mb-3" />
+        <p className="text-sm text-muted-foreground">
+          No tracking events available yet.
+        </p>
       </div>
     );
   }
 
+  // Group by calendar date
+  type Group = { dateKey: string; label: string; items: (TrackingEvent & { globalIdx: number })[] };
+  const grouped: Group[] = [];
+
+  events.forEach((event, idx) => {
+    const dateKey = new Date(event.timestamp).toDateString(); // stable grouping key
+    const label = formatGroupDate(event.timestamp);
+    const last = grouped[grouped.length - 1];
+    if (last && last.dateKey === dateKey) {
+      last.items.push({ ...event, globalIdx: idx });
+    } else {
+      grouped.push({ dateKey, label, items: [{ ...event, globalIdx: idx }] });
+    }
+  });
+
+  const totalEvents = events.length;
+
   return (
-    <div className="space-y-0">
-      {events.map((event, idx) => {
-        const config = EVENT_CONFIG[event.eventType];
-        const EventIcon = config.icon;
-        const isLast = idx === events.length - 1;
-        const isFirst = idx === 0;
-
-        return (
-          <div key={`${event.timestamp}-${idx}`} className="flex gap-4">
-            {/* Timeline spine */}
-            <div className="flex flex-col items-center">
-              <div
-                className={`
-                  mt-1 h-7 w-7 rounded-full flex items-center justify-center shrink-0 border-2
-                  ${isFirst
-                    ? "border-amber-500 bg-amber-50 " + config.color
-                    : "border-slate-200 bg-white text-slate-400"
-                  }
-                `}
-              >
-                <EventIcon className="h-3.5 w-3.5" />
-              </div>
-              {!isLast && <div className="w-px flex-1 bg-slate-100 my-1" />}
-            </div>
-
-            {/* Event content */}
-            <div className={`pb-5 flex-1 min-w-0 ${isLast ? "pb-0" : ""}`}>
-              <div className="flex items-start justify-between gap-2 flex-wrap">
-                <p
-                  className={`text-sm font-medium leading-snug ${
-                    isFirst ? "text-slate-900" : "text-slate-600"
-                  }`}
-                >
-                  {event.status}
-                </p>
-                {event.location && (
-                  <span className="text-xs text-slate-400 shrink-0 flex items-center gap-1">
-                    <MapPin className="h-3 w-3" />
-                    {event.location}
-                  </span>
-                )}
-              </div>
-              {event.description !== event.status && (
-                <p className="text-xs text-slate-400 mt-0.5 leading-relaxed">
-                  {event.description}
-                </p>
-              )}
-              <p className="text-xs text-slate-300 mt-1">
-                {new Date(event.timestamp).toLocaleString("en-IN", {
-                  weekday: "short",
-                  day: "numeric",
-                  month: "short",
-                  year: "numeric",
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
-              </p>
-            </div>
+    <div className="space-y-8">
+      {grouped.map((group) => (
+        <div key={group.dateKey}>
+          {/* Date header */}
+          <div className="flex items-center gap-3 mb-4">
+            <div className="h-px flex-1 bg-border" />
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">
+              {group.label}
+            </p>
+            <div className="h-px flex-1 bg-border" />
           </div>
-        );
-      })}
+
+          {/* Events */}
+          <div>
+            {group.items.map((event) => (
+              <EventRow
+                key={`${event.timestamp}-${event.globalIdx}`}
+                event={event}
+                isFirst={event.globalIdx === 0}
+                isLast={event.globalIdx === totalEvents - 1}
+              />
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// --- EMPTY STATE -------------------------------------------------------------
+
+function EmptyState() {
+  return (
+    <div className="flex flex-col items-center justify-center py-16 text-center">
+      <div className="rounded-full border-2 border-dashed border-border p-5 mb-4">
+        <Search className="h-7 w-7 text-muted-foreground/50" />
+      </div>
+      <p className="text-sm font-medium mb-1">Track a shipment</p>
+      <p className="text-sm text-muted-foreground max-w-xs">
+        Enter an AWB number above to see real-time delivery updates.
+      </p>
     </div>
   );
 }
@@ -248,100 +394,101 @@ export default function TrackPage() {
     setError(null);
   }
 
+  const showEmpty = !result && !error && !isPending;
+
   return (
-    <div className="max-w-2xl mx-auto px-6 py-8">
+    <div className="max-w-2xl mx-auto px-4 py-8 sm:px-6">
       {/* Header */}
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
-          Track Shipment
-        </h1>
-        <p className="text-sm text-slate-500 mt-1">
-          Enter your AWB number for live tracking updates.
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold tracking-tight">Track Shipment</h1>
+        <p className="text-sm text-muted-foreground mt-1">
+          Enter an AWB number to get live delivery updates.
         </p>
       </div>
 
-      {/* Search card */}
-      <Card className="shadow-sm mb-6">
-        <CardHeader>
-          <div className="flex items-center gap-2">
-            <MapPin className="h-5 w-5 " />
-            <CardTitle className="text-base">Enter Tracking Number</CardTitle>
-          </div>
-          <CardDescription>
-            Supports Aramex and Skart AWB numbers.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-1.5">
-            <Label htmlFor="awb">AWB / Tracking Number</Label>
-            <div className="flex gap-2">
-              <Input
-                id="awb"
-                value={awb}
-                onChange={(e) => setAwb(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleTrack()}
-                placeholder="e.g. 37207354542"
-                className="flex-1"
-                disabled={isPending}
-              />
-              <Button
-                onClick={handleTrack}
-                disabled={isPending || !awb.trim()}
-                className="shrink-0   text-white"
-              >
-                {isPending ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <>
-                    Track
-                    <ArrowRight className="ml-1.5 h-4 w-4" />
-                  </>
-                )}
-              </Button>
-              {(result || error) && (
-                <Button
-                  variant="outline"
-                  onClick={handleReset}
-                  disabled={isPending}
-                  className="shrink-0"
-                >
-                  Clear
-                </Button>
-              )}
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      {/* Search bar */}
+      <div className="flex gap-2 mb-6">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+          <Input
+            value={awb}
+            onChange={(e) => setAwb(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleTrack()}
+            placeholder="AWB / Tracking number"
+            className="pl-9 font-mono"
+            disabled={isPending}
+            aria-label="AWB number"
+          />
+        </div>
+        <Button
+          onClick={handleTrack}
+          disabled={isPending || !awb.trim()}
+          className="shrink-0"
+        >
+          {isPending ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <>
+              Track
+              <ArrowRight className="ml-1.5 h-4 w-4" />
+            </>
+          )}
+        </Button>
+        {(result || error) && (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={handleReset}
+            disabled={isPending}
+            aria-label="Clear"
+          >
+            <RotateCcw className="h-4 w-4" />
+          </Button>
+        )}
+      </div>
 
-      {/* Error state */}
-      {error && (
-        <Card className="shadow-sm border-red-100 bg-red-50">
+      {/* Loading skeleton */}
+      {isPending && (
+        <div className="space-y-4 animate-pulse">
+          <div className="h-44 rounded-lg bg-muted" />
+          <div className="h-96 rounded-lg bg-muted" />
+        </div>
+      )}
+
+      {/* Error */}
+      {!isPending && error && (
+        <Card className="border-destructive/40 bg-destructive/5">
           <CardContent className="pt-5 pb-5">
             <div className="flex items-start gap-3">
-              <AlertCircle className="h-5 w-5 text-red-500 mt-0.5 shrink-0" />
+              <AlertCircle className="h-4 w-4 text-destructive mt-0.5 shrink-0" />
               <div>
-                <p className="text-sm font-medium text-red-700">
+                <p className="text-sm font-medium text-destructive">
                   Tracking failed
                 </p>
-                <p className="text-sm text-red-500 mt-0.5">{error}</p>
+                <p className="text-sm text-muted-foreground mt-0.5">{error}</p>
               </div>
             </div>
           </CardContent>
         </Card>
       )}
 
+      {/* Empty state */}
+      {!isPending && showEmpty && <EmptyState />}
+
       {/* Results */}
-      {result && (
+      {!isPending && result && (
         <div className="space-y-4">
           <ShipmentMetaCard result={result} />
 
-          <Card className="shadow-sm">
+          <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-base">Tracking History</CardTitle>
-              <CardDescription>
-                {result.events.length} event
-                {result.events.length !== 1 ? "s" : ""} · via {result.vendorName}
-              </CardDescription>
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base">Tracking History</CardTitle>
+                <Badge variant="secondary" className="font-normal">
+                  {result.events.length} event{result.events.length !== 1 ? "s" : ""}
+                </Badge>
+              </div>
+              <CardDescription>via {result.vendorName}</CardDescription>
             </CardHeader>
             <CardContent>
               <TrackingTimeline events={result.events} />

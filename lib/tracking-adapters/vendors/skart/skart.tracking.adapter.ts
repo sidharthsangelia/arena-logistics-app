@@ -29,7 +29,7 @@ import type {
 
 const SKART_TRACK_URL =
   process.env.SKART_API_URL?.replace("rate-calculator", "track-shipment") ??
-  "https://devapiv2.skart-express.com/api/v1/booking/track-shipment";
+  "https://apiv2.skart-express.com/api/v1/booking/track-shipment";
 
 const SKART_USERNAME = process.env.SKART_USERNAME ?? "";
 const SKART_PASSWORD = process.env.SKART_PASSWORD ?? "";
@@ -70,6 +70,23 @@ const STATUS_CODE_MAP: Record<string, TrackingEventType> = {
   // Returned
   SH019: "returned",
   SH020: "returned",
+
+   // FedEx (via Skart relay)
+  OC: "booked",          // Order created / info sent
+  PU: "picked_up",       // Picked up
+  IT: "in_transit",      // In transit / on the way
+  AR: "in_transit",      // Arrived at facility
+  DP: "in_transit",      // Departed facility
+  CC: "in_transit",      // Customs cleared
+  OD: "out_for_delivery",// On vehicle for delivery
+  DL: "delivered",       // Delivered
+
+  // Internal Skart hub status codes (event_type "1")
+  "210": "in_transit",   // Handed over to carrier
+  "300": "in_transit",   // Customs cleared
+  "301": "in_transit",   // Shipping bill filed
+  "302": "in_transit",   // TD received
+  
 };
 
 /** Normalised "Network Update" placeholder location → empty string */
@@ -168,31 +185,64 @@ export class SkartTrackingAdapter extends BaseTrackingAdapter<
    * Convert one Skart event to the canonical shape.
    * Handles the two Skart event_type variants gracefully.
    */
-  private mapEvent(event: SkartTrackEvent): TrackingEvent {
-    const statusCode = String(event.courier_status_code ?? event.status_code ?? "");
-    const location = PLACEHOLDER_LOCATIONS.has(event.update_location)
-      ? ""
-      : event.update_location;
+ private mapEvent(event: SkartTrackEvent): TrackingEvent {
+  const statusCode = String(event.courier_status_code ?? event.status_code ?? "");
 
-    return {
-      timestamp: this.parseSkartDate(event.date),
-      status: event.status,
-      description: event.update_description || event.remarks || event.status,
-      location,
-      eventType: STATUS_CODE_MAP[statusCode] ?? "unknown",
-      rawStatusCode: statusCode,
-    };
-  }
+  // Build location: prefer city + country, fall back to update_location
+  const cityParts = [
+    event.city?.trim(),
+    event.country_name?.trim(),
+  ].filter(Boolean);
+
+  const rawLocation =
+    cityParts.length > 0
+      ? cityParts.join(", ")                          // "DALLAS, United States"
+      : (event.update_location ?? "");
+
+  const location = PLACEHOLDER_LOCATIONS.has(rawLocation) ? "" : rawLocation;
+
+  // Use event_description if available, else remarks, else status
+  const description =
+    event.event_description?.trim() ||
+    event.update_description?.trim() ||
+    event.remarks?.trim() ||
+    event.status;
+
+  return {
+    timestamp: this.parseSkartDate(event.date),
+    status: event.status,
+    description,
+    location,
+    eventType: STATUS_CODE_MAP[statusCode] ?? "unknown",
+    rawStatusCode: statusCode,
+  };
+}
 
   /**
    * Skart dates arrive as "YYYY-MM-DD HH:mm:ss" (local, no timezone).
    * We treat them as UTC (the safest assumption for a server-side adapter).
    */
-  private parseSkartDate(dateStr: string): string {
-    // Replace the space between date and time with "T" and append "Z"
-    return new Date(dateStr.replace(" ", "T") + "Z").toISOString();
+private parseSkartDate(dateStr: string): string {
+  if (!dateStr || typeof dateStr !== "string") {
+    console.warn(`[skart] missing date field`);
+    return new Date(0).toISOString(); // epoch sentinel, clearly wrong in UI
   }
 
+  const trimmed = dateStr.trim();
+
+  // Already a valid ISO string (event_type "1" hub events) — use as-is
+  if (trimmed.includes("T")) {
+    const d = new Date(trimmed);
+    if (!isNaN(d.getTime())) return d.toISOString();
+  }
+
+  // Skart format: "YYYY-MM-DD HH:mm:ss" — treat as UTC
+  const d = new Date(trimmed.replace(" ", "T") + "Z");
+  if (!isNaN(d.getTime())) return d.toISOString();
+
+  console.warn(`[skart] unparseable date string: "${dateStr}"`);
+  return new Date(0).toISOString();
+}
   /**
    * Remove back-to-back events with the same status code and location.
    * Skart frequently emits 2–3 identical events within a minute.

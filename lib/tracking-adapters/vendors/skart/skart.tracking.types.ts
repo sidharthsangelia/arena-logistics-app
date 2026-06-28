@@ -19,11 +19,11 @@ export interface SkartTrackRequest {
 
 export interface SkartExtraData {
   awb: string;
-  ship_date: string;       // ISO string, e.g. "2024-08-22T09:42:28.000Z"
-  service: string;         // e.g. "Aramex UPS MUM"
+  ship_date: string; // ISO string, e.g. "2024-08-22T09:42:28.000Z"
+  service: string; // e.g. "Aramex UPS MUM"
   weight: number;
   no_of_pieces: number;
-  destination: string;     // e.g. "CANADA"
+  destination: string; // e.g. "CANADA"
 }
 
 /**
@@ -31,11 +31,11 @@ export interface SkartExtraData {
  * event_type "1" = booking events, "2" = transit events.
  */
 export interface SkartTrackEvent {
-  date: string;             // e.g. "2024-08-22 16:32:00"
+  date: string; // e.g. "2024-08-22 16:32:00"
   status: string;
   remarks: string;
   comments: string;
-  event_type: string;       // "1" | "2"
+  event_type: string; // "1" | "2"
   status_code: string | number;
   weight_unit?: string;
   courier_code: string;
@@ -47,6 +47,11 @@ export interface SkartTrackEvent {
   chargeable_weight?: string;
   update_description: string;
   courier_status_code: string | number;
+
+  city?: string; // ← ADD
+  country_name?: string; // ← ADD
+  arrival_localtion?: string; // ← ADD (note: Skart typo, sic)
+  event_description?: string; // ← ADD
 
   // Present only on booking events (event_type "1")
   tat_days?: number;
