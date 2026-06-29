@@ -1,4 +1,3 @@
-// components/business-assoicates/OrgSettingsCard.tsx
 "use client";
 
 import { useState, useTransition } from "react";
@@ -35,7 +34,6 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { updateOrgSettings } from "@/actions/business-associates/action";
- 
 
 type Props = {
   orgId: string;
@@ -45,7 +43,11 @@ type Props = {
   initialSkipPayment: boolean;
 };
 
-type PendingAction = "ba-off" | "skip-on" | null;
+// What the dialog is confirming — null means closed
+type ConfirmDialog =
+  | { type: "ba-off" }
+  | { type: "skip-on" }
+  | null;
 
 export default function OrgSettingsCard({
   orgId,
@@ -57,6 +59,7 @@ export default function OrgSettingsCard({
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
 
+  // ── form state ──────────────────────────────────────────────────────────
   const [markupPercent, setMarkupPercent] = useState(
     String(initialMarkupPercent)
   );
@@ -64,9 +67,14 @@ export default function OrgSettingsCard({
     initialIsBusinessAssociate
   );
   const [skipPayment, setSkipPayment] = useState(initialSkipPayment);
-  const [pendingAction, setPendingAction] = useState<PendingAction>(null);
 
-  const parsedMarkup = Number(markupPercent);
+  // ── confirmation dialog ──────────────────────────────────────────────────
+  // We only open this; we do NOT touch the real state until the user clicks
+  // "Continue". The Switch stays at its current (unchanged) value until then.
+  const [confirmDialog, setConfirmDialog] = useState<ConfirmDialog>(null);
+
+  // ── derived ─────────────────────────────────────────────────────────────
+  const parsedMarkup = parseFloat(markupPercent);
   const isMarkupValid =
     markupPercent.trim() !== "" &&
     !Number.isNaN(parsedMarkup) &&
@@ -79,28 +87,48 @@ export default function OrgSettingsCard({
       isBusinessAssociate !== initialIsBusinessAssociate ||
       skipPayment !== initialSkipPayment);
 
-  function handleBusinessAssociateChange(checked: boolean) {
-    if (!checked && isBusinessAssociate) {
-      // Turning OFF revokes /clients access — confirm first.
-      setPendingAction("ba-off");
-      return;
+  // ── handlers ─────────────────────────────────────────────────────────────
+
+  /**
+   * Turning BA *off* is destructive — it revokes /clients access.
+   * Turning BA *on* is safe — show the dialog anyway so ops doesn't fat-finger.
+   * We only open the dialog here; state is mutated in confirmAction().
+   */
+  function handleBusinessAssociateToggle(next: boolean) {
+    if (!next) {
+      // OFF → destructive: must confirm
+      setConfirmDialog({ type: "ba-off" });
+    } else {
+      // ON → safe, apply immediately
+      setIsBusinessAssociate(true);
     }
-    setIsBusinessAssociate(checked);
   }
 
-  function handleSkipPaymentChange(checked: boolean) {
-    if (checked && !skipPayment) {
-      // Turning ON bypasses wallet/payment checks — confirm first.
-      setPendingAction("skip-on");
-      return;
+  /**
+   * Turning skip-payment *on* bypasses wallet checks — must confirm.
+   * Turning it *off* is safe.
+   */
+  function handleSkipPaymentToggle(next: boolean) {
+    if (next) {
+      // ON → risky: must confirm
+      setConfirmDialog({ type: "skip-on" });
+    } else {
+      // OFF → safe, apply immediately
+      setSkipPayment(false);
     }
-    setSkipPayment(checked);
   }
 
-  function confirmPendingAction() {
-    if (pendingAction === "ba-off") setIsBusinessAssociate(false);
-    if (pendingAction === "skip-on") setSkipPayment(true);
-    setPendingAction(null);
+  /** Called when the user clicks "Continue" inside the AlertDialog. */
+  function confirmAction() {
+    if (confirmDialog?.type === "ba-off") setIsBusinessAssociate(false);
+    if (confirmDialog?.type === "skip-on") setSkipPayment(true);
+    setConfirmDialog(null);
+  }
+
+  /** Called when the user clicks "Cancel" inside the AlertDialog. */
+  function cancelAction() {
+    // The real state was never touched — just close.
+    setConfirmDialog(null);
   }
 
   function handleSave() {
@@ -118,10 +146,10 @@ export default function OrgSettingsCard({
       });
 
       if (result.success) {
-        toast.success("Business settings updated.");
+        toast.success("Settings saved.");
         router.refresh();
       } else {
-        toast.error(result.error);
+        toast.error(result.error ?? "Could not save changes.");
       }
     });
   }
@@ -132,32 +160,47 @@ export default function OrgSettingsCard({
     setSkipPayment(initialSkipPayment);
   }
 
+  // ── dialog copy ──────────────────────────────────────────────────────────
+  const dialogConfig =
+    confirmDialog?.type === "ba-off"
+      ? {
+          title: "Revoke Business Associate status?",
+          description: `${orgName} will lose access to the /clients route immediately on save. Their markup percentage will not change automatically — update it above if needed.`,
+        }
+      : {
+          title: "Enable skip payment?",
+          description: `${orgName}'s shipments will bypass wallet and payment checks. Make sure billing is handled manually before enabling this.`,
+        };
+
   return (
     <TooltipProvider delayDuration={200}>
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Business settings</CardTitle>
           <CardDescription>
-            Controls how quotes are priced and billed for {orgName}. Changes
-            apply immediately on save.
+            Controls how quotes are priced and billed for{" "}
+            <span className="font-medium text-foreground">{orgName}</span>.
+            Changes take effect immediately on save.
           </CardDescription>
         </CardHeader>
 
         <CardContent className="space-y-6">
+          {/* ── Markup percent ─────────────────────────────────────────── */}
           <div className="space-y-2">
             <div className="flex items-center gap-1.5">
               <Label htmlFor="markup-percent">Markup percentage</Label>
               <Tooltip>
-                <TooltipTrigger>
-                  <Info className="h-3.5 w-3.5 text-muted-foreground" />
+                <TooltipTrigger asChild>
+                  <Info className="h-3.5 w-3.5 cursor-help text-muted-foreground" />
                 </TooltipTrigger>
                 <TooltipContent className="max-w-xs">
-                  Percentage added on top of carrier rates when generating
-                  quotes for this organisation. Standard orgs default to 30%;
-                  Business Associates are typically given a lower rate.
+                  Added on top of carrier rates when generating quotes for this
+                  organisation. Standard orgs default to 30%; Business
+                  Associates are typically given a lower rate.
                 </TooltipContent>
               </Tooltip>
             </div>
+
             <div className="relative max-w-[180px]">
               <Input
                 id="markup-percent"
@@ -168,11 +211,13 @@ export default function OrgSettingsCard({
                 value={markupPercent}
                 onChange={(e) => setMarkupPercent(e.target.value)}
                 className="pr-7"
+                aria-invalid={!isMarkupValid}
               />
-              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
+              <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
                 %
               </span>
             </div>
+
             {!isMarkupValid && (
               <p className="text-xs text-destructive">
                 Enter a value between 0 and 100.
@@ -182,13 +227,16 @@ export default function OrgSettingsCard({
 
           <Separator />
 
+          {/* ── Business Associate toggle ───────────────────────────────── */}
           <div className="flex items-start justify-between gap-4">
             <div className="space-y-1">
               <div className="flex items-center gap-1.5">
-                <Label htmlFor="is-ba">Business Associate</Label>
+                <Label htmlFor="is-ba" className="cursor-pointer">
+                  Business Associate
+                </Label>
                 <Tooltip>
-                  <TooltipTrigger>
-                    <Info className="h-3.5 w-3.5 text-muted-foreground" />
+                  <TooltipTrigger asChild>
+                    <Info className="h-3.5 w-3.5 cursor-help text-muted-foreground" />
                   </TooltipTrigger>
                   <TooltipContent className="max-w-xs">
                     Grants access to the /clients route so this org can book
@@ -198,29 +246,33 @@ export default function OrgSettingsCard({
                 </Tooltip>
               </div>
               <p className="text-sm text-muted-foreground">
-                Allows this organisation to manage and book on behalf of
-                clients.
+                Allows this organisation to manage clients and book on their
+                behalf.
               </p>
             </div>
             <Switch
               id="is-ba"
               checked={isBusinessAssociate}
-              onCheckedChange={handleBusinessAssociateChange}
+              onCheckedChange={handleBusinessAssociateToggle}
+              disabled={isPending}
             />
           </div>
 
+          {/* ── Skip payment toggle ─────────────────────────────────────── */}
           <div className="flex items-start justify-between gap-4">
             <div className="space-y-1">
               <div className="flex items-center gap-1.5">
-                <Label htmlFor="skip-payment">Skip payment</Label>
+                <Label htmlFor="skip-payment" className="cursor-pointer">
+                  Skip payment
+                </Label>
                 <Tooltip>
-                  <TooltipTrigger>
-                    <Info className="h-3.5 w-3.5 text-muted-foreground" />
+                  <TooltipTrigger asChild>
+                    <Info className="h-3.5 w-3.5 cursor-help text-muted-foreground" />
                   </TooltipTrigger>
                   <TooltipContent className="max-w-xs">
                     When enabled, this organisation&apos;s shipments bypass
-                    wallet/payment checks entirely. Use only for trusted orgs
-                    billed manually.
+                    wallet and payment checks entirely. Use only for trusted
+                    orgs billed manually.
                   </TooltipContent>
                 </Tooltip>
               </div>
@@ -231,45 +283,48 @@ export default function OrgSettingsCard({
             <Switch
               id="skip-payment"
               checked={skipPayment}
-              onCheckedChange={handleSkipPaymentChange}
+              onCheckedChange={handleSkipPaymentToggle}
+              disabled={isPending}
             />
           </div>
         </CardContent>
 
-        <CardFooter className="justify-end gap-2">
+        <CardFooter className="justify-end gap-2 border-t pt-4">
           <Button
             variant="ghost"
+            size="sm"
             onClick={handleReset}
             disabled={!isDirty || isPending}
           >
             Reset
           </Button>
-          <Button onClick={handleSave} disabled={!isDirty || isPending}>
-            {isPending ? "Saving..." : "Save changes"}
+          <Button
+            size="sm"
+            onClick={handleSave}
+            disabled={!isDirty || isPending}
+          >
+            {isPending ? "Saving…" : "Save changes"}
           </Button>
         </CardFooter>
       </Card>
 
+      {/* ── Confirmation dialog ────────────────────────────────────────────── */}
       <AlertDialog
-        open={pendingAction !== null}
-        onOpenChange={(open) => !open && setPendingAction(null)}
+        open={confirmDialog !== null}
+        onOpenChange={(open) => {
+          if (!open) cancelAction();
+        }}
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>
-              {pendingAction === "ba-off"
-                ? "Revoke Business Associate status?"
-                : "Enable skip payment?"}
-            </AlertDialogTitle>
+            <AlertDialogTitle>{dialogConfig.title}</AlertDialogTitle>
             <AlertDialogDescription>
-              {pendingAction === "ba-off"
-                ? `${orgName} will lose access to the /clients route. Their markup percentage will not change automatically — update it above if needed.`
-                : `${orgName}'s shipments will bypass wallet/payment checks and will not be charged automatically. Make sure billing is handled manually for this org.`}
+              {dialogConfig.description}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmPendingAction}>
+            <AlertDialogCancel onClick={cancelAction}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmAction}>
               Continue
             </AlertDialogAction>
           </AlertDialogFooter>

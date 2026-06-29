@@ -1,4 +1,3 @@
-// components/business-assoicates/RecentClientsTable.tsx
 import {
   Card,
   CardContent,
@@ -14,8 +13,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Badge } from "@/components/ui/badge";
 import type { Client } from "@/generated/prisma";
 import { formatDate } from "@/lib/utils";
+
+const COMPANY_KIND_LABEL: Record<string, string> = {
+  INDIVIDUAL: "Individual",
+  COMPANY: "Company",
+};
 
 export default function RecentClientsTable({
   clients,
@@ -30,26 +35,33 @@ export default function RecentClientsTable({
           The 5 most recently added clients for this organisation.
         </CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className="p-0">
         {clients.length === 0 ? (
-          <p className="py-6 text-center text-sm text-muted-foreground">
+          <p className="px-6 py-8 text-center text-sm text-muted-foreground">
             No clients yet.
           </p>
         ) : (
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Company</TableHead>
+                <TableHead className="pl-6">Company</TableHead>
+                <TableHead>Kind</TableHead>
                 <TableHead>Contact</TableHead>
                 <TableHead>Email</TableHead>
-                <TableHead>Added</TableHead>
+                <TableHead className="pr-6">Added</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {clients.map((client) => (
                 <TableRow key={client.id}>
-                  <TableCell className="font-medium">
+                  <TableCell className="pl-6 font-medium">
                     {client.companyName}
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant="outline" className="text-xs">
+                      {COMPANY_KIND_LABEL[client.companyKind] ??
+                        client.companyKind}
+                    </Badge>
                   </TableCell>
                   <TableCell className="text-muted-foreground">
                     {client.contactName ?? "—"}
@@ -57,7 +69,7 @@ export default function RecentClientsTable({
                   <TableCell className="text-muted-foreground">
                     {client.email ?? "—"}
                   </TableCell>
-                  <TableCell className="text-muted-foreground">
+                  <TableCell className="pr-6 text-muted-foreground">
                     {formatDate(client.createdAt)}
                   </TableCell>
                 </TableRow>
