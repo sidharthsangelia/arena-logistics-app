@@ -91,6 +91,8 @@ model Org {
   postalCode   String?
   notes        String?
 
+  skipPayment Boolean @default(false)
+
   emailEvents QuoteEmailEvent[]
 
   @@index([slug])

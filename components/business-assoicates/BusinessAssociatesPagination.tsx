@@ -1,3 +1,4 @@
+// components/business-assoicates/BusinessAssociatesPagination.tsx
 import Link from "next/link";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -5,58 +6,59 @@ import { Button } from "@/components/ui/button";
 type Props = {
   page: number;
   totalPages: number;
-  query: string;
+  searchParams?: Record<string, string | undefined>;
 };
 
-export default function BusinessAssociatesPagination({ page, totalPages, query }: Props) {
+export default function BusinessAssociatesPagination({
+  page,
+  totalPages,
+  searchParams = {},
+}: Props) {
   if (totalPages <= 1) return null;
 
-  function hrefFor(target: number) {
+  function buildHref(targetPage: number) {
     const params = new URLSearchParams();
-    if (query) params.set("q", query);
-    params.set("page", String(target));
-    return `/arena-dashboard/business-associates?${params.toString()}`;
+    Object.entries(searchParams).forEach(([key, value]) => {
+      if (value) params.set(key, value);
+    });
+    if (targetPage > 1) params.set("page", String(targetPage));
+    const qs = params.toString();
+    return `/arena-dashboard/business-associates${qs ? `?${qs}` : ""}`;
   }
-
-  const prevDisabled = page <= 1;
-  const nextDisabled = page >= totalPages;
 
   return (
     <div className="flex items-center justify-between">
       <p className="text-sm text-muted-foreground">
         Page {page} of {totalPages}
       </p>
-      <div className="flex items-center gap-2">
-        <Button
-          asChild
-          variant="outline"
-          size="sm"
-          className={prevDisabled ? "pointer-events-none opacity-50" : ""}
-        >
-          <Link
-            href={prevDisabled ? "#" : hrefFor(page - 1)}
-            aria-disabled={prevDisabled}
-            tabIndex={prevDisabled ? -1 : undefined}
-          >
+      <div className="flex gap-2">
+        {page <= 1 ? (
+          <Button variant="outline" size="sm" disabled>
             <ChevronLeft className="mr-1 h-4 w-4" />
             Previous
-          </Link>
-        </Button>
-        <Button
-          asChild
-          variant="outline"
-          size="sm"
-          className={nextDisabled ? "pointer-events-none opacity-50" : ""}
-        >
-          <Link
-            href={nextDisabled ? "#" : hrefFor(page + 1)}
-            aria-disabled={nextDisabled}
-            tabIndex={nextDisabled ? -1 : undefined}
-          >
+          </Button>
+        ) : (
+          <Button variant="outline" size="sm" asChild>
+            <Link href={buildHref(page - 1)}>
+              <ChevronLeft className="mr-1 h-4 w-4" />
+              Previous
+            </Link>
+          </Button>
+        )}
+
+        {page >= totalPages ? (
+          <Button variant="outline" size="sm" disabled>
             Next
             <ChevronRight className="ml-1 h-4 w-4" />
-          </Link>
-        </Button>
+          </Button>
+        ) : (
+          <Button variant="outline" size="sm" asChild>
+            <Link href={buildHref(page + 1)}>
+              Next
+              <ChevronRight className="ml-1 h-4 w-4" />
+            </Link>
+          </Button>
+        )}
       </div>
     </div>
   );
