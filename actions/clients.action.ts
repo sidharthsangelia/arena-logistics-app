@@ -57,6 +57,7 @@ export async function createClientAction(
         orgId,
       },
       select: {
+        companyKind: true,
         id: true,
         companyName: true,
         contactName: true,
