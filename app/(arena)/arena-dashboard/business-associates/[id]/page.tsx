@@ -1,7 +1,16 @@
 // app/arena-dashboard/business-associates/[id]/page.tsx
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, Mail, Phone, MapPin, Wallet, Users, FileText, Truck } from "lucide-react";
+import {
+  ArrowLeft,
+  Mail,
+  Phone,
+  MapPin,
+  Wallet,
+  Users,
+  FileText,
+  Truck,
+} from "lucide-react";
 import { prisma } from "@/utils/db";
 import {
   Card,
@@ -17,9 +26,9 @@ import OrgAvatar from "@/components/business-assoicates/OrgAvatar";
 import PlanBadge from "@/components/business-assoicates/PlanBadge";
 import RecentQuotesTable from "@/components/business-assoicates/detail-page/RecentQuotesTable";
 import RecentClientsTable from "@/components/business-assoicates/detail-page/RecentClientsTable";
+import RecentShipmentsTable from "@/components/business-assoicates/detail-page/RecentShipmentsTable";
 import OrgSettingsCard from "@/components/business-assoicates/detail-page/OrgSettingCard";
 import StatCard from "@/components/business-assoicates/detail-page/StatCard";
- 
 
 type PageProps = {
   params: Promise<{ id: string }>;
@@ -36,7 +45,7 @@ export default async function BusinessAssociateDetailPage({
       wallet: true,
       _count: {
         select: {
-          clients: true,
+          clients: { where: { deletedAt: null } },
           quotes: true,
           shipments: true,
           kycDocuments: true,
@@ -49,7 +58,7 @@ export default async function BusinessAssociateDetailPage({
     notFound();
   }
 
-  const [recentClients, recentQuotes] = await Promise.all([
+  const [recentClients, recentQuotes, recentShipments] = await Promise.all([
     prisma.client.findMany({
       where: { orgId: org.id, deletedAt: null },
       orderBy: { createdAt: "desc" },
@@ -60,12 +69,20 @@ export default async function BusinessAssociateDetailPage({
       orderBy: { createdAt: "desc" },
       take: 5,
     }),
+    prisma.shipment.findMany({
+      where: { orgId: org.id },
+      orderBy: { createdAt: "desc" },
+      take: 5,
+    }),
   ]);
 
+  // ── Contact detail rows — only render items that have values ─────────────
   const contactDetails = [
     { icon: Mail, label: "Email", value: org.email },
     { icon: Phone, label: "Phone", value: org.phone },
-  ].filter((item) => item.value);
+  ].filter((item): item is typeof item & { value: string } =>
+    typeof item.value === "string" && item.value.length > 0
+  );
 
   const addressParts = [
     org.addressLine1,
@@ -73,10 +90,13 @@ export default async function BusinessAssociateDetailPage({
     org.state,
     org.postalCode,
     org.country,
-  ].filter(Boolean);
+  ].filter((p): p is string => typeof p === "string" && p.length > 0);
+
+  const walletBalance = org.wallet?.balance.toNumber() ?? 0;
 
   return (
     <div className="space-y-6 px-4 py-6 sm:px-6 lg:px-8">
+      {/* ── Back link ──────────────────────────────────────────────────────── */}
       <Link
         href="/arena-dashboard/business-associates"
         className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
@@ -85,9 +105,14 @@ export default async function BusinessAssociateDetailPage({
         Back to Business Associates
       </Link>
 
+      {/* ── Header ─────────────────────────────────────────────────────────── */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex items-center gap-4">
-          <OrgAvatar name={org.name} logoUrl={org.logoUrl} className="h-14 w-14" />
+          <OrgAvatar
+            name={org.name}
+            logoUrl={org.logoUrl}
+            className="h-14 w-14"
+          />
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">
               {org.name}
@@ -107,24 +132,34 @@ export default async function BusinessAssociateDetailPage({
               Standard organisation
             </Badge>
           )}
-          {org.skipPayment && <Badge variant="outline">Skip Payment</Badge>}
+          {org.skipPayment && (
+            <Badge variant="outline">Skip Payment</Badge>
+          )}
         </div>
       </div>
 
+      {/* ── Stat cards ─────────────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         <StatCard icon={Users} label="Clients" value={org._count.clients} />
         <StatCard icon={FileText} label="Quotes" value={org._count.quotes} />
-        <StatCard icon={Truck} label="Shipments" value={org._count.shipments} />
+        <StatCard
+          icon={Truck}
+          label="Shipments"
+          value={org._count.shipments}
+        />
         <StatCard
           icon={Wallet}
           label="Wallet balance"
-          value={`₹${(org.wallet?.balance.toNumber() ?? 0).toLocaleString("en-IN", {
+          value={`₹${walletBalance.toLocaleString("en-IN", {
+            minimumFractionDigits: 2,
             maximumFractionDigits: 2,
           })}`}
         />
       </div>
 
+      {/* ── Main content ───────────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        {/* Left column */}
         <div className="space-y-6 lg:col-span-2">
           <OrgSettingsCard
             orgId={org.id}
@@ -134,12 +169,18 @@ export default async function BusinessAssociateDetailPage({
             initialSkipPayment={org.skipPayment}
           />
 
+          <RecentShipmentsTable shipments={recentShipments} />
+
           <RecentQuotesTable quotes={recentQuotes} />
 
-          <RecentClientsTable clients={recentClients} />
+          {org.isBusinessAssociate && (
+            <RecentClientsTable clients={recentClients} />
+          )}
         </div>
 
+        {/* Right column */}
         <div className="space-y-6">
+          {/* Contact details */}
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Contact details</CardTitle>
@@ -149,6 +190,7 @@ export default async function BusinessAssociateDetailPage({
               {org.contactName && (
                 <p className="font-medium">{org.contactName}</p>
               )}
+
               {contactDetails.length === 0 && addressParts.length === 0 ? (
                 <p className="text-muted-foreground">
                   No contact details on file.
@@ -160,18 +202,19 @@ export default async function BusinessAssociateDetailPage({
                       key={label}
                       className="flex items-start gap-2 text-muted-foreground"
                     >
-                      <Icon className="mt-0.5 h-4 w-4" />
-                      <span>{value}</span>
+                      <Icon className="mt-0.5 h-4 w-4 shrink-0" />
+                      <span className="break-all">{value}</span>
                     </div>
                   ))}
                   {addressParts.length > 0 && (
                     <div className="flex items-start gap-2 text-muted-foreground">
-                      <MapPin className="mt-0.5 h-4 w-4" />
+                      <MapPin className="mt-0.5 h-4 w-4 shrink-0" />
                       <span>{addressParts.join(", ")}</span>
                     </div>
                   )}
                 </>
               )}
+
               {org.notes && (
                 <>
                   <Separator />
@@ -186,35 +229,45 @@ export default async function BusinessAssociateDetailPage({
             </CardContent>
           </Card>
 
+          {/* Meta */}
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Meta</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2 text-sm">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Org ID</span>
+              <MetaRow label="Org ID">
                 <span className="font-mono text-xs">{org.id}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Clerk Org ID</span>
+              </MetaRow>
+              <MetaRow label="Clerk Org ID">
                 <span className="font-mono text-xs">{org.clerkOrgId}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">KYC documents</span>
-                <span>{org._count.kycDocuments}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Joined</span>
-                <span>{formatDate(org.createdAt)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Last updated</span>
-                <span>{formatDate(org.updatedAt)}</span>
-              </div>
+              </MetaRow>
+              <MetaRow label="KYC documents">
+                {org._count.kycDocuments}
+              </MetaRow>
+              <MetaRow label="Joined">{formatDate(org.createdAt)}</MetaRow>
+              <MetaRow label="Last updated">
+                {formatDate(org.updatedAt)}
+              </MetaRow>
             </CardContent>
           </Card>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── Small helper — keeps the meta card DRY ───────────────────────────────────
+function MetaRow({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4">
+      <span className="shrink-0 text-muted-foreground">{label}</span>
+      <span className="min-w-0 truncate text-right">{children}</span>
     </div>
   );
 }
