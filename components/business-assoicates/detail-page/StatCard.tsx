@@ -1,5 +1,4 @@
-// components/business-assoicates/StatCard.tsx
-import type { LucideIcon } from "lucide-react";
+import { type LucideIcon } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 
 type Props = {
@@ -11,14 +10,12 @@ type Props = {
 export default function StatCard({ icon: Icon, label, value }: Props) {
   return (
     <Card>
-      <CardContent className="flex items-center gap-3 p-4">
-        <div className="rounded-md bg-muted p-2">
-          <Icon className="h-4 w-4 text-muted-foreground" />
+      <CardContent className="flex flex-col gap-2 p-4">
+        <div className="flex items-center gap-2 text-muted-foreground">
+          <Icon className="h-4 w-4 shrink-0" />
+          <span className="text-xs font-medium">{label}</span>
         </div>
-        <div>
-          <p className="text-xs text-muted-foreground">{label}</p>
-          <p className="text-lg font-semibold">{value}</p>
-        </div>
+        <p className="text-xl font-semibold tracking-tight">{value}</p>
       </CardContent>
     </Card>
   );
