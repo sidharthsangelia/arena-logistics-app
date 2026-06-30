@@ -30,8 +30,10 @@ import {
   ShipmentDocType,
   PartyType,
 } from "@/generated/prisma";
-
-import type { BookingFormData, PackageForm } from "@/types/booking.types";
+import type {
+  BookingFormData,
+  ShipmentItem,
+} from "@/types/booking.types";
 import { Decimal } from "@/generated/prisma/runtime/client";
 
 // ---------------------------------------------------------------------------
@@ -107,37 +109,36 @@ function preflight(data: BookingFormData): PreflightResult {
   }
 
   // Packages
-  if (!data.packages.length) {
-    fieldErrors.packages = "At least one package is required.";
+if (!data.items?.length) {
+  fieldErrors.items = "At least one shipment item is required.";
+}
+
+for (const [i, item] of (data.items ?? []).entries()) {
+  const w = Number(item.weightKg);
+  const l = Number(item.lengthCm);
+  const wd = Number(item.widthCm);
+  const h = Number(item.heightCm);
+
+  if (!w || w <= 0) {
+    fieldErrors[`items.${i}.weightKg`] =
+      "Weight must be positive.";
   }
 
-  for (const [i, pkg] of data.packages.entries()) {
-    // Coerce to number — RHF input values may arrive as strings at runtime
-    const w  = Number(pkg.weightKg);
-    const l  = Number(pkg.lengthCm);
-    const wd = Number(pkg.widthCm);
-    const h  = Number(pkg.heightCm);
-    if (!w  || w  <= 0) fieldErrors[`packages[${i}].weightKg`] = "Weight must be positive.";
-    if (!l  || l  <= 0) fieldErrors[`packages[${i}].lengthCm`] = "Length must be positive.";
-    if (!wd || wd <= 0) fieldErrors[`packages[${i}].widthCm`]  = "Width must be positive.";
-    if (!h  || h  <= 0) fieldErrors[`packages[${i}].heightCm`] = "Height must be positive.";
+  if (!l || l <= 0) {
+    fieldErrors[`items.${i}.lengthCm`] =
+      "Length must be positive.";
   }
 
-  // Sender
-  if (!data.consignor.contactName?.trim())
-    fieldErrors["consignor.contactName"]  = "Sender name is required.";
-  if (!data.consignor.addressLine1?.trim())
-    fieldErrors["consignor.addressLine1"] = "Sender address is required.";
-  if (!data.consignor.country?.trim())
-    fieldErrors["consignor.country"]      = "Sender country is required.";
+  if (!wd || wd <= 0) {
+    fieldErrors[`items.${i}.widthCm`] =
+      "Width must be positive.";
+  }
 
-  // Receiver
-  if (!data.consignee.contactName?.trim())
-    fieldErrors["consignee.contactName"]  = "Receiver name is required.";
-  if (!data.consignee.addressLine1?.trim())
-    fieldErrors["consignee.addressLine1"] = "Receiver address is required.";
-  if (!data.consignee.country?.trim())
-    fieldErrors["consignee.country"]      = "Receiver country is required.";
+  if (!h || h <= 0) {
+    fieldErrors[`items.${i}.heightCm`] =
+      "Height must be positive.";
+  }
+}
 
   // Client selection
   if (data.shipmentOwnerMode === "EXISTING_CLIENT" && !data.selectedClient) {
@@ -153,15 +154,21 @@ function preflight(data: BookingFormData): PreflightResult {
   }
 
   // All coercions are safe here — we validated > 0 above
-  const totalWeightKg = data.packages.reduce(
-    (sum, p) => sum + Number(p.weightKg) * Number(p.quantity),
-    0,
-  );
-  const declaredTotal = data.packages.reduce(
-    (sum, p) => sum + Number(p.declaredValue) * Number(p.quantity),
-    0,
-  );
+const totalWeightKg = data.items.reduce(
+  (sum, item) =>
+    sum +
+    Number(item.weightKg) *
+      Number(item.quantity),
+  0,
+);
 
+const declaredTotal = data.items.reduce(
+  (sum, item) =>
+    sum +
+    Number(item.unitValue) *
+      Number(item.quantity),
+  0,
+);
   return { ok: true, totalWeightKg, declaredTotal };
 }
 
@@ -219,24 +226,24 @@ async function generateShipmentNumber(tx: PrismaTx, orgId: string): Promise<stri
 // Package row builder — all field values coerced to number defensively
 // ---------------------------------------------------------------------------
 
-function buildPackageRow(pkg: PackageForm) {
-  const lengthCm      = Number(pkg.lengthCm);
-  const widthCm       = Number(pkg.widthCm);
-  const heightCm      = Number(pkg.heightCm);
-  const weightKg      = Number(pkg.weightKg);
-  const quantity      = Number(pkg.quantity);
-  const declaredValue = Number(pkg.declaredValue);
-
+function buildPackageRow(item: ShipmentItem) {
   return {
-    description:      pkg.description,
-    quantity,
-    lengthCm:         new Decimal(lengthCm.toFixed(2)),
-    widthCm:          new Decimal(widthCm.toFixed(2)),
-    heightCm:         new Decimal(heightCm.toFixed(2)),
-    weightKg:         new Decimal(weightKg.toFixed(2)),
-    declaredValue:    declaredValue > 0 ? new Decimal(declaredValue.toFixed(2)) : null,
+    description: item.description,
+    quantity: item.quantity,
+
+    lengthCm: new Decimal(item.lengthCm.toFixed(2)),
+    widthCm: new Decimal(item.widthCm.toFixed(2)),
+    heightCm: new Decimal(item.heightCm.toFixed(2)),
+    weightKg: new Decimal(item.weightKg.toFixed(2)),
+
+    declaredValue:
+      item.unitValue > 0
+        ? new Decimal(item.unitValue.toFixed(2))
+        : null,
+
     declaredCurrency: "INR",
-    hsCode:           pkg.hsCode?.trim() || null,
+
+    hsCode: item.hsCode || null,
   };
 }
 
@@ -382,8 +389,8 @@ export async function createShipmentAction(
             status: ShipmentStatus.BOOKED,
 
             packages: {
-              create: data.packages.map(buildPackageRow),
-            },
+  create: data.items.map(buildPackageRow),
+},
           },
           select: { id: true, shipmentNumber: true },
         });
@@ -460,7 +467,7 @@ export async function createShipmentAction(
         tags:  { step: "dbTransaction", orgId: dbOrgId },
         extra: {
           shipmentOwnerMode: data.shipmentOwnerMode,
-          packageCount:      data.packages.length,
+          itemCount: data.items.length,
           selectedVendor:    data.selectedService?.vendorId,
         },
       });
