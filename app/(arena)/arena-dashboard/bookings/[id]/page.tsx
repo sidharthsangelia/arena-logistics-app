@@ -3,7 +3,7 @@ import { prisma } from "@/utils/db";
 import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import { ShipmentStatus } from "@/generated/prisma";
-import { STATUS_CONFIG } from "../page";
+ 
 
 import {
   ArrowLeft,
@@ -44,6 +44,8 @@ import {
 } from "@/components/ui/table";
 import { StatusUpdatePanel } from "@/components/booking/arena/StatusUpdatePanel";
 import { InternalNotesPanel } from "@/components/booking/arena/InternalNotesPanel";
+import { STATUS_CONFIG } from "@/utils/statusConfigColors";
+
 
  
 
