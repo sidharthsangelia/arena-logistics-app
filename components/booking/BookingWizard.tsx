@@ -10,32 +10,36 @@ import {
   ExternalLink,
 } from "lucide-react";
 import { useForm } from "react-hook-form";
-import type { ZodSchema } from "zod";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 
 import type { BookingFormData, ClientSummary } from "@/types/booking.types";
-import { bookingSteps, useBookingWizard } from "@/hooks/useBookingWizard";
+import { bookingSteps, useBookingWizard, STEP } from "@/hooks/useBookingWizard";
+import {
+  shipmentOwnerSchema,
+  consignorSchema,
+  consigneeSchema,
+  shipmentDetailsSchema,
+  kycSchema,
+  serviceSchema,
+} from "@/types/booking.schema";
 
 import ProgressSteps from "./ProgessSteps";
 import ReviewStep from "./steps/ReviewStep";
-import PackagesStep from "./steps/PackageStep";
-import InvoiceStep from "./steps/InvoiceStep";
 import KycStep from "./steps/KycStep";
 import ConsigneeStep from "./steps/ConsigneeStep";
 import ServiceSelectionStep from "./steps/ServiceStep";
 import { ConsignorStep } from "./steps/ConsignorStep";
 import { ShipmentOwnerStep } from "./steps/ShipmentOwnerStep";
 import { createShipmentAction } from "@/actions/book/createShipment.action";
+import ShipmentDetailsStep from "./steps/ShipmentDetailStep";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-function clientToConsignor(
-  client: ClientSummary,
-): BookingFormData["consignor"] {
+function clientToConsignor(client: ClientSummary): BookingFormData["consignor"] {
   return {
     contactName: client.contactName ?? "",
     companyName: client.companyName ?? "",
@@ -50,8 +54,20 @@ function clientToConsignor(
   };
 }
 
-// Steps 4 & 5 (Invoice / Packages) use updateFormData directly, not RHF
-const SELF_MANAGED_STEPS = new Set([4, 5]);
+function totalDeclaredValue(data: BookingFormData): number {
+  return data.items.reduce((s, it) => s + it.unitValue * it.quantity, 0);
+}
+
+// Steps validated against RHF-registered fields via getValues() + a zod schema.
+// SHIPMENT_DETAILS is intentionally excluded — it's self-managed (array of
+// items via updateFormData, not RHF register) and validated separately below.
+const RHF_STEP_SCHEMAS: Record<number, any> = {
+  [STEP.OWNER]: shipmentOwnerSchema,
+  [STEP.CONSIGNOR]: consignorSchema,
+  [STEP.CONSIGNEE]: consigneeSchema,
+  [STEP.KYC]: kycSchema,
+  [STEP.SERVICE]: serviceSchema,
+};
 
 // ---------------------------------------------------------------------------
 // Success screen
@@ -114,7 +130,6 @@ export default function BookingWizard() {
     goToPreviousStep,
     updateFormData,
     resetBooking,
-    getCurrentStepSchema,
   } = useBookingWizard();
 
   const [submitting, setSubmitting] = React.useState(false);
@@ -138,9 +153,22 @@ export default function BookingWizard() {
     defaultValues: formData,
   });
 
+  // Keep a ref to the latest formData so the reset effect below doesn't need
+  // `formData` in its dependency array — previously, `reset(formData)` ran
+  // on EVERY keystroke while on the self-managed Shipment Details step
+  // (because that step calls updateFormData on every change), needlessly
+  // resetting the entire RHF form tree dozens of times per second.
+  const formDataRef = React.useRef(formData);
   React.useEffect(() => {
-    reset(formData);
-  }, [currentStep, formData, reset]);
+    formDataRef.current = formData;
+  }, [formData]);
+
+  React.useEffect(() => {
+    reset(formDataRef.current);
+    // Only re-sync the RHF form when navigating between steps, not on every
+    // formData mutation.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentStep, reset]);
 
   // ── Submit ───────────────────────────────────────────────────────────────
   const handleSubmit = async (finalData: BookingFormData) => {
@@ -157,7 +185,7 @@ export default function BookingWizard() {
       }
       if (result.fieldErrors) {
         Object.entries(result.fieldErrors).forEach(([path, msg]) => {
-          setError(path as any, { type: "server", message: msg });
+          setError(path as any, { type: "server", message: msg as string });
         });
       }
       setSubmitError(result.message);
@@ -172,7 +200,15 @@ export default function BookingWizard() {
   const handleNext = async () => {
     setSubmitError(null);
 
-    if (SELF_MANAGED_STEPS.has(currentStep)) {
+    // Shipment Details is self-managed (array of items, not RHF fields) —
+    // it previously skipped validation entirely, meaning a user could
+    // advance with zero items. Validate it explicitly against the schema.
+    if (currentStep === STEP.SHIPMENT_DETAILS) {
+      const result = shipmentDetailsSchema.safeParse(formData);
+      if (!result.success) {
+        setSubmitError(result.error.issues[0]?.message ?? "Please complete the shipment details.");
+        return;
+      }
       if (isLastStep) {
         await handleSubmit(formData);
       } else {
@@ -187,7 +223,7 @@ export default function BookingWizard() {
       ...currentValues,
     };
 
-    if (currentStep === 0 && merged.shipmentOwnerMode === "EXISTING_CLIENT") {
+    if (currentStep === STEP.OWNER && merged.shipmentOwnerMode === "EXISTING_CLIENT") {
       if (!merged.selectedClient) {
         setError("selectedClient" as any, {
           type: "manual",
@@ -198,18 +234,18 @@ export default function BookingWizard() {
       merged.consignor = clientToConsignor(merged.selectedClient);
     }
 
-    if (currentStep === 3) {
-      merged._totalDeclaredValue = formData.packages.reduce(
-        (sum, p) => sum + p.declaredValue * p.quantity,
-        0,
-      );
+    if (currentStep === STEP.KYC) {
+      // Computed from real item data now that Shipment Details (step 3)
+      // always runs before KYC (step 4) — fixes the bug where IEC
+      // requirement was evaluated before any item existed.
+      merged._totalDeclaredValue = totalDeclaredValue(formData);
     }
 
-    const schema = getCurrentStepSchema() as ZodSchema;
-    const result = schema.safeParse(merged);
+    const schema = RHF_STEP_SCHEMAS[currentStep];
+    const result = schema?.safeParse(merged);
 
-    if (!result.success) {
-      result.error.issues.forEach((issue) => {
+    if (result && !result.success) {
+      result.error.issues.forEach((issue: any) => {
         setError(issue.path.join(".") as any, {
           type: "manual",
           message: issue.message,
@@ -254,7 +290,7 @@ export default function BookingWizard() {
 
         <CardContent>
           <div className="space-y-8">
-            {currentStep === 0 && (
+            {currentStep === STEP.OWNER && (
               <ShipmentOwnerStep
                 value={watch("shipmentOwnerMode")}
                 selectedClient={watch("selectedClient")}
@@ -271,7 +307,7 @@ export default function BookingWizard() {
               />
             )}
 
-            {currentStep === 1 && (
+            {currentStep === STEP.CONSIGNOR && (
               <ConsignorStep
                 register={register}
                 errors={errors}
@@ -281,7 +317,7 @@ export default function BookingWizard() {
               />
             )}
 
-            {currentStep === 2 && (
+            {currentStep === STEP.CONSIGNEE && (
               <ConsigneeStep
                 register={register}
                 watch={watch}
@@ -290,37 +326,24 @@ export default function BookingWizard() {
               />
             )}
 
-            {currentStep === 3 && (
+            {currentStep === STEP.SHIPMENT_DETAILS && (
+              <ShipmentDetailsStep
+                data={formData}
+                onChange={(partial) => updateFormData(partial as Partial<BookingFormData>)}
+                error={submitError ?? undefined}
+              />
+            )}
+
+            {currentStep === STEP.KYC && (
               <KycStep
                 watch={watch}
                 setValue={setValue}
                 errors={errors}
-                totalDeclaredValue={formData.packages.reduce(
-                  (s, p) => s + p.declaredValue * p.quantity,
-                  0,
-                )}
+                totalDeclaredValue={totalDeclaredValue(formData)}
               />
             )}
 
-            {currentStep === 4 && (
-              <InvoiceStep
-                data={formData}
-                onChange={(partial) =>
-                  updateFormData(partial as Partial<BookingFormData>)
-                }
-              />
-            )}
-
-            {currentStep === 5 && (
-              <PackagesStep
-                data={formData}
-                onChange={(partial) =>
-                  updateFormData(partial as Partial<BookingFormData>)
-                }
-              />
-            )}
-
-            {currentStep === 6 && (
+            {currentStep === STEP.SERVICE && (
               <ServiceSelectionStep
                 watch={watch}
                 setValue={setValue}
@@ -329,11 +352,12 @@ export default function BookingWizard() {
               />
             )}
 
-            {currentStep === 7 && <ReviewStep data={formData} />}
+            {currentStep === STEP.REVIEW && <ReviewStep data={formData} />}
 
-            {/* Submit error */}
-            {submitError && (
-              <div className="flex items-start gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm">
+            {/* Submit error — not shown on the Shipment Details step, which renders
+                its own inline error via the `error` prop above. */}
+            {submitError && currentStep !== STEP.SHIPMENT_DETAILS && (
+              <div className="flex items-start gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm" aria-live="polite">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
                 <p className="text-destructive">{submitError}</p>
               </div>

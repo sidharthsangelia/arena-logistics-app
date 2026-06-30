@@ -2,13 +2,12 @@
 
 import {
   User, Building2, MapPinned, Shield, FileText,
-  Package, Truck, CheckCircle2, FileCheck2,
+  Truck, CheckCircle2, FileCheck2,
   MapPin, ArrowRight, Scale,
 } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
-import { cn } from "@/lib/utils";
-import type { BookingFormData, FileMeta, PackageForm } from "@/types/booking.types";
+import type { BookingFormData, FileMeta } from "@/types/booking.types";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -53,10 +52,6 @@ function Section({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Row
-// ---------------------------------------------------------------------------
-
 function Row({ label, value }: { label: string; value?: string | null }) {
   if (!value) return null;
   return (
@@ -67,27 +62,17 @@ function Row({ label, value }: { label: string; value?: string | null }) {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Address block
-// ---------------------------------------------------------------------------
-
 function AddressBlock({ data }: { data: BookingFormData["consignor"] }) {
   const addrLine = [data.addressLine1, data.addressLine2].filter(Boolean).join(", ");
   const geoLine  = [data.city, data.state, data.postalCode].filter(Boolean).join(", ");
 
   return (
     <div className="rounded-lg border bg-muted/30 px-4 py-3 space-y-1 text-sm">
-      {data.contactName && (
-        <p className="font-medium text-foreground">{data.contactName}</p>
-      )}
-      {data.companyName && (
-        <p className="text-muted-foreground">{data.companyName}</p>
-      )}
+      {data.contactName && <p className="font-medium text-foreground">{data.contactName}</p>}
+      {data.companyName && <p className="text-muted-foreground">{data.companyName}</p>}
       {data.email && <p className="text-muted-foreground">{data.email}</p>}
       {data.phone && <p className="text-muted-foreground">{data.phone}</p>}
-      {addrLine && (
-        <p className="pt-1 text-muted-foreground text-xs">{addrLine}</p>
-      )}
+      {addrLine && <p className="pt-1 text-muted-foreground text-xs">{addrLine}</p>}
       {geoLine && (
         <p className="text-xs text-muted-foreground">
           {geoLine}
@@ -97,10 +82,6 @@ function AddressBlock({ data }: { data: BookingFormData["consignor"] }) {
     </div>
   );
 }
-
-// ---------------------------------------------------------------------------
-// KYC block
-// ---------------------------------------------------------------------------
 
 const KYC_LABELS: Record<string, string> = {
   pan: "PAN Card",
@@ -130,104 +111,72 @@ function KycBlock({ docs }: { docs: BookingFormData["kycDocs"] }) {
 }
 
 // ---------------------------------------------------------------------------
-// Invoice block
+// Shipment items block — replaces the separate Invoice + Packages blocks.
+// Currency lives once at `data.currency`, so a mixed-currency total is no
+// longer structurally possible.
 // ---------------------------------------------------------------------------
 
-function InvoiceBlock({ data }: { data: BookingFormData }) {
-  if (data.invoiceMode === "UPLOAD") {
-    return data.uploadedInvoice ? (
-      <div className="flex items-center gap-2 rounded-md border bg-muted/30 px-3 py-2.5 text-sm">
-        <FileCheck2 className="h-4 w-4 shrink-0 text-green-600" />
-        <span className="text-foreground">{data.uploadedInvoice.fileName}</span>
-      </div>
-    ) : (
-      <p className="text-sm text-muted-foreground">No invoice uploaded.</p>
-    );
+function ShipmentItemsBlock({ data }: { data: BookingFormData }) {
+  const { items, currency, invoiceMode, uploadedInvoice } = data;
+
+  if (!items.length) {
+    return <p className="text-sm text-muted-foreground">No items added.</p>;
   }
 
-  const { items } = data.generatedInvoice;
-  if (!items.length) return <p className="text-sm text-muted-foreground">No items.</p>;
-
-  const total = items.reduce((s, i) => s + i.unitValue * i.quantity, 0);
-
-  return (
-    <div className="rounded-lg border overflow-hidden text-sm">
-      <div className="divide-y">
-        {items.map((item, i) => (
-          <div key={i} className="flex items-start justify-between gap-3 px-4 py-2.5">
-            <div className="min-w-0">
-              <p className="font-medium truncate">{item.description}</p>
-              <p className="text-xs text-muted-foreground">
-                HSN {item.hsCode} · {item.countryOfOrigin}
-              </p>
-            </div>
-            <div className="text-right shrink-0">
-              <p>{item.currency} {item.unitValue.toLocaleString("en-IN")}</p>
-              <p className="text-xs text-muted-foreground">× {item.quantity}</p>
-            </div>
-          </div>
-        ))}
-      </div>
-      <div className="flex justify-between border-t bg-muted/30 px-4 py-2 text-xs font-medium">
-        <span>Total declared value</span>
-        <span>{items[0]?.currency} {total.toLocaleString("en-IN")}</span>
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Packages block
-// ---------------------------------------------------------------------------
-
-function PackagesBlock({ packages }: { packages: PackageForm[] }) {
-  if (!packages.length) return <p className="text-sm text-muted-foreground">No packages.</p>;
-
-  const totalWeight = packages.reduce((s, p) => s + p.weightKg * p.quantity, 0);
-  const totalPieces = packages.reduce((s, p) => s + p.quantity, 0);
+  const totalWeight = items.reduce((s, it) => s + it.weightKg * it.quantity, 0);
+  const totalPieces = items.reduce((s, it) => s + it.quantity, 0);
+  const totalValue  = items.reduce((s, it) => s + it.unitValue * it.quantity, 0);
 
   return (
-    <div className="space-y-2">
-      {/* Summary pill */}
-      <div className="flex gap-3 text-xs text-muted-foreground">
-        <span className="flex items-center gap-1">
-          <Package className="h-3 w-3" />
-          {totalPieces} piece{totalPieces !== 1 ? "s" : ""}
-        </span>
+    <div className="space-y-3">
+      <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
         <span className="flex items-center gap-1">
           <Scale className="h-3 w-3" />
-          {totalWeight.toFixed(2)} kg total
+          {totalPieces} piece{totalPieces !== 1 ? "s" : ""} · {totalWeight.toFixed(2)} kg total
         </span>
+        {invoiceMode === "UPLOAD" && uploadedInvoice && (
+          <span className="flex items-center gap-1 text-green-600">
+            <FileCheck2 className="h-3 w-3" />
+            {uploadedInvoice.fileName} attached
+          </span>
+        )}
       </div>
 
-      {/* Package cards */}
-      <div className="divide-y rounded-lg border overflow-hidden text-sm">
-        {packages.map((pkg, i) => (
-          <div key={pkg.id} className="flex items-start justify-between gap-4 px-4 py-2.5">
-            <div className="min-w-0 space-y-0.5">
-              <p className="font-medium truncate">
-                {i + 1}. {pkg.description}
-              </p>
-              <p className="text-xs text-muted-foreground">
-                {pkg.lengthCm}×{pkg.widthCm}×{pkg.heightCm} cm
-                {pkg.hsCode ? ` · HSN ${pkg.hsCode}` : ""}
-              </p>
+      <div className="rounded-lg border overflow-hidden text-sm">
+        <div className="divide-y">
+          {items.map((item, i) => (
+            <div key={item.id} className="flex items-start justify-between gap-3 px-4 py-2.5">
+              <div className="min-w-0">
+                <p className="font-medium truncate">
+                  {i + 1}. {item.description}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  HSN {item.hsCode} · {item.countryOfOrigin} ·{" "}
+                  {item.lengthCm}×{item.widthCm}×{item.heightCm} cm
+                </p>
+              </div>
+              <div className="text-right shrink-0 text-xs">
+                <p className="font-medium">
+                  {currency} {(item.unitValue * item.quantity).toLocaleString("en-IN")}
+                </p>
+                <p className="text-muted-foreground">
+                  {item.quantity} × {item.weightKg} kg
+                </p>
+              </div>
             </div>
-            <div className="text-right shrink-0 text-xs">
-              <p className="font-medium">{pkg.quantity} × {pkg.weightKg} kg</p>
-              <p className="text-muted-foreground">
-                ₹{pkg.declaredValue.toLocaleString("en-IN")}
-              </p>
-            </div>
-          </div>
-        ))}
+          ))}
+        </div>
+        <div className="flex justify-between border-t bg-muted/30 px-4 py-2 text-xs font-medium">
+          <span>Total declared value</span>
+          <span>{currency} {totalValue.toLocaleString("en-IN")}</span>
+        </div>
       </div>
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Service block — the hero of the review
+// Service block
 // ---------------------------------------------------------------------------
 
 function ServiceBlock({ service }: { service: BookingFormData["selectedService"] }) {
@@ -260,17 +209,11 @@ function ServiceBlock({ service }: { service: BookingFormData["selectedService"]
   );
 }
 
-// ---------------------------------------------------------------------------
-// Route header bar
-// ---------------------------------------------------------------------------
-
 function RouteBar({ data }: { data: BookingFormData }) {
   return (
     <div className="flex items-center gap-2 rounded-lg border bg-muted/30 px-4 py-3 text-sm">
       <MapPin className="h-4 w-4 shrink-0 text-muted-foreground" />
-      <span className="font-medium text-foreground">
-        {data.consignor.city || "Origin"}
-      </span>
+      <span className="font-medium text-foreground">{data.consignor.city || "Origin"}</span>
       <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground" />
       <span className="font-medium text-foreground">
         {data.consignee.city || "Destination"}, {data.consignee.country}
@@ -292,7 +235,6 @@ export default function ReviewStep({ data }: { data: BookingFormData }) {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div>
         <h2 className="text-base font-semibold text-foreground">Review & Confirm</h2>
         <p className="mt-0.5 text-sm text-muted-foreground">
@@ -300,24 +242,20 @@ export default function ReviewStep({ data }: { data: BookingFormData }) {
         </p>
       </div>
 
-      {/* Route */}
       <RouteBar data={data} />
 
-      {/* Selected service — top of review so it's the first thing seen */}
       <Section icon={Truck} title="Shipping Service">
         <ServiceBlock service={data.selectedService} />
       </Section>
 
       <Separator />
 
-      {/* Shipment owner */}
       <Section icon={User} title="Booking For">
         <Row label="Shipping as" value={ownerLabel[data.shipmentOwnerMode]} />
       </Section>
 
       <Separator />
 
-      {/* Sender + Receiver side by side on wider screens */}
       <div className="grid gap-6 sm:grid-cols-2">
         <Section icon={Building2} title="Sender">
           <AddressBlock data={data.consignor} />
@@ -329,34 +267,24 @@ export default function ReviewStep({ data }: { data: BookingFormData }) {
 
       <Separator />
 
-      {/* Packages */}
-      <Section icon={Package} title="Packages">
-        <PackagesBlock packages={data.packages} />
-      </Section>
-
-      <Separator />
-
-      {/* Invoice */}
       <Section
         icon={FileText}
-        title="Invoice"
+        title="Shipment Items & Invoice"
         aside={
           <span className="text-xs text-muted-foreground">
-            {data.invoiceMode === "UPLOAD" ? "Uploaded" : "Generated"}
+            {data.invoiceMode === "UPLOAD" ? "Invoice uploaded" : "Invoice generated"}
           </span>
         }
       >
-        <InvoiceBlock data={data} />
+        <ShipmentItemsBlock data={data} />
       </Section>
 
       <Separator />
 
-      {/* KYC */}
       <Section icon={Shield} title="KYC Documents">
         <KycBlock docs={data.kycDocs} />
       </Section>
 
-      {/* Confirmation notice */}
       <div className="flex items-start gap-3 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
         <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-green-600" />
         <p>
