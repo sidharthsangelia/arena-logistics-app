@@ -14,9 +14,6 @@ const fileMetaSchema = z.object({
 
 // ---------------------------------------------------------------------------
 // Step 0 — Shipment Owner
-// Validation of selectedClient when mode is EXISTING_CLIENT is handled
-// imperatively in the wizard (sets a manual RHF error) so the schema here
-// just validates the mode field.
 // ---------------------------------------------------------------------------
 
 export const shipmentOwnerSchema = z.object({
@@ -25,47 +22,80 @@ export const shipmentOwnerSchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
-// Step 1 — Consignor
+// Step 1 — Consignor / Step 2 — Consignee
+// (identical shape — kept as two exports since they validate different
+// paths on the same form)
 // ---------------------------------------------------------------------------
+
+const addressFormSchema = z.object({
+  contactName: z.string().min(2, "Contact name is required"),
+  companyName: z.string().optional(),
+  email: z.string().email("Invalid email address"),
+  phone: z.string().min(8, "Phone number is too short"),
+  addressLine1: z.string().min(3, "Address is required"),
+  addressLine2: z.string().optional(),
+  city: z.string().min(2, "City is required"),
+  state: z.string().min(2, "State is required"),
+  postalCode: z.string().min(2, "Postal code is required"),
+  country: z.string().min(2, "Country is required"),
+});
 
 export const consignorSchema = z.object({
-  consignor: z.object({
-    contactName: z.string().min(2, "Contact name is required"),
-    companyName: z.string().optional(),
-    email: z.string().email("Invalid email address"),
-    phone: z.string().min(8, "Phone number is too short"),
-    addressLine1: z.string().min(3, "Address is required"),
-    addressLine2: z.string().optional(),
-    city: z.string().min(2, "City is required"),
-    state: z.string().min(2, "State is required"),
-    postalCode: z.string().min(2, "Postal code is required"),
-    country: z.string().min(2, "Country is required"),
-  }),
+  consignor: addressFormSchema,
 });
-
-// ---------------------------------------------------------------------------
-// Step 2 — Consignee
-// ---------------------------------------------------------------------------
 
 export const consigneeSchema = z.object({
-  consignee: z.object({
-    contactName: z.string().min(2, "Contact name is required"),
-    companyName: z.string().optional(),
-    email: z.string().email("Invalid email address"),
-    phone: z.string().min(8, "Phone number is too short"),
-    addressLine1: z.string().min(3, "Address is required"),
-    addressLine2: z.string().optional(),
-    city: z.string().min(2, "City is required"),
-    state: z.string().min(2, "State / province is required"),
-    postalCode: z.string().min(2, "Postal code is required"),
-    country: z.string().min(2, "Country is required"),
-  }),
+  consignee: addressFormSchema,
 });
 
 // ---------------------------------------------------------------------------
-// Step 3 — KYC
-// PAN + IEC are mandatory for all international shipments from India.
-// GST and Aadhaar are optional (Aadhaar required for individuals/proprietors).
+// Step 3 — Shipment Details (merged Invoice + Packages)
+//
+// Physical + commercial fields are required on every item regardless of
+// invoiceMode: rating needs weight/dimensions, and KYC's IEC threshold
+// check needs declared value, even when the user uploads their own
+// invoice PDF instead of generating one.
+// ---------------------------------------------------------------------------
+
+const shipmentItemSchema = z.object({
+  id: z.string(),
+  description: z.string().min(2, "Description is required"),
+  hsCode: z.string().min(4, "HSN code must be at least 4 digits"),
+  countryOfOrigin: z.string().min(2, "Country of origin is required"),
+  quantity: z.number().min(1, "Quantity must be at least 1"),
+  weightKg: z.number().positive("Weight must be greater than 0"),
+  lengthCm: z.number().positive("Length must be greater than 0"),
+  widthCm: z.number().positive("Width must be greater than 0"),
+  heightCm: z.number().positive("Height must be greater than 0"),
+  unitValue: z.number().min(0, "Unit value cannot be negative"),
+});
+
+export const shipmentDetailsSchema = z
+  .object({
+    invoiceMode: z.enum(["UPLOAD", "GENERATE"]),
+    uploadedInvoice: fileMetaSchema.nullable(),
+    invoiceNumber: z.string().optional(),
+    currency: z.string().min(1, "Currency is required"),
+    items: z.array(shipmentItemSchema).min(1, "Add at least one item."),
+  })
+  .superRefine((data, ctx) => {
+    if (data.invoiceMode === "UPLOAD" && !data.uploadedInvoice) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["uploadedInvoice"],
+        message: "Please upload your commercial invoice.",
+      });
+    }
+  });
+
+// ---------------------------------------------------------------------------
+// Step 4 — KYC
+//
+// Now runs AFTER shipment-details, so `_totalDeclaredValue` (injected by
+// the wizard before validating this step) reflects real item data instead
+// of always being 0 — this was the source of the IEC-threshold bug where
+// IEC always read as "not required" on a user's first pass through the
+// wizard.
 // ---------------------------------------------------------------------------
 
 export const kycSchema = z
@@ -76,9 +106,8 @@ export const kycSchema = z
       gst: fileMetaSchema.nullable(),
       iec: fileMetaSchema.nullable(),
     }),
-    // The total declared value is passed in from the wizard so the schema
-    // can conditionally require IEC. The wizard embeds this in the merged
-    // object before calling safeParse — it does NOT live in BookingFormData.
+    // Injected by the wizard right before validating this step — does NOT
+    // live in BookingFormData itself.
     _totalDeclaredValue: z.number().optional(),
   })
   .superRefine((data, ctx) => {
@@ -107,70 +136,7 @@ export const kycSchema = z
   });
 
 // ---------------------------------------------------------------------------
-// Step 4 — Invoice
-// ---------------------------------------------------------------------------
-
-const invoiceItemSchema = z.object({
-  description: z.string().min(2, "Description is required"),
-  hsCode: z.string().min(4, "HSN code must be at least 4 digits"),
-  countryOfOrigin: z.string().min(2, "Country of origin is required"),
-  quantity: z.number().min(1, "Quantity must be at least 1"),
-  unitValue: z.number().min(0, "Unit value cannot be negative"),
-  currency: z.string().min(1, "Currency is required"),
-});
-
-export const invoiceStepSchema = z
-  .object({
-    invoiceMode: z.enum(["UPLOAD", "GENERATE"]),
-    uploadedInvoice: fileMetaSchema.nullable(),
-    generatedInvoice: z.object({
-      invoiceNumber: z.string().optional(),
-      items: z.array(invoiceItemSchema),
-    }),
-  })
-  .superRefine((data, ctx) => {
-    if (data.invoiceMode === "UPLOAD" && !data.uploadedInvoice) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["uploadedInvoice"],
-        message: "Please upload a commercial invoice.",
-      });
-    }
-    if (
-      data.invoiceMode === "GENERATE" &&
-      data.generatedInvoice.items.length === 0
-    ) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["generatedInvoice", "items"],
-        message: "Add at least one item to generate an invoice.",
-      });
-    }
-  });
-
-// ---------------------------------------------------------------------------
-// Step 5 — Packages
-// ---------------------------------------------------------------------------
-
-const packageItemSchema = z.object({
-  id: z.string(),
-  description: z.string().min(2, "Description is required"),
-  quantity: z.number().min(1, "Quantity must be at least 1"),
-  weightKg: z.number().positive("Weight must be greater than 0"),
-  lengthCm: z.number().positive("Length must be greater than 0"),
-  widthCm: z.number().positive("Width must be greater than 0"),
-  heightCm: z.number().positive("Height must be greater than 0"),
-  declaredValue: z.number().min(0, "Declared value cannot be negative"),
-  hsCode: z.string().optional(),
-  countryOfOrigin: z.string().optional(),
-});
-
-export const packageStepSchema = z.object({
-  packages: z.array(packageItemSchema).min(1, "Add at least one package."),
-});
-
-// ---------------------------------------------------------------------------
-// Step 6 — Service selection
+// Step 5 — Service selection
 // ---------------------------------------------------------------------------
 
 export const serviceSchema = z.object({
@@ -191,31 +157,29 @@ export const serviceSchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
-// Step 7 — Review (read-only, no additional validation)
+// Step 6 — Review (read-only)
 // ---------------------------------------------------------------------------
 
 export const reviewSchema = z.object({});
 
 // ---------------------------------------------------------------------------
-// stepSchemas — index MUST match bookingSteps order in useBookingWizard.ts
+// stepSchemas — index MUST match `bookingSteps` / `STEP` in useBookingWizard.ts
 //
-//  0  shipment-owner  → shipmentOwnerSchema
-//  1  consignor       → consignorSchema
-//  2  consignee       → consigneeSchema
-//  3  kyc             → kycSchema
-//  4  invoice         → invoiceStepSchema   (self-managed, not via RHF)
-//  5  packages        → packageStepSchema   (self-managed, not via RHF)
-//  6  service         → serviceSchema
-//  7  review          → reviewSchema
+//  0  shipment-owner    → shipmentOwnerSchema
+//  1  consignor         → consignorSchema
+//  2  consignee         → consigneeSchema
+//  3  shipment-details  → shipmentDetailsSchema  (self-managed, not via RHF)
+//  4  kyc               → kycSchema
+//  5  service            → serviceSchema
+//  6  review            → reviewSchema
 // ---------------------------------------------------------------------------
 
 export const stepSchemas = [
-  shipmentOwnerSchema, // 0
-  consignorSchema,     // 1
-  consigneeSchema,     // 2
-  kycSchema,           // 3
-  invoiceStepSchema,   // 4
-  packageStepSchema,   // 5
-  serviceSchema,       // 6
-  reviewSchema,        // 7
+  shipmentOwnerSchema,   // 0
+  consignorSchema,       // 1
+  consigneeSchema,       // 2
+  shipmentDetailsSchema, // 3
+  kycSchema,              // 4
+  serviceSchema,          // 5
+  reviewSchema,            // 6
 ];

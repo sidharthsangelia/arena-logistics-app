@@ -3,12 +3,9 @@ import { Client } from "@/generated/prisma";
 export interface AddressForm {
   contactName: string;
   contactPhone: string;
-
   companyName?: string;
-
   addressLine1: string;
   addressLine2?: string;
-
   city: string;
   state: string;
   postalCode: string;
@@ -32,59 +29,51 @@ export type ClientSummary = Pick<
 
 export interface ConsignorForm {
   contactName: string;
-
   companyName?: string;
-
   email: string;
-
   phone: string;
-
   addressLine1: string;
-
   addressLine2?: string;
-
   city: string;
-
   state: string;
-
   postalCode: string;
-
   country: string;
 }
 
-export interface PackageForm {
+/**
+ * A single line item in a shipment.
+ *
+ * Replaces the old PackageForm + InvoiceItem split — those two types
+ * duplicated description/hsCode/countryOfOrigin/quantity and were always
+ * filled in twice for the same physical item. Now there's one shape that
+ * carries both the commercial attributes (unitValue) needed for the
+ * invoice/customs/KYC threshold, and the physical attributes (weight,
+ * dimensions) needed for carrier rating — both are required regardless of
+ * whether the user uploads their own invoice or generates one, since
+ * rating and KYC need this data either way.
+ *
+ * Currency is intentionally NOT per-item — it lives once on
+ * BookingFormData.currency, so totals can never silently mix currencies.
+ */
+export interface ShipmentItem {
   id: string;
-
   description: string;
-
-  hsCode?: string;
-
+  hsCode: string;
+  countryOfOrigin: string;
   quantity: number;
-
   weightKg: number;
-
   lengthCm: number;
   widthCm: number;
   heightCm: number;
-
-  declaredValue: number;
-
-  countryOfOrigin?: string;
-
-  isStackable?: boolean;
-
-  remarks?: string;
+  unitValue: number;
 }
 
 export interface ServiceOption {
   vendorId: string;
   vendorName: string;
-
   productCode: string;
   productName: string;
-
   transitDays: number;
-
   price: number;
   currency: string;
 }
@@ -99,7 +88,6 @@ export interface FileMeta {
 
 export interface BookingFormData {
   shipmentOwnerMode: "SELF" | "EXISTING_CLIENT" | "OTHER_PERSON";
-
   selectedClient: ClientSummary | null;
 
   sameAsConsignor: boolean;
@@ -111,21 +99,18 @@ export interface BookingFormData {
     iec: FileMeta | null;
   };
 
-  invoice: FileMeta | null;
-
   consignor: ConsignorForm;
-
   consignee: ConsignorForm;
 
   billingSameAsDelivery: boolean;
 
   invoiceMode: InvoiceMode;
-
   uploadedInvoice: FileMeta | null;
+  invoiceNumber?: string;
 
-  generatedInvoice: GeneratedInvoice;
-
-  packages: PackageForm[];
+  /** Single currency for the whole shipment — every item's unitValue is in this currency. */
+  currency: string;
+  items: ShipmentItem[];
 
   selectedService: ServiceOption | null;
 }
@@ -139,37 +124,3 @@ export interface BookingStep {
 export type ShipmentOwnerMode = "SELF" | "EXISTING_CLIENT" | "OTHER_PERSON";
 
 export type InvoiceMode = "UPLOAD" | "GENERATE";
-
-export interface InvoiceItem {
-  description: string;
-
-  hsCode: string;
-
-  countryOfOrigin: string;
-
-  quantity: number;
-
-  unitValue: number;
-
-  currency: string;
-}
-
-export interface GeneratedInvoice {
-  invoiceNumber?: string;
-
-  items: InvoiceItem[];
-}
-
-export interface InvoiceItem {
-  description: string;
-
-  hsCode: string;
-
-  countryOfOrigin: string;
-
-  quantity: number;
-
-  unitValue: number;
-
-  currency: string;
-}

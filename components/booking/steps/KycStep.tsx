@@ -11,14 +11,16 @@
  *   4. assertKycComplete in create-shipment.action now finds the rows in the DB.
  *
  * "On file" flow (docs already in the vault):
- *   1. On mount → getOrgKycDocs() fetches existing rows.
+ *   1. On mount → getOrgKycDocs() fetches existing rows into local state only.
  *   2. Each existing doc shows a consent checkbox instead of an upload zone.
- *   3. Consent ticked → RHF FileMeta is set (from the existing DB row).
+ *   3. Consent ticked  → RHF FileMeta is set from the existing DB row (NOW, and only now,
+ *      does the field become valid — fixes a bug where docs were silently applied to the
+ *      form on mount, before the user ever touched the consent checkbox).
  *   4. Consent unticked → RHF FileMeta is cleared (so validation blocks Next).
  */
 
 import { useState, useEffect, useTransition } from "react";
-import { useUploadThing } from "@/utils/uploadthing"; // your generated hook
+import { useUploadThing } from "@/utils/uploadthing";
 import {
   Upload, X, FileCheck2, AlertCircle,
   ShieldCheck, Clock, Loader2, Info,
@@ -33,7 +35,6 @@ import { cn }        from "@/lib/utils";
 
 import type { BookingFormData, FileMeta } from "@/types/booking.types";
 import { getOrgKycDocs, saveOrgKycDocAction, type OrgKycDoc }  from "@/actions/book/kyc";
- 
 import { KycDocType }                     from "@/generated/prisma";
 
 // ---------------------------------------------------------------------------
@@ -169,7 +170,7 @@ function ExistingDocCard({
         </button>
       </div>
 
-      {/* Consent */}
+      {/* Consent — this is what actually authorizes reuse of the document */}
       <label htmlFor={id} className="flex items-start gap-2.5 cursor-pointer">
         <Checkbox
           id={id}
@@ -204,7 +205,6 @@ function UploadZone({
 }: {
   config:  DocConfig;
   value:   FileMeta | null;
-  /** Called after the file is uploaded AND saved to the DB */
   onDone:  (meta: FileMeta) => void;
   onClear: () => void;
   error?:  string;
@@ -222,7 +222,6 @@ function UploadZone({
         return;
       }
 
-      // Persist to KycDocument table immediately
       const saveResult = await saveOrgKycDocAction({
         docType:  config.dbDocType,
         label:    config.label,
@@ -239,7 +238,6 @@ function UploadZone({
         return;
       }
 
-      // Update RHF form state — validation will now pass
       onDone({
         fileUrl:  file.ufsUrl ?? file.url,
         fileKey:  file.key,
@@ -264,7 +262,6 @@ function UploadZone({
     e.target.value = "";
   };
 
-  // Uploaded state
   if (value) {
     return (
       <div className="flex items-center gap-3 rounded-lg border border-green-200 bg-green-50 px-4 py-3">
@@ -319,7 +316,7 @@ function UploadZone({
       </label>
 
       {displayError && (
-        <p className="flex items-center gap-1.5 text-xs text-destructive">
+        <p className="flex items-center gap-1.5 text-xs text-destructive" aria-live="polite">
           <AlertCircle className="h-3.5 w-3.5" />
           {displayError}
         </p>
@@ -366,7 +363,6 @@ function DocSection({
       showExisting       && "border-primary/20",
       formValue          && "border-green-300 bg-green-50/30",
     )}>
-      {/* Header */}
       <div className="flex items-start justify-between gap-3">
         <div className="space-y-1">
           <h3 className="text-sm font-semibold">{config.label}</h3>
@@ -383,7 +379,6 @@ function DocSection({
         </div>
       </div>
 
-      {/* Body */}
       {showExisting ? (
         <ExistingDocCard
           doc={existingDoc}
@@ -402,9 +397,8 @@ function DocSection({
         />
       )}
 
-      {/* Consent-not-given error for existing docs */}
       {showExisting && !consentGiven && isRequired && error && (
-        <p className="flex items-center gap-1.5 text-xs text-destructive">
+        <p className="flex items-center gap-1.5 text-xs text-destructive" aria-live="polite">
           <AlertCircle className="h-3.5 w-3.5" />
           {error}
         </p>
@@ -432,7 +426,9 @@ export default function KycStep({
   const [consents,  setConsents]        = useState<Partial<Record<DocKey, boolean>>>({});
   const [replacing, setReplacing]       = useState<Partial<Record<DocKey, boolean>>>({});
 
-  // Fetch existing vault docs on mount
+  // Fetch existing vault docs on mount — does NOT touch RHF form state.
+  // Documents only become "valid" (and reusable) once the user explicitly
+  // ticks consent in handleConsent below.
   useEffect(() => {
     startLoad(async () => {
       const result = await getOrgKycDocs();
@@ -441,20 +437,7 @@ export default function KycStep({
         return;
       }
       setExistingDocs(result.docs);
-
-      // Pre-populate RHF with existing FileMeta so validation passes
-      // (user still needs to tick consent before Next works)
-      result.docs.forEach((doc) => {
-        setValue(`kycDocs.${doc.key}`, {
-          fileUrl:  doc.fileUrl,
-          fileKey:  doc.fileKey,
-          fileName: doc.fileName,
-          fileSize: doc.fileSize,
-          mimeType: doc.mimeType,
-        });
-      });
     });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const byKey = Object.fromEntries(
@@ -474,7 +457,6 @@ export default function KycStep({
   const handleConsent = (key: DocKey) => (given: boolean) => {
     setConsents((prev) => ({ ...prev, [key]: given }));
     if (!given) {
-      // Revoke consent → clear value so schema validation blocks Next
       setValue(`kycDocs.${key}`, null, { shouldValidate: true });
     } else {
       const doc = byKey[key];
@@ -496,7 +478,6 @@ export default function KycStep({
     setValue(`kycDocs.${key}`, null, { shouldValidate: true });
   };
 
-  // Called after UploadThing upload + DB save both succeed
   const handleDone = (key: DocKey) => (meta: FileMeta) => {
     setValue(`kycDocs.${key}`, meta, { shouldValidate: true });
   };
@@ -507,7 +488,6 @@ export default function KycStep({
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div>
         <h2 className="text-base font-semibold">KYC Documents</h2>
         <p className="mt-0.5 text-sm text-muted-foreground">
@@ -516,7 +496,6 @@ export default function KycStep({
         </p>
       </div>
 
-      {/* IEC threshold notice */}
       <div className={cn(
         "flex items-start gap-3 rounded-lg border px-4 py-3 text-sm",
         iecRequired
@@ -540,15 +519,13 @@ export default function KycStep({
         </div>
       </div>
 
-      {/* Loading vault */}
       {loadingDocs && (
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground" aria-live="polite">
           <Loader2 className="h-4 w-4 animate-spin" />
           Checking your document vault…
         </div>
       )}
 
-      {/* Vault load error */}
       {loadError && !loadingDocs && (
         <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
           <AlertCircle className="h-3.5 w-3.5 shrink-0" />
@@ -556,7 +533,6 @@ export default function KycStep({
         </div>
       )}
 
-      {/* Vault found banner */}
       {!loadingDocs && existingDocs.length > 0 && (
         <div className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-xs text-green-700">
           <ShieldCheck className="h-3.5 w-3.5 shrink-0" />
@@ -565,7 +541,6 @@ export default function KycStep({
         </div>
       )}
 
-      {/* Progress */}
       {!loadingDocs && (
         <div className="flex items-center justify-between rounded-lg border bg-muted/30 px-4 py-3">
           <div>
@@ -585,7 +560,6 @@ export default function KycStep({
         </div>
       )}
 
-      {/* Required docs */}
       {!loadingDocs && (
         <div className="space-y-3">
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -610,7 +584,6 @@ export default function KycStep({
         </div>
       )}
 
-      {/* Optional docs */}
       {!loadingDocs && optionalConfigs.length > 0 && (
         <>
           <Separator />
