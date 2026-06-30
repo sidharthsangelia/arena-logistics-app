@@ -2,26 +2,30 @@
 
 import React from "react";
 import {
-  ChevronLeft, ChevronRight, CheckCircle2,
-  Loader2, AlertTriangle, ExternalLink,
+  ChevronLeft,
+  ChevronRight,
+  CheckCircle2,
+  Loader2,
+  AlertTriangle,
+  ExternalLink,
 } from "lucide-react";
 import { useForm } from "react-hook-form";
 import type { ZodSchema } from "zod";
 
-import { Button }                        from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 
 import type { BookingFormData, ClientSummary } from "@/types/booking.types";
-import { bookingSteps, useBookingWizard }      from "@/hooks/useBookingWizard";
+import { bookingSteps, useBookingWizard } from "@/hooks/useBookingWizard";
 
-import ProgressSteps        from "./ProgessSteps";
-import ReviewStep           from "./steps/ReviewStep";
-import PackagesStep         from "./steps/PackageStep";
-import InvoiceStep          from "./steps/InvoiceStep";
-import KycStep              from "./steps/KycStep";
-import ConsigneeStep        from "./steps/ConsigneeStep";
+import ProgressSteps from "./ProgessSteps";
+import ReviewStep from "./steps/ReviewStep";
+import PackagesStep from "./steps/PackageStep";
+import InvoiceStep from "./steps/InvoiceStep";
+import KycStep from "./steps/KycStep";
+import ConsigneeStep from "./steps/ConsigneeStep";
 import ServiceSelectionStep from "./steps/ServiceStep";
-import { ConsignorStep }    from "./steps/ConsignorStep";
+import { ConsignorStep } from "./steps/ConsignorStep";
 import { ShipmentOwnerStep } from "./steps/ShipmentOwnerStep";
 import { createShipmentAction } from "@/actions/book/createShipment.action";
 
@@ -29,18 +33,20 @@ import { createShipmentAction } from "@/actions/book/createShipment.action";
 // Helpers
 // ---------------------------------------------------------------------------
 
-function clientToConsignor(client: ClientSummary): BookingFormData["consignor"] {
+function clientToConsignor(
+  client: ClientSummary,
+): BookingFormData["consignor"] {
   return {
-    contactName:  client.contactName  ?? "",
-    companyName:  client.companyName  ?? "",
-    email:        client.email        ?? "",
-    phone:        client.phone        ?? "",
+    contactName: client.contactName ?? "",
+    companyName: client.companyName ?? "",
+    email: client.email ?? "",
+    phone: client.phone ?? "",
     addressLine1: client.addressLine1 ?? "",
     addressLine2: "",
-    city:         client.city         ?? "",
-    state:        client.state        ?? "",
-    postalCode:   client.postalCode   ?? "",
-    country:      client.country      ?? "",
+    city: client.city ?? "",
+    state: client.state ?? "",
+    postalCode: client.postalCode ?? "",
+    country: client.country ?? "",
   };
 }
 
@@ -111,9 +117,9 @@ export default function BookingWizard() {
     getCurrentStepSchema,
   } = useBookingWizard();
 
-  const [submitting, setSubmitting]   = React.useState(false);
+  const [submitting, setSubmitting] = React.useState(false);
   const [submitError, setSubmitError] = React.useState<string | null>(null);
-  const [submitted, setSubmitted]     = React.useState<{
+  const [submitted, setSubmitted] = React.useState<{
     shipmentId: string;
     shipmentNumber: string;
   } | null>(null);
@@ -144,7 +150,7 @@ export default function BookingWizard() {
       const result = await createShipmentAction(finalData);
       if (result.success) {
         setSubmitted({
-          shipmentId:     result.shipmentId,
+          shipmentId: result.shipmentId,
           shipmentNumber: result.shipmentNumber,
         });
         return;
@@ -176,7 +182,10 @@ export default function BookingWizard() {
     }
 
     const currentValues = getValues();
-    const merged: BookingFormData & Record<string, any> = { ...formData, ...currentValues };
+    const merged: BookingFormData & Record<string, any> = {
+      ...formData,
+      ...currentValues,
+    };
 
     if (currentStep === 0 && merged.shipmentOwnerMode === "EXISTING_CLIENT") {
       if (!merged.selectedClient) {
@@ -245,7 +254,6 @@ export default function BookingWizard() {
 
         <CardContent>
           <div className="space-y-8">
-
             {currentStep === 0 && (
               <ShipmentOwnerStep
                 value={watch("shipmentOwnerMode")}
@@ -343,11 +351,7 @@ export default function BookingWizard() {
                 Previous
               </Button>
 
-              <Button
-                type="button"
-                disabled={submitting}
-                onClick={handleNext}
-              >
+              <Button type="button" disabled={submitting} onClick={handleNext}>
                 {submitting ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
