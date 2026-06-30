@@ -12,11 +12,14 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 // import { searchClients } from "@/lib/actions/clients";
 import { ClientSummary } from "@/types/booking";
 import { searchClientsAction } from "@/actions/clientSrearch.action";
- 
 
 interface ClientComboboxProps {
   value: ClientSummary | null;
@@ -24,7 +27,11 @@ interface ClientComboboxProps {
   placeholder?: string;
 }
 
-export function ClientCombobox({ value, onChange, placeholder = "Search clients…" }: ClientComboboxProps) {
+export function ClientCombobox({
+  value,
+  onChange,
+  placeholder = "Search clients…",
+}: ClientComboboxProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<ClientSummary[]>([]);
@@ -56,7 +63,10 @@ export function ClientCombobox({ value, onChange, placeholder = "Search clients�
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+      <PopoverContent
+        className="w-[--radix-popover-trigger-width] p-0"
+        align="start"
+      >
         <Command shouldFilter={false}>
           <div className="flex items-center border-b px-3">
             {/* <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" /> */}
@@ -68,7 +78,11 @@ export function ClientCombobox({ value, onChange, placeholder = "Search clients�
             />
           </div>
           <CommandList>
-            {isPending && <div className="text-muted-foreground p-3 text-sm">Searching…</div>}
+            {isPending && (
+              <div className="text-muted-foreground p-3 text-sm">
+                Searching…
+              </div>
+            )}
             {!isPending && results.length === 0 && (
               <CommandEmpty>No clients found.</CommandEmpty>
             )}
@@ -92,7 +106,9 @@ export function ClientCombobox({ value, onChange, placeholder = "Search clients�
                     <span>{client.companyName}</span>
                     {(client.contactName || client.email) && (
                       <span className="text-muted-foreground text-xs">
-                        {[client.contactName, client.email].filter(Boolean).join(" · ")}
+                        {[client.contactName, client.email]
+                          .filter(Boolean)
+                          .join(" · ")}
                       </span>
                     )}
                   </div>

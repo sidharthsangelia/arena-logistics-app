@@ -45,9 +45,13 @@ export default function ProgressSteps({ currentStep, steps }: Props) {
               <div
                 className={cn(
                   "flex h-7 w-7 items-center justify-center rounded-full border transition-all duration-200",
-                  completed && "border-primary bg-primary text-primary-foreground",
-                  active && "border-primary bg-background text-primary shadow-sm ring-2 ring-primary/20",
-                  !completed && !active && "border-muted-foreground/30 bg-muted text-muted-foreground",
+                  completed &&
+                    "border-primary bg-primary text-primary-foreground",
+                  active &&
+                    "border-primary bg-background text-primary shadow-sm ring-2 ring-primary/20",
+                  !completed &&
+                    !active &&
+                    "border-muted-foreground/30 bg-muted text-muted-foreground",
                 )}
               >
                 {completed ? (
