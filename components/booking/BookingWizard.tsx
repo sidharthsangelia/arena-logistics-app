@@ -148,6 +148,14 @@ export default function BookingWizard() {
 
   const [submitting, setSubmitting] = React.useState(false);
   const [submitError, setSubmitError] = React.useState<string | null>(null);
+
+  // `submitting` (React state) only updates on the next render, so if the
+  // auto-submit fired from onTopUpSuccess and a manual button click land
+  // within the same tick, both can read submitting === false and both
+  // call handleSubmit — which is how two createShipmentAction calls with
+  // identical data ended up racing each other. A ref updates synchronously,
+  // closing that window regardless of render timing.
+  const submitLockRef = React.useRef(false);
   const [submitted, setSubmitted] = React.useState<{
     shipmentId: string;
     shipmentNumber: string;
@@ -211,6 +219,9 @@ export default function BookingWizard() {
 
   // ── Submit ───────────────────────────────────────────────────────────────
   const handleSubmit = async (finalData: BookingFormData) => {
+    if (submitLockRef.current) return;
+    submitLockRef.current = true;
+
     setSubmitError(null);
     setSubmitting(true);
     try {
@@ -246,6 +257,7 @@ export default function BookingWizard() {
       setSubmitError("Something went wrong. Please try again.");
     } finally {
       setSubmitting(false);
+      submitLockRef.current = false;
     }
   };
 
