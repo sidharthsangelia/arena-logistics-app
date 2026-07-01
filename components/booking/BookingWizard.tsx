@@ -71,6 +71,19 @@ const RHF_STEP_SCHEMAS: Record<number, any> = {
 };
 
 // ---------------------------------------------------------------------------
+// Wallet status the Review step reports up, used to gate the submit button.
+// `loading: true` / `sufficient: false` is the safe default — the button
+// stays disabled until a fresh balance check explicitly clears it.
+// ---------------------------------------------------------------------------
+
+interface WalletStatus {
+  loading: boolean;
+  sufficient: boolean;
+}
+
+const WALLET_STATUS_UNKNOWN: WalletStatus = { loading: true, sufficient: false };
+
+// ---------------------------------------------------------------------------
 // Success screen
 // ---------------------------------------------------------------------------
 
@@ -143,11 +156,27 @@ export default function BookingWizard() {
   // Set only when createShipmentAction fails specifically because the
   // wallet balance is too low. Holding the exact form data that was
   // submitted lets us retry the identical booking once the top-up lands,
-  // without the user re-filling or re-clicking through anything.
+  // without the user re-filling or re-clicking through anything. This is
+  // the server-side safety net — it stays even though the button below is
+  // now gated client-side too, because balance can still drift between
+  // the Review check and the click (concurrent tab, concurrent shipment).
   const [shortfall, setShortfall] = React.useState<{
     amountRupees: number;
     finalData: BookingFormData;
   } | null>(null);
+
+  // Reported up by ReviewStep's WalletPaymentSummary. Drives whether the
+  // "Pay & Place Booking" button is enabled on the last step.
+  const [walletStatus, setWalletStatus] = React.useState<WalletStatus>(WALLET_STATUS_UNKNOWN);
+
+  // Reset to "unknown" every time Review is (re-)entered, so a stale
+  // `sufficient: true` from a previous visit to this step can never enable
+  // Pay before a fresh balance check completes.
+  React.useEffect(() => {
+    if (currentStep === STEP.REVIEW) {
+      setWalletStatus(WALLET_STATUS_UNKNOWN);
+    }
+  }, [currentStep]);
 
   const {
     register,
@@ -282,6 +311,9 @@ export default function BookingWizard() {
     updateFormData(merged);
 
     if (isLastStep) {
+      // On Review, formData (merged with nothing new — Review has no RHF
+      // fields) is already the complete payload. The wallet gate below
+      // ensures this only fires once balance has been confirmed sufficient.
       await handleSubmit(merged);
     } else {
       goToNextStep();
@@ -303,6 +335,17 @@ export default function BookingWizard() {
   }
 
   const isSelfMode = watch("shipmentOwnerMode") === "SELF";
+
+  // On the Review step, the Pay button stays disabled until we've
+  // confirmed (via WalletPaymentSummary's callback) that the balance is
+  // sufficient. If there's somehow no selected service yet, don't block —
+  // the schema validation earlier in the wizard already guards against
+  // reaching Review without one, and ServiceBlock/ReviewStep surface that
+  // as an error state instead.
+  const walletBlocking =
+    isLastStep &&
+    !!formData.selectedService &&
+    (walletStatus.loading || !walletStatus.sufficient);
 
   // ── Main render ──────────────────────────────────────────────────────────
   return (
@@ -376,7 +419,20 @@ export default function BookingWizard() {
               />
             )}
 
-            {currentStep === STEP.REVIEW && <ReviewStep data={formData} />}
+            {currentStep === STEP.REVIEW && (
+              <ReviewStep
+                data={formData}
+                onWalletStatusChange={(info) =>
+                  setWalletStatus({ loading: info.loading, sufficient: info.sufficient })
+                }
+                onTopUpSuccess={() => {
+                  // Balance just cleared via the inline top-up — complete
+                  // the booking automatically instead of making the user
+                  // click Pay a second time.
+                  handleSubmit(formData);
+                }}
+              />
+            )}
 
             {/* Submit error — not shown on the Shipment Details step, which renders
                 its own inline error via the `error` prop above. */}
@@ -399,28 +455,42 @@ export default function BookingWizard() {
                 Previous
               </Button>
 
-              <Button type="button" disabled={submitting} onClick={handleNext}>
-                {submitting ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Submitting…
-                  </>
-                ) : isLastStep ? (
-                  "Submit booking"
-                ) : (
-                  <>
-                    Next
-                    <ChevronRight className="ml-2 h-4 w-4" />
-                  </>
+              <div className="flex flex-col items-end gap-1.5">
+                <Button
+                  type="button"
+                  disabled={submitting || walletBlocking}
+                  onClick={handleNext}
+                >
+                  {submitting ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      {isLastStep ? "Placing booking…" : "Submitting…"}
+                    </>
+                  ) : isLastStep ? (
+                    "Pay & Place Booking"
+                  ) : (
+                    <>
+                      Next
+                      <ChevronRight className="ml-2 h-4 w-4" />
+                    </>
+                  )}
+                </Button>
+                {walletBlocking && !walletStatus.loading && (
+                  <p className="text-xs text-muted-foreground">
+                    Top up your wallet above to continue.
+                  </p>
                 )}
-              </Button>
+              </div>
             </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Insufficient-funds top-up — prefilled with the shortfall, editable
-          upward. On success, silently retries the exact same booking. */}
+      {/* Server-side insufficient-funds fallback — prefilled with the
+          shortfall, editable upward. Covers the case where balance was
+          sufficient at the Review check but drifted before the atomic
+          debit ran (e.g. a concurrent shipment in another tab). On
+          success, silently retries the exact same booking. */}
       {shortfall && (
         <TopUpModal
           open={!!shortfall}

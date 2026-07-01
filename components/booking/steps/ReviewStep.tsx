@@ -3,11 +3,13 @@
 import {
   User, Building2, MapPinned, Shield, FileText,
   Truck, CheckCircle2, FileCheck2,
-  MapPin, ArrowRight, Scale,
+  MapPin, ArrowRight, Scale, Wallet,
 } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import type { BookingFormData, FileMeta } from "@/types/booking.types";
+import { WalletPaymentSummary } from "../WalletPaymentSummary";
+ 
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -226,7 +228,28 @@ function RouteBar({ data }: { data: BookingFormData }) {
 // ReviewStep
 // ---------------------------------------------------------------------------
 
-export default function ReviewStep({ data }: { data: BookingFormData }) {
+interface WalletSufficiencyInfo {
+  loading: boolean;
+  sufficient: boolean;
+  balance: number | null;
+}
+
+interface ReviewStepProps {
+  data: BookingFormData;
+  /**
+   * Fired whenever the wallet balance check (initial load, manual refresh,
+   * post-topup refresh) changes. The wizard uses this to gate/enable the
+   * "Pay & Place Booking" button.
+   */
+  onWalletStatusChange?: (info: WalletSufficiencyInfo) => void;
+  /**
+   * Fired after a top-up completes successfully. The wizard uses this to
+   * auto-submit the booking so the user doesn't have to click Pay twice.
+   */
+  onTopUpSuccess?: () => void;
+}
+
+export default function ReviewStep({ data, onWalletStatusChange, onTopUpSuccess }: ReviewStepProps) {
   const ownerLabel: Record<string, string> = {
     SELF: "My saved profile",
     EXISTING_CLIENT: data.selectedClient?.companyName ?? "Existing client",
@@ -285,10 +308,25 @@ export default function ReviewStep({ data }: { data: BookingFormData }) {
         <KycBlock docs={data.kycDocs} />
       </Section>
 
+      <Separator />
+
+      <Section icon={Wallet} title="Payment">
+        {data.selectedService ? (
+          <WalletPaymentSummary
+            requiredAmountRupees={data.selectedService.price}
+            currency={data.selectedService.currency}
+            onSufficiencyChange={onWalletStatusChange}
+            onTopUpSuccess={onTopUpSuccess}
+          />
+        ) : (
+          <p className="text-sm text-destructive">No service selected.</p>
+        )}
+      </Section>
+
       <div className="flex items-start gap-3 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
         <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-green-600" />
         <p>
-          By clicking <strong>Submit Booking</strong> you confirm all details are
+          By clicking <strong>Pay &amp; Place Booking</strong> you confirm all details are
           accurate and agree to the carrier's terms of service.
         </p>
       </div>
