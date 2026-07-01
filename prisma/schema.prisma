@@ -704,6 +704,7 @@ model WalletTransaction {
   razorpayOrderId   String?
   razorpayPaymentId String?
   razorpaySignature String?
+    @@unique([razorpayOrderId])
 
   notes String?
 

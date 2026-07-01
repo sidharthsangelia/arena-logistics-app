@@ -3,7 +3,8 @@
 /**
  * create-shipment.action.ts
  *
- * Persists a completed BookingFormData to the database as a Shipment.
+ * Persists a completed BookingFormData to the database as a Shipment, and
+ * pays for it out of the org's Wallet.
  *
  * Write order (single $transaction — fully atomic):
  *   1. Resolve org + validate caller
@@ -12,9 +13,15 @@
  *   4. Generate shipment number — SHP-YYYY-NNNNN (race-safe inside txn)
  *   5. Create pickup Address (consignor)
  *   6. Create delivery Address (consignee)
- *   7. Create Shipment + nested PackageItems
+ *   7. Create Shipment (status PENDING_PAYMENT) + nested PackageItems
  *   8. Create ShipmentDocument if invoice file was uploaded
- *   9. Create initial ShipmentStatusEvent (DRAFT → BOOKED)
+ *   9. Create ShipmentStatusEvent (DRAFT → PENDING_PAYMENT)
+ *  10. Atomically debit the Wallet for service.price — throws
+ *      InsufficientFundsError if short, which rolls back EVERYTHING above
+ *      (address rows, shipment, packages, invoice doc, status event) via
+ *      the transaction. No orphaned PENDING_PAYMENT shipment is ever left
+ *      behind by a failed debit.
+ *  11. Flip Shipment to BOOKED, set bookedAt, log the final status event
  *
  * Sentry: withScope wraps the action; addBreadcrumb at each stage;
  * captureException on unexpected errors.
@@ -23,7 +30,7 @@
 import * as Sentry from "@sentry/nextjs";
 import { auth }    from "@clerk/nextjs/server";
 import { prisma }  from "@/utils/db";
- 
+
 import {
   KycDocType,
   ShipmentStatus,
@@ -35,6 +42,8 @@ import type {
   ShipmentItem,
 } from "@/types/booking.types";
 import { Decimal } from "@/generated/prisma/runtime/client";
+import { debitWalletForShipment, InsufficientFundsError } from "@/utils/wallet/service";
+ 
 
 // ---------------------------------------------------------------------------
 // Public return type — fully JSON-serialisable
@@ -48,6 +57,16 @@ export type CreateShipmentResult =
       message: string;
       /** Field-path → message, fed back into RHF */
       fieldErrors?: Record<string, string>;
+      /**
+       * Set only when the booking failed because the wallet balance was
+       * too low. The UI should show a top-up prompt (prefilled with
+       * shortfallRupees, editable upward) instead of a generic error.
+       */
+      insufficientFunds?: {
+        shortfallRupees: number;
+        availableRupees: number;
+        requiredRupees: number;
+      };
     };
 
 // ---------------------------------------------------------------------------
@@ -361,7 +380,10 @@ export async function createShipmentAction(
           select: { id: true },
         });
 
-        // 4d. Shipment + PackageItems
+        // 4d. Shipment + PackageItems — created PENDING_PAYMENT, not BOOKED.
+        // It only becomes BOOKED once the wallet debit below succeeds. If
+        // the debit throws, this whole transaction rolls back and this row
+        // never existed as far as the DB is concerned.
         const shipment = await tx.shipment.create({
           data: {
             orgId:            dbOrgId,
@@ -386,11 +408,11 @@ export async function createShipmentAction(
             // Immutable snapshot — price + service locked at booking time
             chargesSnapshot: service as unknown as object,
 
-            status: ShipmentStatus.BOOKED,
+            status: ShipmentStatus.PENDING_PAYMENT,
 
             packages: {
-  create: data.items.map(buildPackageRow),
-},
+              create: data.items.map(buildPackageRow),
+            },
           },
           select: { id: true, shipmentNumber: true },
         });
@@ -415,15 +437,46 @@ export async function createShipmentAction(
         // GENERATE mode: PDF is produced async by n8n.
         // chargesSnapshot already contains the invoice items for the generator.
 
-        // 4f. Initial status event
+        // 4f. Status event — DRAFT → PENDING_PAYMENT
         await tx.shipmentStatusEvent.create({
           data: {
             shipmentId:    shipment.id,
             fromStatus:    ShipmentStatus.DRAFT,
-            toStatus:      ShipmentStatus.BOOKED,
+            toStatus:      ShipmentStatus.PENDING_PAYMENT,
             note:          "Booking submitted via booking wizard.",
             changedByType: "ORG",
             changedById:   userId,
+          },
+        });
+
+        // 4g. Atomic, race-safe wallet debit. Throws InsufficientFundsError
+        // if the org's wallet can't cover service.price — that error
+        // propagates out of this callback, and Prisma rolls back
+        // everything created above (addresses, shipment, packages,
+        // invoice doc, status event) automatically.
+        Sentry.addBreadcrumb({
+          message: `Debiting wallet ₹${service.price} for shipment ${shipmentNumber}`,
+          level: "info",
+        });
+
+        await debitWalletForShipment(tx, dbOrgId, service.price, shipment.id);
+
+        // 4h. Debit succeeded — flip to BOOKED.
+        await tx.shipment.update({
+          where: { id: shipment.id },
+          data: {
+            status:   ShipmentStatus.BOOKED,
+            bookedAt: new Date(),
+          },
+        });
+
+        await tx.shipmentStatusEvent.create({
+          data: {
+            shipmentId:    shipment.id,
+            fromStatus:    ShipmentStatus.PENDING_PAYMENT,
+            toStatus:      ShipmentStatus.BOOKED,
+            note:          "Wallet debit successful.",
+            changedByType: "SYSTEM",
           },
         });
 
@@ -444,9 +497,29 @@ export async function createShipmentAction(
       };
 
     } catch (err) {
+      // Insufficient wallet balance — not a bug, not reported to Sentry.
+      // Return a structured shape the UI uses to show a top-up prompt.
+      if (err instanceof InsufficientFundsError) {
+        Sentry.addBreadcrumb({
+          message: `Insufficient funds — short by ₹${err.shortfallRupees.toFixed(2)}`,
+          level:   "info",
+        });
+        return {
+          success: false,
+          message: `Insufficient wallet balance. You're short by ₹${err.shortfallRupees.toFixed(2)}.`,
+          insufficientFunds: {
+            shortfallRupees: Math.ceil(err.shortfallRupees),
+            availableRupees: err.availableRupees,
+            requiredRupees:  service.price,
+          },
+        };
+      }
+
       // P2002 on shipmentNumber = two concurrent submissions collided on the
       // sequence number. Retry once — generateShipmentNumber will produce
-      // the next available number.
+      // the next available number. Safe to retry: the failed attempt's
+      // transaction (including any partial wallet debit) was fully rolled
+      // back before this catch block ever runs.
       if (
         typeof err === "object" &&
         err !== null &&

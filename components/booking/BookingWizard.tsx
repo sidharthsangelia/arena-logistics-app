@@ -34,6 +34,7 @@ import { ConsignorStep } from "./steps/ConsignorStep";
 import { ShipmentOwnerStep } from "./steps/ShipmentOwnerStep";
 import { createShipmentAction } from "@/actions/book/createShipment.action";
 import ShipmentDetailsStep from "./steps/ShipmentDetailStep";
+import { TopUpModal } from "@/components/wallet/TopUpModal";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -139,6 +140,15 @@ export default function BookingWizard() {
     shipmentNumber: string;
   } | null>(null);
 
+  // Set only when createShipmentAction fails specifically because the
+  // wallet balance is too low. Holding the exact form data that was
+  // submitted lets us retry the identical booking once the top-up lands,
+  // without the user re-filling or re-clicking through anything.
+  const [shortfall, setShortfall] = React.useState<{
+    amountRupees: number;
+    finalData: BookingFormData;
+  } | null>(null);
+
   const {
     register,
     getValues,
@@ -176,6 +186,7 @@ export default function BookingWizard() {
     setSubmitting(true);
     try {
       const result = await createShipmentAction(finalData);
+
       if (result.success) {
         setSubmitted({
           shipmentId: result.shipmentId,
@@ -183,6 +194,19 @@ export default function BookingWizard() {
         });
         return;
       }
+
+      if (result.insufficientFunds) {
+        // Don't surface this as a generic error banner — open the top-up
+        // modal instead, prefilled with the shortfall (editable upward),
+        // and hold onto finalData so the retry below resubmits the exact
+        // same booking once the wallet is funded.
+        setShortfall({
+          amountRupees: result.insufficientFunds.shortfallRupees,
+          finalData,
+        });
+        return;
+      }
+
       if (result.fieldErrors) {
         Object.entries(result.fieldErrors).forEach(([path, msg]) => {
           setError(path as any, { type: "server", message: msg as string });
@@ -394,6 +418,24 @@ export default function BookingWizard() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Insufficient-funds top-up — prefilled with the shortfall, editable
+          upward. On success, silently retries the exact same booking. */}
+      {shortfall && (
+        <TopUpModal
+          open={!!shortfall}
+          onOpenChange={(open) => {
+            if (!open) setShortfall(null);
+          }}
+          suggestedAmount={shortfall.amountRupees}
+          reasonLabel={`shipment ${formData.consignor.city || "?"} → ${formData.consignee.city || "?"}`}
+          onSuccess={async () => {
+            const pending = shortfall.finalData;
+            setShortfall(null);
+            await handleSubmit(pending);
+          }}
+        />
+      )}
     </div>
   );
 }
