@@ -4,7 +4,14 @@ import { useState } from "react";
 import { Loader2, Wallet, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+  DialogDescription,
+} from "@/components/ui/dialog";
 import { createTopUpOrderAction } from "@/actions/wallet/createTopUpOrder.action";
 import { verifyTopUpPaymentAction } from "@/actions/wallet/verifyTopUpPayment.action";
 
@@ -23,7 +30,8 @@ function loadRazorpayScript() {
     const script = document.createElement("script");
     script.src = "https://checkout.razorpay.com/v1/checkout.js";
     script.onload = () => resolve();
-    script.onerror = () => reject(new Error("Failed to load Razorpay checkout script."));
+    script.onerror = () =>
+      reject(new Error("Failed to load Razorpay checkout script."));
     document.body.appendChild(script);
   });
   return scriptPromise;
@@ -55,7 +63,9 @@ export function TopUpModal({
   const [amount, setAmount] = useState<string>(
     suggestedAmount ? Math.ceil(suggestedAmount).toString() : "1000",
   );
-  const [stage, setStage] = useState<"idle" | "opening" | "verifying" | "error">("idle");
+  const [stage, setStage] = useState<
+    "idle" | "opening" | "verifying" | "error"
+  >("idle");
   const [error, setError] = useState<string | null>(null);
 
   const numericAmount = Number(amount);
@@ -74,7 +84,9 @@ export function TopUpModal({
 
       const order = await createTopUpOrderAction({
         amountRupees: numericAmount,
-        shipmentContext: reasonLabel ? { shortfallFor: reasonLabel } : undefined,
+        shipmentContext: reasonLabel
+          ? { shortfallFor: reasonLabel }
+          : undefined,
       });
 
       if (!order.success) {
@@ -122,13 +134,17 @@ export function TopUpModal({
       });
 
       rzp.on("payment.failed", (resp: any) => {
-        setError(resp.error?.description ?? "Payment failed. Please try again.");
+        setError(
+          resp.error?.description ?? "Payment failed. Please try again.",
+        );
         setStage("error");
       });
 
       rzp.open();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not open payment window.");
+      setError(
+        err instanceof Error ? err.message : "Could not open payment window.",
+      );
       setStage("error");
     }
   };
@@ -141,6 +157,9 @@ export function TopUpModal({
             <Wallet className="h-5 w-5" />
             Recharge wallet
           </DialogTitle>
+          <DialogDescription className="sr-only">
+            Add funds to your wallet to book shipments.
+          </DialogDescription>
         </DialogHeader>
 
         {reasonLabel && suggestedAmount ? (
@@ -148,8 +167,10 @@ export function TopUpModal({
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
             <span>
               Your wallet balance is short. Top up at least{" "}
-              <strong>₹{Math.ceil(suggestedAmount).toLocaleString("en-IN")}</strong> to book this shipment —
-              or add more to cover future shipments too.
+              <strong>
+                ₹{Math.ceil(suggestedAmount).toLocaleString("en-IN")}
+              </strong>{" "}
+              to book this shipment — or add more to cover future shipments too.
             </span>
           </div>
         ) : null}
@@ -162,7 +183,9 @@ export function TopUpModal({
                 type="button"
                 onClick={() => setAmount(p.toString())}
                 className={`rounded-full border px-3 py-1 text-sm transition-colors ${
-                  amount === p.toString() ? "border-primary bg-primary/10 text-primary" : "border-border"
+                  amount === p.toString()
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border"
                 }`}
               >
                 ₹{p.toLocaleString("en-IN")}
@@ -180,7 +203,9 @@ export function TopUpModal({
               onChange={(e) => setAmount(e.target.value)}
               className="mt-1"
             />
-            <p className="mt-1 text-xs text-muted-foreground">Minimum ₹100 per top-up.</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Minimum ₹100 per top-up.
+            </p>
           </div>
 
           {error && <p className="text-sm text-destructive">{error}</p>}
@@ -196,7 +221,9 @@ export function TopUpModal({
             {stage === "opening" || stage === "verifying" ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                {stage === "verifying" ? "Confirming payment…" : "Opening payment window…"}
+                {stage === "verifying"
+                  ? "Confirming payment…"
+                  : "Opening payment window…"}
               </>
             ) : (
               `Pay ₹${isValid ? numericAmount.toLocaleString("en-IN") : "—"}`

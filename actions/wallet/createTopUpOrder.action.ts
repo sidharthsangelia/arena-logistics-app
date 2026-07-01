@@ -6,7 +6,6 @@ import { razorpay, RAZORPAY_KEY_ID } from "@/utils/razorpay";
 import { rupeesToPaise } from "@/utils/wallet/money";
 import { getOrCreateWallet } from "@/utils/wallet/service";
  
-
 const MIN_TOPUP_RUPEES = 100;
 const MAX_TOPUP_RUPEES = 500_000; // safety ceiling — tune to your risk appetite / KYC tier
 
@@ -33,7 +32,12 @@ export async function createTopUpOrderAction(input: CreateTopUpOrderInput) {
 
     const wallet = await getOrCreateWallet(org.id);
     const amountPaise = rupeesToPaise(amount);
-    const receipt = `topup_${org.id}_${Date.now()}`;
+
+    // Razorpay hard-caps `receipt` at 40 characters — org.id (a cuid) plus
+    // a timestamp blows past that. This only needs to be unique-ish for
+    // your own bookkeeping; the actual correlation to org/wallet lives in
+    // `notes` below and in razorpayOrderId on the WalletTransaction row.
+    const receipt = `tu_${Date.now().toString(36)}_${org.id.slice(-10)}`.slice(0, 40);
 
     // Create the Razorpay order FIRST. If this throws (network blip,
     // Razorpay outage), we haven't written a dangling row to our own DB.
