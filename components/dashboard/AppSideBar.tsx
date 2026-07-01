@@ -30,6 +30,7 @@ import {
   User,
   LogOut,
   Handshake,
+  Wallet,
 } from "lucide-react";
 
 import {
@@ -107,6 +108,7 @@ const NAV_CONFIGS: Record<string, NavConfig> = {
       {
         label: "Admin",
         items: [
+          {title: "Wallet", href: "/wallet", icon: Wallet},
           { title: "Invoices", href: "/invoices", icon: FileText },
           { title: "Settings", href: "/settings", icon: Settings },
         ],
