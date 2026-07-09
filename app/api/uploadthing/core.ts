@@ -1,6 +1,7 @@
 // app/api/uploadthing/core.ts
 
 import { createUploadthing, type FileRouter } from "uploadthing/next";
+import { UploadThingError } from "uploadthing/server";
 import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/utils/db";
 import { updateQuotePdfAction } from "@/actions/quote/quotes.action";
@@ -26,6 +27,26 @@ async function resolveDbOrgId(): Promise<string> {
   if (!org) throw new Error("Org not found in DB.");
 
   return org.id;
+}
+
+// Must stay in sync with DOC_TYPES in the DocumentManager component AND
+// the Prisma enum backing ShipmentDocument.docType. Validating against this
+// whitelist here means a bad/unexpected value fails fast with a clear
+// message instead of surfacing as a raw, unserializable Prisma error.
+const SHIPMENT_DOC_TYPES = [
+  "INVOICE",
+  "AIRWAY_BILL",
+  "PACKING_LIST",
+  "CUSTOMS_DECLARATION",
+  "CERTIFICATE_OF_ORIGIN",
+  "INSURANCE_CERT",
+  "POD",
+  "OTHER",
+] as const;
+type ShipmentDocType = (typeof SHIPMENT_DOC_TYPES)[number];
+
+function isShipmentDocType(value: string): value is ShipmentDocType {
+  return (SHIPMENT_DOC_TYPES as readonly string[]).includes(value);
 }
 
 // ---------------------------------------------------------------------------
@@ -160,6 +181,8 @@ export const ourFileRouter = {
       };
     }),
 
+  // shipment document upload for ops users
+
   shipmentDocument: f({
     pdf: {
       maxFileSize: "16MB",
@@ -171,96 +194,105 @@ export const ourFileRouter = {
     },
   })
     .middleware(async ({ req }) => {
-      const { userId } = await auth();
+      try {
+        const { userId, orgId } = await auth();
+        if (!userId) throw new UploadThingError("Unauthorized");
 
-      if (!userId) {
-        throw new Error("Unauthorized");
+        // Ops-only endpoint — caller's active Clerk org must be Arena itself,
+        // not the shipment's owning org (that's a different tenant).
+        if (orgId !== process.env.ARENA_ORG_ID) {
+          throw new UploadThingError(
+            "Only Arena ops staff can upload shipment documents.",
+          );
+        }
+
+        const shipmentId = req.headers.get("x-shipment-id");
+        const docType = req.headers.get("x-doc-type");
+        const label = req.headers.get("x-doc-label");
+        const visibleHeader = req.headers.get("x-visible-to-client");
+
+        if (!shipmentId) throw new UploadThingError("Missing shipment id.");
+        if (!docType) throw new UploadThingError("Missing document type.");
+        if (!isShipmentDocType(docType)) {
+          throw new UploadThingError(`Invalid document type: ${docType}`);
+        }
+        if (!label || !label.trim())
+          throw new UploadThingError("Missing label.");
+        if (label.length > 120) {
+          throw new UploadThingError("Label must be 120 characters or fewer.");
+        }
+
+        const shipment = await prisma.shipment.findUnique({
+          where: { id: shipmentId },
+          select: { id: true },
+        });
+        if (!shipment) {
+          throw new UploadThingError("Shipment not found.");
+        }
+
+        return {
+          shipmentId,
+          docType,
+          label: label.trim(),
+          visibleToClient: visibleHeader !== "false",
+          uploadedBy: userId,
+        };
+      } catch (err) {
+        if (err instanceof UploadThingError) throw err;
+        console.error("[shipmentDocument] middleware error:", err);
+        throw new UploadThingError(
+          err instanceof Error ? err.message : "Upload validation failed.",
+        );
       }
- 
-
-      const shipmentId = req.headers.get("x-shipment-id");
-      const docType = req.headers.get("x-doc-type");
-      const label = req.headers.get("x-doc-label");
-      const visibleHeader = req.headers.get("x-visible-to-client");
-
-      if (!shipmentId) {
-        throw new Error("Missing shipment id.");
-      }
-
-      if (!docType) {
-        throw new Error("Missing document type.");
-      }
-
-      if (!label) {
-        throw new Error("Missing label.");
-      }
-
-      const shipment = await prisma.shipment.findFirst({
-        where: {
-          id: shipmentId,
-         
-        },
-        select: {
-          id: true,
-        },
-      });
-
-      if (!shipment) {
-        throw new Error("Shipment not found.");
-      }
-
-      return {
-        shipmentId,
-
-        docType,
-
-        label,
-
-        visibleToClient: visibleHeader !== "false",
-
-        uploadedBy: userId,
-      };
     })
     .onUploadComplete(async ({ metadata, file }) => {
-      const document = await prisma.shipmentDocument.create({
-        data: {
-          shipmentId: metadata.shipmentId,
+      try {
+        const document = await prisma.shipmentDocument.create({
+          data: {
+            shipmentId: metadata.shipmentId,
+            docType: metadata.docType,
+            label: metadata.label,
+            fileUrl: file.ufsUrl,
+            fileKey: file.key,
+            fileName: file.name,
+            fileSize: file.size,
+            mimeType: file.type,
+            visibleToClient: metadata.visibleToClient,
+            uploadedByType: "OPS",
+            uploadedById: metadata.uploadedBy,
+          },
+          select: {
+            id: true,
+            shipmentId: true,
+          },
+        });
 
-          docType: metadata.docType as any,
+        revalidatePath(`/arena-dashboard/bookings/${document.shipmentId}`);
+        revalidatePath(`/shipments/${document.shipmentId}`);
 
-          label: metadata.label,
-
-          fileUrl: file.ufsUrl,
-
-          fileKey: file.key,
-
-          fileName: file.name,
-
-          fileSize: file.size,
-
-          mimeType: file.type,
-
-          visibleToClient: metadata.visibleToClient,
-
-          uploadedByType: "OPS",
-
-          uploadedById: metadata.uploadedBy,
-        },
-
-        select: {
-          id: true,
-          shipmentId: true,
-        },
-      });
-
-      revalidatePath(`/arena-dashboard/bookings/${document.shipmentId}`);
-
-      revalidatePath(`/shipments/${document.shipmentId}`);
-
-      return {
-        documentId: document.id,
-        shipmentId: document.shipmentId,
-      };
+        return {
+          documentId: document.id,
+          shipmentId: document.shipmentId,
+        };
+      } catch (err) {
+        // Same reasoning as the middleware: never let a raw exception
+        // (e.g. a Prisma constraint/enum error) escape unwrapped. The file
+        // has already been uploaded to storage at this point, so log
+        // loudly for ops to reconcile, but still respond with valid JSON.
+        console.error(
+          "[shipmentDocument] onUploadComplete error:",
+          err,
+          "file:",
+          file.ufsUrl,
+          "key:",
+          file.key,
+        );
+        throw new UploadThingError(
+          err instanceof Error
+            ? `Document upload succeeded but saving failed: ${err.message}`
+            : "Document upload succeeded but saving failed.",
+        );
+      }
     }),
 } satisfies FileRouter;
 

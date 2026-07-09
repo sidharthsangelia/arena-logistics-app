@@ -12,7 +12,7 @@ const isPublicRoute = createRouteMatcher([
 ]);
 
 const isArenaRoute = createRouteMatcher(["/arena-dashboard(.*)"]);
-const isTenantRoute = createRouteMatcher(["/(.*)"]);
+const isTenantRoute = createRouteMatcher(["/((?!api).*)"]); // excludes all /api/* paths
 
 const ARENA_ORG_ID = process.env.ARENA_ORG_ID!;
 
