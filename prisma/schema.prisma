@@ -79,7 +79,6 @@ model Org {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
-
   companyName  String?
   contactName  String?
   email        String?
@@ -704,13 +703,13 @@ model WalletTransaction {
   razorpayOrderId   String?
   razorpayPaymentId String?
   razorpaySignature String?
-    @@unique([razorpayOrderId])
 
   notes String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@unique([razorpayOrderId])
   @@index([walletId])
   @@index([shipmentId])
   @@index([razorpayPaymentId])
@@ -767,6 +766,16 @@ model Shipment {
   chargesSnapshot        Json? // full breakdown shown to customer at selection time
   serviceabilitySnapshot Json? // raw list of options shown, for audit/debugging
 
+  // ── carrier / AWB tracking (air freight) ──
+  // all optional — populated by ops once the vendor confirms booking
+  mawbNumber        String? // Master Air Waybill — issued by the airline, covers the whole consolidated cargo
+  hawbNumber        String? // House Air Waybill — issued to this specific shipper; usually what the client should track by
+  carrierAirline    String? // e.g. "Emirates SkyCargo" — distinct from selectedVendorName (your logistics vendor/agent)
+  vendorTrackingUrl String? // deep link to the carrier's public tracking page, if one exists
+  awbAddedAt        DateTime? // when ops first recorded AWB info
+  awbUpdatedAt      DateTime? // last time it was edited
+  awbAddedById      String? // ops/staff user id who added it
+
   status ShipmentStatus @default(DRAFT)
 
   walletTransactions WalletTransaction[]
@@ -783,6 +792,8 @@ model Shipment {
   @@index([orgId, status])
   @@index([clientId])
   @@index([createdAt])
+  @@index([mawbNumber])
+  @@index([hawbNumber])
 }
 
 // ─────────────────────────────────────────────
@@ -832,6 +843,8 @@ model ShipmentDocument {
   fileName String
   fileSize Int
   mimeType String
+
+  visibleToClient Boolean @default(true) // ops can flag internal-only docs (e.g. vendor invoices, internal correspondence)
 
   uploadedByType String // "ORG" | "OPS" — keep simple, avoid a second enum unless you need more roles
   uploadedById   String? // orgId's user id, or staff/ops user id, depending on uploadedByType

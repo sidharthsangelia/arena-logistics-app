@@ -3,7 +3,6 @@ import { prisma } from "@/utils/db";
 import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import { ShipmentStatus } from "@/generated/prisma";
- 
 
 import {
   ArrowLeft,
@@ -45,9 +44,8 @@ import {
 import { StatusUpdatePanel } from "@/components/booking/arena/StatusUpdatePanel";
 import { InternalNotesPanel } from "@/components/booking/arena/InternalNotesPanel";
 import { STATUS_CONFIG } from "@/utils/statusConfigColors";
-
-
- 
+import { CarrierTrackingPanel } from "@/components/booking/arena/CarrierTrackingPanel";
+import { DocumentManager } from "@/components/booking/arena/DocumentManager";
 
 // ---------------------------------------------------------------------------
 // Data fetch
@@ -183,7 +181,9 @@ function InfoRow({
   if (!value) return null;
   return (
     <div className="flex items-start gap-2.5 text-sm">
-      {Icon && <Icon className="h-3.5 w-3.5 text-muted-foreground mt-0.5 shrink-0" />}
+      {Icon && (
+        <Icon className="h-3.5 w-3.5 text-muted-foreground mt-0.5 shrink-0" />
+      )}
       <div className="min-w-0">
         <span className="text-muted-foreground">{label}: </span>
         <span className="text-foreground font-medium">{value}</span>
@@ -257,8 +257,9 @@ export default async function BookingDetailPage({
   };
 
   const totalDeclared = s.packages.reduce(
-    (sum, p) => sum + (p.declaredValue ? Number(p.declaredValue) : 0) * p.quantity,
-    0
+    (sum, p) =>
+      sum + (p.declaredValue ? Number(p.declaredValue) : 0) * p.quantity,
+    0,
   );
 
   const allStatuses = Object.entries(STATUS_CONFIG).map(([value, c]) => ({
@@ -281,20 +282,19 @@ export default async function BookingDetailPage({
             <h1 className="text-xl font-bold font-mono text-foreground tracking-tight">
               {s.shipmentNumber}
             </h1>
-            <Badge variant="outline" className={`text-xs font-medium ${cfg.className}`}>
+            <Badge
+              variant="outline"
+              className={`text-xs font-medium ${cfg.className}`}
+            >
               {cfg.label}
             </Badge>
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
             <span>
               <span className="font-medium text-foreground">{s.org.name}</span>
-              {s.client && (
-                <span> · for {s.client.companyName}</span>
-              )}
+              {s.client && <span> · for {s.client.companyName}</span>}
             </span>
-            {s.bookedAt && (
-              <span>Booked {fmtDatetime(s.bookedAt)}</span>
-            )}
+            {s.bookedAt && <span>Booked {fmtDatetime(s.bookedAt)}</span>}
             <span>Created {fmtDatetime(s.createdAt)}</span>
           </div>
         </div>
@@ -302,10 +302,8 @@ export default async function BookingDetailPage({
 
       {/* ── Main grid ── */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-
         {/* ── LEFT / MAIN column (2 cols) ── */}
         <div className="space-y-6 lg:col-span-2">
-
           {/* Org & client info */}
           <Card>
             <CardHeader className="pb-3">
@@ -319,11 +317,17 @@ export default async function BookingDetailPage({
               <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
                 <div className="space-y-2">
                   <SectionLabel>Tenant org</SectionLabel>
-                  <p className="text-sm font-semibold text-foreground">{s.org.name}</p>
+                  <p className="text-sm font-semibold text-foreground">
+                    {s.org.name}
+                  </p>
                   <InfoRow icon={Hash} label="Slug" value={s.org.slug} />
                   <InfoRow icon={Mail} label="Email" value={s.org.email} />
                   <InfoRow icon={Phone} label="Phone" value={s.org.phone} />
-                  <InfoRow icon={User} label="Contact" value={s.org.contactName} />
+                  <InfoRow
+                    icon={User}
+                    label="Contact"
+                    value={s.org.contactName}
+                  />
                   <div className="flex items-center gap-2 pt-1">
                     <Badge variant="secondary" className="text-[10px]">
                       {s.org.plan}
@@ -340,9 +344,17 @@ export default async function BookingDetailPage({
                     <p className="text-sm font-semibold text-foreground">
                       {s.client.companyName}
                     </p>
-                    <InfoRow icon={User} label="Contact" value={s.client.contactName} />
+                    <InfoRow
+                      icon={User}
+                      label="Contact"
+                      value={s.client.contactName}
+                    />
                     <InfoRow icon={Mail} label="Email" value={s.client.email} />
-                    <InfoRow icon={Phone} label="Phone" value={s.client.phone} />
+                    <InfoRow
+                      icon={Phone}
+                      label="Phone"
+                      value={s.client.phone}
+                    />
                     <Badge variant="outline" className="text-[10px] mt-1">
                       {s.client.companyKind}
                     </Badge>
@@ -363,8 +375,14 @@ export default async function BookingDetailPage({
             <Separator />
             <CardContent className="pt-4">
               <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
-                <AddressCard title="Pickup (Consignor)" address={s.pickupAddress} />
-                <AddressCard title="Delivery (Consignee)" address={s.deliveryAddress} />
+                <AddressCard
+                  title="Pickup (Consignor)"
+                  address={s.pickupAddress}
+                />
+                <AddressCard
+                  title="Delivery (Consignee)"
+                  address={s.deliveryAddress}
+                />
                 {s.billingAddress && !s.billingSameAsDelivery && (
                   <AddressCard title="Billing" address={s.billingAddress} />
                 )}
@@ -417,14 +435,23 @@ export default async function BookingDetailPage({
                     <TableHead className="text-xs pl-5">Description</TableHead>
                     <TableHead className="text-xs text-right">Qty</TableHead>
                     <TableHead className="text-xs text-right">Weight</TableHead>
-                    <TableHead className="text-xs text-right">L × W × H</TableHead>
-                    <TableHead className="text-xs text-right">HS Code</TableHead>
-                    <TableHead className="text-xs text-right pr-5">Declared Value</TableHead>
+                    <TableHead className="text-xs text-right">
+                      L × W × H
+                    </TableHead>
+                    <TableHead className="text-xs text-right">
+                      HS Code
+                    </TableHead>
+                    <TableHead className="text-xs text-right pr-5">
+                      Declared Value
+                    </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {s.packages.map((pkg, i) => (
-                    <TableRow key={pkg.id} className={i % 2 !== 0 ? "bg-muted/10" : ""}>
+                    <TableRow
+                      key={pkg.id}
+                      className={i % 2 !== 0 ? "bg-muted/10" : ""}
+                    >
                       <TableCell className="pl-5 text-sm font-medium">
                         {pkg.description}
                       </TableCell>
@@ -435,14 +462,18 @@ export default async function BookingDetailPage({
                         {fmtNum(pkg.weightKg, " kg")}
                       </TableCell>
                       <TableCell className="text-right text-xs tabular-nums text-muted-foreground">
-                        {fmtNum(pkg.lengthCm)} × {fmtNum(pkg.widthCm)} × {fmtNum(pkg.heightCm)} cm
+                        {fmtNum(pkg.lengthCm)} × {fmtNum(pkg.widthCm)} ×{" "}
+                        {fmtNum(pkg.heightCm)} cm
                       </TableCell>
                       <TableCell className="text-right text-xs font-mono text-muted-foreground">
                         {pkg.hsCode ?? "—"}
                       </TableCell>
                       <TableCell className="text-right text-sm tabular-nums pr-5">
                         {pkg.declaredValue
-                          ? fmtMoney(pkg.declaredValue, pkg.declaredCurrency ?? "INR")
+                          ? fmtMoney(
+                              pkg.declaredValue,
+                              pkg.declaredCurrency ?? "INR",
+                            )
                           : "—"}
                       </TableCell>
                     </TableRow>
@@ -516,7 +547,9 @@ export default async function BookingDetailPage({
                   </div>
                 </div>
               ) : (
-                <p className="text-sm text-muted-foreground">No service selected yet.</p>
+                <p className="text-sm text-muted-foreground">
+                  No service selected yet.
+                </p>
               )}
 
               {s.chargesSnapshot && (
@@ -533,65 +566,8 @@ export default async function BookingDetailPage({
           </Card>
 
           {/* Documents */}
-          <Card>
-            <CardHeader className="pb-3">
-              <div className="flex items-center gap-2">
-                <FileText className="h-4 w-4 text-muted-foreground" />
-                <CardTitle className="text-sm">
-                  Documents
-                  <span className="ml-2 text-muted-foreground font-normal">
-                    ({s.documents.length})
-                  </span>
-                </CardTitle>
-              </div>
-            </CardHeader>
-            <Separator />
-            <CardContent className="pt-4">
-              {s.documents.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  No documents uploaded yet.
-                </p>
-              ) : (
-                <div className="space-y-2">
-                  {s.documents.map((doc) => (
-                    <div
-                      key={doc.id}
-                      className="flex items-center justify-between rounded-md border bg-muted/30 px-3 py-2.5"
-                    >
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
-                        <div className="min-w-0">
-                          <p className="text-xs font-medium text-foreground truncate">
-                            {doc.label}
-                          </p>
-                          <p className="text-[10px] text-muted-foreground">
-                            {doc.docType} · {doc.fileName} ·{" "}
-                            {(doc.fileSize / 1024).toFixed(0)} KB ·{" "}
-                            {fmtDate(doc.uploadedAt)}
-                          </p>
-                        </div>
-                      </div>
-                      <Button
-                        asChild
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 px-2 text-xs shrink-0"
-                      >
-                        <a
-                          href={doc.fileUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                        >
-                          <ExternalLink className="h-3 w-3 mr-1" />
-                          Open
-                        </a>
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+    
+          <DocumentManager shipmentId={s.id} documents={s.documents} />
 
           {/* Wallet transactions */}
           {s.walletTransactions.length > 0 && (
@@ -609,8 +585,12 @@ export default async function BookingDetailPage({
                     <TableRow className="bg-muted/40">
                       <TableHead className="text-xs pl-5">Type</TableHead>
                       <TableHead className="text-xs">Status</TableHead>
-                      <TableHead className="text-xs text-right">Amount</TableHead>
-                      <TableHead className="text-xs text-right pr-5">Balance After</TableHead>
+                      <TableHead className="text-xs text-right">
+                        Amount
+                      </TableHead>
+                      <TableHead className="text-xs text-right pr-5">
+                        Balance After
+                      </TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -639,14 +619,22 @@ export default async function BookingDetailPage({
 
         {/* ── RIGHT sidebar (1 col) ── */}
         <div className="space-y-6">
-
           {/* Status update */}
           <StatusUpdatePanel
             shipmentId={s.id}
             currentStatus={s.status}
             allStatuses={allStatuses}
           />
-
+          <CarrierTrackingPanel
+            shipmentId={s.id}
+            initial={{
+              mawbNumber: s.mawbNumber,
+              hawbNumber: s.hawbNumber,
+              carrierAirline: s.carrierAirline,
+              vendorTrackingUrl: s.vendorTrackingUrl,
+              awbUpdatedAt: s.awbUpdatedAt,
+            }}
+          />
           {/* Internal notes */}
           <InternalNotesPanel
             shipmentId={s.id}
@@ -677,9 +665,12 @@ export default async function BookingDetailPage({
                             {evt.fromStatus && (
                               <>
                                 <span className="text-[10px] text-muted-foreground">
-                                  {STATUS_CONFIG[evt.fromStatus]?.label ?? evt.fromStatus}
+                                  {STATUS_CONFIG[evt.fromStatus]?.label ??
+                                    evt.fromStatus}
                                 </span>
-                                <span className="text-[10px] text-muted-foreground">→</span>
+                                <span className="text-[10px] text-muted-foreground">
+                                  →
+                                </span>
                               </>
                             )}
                             <Badge
@@ -717,10 +708,7 @@ export default async function BookingDetailPage({
               <InfoRow label="Created" value={fmtDatetime(s.createdAt)} />
               <InfoRow label="Booked" value={fmtDatetime(s.bookedAt)} />
               <InfoRow label="Last updated" value={fmtDatetime(s.updatedAt)} />
-              <InfoRow
-                label="Currency"
-                value={s.currency}
-              />
+              <InfoRow label="Currency" value={s.currency} />
               <InfoRow
                 label="Docs"
                 value={`${s.documents.length} file${s.documents.length !== 1 ? "s" : ""}`}

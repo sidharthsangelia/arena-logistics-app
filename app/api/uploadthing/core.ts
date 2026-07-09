@@ -5,6 +5,7 @@ import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/utils/db";
 import { updateQuotePdfAction } from "@/actions/quote/quotes.action";
 import { saveKycDocumentAction } from "@/actions/documentVault/clientsDocument.action";
+import { revalidatePath } from "next/cache";
 
 const f = createUploadthing();
 
@@ -32,12 +33,11 @@ async function resolveDbOrgId(): Promise<string> {
 // ---------------------------------------------------------------------------
 
 export const ourFileRouter = {
-
   // ── Quote PDF ─────────────────────────────────────────────────────────────
   quotePdf: f({ pdf: { maxFileSize: "16MB" } })
     .middleware(async ({ req }) => {
       // Session is available here — resolve everything we need upfront
-      const orgId   = await resolveDbOrgId();
+      const orgId = await resolveDbOrgId();
       const quoteId = req.headers.get("x-quote-id");
 
       if (!quoteId) throw new Error("Missing x-quote-id header.");
@@ -54,13 +54,18 @@ export const ourFileRouter = {
     })
     .onUploadComplete(async ({ metadata, file }) => {
       // No auth() call here — use orgId from metadata
-      console.log("[PDF] uploaded:", file.ufsUrl, "for quote:", metadata.quoteId);
+      console.log(
+        "[PDF] uploaded:",
+        file.ufsUrl,
+        "for quote:",
+        metadata.quoteId,
+      );
 
       await updateQuotePdfAction({
         quoteId: metadata.quoteId,
-        orgId:   metadata.orgId,   // pass directly — no session lookup needed
-        pdfUrl:  file.ufsUrl,
-        pdfKey:  file.key,
+        orgId: metadata.orgId, // pass directly — no session lookup needed
+        pdfUrl: file.ufsUrl,
+        pdfKey: file.key,
       });
 
       return { ufsUrl: file.ufsUrl, key: file.key };
@@ -68,22 +73,22 @@ export const ourFileRouter = {
 
   // ── KYC Document ──────────────────────────────────────────────────────────
   kycDocument: f({
-    pdf:   { maxFileSize: "16MB", maxFileCount: 1 },
-    image: { maxFileSize: "8MB",  maxFileCount: 1 },
+    pdf: { maxFileSize: "16MB", maxFileCount: 1 },
+    image: { maxFileSize: "8MB", maxFileCount: 1 },
   })
     .middleware(async ({ req }) => {
       const { userId } = await auth();
       if (!userId) throw new Error("Unauthorized");
 
       // Resolve DB orgId while session is still available
-      const orgId    = await resolveDbOrgId();
+      const orgId = await resolveDbOrgId();
       const clientId = req.headers.get("x-client-id");
-      const docType  = req.headers.get("x-doc-type");
-      const label    = req.headers.get("x-doc-label");
+      const docType = req.headers.get("x-doc-type");
+      const label = req.headers.get("x-doc-label");
 
       if (!clientId) throw new Error("Missing x-client-id header.");
-      if (!docType)  throw new Error("Missing x-doc-type header.");
-      if (!label)    throw new Error("Missing x-doc-label header.");
+      if (!docType) throw new Error("Missing x-doc-type header.");
+      if (!label) throw new Error("Missing x-doc-label header.");
 
       // Verify the client belongs to this org before accepting the upload
       const client = await prisma.client.findFirst({
@@ -97,32 +102,32 @@ export const ourFileRouter = {
     .onUploadComplete(async ({ metadata, file }) => {
       // No auth() call here — use orgId from metadata
       console.log(
-        "[KYC] uploaded:", file.name,
-        "for client:", metadata.clientId,
-        "type:", metadata.docType,
+        "[KYC] uploaded:",
+        file.name,
+        "for client:",
+        metadata.clientId,
+        "type:",
+        metadata.docType,
       );
 
       await saveKycDocumentAction({
-        orgId:    metadata.orgId,   // pass directly
+        orgId: metadata.orgId, // pass directly
         clientId: metadata.clientId,
-        docType:  metadata.docType as any,
-        label:    metadata.label,
-        fileUrl:  file.ufsUrl,
-        fileKey:  file.key,
+        docType: metadata.docType as any,
+        label: metadata.label,
+        fileUrl: file.ufsUrl,
+        fileKey: file.key,
         fileName: file.name,
         fileSize: file.size,
         mimeType: file.type,
       });
 
       return {
-        ufsUrl:   file.ufsUrl,
-        key:      file.key,
+        ufsUrl: file.ufsUrl,
+        key: file.key,
         clientId: metadata.clientId,
       };
     }),
-
-
-
 
   rateSheetUploader: f({
     blob: {
@@ -136,27 +141,127 @@ export const ourFileRouter = {
     };
   }),
 
-
   bookingDocument: f({
-  pdf: { maxFileSize: "16MB" },
-  image: { maxFileSize: "8MB" },
-})
-.middleware(async () => {
-  const orgId = await resolveDbOrgId();
+    pdf: { maxFileSize: "16MB" },
+    image: { maxFileSize: "8MB" },
+  })
+    .middleware(async () => {
+      const orgId = await resolveDbOrgId();
 
-  return { orgId };
-})
-.onUploadComplete(async ({ file }) => {
-  return {
-    url: file.ufsUrl,
-    key: file.key,
-    fileName: file.name,
-    fileSize: file.size,
-    mimeType: file.type,
-  };
-}),
+      return { orgId };
+    })
+    .onUploadComplete(async ({ file }) => {
+      return {
+        url: file.ufsUrl,
+        key: file.key,
+        fileName: file.name,
+        fileSize: file.size,
+        mimeType: file.type,
+      };
+    }),
 
+  shipmentDocument: f({
+    pdf: {
+      maxFileSize: "16MB",
+      maxFileCount: 1,
+    },
+    image: {
+      maxFileSize: "8MB",
+      maxFileCount: 1,
+    },
+  })
+    .middleware(async ({ req }) => {
+      const { userId } = await auth();
 
+      if (!userId) {
+        throw new Error("Unauthorized");
+      }
+ 
+
+      const shipmentId = req.headers.get("x-shipment-id");
+      const docType = req.headers.get("x-doc-type");
+      const label = req.headers.get("x-doc-label");
+      const visibleHeader = req.headers.get("x-visible-to-client");
+
+      if (!shipmentId) {
+        throw new Error("Missing shipment id.");
+      }
+
+      if (!docType) {
+        throw new Error("Missing document type.");
+      }
+
+      if (!label) {
+        throw new Error("Missing label.");
+      }
+
+      const shipment = await prisma.shipment.findFirst({
+        where: {
+          id: shipmentId,
+         
+        },
+        select: {
+          id: true,
+        },
+      });
+
+      if (!shipment) {
+        throw new Error("Shipment not found.");
+      }
+
+      return {
+        shipmentId,
+
+        docType,
+
+        label,
+
+        visibleToClient: visibleHeader !== "false",
+
+        uploadedBy: userId,
+      };
+    })
+    .onUploadComplete(async ({ metadata, file }) => {
+      const document = await prisma.shipmentDocument.create({
+        data: {
+          shipmentId: metadata.shipmentId,
+
+          docType: metadata.docType as any,
+
+          label: metadata.label,
+
+          fileUrl: file.ufsUrl,
+
+          fileKey: file.key,
+
+          fileName: file.name,
+
+          fileSize: file.size,
+
+          mimeType: file.type,
+
+          visibleToClient: metadata.visibleToClient,
+
+          uploadedByType: "OPS",
+
+          uploadedById: metadata.uploadedBy,
+        },
+
+        select: {
+          id: true,
+          shipmentId: true,
+        },
+      });
+
+      revalidatePath(`/arena-dashboard/bookings/${document.shipmentId}`);
+
+      revalidatePath(`/shipments/${document.shipmentId}`);
+
+      return {
+        documentId: document.id,
+        shipmentId: document.shipmentId,
+      };
+    }),
 } satisfies FileRouter;
 
 export type OurFileRouter = typeof ourFileRouter;

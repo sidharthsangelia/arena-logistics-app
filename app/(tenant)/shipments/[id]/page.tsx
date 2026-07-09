@@ -69,6 +69,11 @@ async function getShipment(id: string) {
       selectedVendorId: true,
       selectedVendorName: true,
       selectedProductName: true,
+      mawbNumber: true,
+      hawbNumber: true,
+      carrierAirline: true,
+      vendorTrackingUrl: true,
+
       client: {
         select: {
           id: true,
@@ -138,8 +143,10 @@ async function getShipment(id: string) {
           mimeType: true,
           uploadedAt: true,
         },
+        where: { visibleToClient: true },
         orderBy: { uploadedAt: "asc" },
       },
+
       statusHistory: {
         select: {
           id: true,
@@ -186,48 +193,55 @@ export const STATUS_CONFIG: Record<
 > = {
   DRAFT: {
     label: "Draft",
-    description: "Your booking is being prepared and has not been submitted yet.",
+    description:
+      "Your booking is being prepared and has not been submitted yet.",
     className: "bg-secondary text-secondary-foreground border-border",
     dotClassName: "bg-muted-foreground/40",
   },
   PENDING_PAYMENT: {
     label: "Pending Payment",
-    description: "Your shipment is awaiting payment confirmation before it can be processed.",
+    description:
+      "Your shipment is awaiting payment confirmation before it can be processed.",
     className:
       "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/30 dark:text-amber-400 dark:border-amber-800",
     dotClassName: "bg-amber-500",
   },
   BOOKED: {
     label: "Booked",
-    description: "Your shipment has been confirmed and is in the operations queue for processing.",
+    description:
+      "Your shipment has been confirmed and is in the operations queue for processing.",
     className:
       "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/30 dark:text-blue-400 dark:border-blue-800",
     dotClassName: "bg-blue-500",
   },
   PROCESSING: {
     label: "Processing",
-    description: "Our operations team is actively preparing your shipment — labels, AWB, and carrier booking.",
+    description:
+      "Our operations team is actively preparing your shipment — labels, AWB, and carrier booking.",
     className:
       "bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950/30 dark:text-indigo-400 dark:border-indigo-800",
     dotClassName: "bg-indigo-500",
   },
   DOCUMENTS_PENDING: {
     label: "Documents Pending",
-    description: "We need additional documents from you to proceed. Please check your email or contact support.",
+    description:
+      "We need additional documents from you to proceed. Please check your email or contact support.",
     className:
       "bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-950/30 dark:text-orange-400 dark:border-orange-800",
     dotClassName: "bg-orange-500",
   },
   IN_TRANSIT: {
     label: "In Transit",
-    description: "Your shipment has been handed over to the carrier and is on its way to the destination.",
+    description:
+      "Your shipment has been handed over to the carrier and is on its way to the destination.",
     className:
       "bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-950/30 dark:text-sky-400 dark:border-sky-800",
     dotClassName: "bg-sky-500",
   },
   CUSTOMS_HOLD: {
     label: "Customs Hold",
-    description: "Your shipment is being held at customs. Our team is working to resolve this. We will contact you if any action is needed.",
+    description:
+      "Your shipment is being held at customs. Our team is working to resolve this. We will contact you if any action is needed.",
     className:
       "bg-red-50 text-red-700 border-red-200 dark:bg-red-950/30 dark:text-red-400 dark:border-red-800",
     dotClassName: "bg-red-500",
@@ -241,20 +255,23 @@ export const STATUS_CONFIG: Record<
   },
   DELIVERED: {
     label: "Delivered",
-    description: "Your shipment has been successfully delivered to the destination.",
+    description:
+      "Your shipment has been successfully delivered to the destination.",
     className:
       "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-800",
     dotClassName: "bg-emerald-500",
   },
   CANCELLED: {
     label: "Cancelled",
-    description: "This shipment has been cancelled. Contact support if you believe this is an error.",
+    description:
+      "This shipment has been cancelled. Contact support if you believe this is an error.",
     className: "bg-secondary text-muted-foreground border-border",
     dotClassName: "bg-muted-foreground/30",
   },
   ON_HOLD: {
     label: "On Hold",
-    description: "Your shipment is temporarily on hold. Our team will reach out with more information.",
+    description:
+      "Your shipment is temporarily on hold. Our team will reach out with more information.",
     className:
       "bg-yellow-50 text-yellow-700 border-yellow-200 dark:bg-yellow-950/30 dark:text-yellow-400 dark:border-yellow-800",
     dotClassName: "bg-yellow-500",
@@ -273,17 +290,28 @@ type JourneyStep = {
 
 const JOURNEY_STEPS: JourneyStep[] = [
   {
-    status: ["DRAFT" as ShipmentStatus, "PENDING_PAYMENT" as ShipmentStatus, "BOOKED" as ShipmentStatus],
+    status: [
+      "DRAFT" as ShipmentStatus,
+      "PENDING_PAYMENT" as ShipmentStatus,
+      "BOOKED" as ShipmentStatus,
+    ],
     label: "Booked",
     tooltip: "Shipment booking confirmed by our system.",
   },
   {
-    status: ["PROCESSING" as ShipmentStatus, "DOCUMENTS_PENDING" as ShipmentStatus],
+    status: [
+      "PROCESSING" as ShipmentStatus,
+      "DOCUMENTS_PENDING" as ShipmentStatus,
+    ],
     label: "Processing",
     tooltip: "Our ops team is preparing labels, AWB, and carrier booking.",
   },
   {
-    status: ["IN_TRANSIT" as ShipmentStatus, "CUSTOMS_HOLD" as ShipmentStatus, "ON_HOLD" as ShipmentStatus],
+    status: [
+      "IN_TRANSIT" as ShipmentStatus,
+      "CUSTOMS_HOLD" as ShipmentStatus,
+      "ON_HOLD" as ShipmentStatus,
+    ],
     label: "In Transit",
     tooltip: "Shipment has been handed to the carrier and is moving.",
   },
@@ -303,7 +331,7 @@ function getJourneyState(currentStatus: ShipmentStatus) {
   if (currentStatus === "CANCELLED") return { activeIdx: -1, cancelled: true };
 
   const activeIdx = JOURNEY_STEPS.findIndex((step) =>
-    step.status.includes(currentStatus)
+    step.status.includes(currentStatus),
   );
   return { activeIdx, cancelled: false };
 }
@@ -400,7 +428,7 @@ function KVRow({
       <span
         className={cn(
           "text-xs text-right text-foreground",
-          mono && "font-mono"
+          mono && "font-mono",
         )}
       >
         {value}
@@ -430,7 +458,9 @@ function SectionHeader({
             <TooltipTrigger asChild>
               <Info className="h-3.5 w-3.5 text-muted-foreground/40 cursor-help" />
             </TooltipTrigger>
-            <TooltipContent className="max-w-52 text-xs">{tooltip}</TooltipContent>
+            <TooltipContent className="max-w-52 text-xs">
+              {tooltip}
+            </TooltipContent>
           </Tooltip>
         )}
       </div>
@@ -459,7 +489,9 @@ function AddressBlock({
     postalCode: string;
   };
 }) {
-  const geo = [addr.city, addr.state, addr.postalCode].filter(Boolean).join(", ");
+  const geo = [addr.city, addr.state, addr.postalCode]
+    .filter(Boolean)
+    .join(", ");
   const isPickup = role === "pickup";
 
   return (
@@ -468,10 +500,12 @@ function AddressBlock({
         <div
           className={cn(
             "h-1.5 w-1.5 rounded-full",
-            isPickup ? "bg-foreground" : "bg-muted-foreground/40"
+            isPickup ? "bg-foreground" : "bg-muted-foreground/40",
           )}
         />
-        <MicroLabel>{isPickup ? "Sender · Consignor" : "Receiver · Consignee"}</MicroLabel>
+        <MicroLabel>
+          {isPickup ? "Sender · Consignor" : "Receiver · Consignee"}
+        </MicroLabel>
       </div>
       <div className="space-y-1 text-sm">
         {addr.contactName && (
@@ -509,7 +543,9 @@ function JourneyRail({ currentStatus }: { currentStatus: ShipmentStatus }) {
           <AlertTriangle className="h-4 w-4 text-muted-foreground" />
         </div>
         <div>
-          <p className="text-sm font-semibold text-foreground">Shipment Cancelled</p>
+          <p className="text-sm font-semibold text-foreground">
+            Shipment Cancelled
+          </p>
           <p className="text-xs text-muted-foreground mt-0.5">
             This shipment has been cancelled. Contact support if you need help.
           </p>
@@ -527,12 +563,15 @@ function JourneyRail({ currentStatus }: { currentStatus: ShipmentStatus }) {
             <span
               className={cn(
                 "inline-flex h-2 w-2 rounded-full",
-                cfg.dotClassName
+                cfg.dotClassName,
               )}
             />
             <Badge
               variant="outline"
-              className={cn("text-xs font-semibold px-2.5 py-0.5", cfg.className)}
+              className={cn(
+                "text-xs font-semibold px-2.5 py-0.5",
+                cfg.className,
+              )}
             >
               {cfg.label}
             </Badge>
@@ -545,7 +584,9 @@ function JourneyRail({ currentStatus }: { currentStatus: ShipmentStatus }) {
               </TooltipContent>
             </Tooltip>
           </div>
-          <p className="text-xs text-muted-foreground pl-4">{cfg.description}</p>
+          <p className="text-xs text-muted-foreground pl-4">
+            {cfg.description}
+          </p>
         </div>
       </div>
 
@@ -584,12 +625,10 @@ function JourneyRail({ currentStatus }: { currentStatus: ShipmentStatus }) {
                     <div
                       className={cn(
                         "relative z-10 flex h-[26px] w-[26px] items-center justify-center rounded-full border-2 transition-all duration-300",
-                        isDone &&
-                          "border-foreground bg-foreground",
+                        isDone && "border-foreground bg-foreground",
                         isActive &&
                           "border-foreground bg-background shadow-sm ring-4 ring-foreground/10",
-                        isPending &&
-                          "border-border bg-background"
+                        isPending && "border-border bg-background",
                       )}
                     >
                       {isDone ? (
@@ -607,7 +646,7 @@ function JourneyRail({ currentStatus }: { currentStatus: ShipmentStatus }) {
                         "text-center text-[10px] font-medium leading-tight max-w-[64px]",
                         isDone && "text-foreground",
                         isActive && "text-foreground font-semibold",
-                        isPending && "text-muted-foreground/50"
+                        isPending && "text-muted-foreground/50",
                       )}
                     >
                       {step.label}
@@ -660,14 +699,13 @@ export default async function ShipmentDetailPage({
   const totalPieces = s.packages.reduce((a, p) => a + p.quantity, 0);
   const totalDeclared = s.packages.reduce(
     (sum, p) => sum + (p.declaredValue ? dec(p.declaredValue) : 0) * p.quantity,
-    0
+    0,
   );
 
   return (
     <TooltipProvider delayDuration={200}>
       <div className="min-h-screen bg-background">
         <div className="mx-auto max-w-5xl px-5 py-8 space-y-5">
-
           {/* ── Back nav ── */}
           <Link
             href="/shipments"
@@ -680,7 +718,6 @@ export default async function ShipmentDetailPage({
           {/* ── Header card ── */}
           <Card className="overflow-hidden">
             <CardContent className="p-0">
-
               {/* Top bar with shipment number */}
               <div className="flex flex-wrap items-center justify-between gap-4 border-b bg-muted/20 px-5 py-4">
                 <div className="flex items-center gap-3">
@@ -715,11 +752,14 @@ export default async function ShipmentDetailPage({
                         <p className="text-2xl font-bold tabular-nums text-foreground">
                           {fmt(s.quotedTotal, s.currency)}
                         </p>
-                        <p className="text-xs text-muted-foreground">Total quoted</p>
+                        <p className="text-xs text-muted-foreground">
+                          Total quoted
+                        </p>
                       </div>
                     </TooltipTrigger>
                     <TooltipContent className="text-xs max-w-52">
-                      The price quoted to you at time of booking, including all surcharges and applicable markup.
+                      The price quoted to you at time of booking, including all
+                      surcharges and applicable markup.
                     </TooltipContent>
                   </Tooltip>
                 </div>
@@ -734,7 +774,8 @@ export default async function ShipmentDetailPage({
                   </p>
                   <p className="text-xs text-muted-foreground">
                     {s.pickupAddress.country}
-                    {s.pickupAddress.contactName && ` · ${s.pickupAddress.contactName}`}
+                    {s.pickupAddress.contactName &&
+                      ` · ${s.pickupAddress.contactName}`}
                   </p>
                 </div>
                 <div className="flex items-center gap-2 text-muted-foreground/40">
@@ -749,7 +790,8 @@ export default async function ShipmentDetailPage({
                   </p>
                   <p className="text-xs text-muted-foreground">
                     {s.deliveryAddress.country}
-                    {s.deliveryAddress.contactName && ` · ${s.deliveryAddress.contactName}`}
+                    {s.deliveryAddress.contactName &&
+                      ` · ${s.deliveryAddress.contactName}`}
                   </p>
                 </div>
               </div>
@@ -761,7 +803,8 @@ export default async function ShipmentDetailPage({
                     label: "Packages",
                     value: `${s.packages.length} item${s.packages.length !== 1 ? "s" : ""}`,
                     sub: `${totalPieces} piece${totalPieces !== 1 ? "s" : ""}`,
-                    tooltip: "Number of distinct package types and total individual pieces.",
+                    tooltip:
+                      "Number of distinct package types and total individual pieces.",
                   },
                   {
                     label: "Actual weight",
@@ -776,7 +819,8 @@ export default async function ShipmentDetailPage({
                     label: "Carrier",
                     value: s.selectedVendorName ?? "—",
                     sub: s.selectedProductName ?? undefined,
-                    tooltip: "The carrier and service product selected for this shipment at time of booking.",
+                    tooltip:
+                      "The carrier and service product selected for this shipment at time of booking.",
                   },
                   {
                     label: "Declared value",
@@ -812,12 +856,51 @@ export default async function ShipmentDetailPage({
             </CardContent>
           </Card>
 
+          {(s.hawbNumber || s.mawbNumber) && (
+            <Card className="overflow-hidden">
+              <SectionHeader
+                icon={Truck}
+                title="Carrier Tracking"
+                tooltip="Tracking reference issued by the airline/carrier handling your shipment."
+              />
+              <div className="grid gap-3 p-4 sm:grid-cols-3">
+                {s.carrierAirline && (
+                  <div>
+                    <MicroLabel>Airline</MicroLabel>
+                    <p className="mt-1 text-sm font-semibold text-foreground">
+                      {s.carrierAirline}
+                    </p>
+                  </div>
+                )}
+                {s.hawbNumber && (
+                  <div>
+                    <MicroLabel>AWB Number</MicroLabel>
+                    <p className="mt-1 text-sm font-mono font-semibold text-foreground">
+                      {s.hawbNumber}
+                    </p>
+                  </div>
+                )}
+                {s.vendorTrackingUrl && (
+                  <div className="flex items-end">
+                    <a
+                      href={s.vendorTrackingUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 text-xs font-medium text-foreground hover:underline"
+                    >
+                      Track with {s.carrierAirline ?? "carrier"}
+                      <ExternalLink className="h-3 w-3" />
+                    </a>
+                  </div>
+                )}
+              </div>
+            </Card>
+          )}
+
           {/* ── Two-column layout ── */}
           <div className="grid gap-5 xl:grid-cols-[1fr_260px] xl:items-start">
-
             {/* ── Left: main sections ── */}
             <div className="space-y-5 min-w-0">
-
               {/* Route detail */}
               <Card className="overflow-hidden">
                 <SectionHeader
@@ -875,8 +958,14 @@ export default async function ShipmentDetailPage({
                           <tr className="border-b bg-muted/20 text-left">
                             {[
                               { h: "#", tip: null },
-                              { h: "Description", tip: "Contents of the package." },
-                              { h: "Qty", tip: "Number of identical pieces in this package type." },
+                              {
+                                h: "Description",
+                                tip: "Contents of the package.",
+                              },
+                              {
+                                h: "Qty",
+                                tip: "Number of identical pieces in this package type.",
+                              },
                               {
                                 h: "Dimensions (cm)",
                                 tip: "Length × Width × Height in centimetres.",
@@ -889,7 +978,10 @@ export default async function ShipmentDetailPage({
                                 h: "Declared Value",
                                 tip: "Value declared for customs and insurance purposes.",
                               },
-                              { h: "HS Code", tip: "Harmonized System commodity code for customs classification." },
+                              {
+                                h: "HS Code",
+                                tip: "Harmonized System commodity code for customs classification.",
+                              },
                             ].map(({ h, tip }) => (
                               <th
                                 key={h}
@@ -939,14 +1031,21 @@ export default async function ShipmentDetailPage({
                               </td>
                               <td className="px-4 py-3 tabular-nums">
                                 {pkg.declaredValue ? (
-                                  fmt(pkg.declaredValue, pkg.declaredCurrency ?? "INR")
+                                  fmt(
+                                    pkg.declaredValue,
+                                    pkg.declaredCurrency ?? "INR",
+                                  )
                                 ) : (
-                                  <span className="text-muted-foreground">—</span>
+                                  <span className="text-muted-foreground">
+                                    —
+                                  </span>
                                 )}
                               </td>
                               <td className="px-4 py-3 font-mono text-muted-foreground">
                                 {pkg.hsCode ?? (
-                                  <span className="text-muted-foreground/40">—</span>
+                                  <span className="text-muted-foreground/40">
+                                    —
+                                  </span>
                                 )}
                               </td>
                             </tr>
@@ -979,7 +1078,8 @@ export default async function ShipmentDetailPage({
                             </span>
                           </TooltipTrigger>
                           <TooltipContent className="text-xs max-w-52">
-                            Chargeable weight is the higher of actual weight and volumetric weight. Carriers bill based on this.
+                            Chargeable weight is the higher of actual weight and
+                            volumetric weight. Carriers bill based on this.
                           </TooltipContent>
                         </Tooltip>
                       )}
@@ -1028,7 +1128,9 @@ export default async function ShipmentDetailPage({
                           key={i}
                           className="flex items-center justify-between px-5 py-3 text-sm"
                         >
-                          <span className="text-muted-foreground">{c.name}</span>
+                          <span className="text-muted-foreground">
+                            {c.name}
+                          </span>
                           <span className="tabular-nums font-medium">
                             {fmt(c.amount, c.currency)}
                           </span>
@@ -1059,7 +1161,11 @@ export default async function ShipmentDetailPage({
                 <SectionHeader
                   icon={FileText}
                   title="Documents"
-                  meta={s.documents.length > 0 ? `${s.documents.length} file${s.documents.length > 1 ? "s" : ""}` : undefined}
+                  meta={
+                    s.documents.length > 0
+                      ? `${s.documents.length} file${s.documents.length > 1 ? "s" : ""}`
+                      : undefined
+                  }
                   tooltip="Shipment documents such as commercial invoices, airway bills, and customs declarations."
                 />
                 {s.documents.length === 0 ? (
@@ -1069,7 +1175,8 @@ export default async function ShipmentDetailPage({
                       No documents available yet.
                     </p>
                     <p className="text-xs text-muted-foreground/70">
-                      Documents such as AWB and invoices will appear here once generated.
+                      Documents such as AWB and invoices will appear here once
+                      generated.
                     </p>
                   </div>
                 ) : (
@@ -1090,10 +1197,8 @@ export default async function ShipmentDetailPage({
                             {doc.label}
                           </p>
                           <p className="text-xs text-muted-foreground mt-0.5">
-                            {doc.docType.replace(/_/g, " ")} ·{" "}
-                            {doc.fileName} ·{" "}
-                            {fmtBytes(doc.fileSize)} ·{" "}
-                            {fmtDate(doc.uploadedAt)}
+                            {doc.docType.replace(/_/g, " ")} · {doc.fileName} ·{" "}
+                            {fmtBytes(doc.fileSize)} · {fmtDate(doc.uploadedAt)}
                           </p>
                         </div>
                         <ExternalLink className="h-3.5 w-3.5 shrink-0 text-muted-foreground/30 group-hover:text-muted-foreground transition-colors" />
@@ -1152,7 +1257,6 @@ export default async function ShipmentDetailPage({
 
             {/* ── Right sidebar ── */}
             <div className="space-y-4">
-
               {/* Booking summary sidebar card */}
               <Card className="overflow-hidden">
                 <div className="px-4 py-3 border-b bg-muted/20">
@@ -1238,11 +1342,15 @@ export default async function ShipmentDetailPage({
                         const evtCfg = STATUS_CONFIG[evt.toStatus];
                         const isLast = i === s.statusHistory.length - 1;
                         return (
-                          <li key={evt.id} className="relative pl-5 pb-5 last:pb-0">
+                          <li
+                            key={evt.id}
+                            className="relative pl-5 pb-5 last:pb-0"
+                          >
                             <span
                               className={cn(
                                 "absolute left-0 top-1.5 h-[7px] w-[7px] rounded-full ring-2 ring-background",
-                                evtCfg?.dotClassName ?? "bg-muted-foreground/30"
+                                evtCfg?.dotClassName ??
+                                  "bg-muted-foreground/30",
                               )}
                             />
                             <div className="space-y-1">
@@ -1251,7 +1359,7 @@ export default async function ShipmentDetailPage({
                                   variant="outline"
                                   className={cn(
                                     "text-[10px] font-medium px-1.5 py-0",
-                                    evtCfg?.className
+                                    evtCfg?.className,
                                   )}
                                 >
                                   {evtCfg?.label ?? evt.toStatus}
@@ -1292,7 +1400,8 @@ export default async function ShipmentDetailPage({
                       </div>
                     </TooltipTrigger>
                     <TooltipContent className="text-xs">
-                      Internal system ID. Use the shipment number (above) when contacting support.
+                      Internal system ID. Use the shipment number (above) when
+                      contacting support.
                     </TooltipContent>
                   </Tooltip>
                 </CardContent>
