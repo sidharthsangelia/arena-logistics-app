@@ -377,7 +377,7 @@ export default async function ArenaDashboardPage() {
                 <AlertDescription className="flex flex-wrap items-center justify-between gap-3">
                   <span>Customs holds and manual holds need ops attention.</span>
                   <Button size="sm" variant="outline" asChild>
-                    <Link href="/arena-dashboard/bookings?status=ON_HOLD">Review</Link>
+                    <Link href="/arena-dashboard/bookings">Review</Link>
                   </Button>
                 </AlertDescription>
               </Alert>
@@ -591,7 +591,7 @@ export default async function ArenaDashboardPage() {
                   icon={AlertTriangle}
                   label="Orgs low on wallet balance"
                   count={lowWalletOrgsCount}
-                  href="/arena-dashboard/orgs?filter=low-balance"
+                  href="/arena-dashboard/business-associates?filter=low-balance"
                 />
               </CardContent>
             </Card>
@@ -644,7 +644,7 @@ export default async function ArenaDashboardPage() {
               </CardDescription>
             </div>
             <Button variant="ghost" size="sm" className="gap-1 text-xs h-7" asChild>
-              <Link href="/arena-dashboard/orgs">
+              <Link href="/arena-dashboard/business-associates">
                 View all
                 <ArrowRight className="h-3 w-3" />
               </Link>
