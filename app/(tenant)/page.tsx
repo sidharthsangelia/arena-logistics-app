@@ -2,7 +2,6 @@ import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 
- 
 import type { ShipmentStatus, QuoteStatus, WalletTxnType } from "@/generated/prisma";
 
 import {
@@ -48,6 +47,12 @@ import {
   Inbox,
   Building2,
   Receipt,
+  Plane,
+  Hash,
+  ChevronRight,
+  ExternalLink,
+  CalendarClock,
+  FileSearch,
 } from "lucide-react";
 import { STATUS_CONFIG } from "@/utils/statusConfigColors";
 import { prisma } from "@/utils/db";
@@ -75,6 +80,21 @@ function formatDate(date: Date) {
   return dateFormatter.format(date);
 }
 
+function formatDateTime(date: Date) {
+  return new Intl.DateTimeFormat("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
+function daysUntil(date: Date) {
+  const ms = date.getTime() - Date.now();
+  return Math.ceil(ms / (1000 * 60 * 60 * 24));
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Quote status styling (mirrors STATUS_CONFIG's pattern for ShipmentStatus)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -97,6 +117,13 @@ const QUOTE_STATUS_CONFIG: Record<QuoteStatus, { label: string; className: strin
 
 const CREDIT_TXN_TYPES: WalletTxnType[] = ["TOP_UP", "REFUND"];
 
+const WALLET_TXN_LABELS: Record<WalletTxnType, { label: string; tooltip: string }> = {
+  TOP_UP: { label: "Wallet top-up", tooltip: "Funds added to your wallet" },
+  SHIPMENT_DEBIT: { label: "Shipment charge", tooltip: "Amount debited to pay for a shipment" },
+  REFUND: { label: "Refund", tooltip: "Amount credited back to your wallet" },
+  ADJUSTMENT: { label: "Adjustment", tooltip: "A manual correction made by our operations team" },
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Small presentational components
 // ─────────────────────────────────────────────────────────────────────────────
@@ -116,6 +143,28 @@ function QuoteStatusBadge({ status }: { status: QuoteStatus }) {
     <Badge variant="outline" className={config.className}>
       {config.label}
     </Badge>
+  );
+}
+
+// Full-row/card overlay link. Placed inside the first cell/child of a
+// position-relative row so the entire row becomes a single click target
+// while keeping valid table markup (the <a> only ever lives inside a <td>).
+function RowLink({
+  href,
+  label,
+  external,
+}: {
+  href: string;
+  label: string;
+  external?: boolean;
+}) {
+  return (
+    <Link
+      href={href}
+      aria-label={label}
+      className="absolute inset-0 z-10 rounded-[inherit] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+    />
   );
 }
 
@@ -198,7 +247,7 @@ export default async function DashboardOverviewPage() {
     prisma.shipment.findMany({
       where: { orgId: org.id },
       orderBy: { createdAt: "desc" },
-      take: 6,
+      take: 10,
       select: {
         id: true,
         shipmentNumber: true,
@@ -206,6 +255,8 @@ export default async function DashboardOverviewPage() {
         quotedTotal: true,
         currency: true,
         createdAt: true,
+        hawbNumber: true,
+        carrierAirline: true,
         client: { select: { companyName: true } },
         pickupAddress: { select: { city: true, country: true } },
         deliveryAddress: { select: { city: true, country: true } },
@@ -235,6 +286,7 @@ export default async function DashboardOverviewPage() {
         quotedTotal: true,
         currency: true,
         validUntil: true,
+        pdfUrl: true,
         client: { select: { companyName: true } },
       },
     }),
@@ -400,6 +452,7 @@ export default async function DashboardOverviewPage() {
             value={activeShipmentsCount}
             sub="Booked through out-for-delivery"
             icon={Truck}
+            tooltip="Shipments currently in progress: booked, processing, in transit, on customs hold, or out for delivery."
           />
           <StatCard
             label="Needs Your Attention"
@@ -413,6 +466,7 @@ export default async function DashboardOverviewPage() {
             value={deliveredThisMonth}
             sub={`${totalShipments} shipments all time`}
             icon={PackageCheck}
+            tooltip="Shipments marked delivered since the 1st of this month."
           />
         </div>
 
@@ -424,7 +478,8 @@ export default async function DashboardOverviewPage() {
               <div>
                 <CardTitle className="text-sm font-semibold">Recent Shipments</CardTitle>
                 <CardDescription className="text-xs mt-0.5">
-                  Your latest bookings and their current status
+                  Your last {recentShipments.length} booking{recentShipments.length === 1 ? "" : "s"}
+                  — select one for full details
                 </CardDescription>
               </div>
               <Button variant="ghost" size="sm" className="gap-1 text-xs h-7" asChild>
@@ -458,29 +513,77 @@ export default async function DashboardOverviewPage() {
                     <TableRow>
                       <TableHead className="pl-6">Shipment</TableHead>
                       <TableHead>Route</TableHead>
+                      <TableHead>
+                        <span className="inline-flex items-center gap-1">
+                          Tracking
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Info className="h-3 w-3 cursor-help" />
+                            </TooltipTrigger>
+                            <TooltipContent className="max-w-[220px] text-xs">
+                              House Air Waybill (HAWB) and carrier, once assigned by our
+                              operations team.
+                            </TooltipContent>
+                          </Tooltip>
+                        </span>
+                      </TableHead>
                       <TableHead>Amount</TableHead>
                       <TableHead className="pr-6">Status</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {recentShipments.map((s) => (
-                      <TableRow key={s.id} className="cursor-pointer">
-                        <TableCell className="pl-6">
+                      <TableRow
+                        key={s.id}
+                        className="relative cursor-pointer hover:bg-muted/50 transition-colors group"
+                      >
+                        <TableCell className="pl-6 relative">
+                          <RowLink
+                            href={`/shipments/${s.id}`}
+                            label={`View shipment ${s.shipmentNumber}`}
+                          />
                           <p className="text-sm font-medium leading-tight font-mono">
                             {s.shipmentNumber}
                           </p>
                           <p className="text-xs text-muted-foreground mt-0.5">
-                            {s.client?.companyName ?? "For your organisation"}
+                            {s.client?.companyName ?? "For your organisation"} ·{" "}
+                            {formatDate(s.createdAt)}
                           </p>
                         </TableCell>
                         <TableCell className="font-mono text-xs">
-                          {s.pickupAddress.city} → {s.deliveryAddress.city}
+                          {s.pickupAddress.city}
+                          {s.pickupAddress.country ? `, ${s.pickupAddress.country}` : ""} →{" "}
+                          {s.deliveryAddress.city}
+                          {s.deliveryAddress.country ? `, ${s.deliveryAddress.country}` : ""}
+                        </TableCell>
+                        <TableCell>
+                          {s.hawbNumber ? (
+                            <>
+                              <p className="text-xs font-mono flex items-center gap-1">
+                                <Hash className="h-3 w-3 text-muted-foreground" />
+                                {s.hawbNumber}
+                              </p>
+                              {s.carrierAirline && (
+                                <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1">
+                                  <Plane className="h-3 w-3" />
+                                  {s.carrierAirline}
+                                </p>
+                              )}
+                            </>
+                          ) : (
+                            <span className="text-xs text-muted-foreground italic">
+                              Pending assignment
+                            </span>
+                          )}
                         </TableCell>
                         <TableCell className="text-sm tabular-nums font-medium">
                           {s.quotedTotal ? formatMoney(s.quotedTotal.toString(), s.currency) : "—"}
                         </TableCell>
                         <TableCell className="pr-6">
-                          <ShipmentStatusBadge status={s.status} />
+                          <div className="flex items-center justify-between gap-2">
+                            <ShipmentStatusBadge status={s.status} />
+                            <ChevronRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -516,6 +619,7 @@ export default async function DashboardOverviewPage() {
                 ) : (
                   recentWalletTxns.map((txn, i) => {
                     const isCredit = CREDIT_TXN_TYPES.includes(txn.type);
+                    const meta = WALLET_TXN_LABELS[txn.type];
                     return (
                       <div key={txn.id}>
                         <div className="flex items-center justify-between gap-3">
@@ -532,9 +636,16 @@ export default async function DashboardOverviewPage() {
                               )}
                             </div>
                             <div className="min-w-0">
-                              <p className="text-sm font-medium leading-tight truncate">
-                                {txn.type.replace("_", " ")}
-                              </p>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <p className="text-sm font-medium leading-tight truncate cursor-help w-fit">
+                                    {meta.label}
+                                  </p>
+                                </TooltipTrigger>
+                                <TooltipContent className="max-w-[220px] text-xs">
+                                  {meta.tooltip}
+                                </TooltipContent>
+                              </Tooltip>
                               <p className="text-xs text-muted-foreground mt-0.5">
                                 {formatDate(txn.createdAt)}
                               </p>
@@ -579,27 +690,76 @@ export default async function DashboardOverviewPage() {
                 {recentQuotes.length === 0 ? (
                   <p className="text-xs text-muted-foreground">No quotes generated yet.</p>
                 ) : (
-                  recentQuotes.map((q, i) => (
-                    <div key={q.id}>
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium leading-tight truncate">
-                            {q.quoteNumber}
-                          </p>
-                          <p className="text-xs text-muted-foreground mt-0.5 truncate">
-                            {q.vendorName} · {q.client?.companyName ?? "Unassigned"}
-                          </p>
+                  recentQuotes.map((q, i) => {
+                    const remaining = daysUntil(q.validUntil);
+                    const expiringSoon =
+                      (q.status === "SENT" || q.status === "DRAFT") && remaining <= 3;
+                    const hasPdf = Boolean(q.pdfUrl);
+
+                    return (
+                      <div key={q.id}>
+                        <div
+                          className={`relative rounded-md -mx-2 px-2 py-1 transition-colors ${
+                            hasPdf ? "hover:bg-muted/50 cursor-pointer" : "opacity-70"
+                          }`}
+                        >
+                          {hasPdf && (
+                            <RowLink
+                              href={q.pdfUrl as string}
+                              label={`Open PDF for quote ${q.quoteNumber}`}
+                              external
+                            />
+                          )}
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium leading-tight truncate flex items-center gap-1">
+                                {q.quoteNumber}
+                                {hasPdf ? (
+                                  <ExternalLink className="h-3 w-3 text-muted-foreground shrink-0" />
+                                ) : (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <FileSearch className="h-3 w-3 text-muted-foreground shrink-0 cursor-help" />
+                                    </TooltipTrigger>
+                                    <TooltipContent className="max-w-[200px] text-xs">
+                                      PDF hasn&apos;t been generated for this quote yet.
+                                    </TooltipContent>
+                                  </Tooltip>
+                                )}
+                              </p>
+                              <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                                {q.vendorName} · {q.client?.companyName ?? "Unassigned"}
+                              </p>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <p
+                                    className={`text-xs mt-0.5 flex items-center gap-1 w-fit cursor-help ${
+                                      expiringSoon ? "text-destructive" : "text-muted-foreground"
+                                    }`}
+                                  >
+                                    <CalendarClock className="h-3 w-3" />
+                                    {remaining >= 0
+                                      ? `Valid for ${remaining} more day${remaining === 1 ? "" : "s"}`
+                                      : "Expired"}
+                                  </p>
+                                </TooltipTrigger>
+                                <TooltipContent className="text-xs">
+                                  Valid until {formatDate(q.validUntil)}
+                                </TooltipContent>
+                              </Tooltip>
+                            </div>
+                            <div className="text-right shrink-0">
+                              <p className="text-sm tabular-nums font-medium">
+                                {formatMoney(q.quotedTotal.toString(), q.currency)}
+                              </p>
+                              <QuoteStatusBadge status={q.status} />
+                            </div>
+                          </div>
                         </div>
-                        <div className="text-right shrink-0">
-                          <p className="text-sm tabular-nums font-medium">
-                            {formatMoney(q.quotedTotal.toString(), q.currency)}
-                          </p>
-                          <QuoteStatusBadge status={q.status} />
-                        </div>
+                        {i < recentQuotes.length - 1 && <Separator className="mt-3" />}
                       </div>
-                      {i < recentQuotes.length - 1 && <Separator className="mt-3" />}
-                    </div>
-                  ))
+                    );
+                  })
                 )}
               </CardContent>
             </Card>
@@ -657,14 +817,30 @@ export default async function DashboardOverviewPage() {
                     <TableRow>
                       <TableHead className="pl-6">Client</TableHead>
                       <TableHead>Type</TableHead>
-                      <TableHead>Shipments</TableHead>
+                      <TableHead>
+                        <span className="inline-flex items-center gap-1">
+                          Shipments
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Info className="h-3 w-3 cursor-help" />
+                            </TooltipTrigger>
+                            <TooltipContent className="max-w-[200px] text-xs">
+                              Total shipments booked for this client to date.
+                            </TooltipContent>
+                          </Tooltip>
+                        </span>
+                      </TableHead>
                       <TableHead className="pr-6">Added</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {recentClients.map((c) => (
-                      <TableRow key={c.id} className="cursor-pointer">
-                        <TableCell className="pl-6">
+                      <TableRow
+                        key={c.id}
+                        className="relative cursor-pointer hover:bg-muted/50 transition-colors group"
+                      >
+                        <TableCell className="pl-6 relative">
+                          <RowLink href={`/clients/${c.id}`} label={`View client ${c.companyName}`} />
                           <div className="flex items-center gap-2">
                             <div className="h-7 w-7 rounded-md border flex items-center justify-center shrink-0">
                               <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
@@ -680,8 +856,13 @@ export default async function DashboardOverviewPage() {
                         <TableCell className="text-sm tabular-nums">
                           {c._count.shipments}
                         </TableCell>
-                        <TableCell className="pr-6 text-sm text-muted-foreground">
-                          {formatDate(c.createdAt)}
+                        <TableCell className="pr-6">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-sm text-muted-foreground">
+                              {formatDate(c.createdAt)}
+                            </span>
+                            <ChevronRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))}
