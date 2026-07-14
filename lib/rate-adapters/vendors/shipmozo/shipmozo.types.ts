@@ -72,39 +72,32 @@ export interface ShipmozoRateRequest {
 }
 
 // --- INTERNATIONAL RATE CALCULATOR: RESPONSE ---------------------------------
-
-export interface ShipmozoRateCharge {
-  charge_name?: string;
-  name?: string;
-  charge_amount?: string | number;
-  amount?: string | number;
-  tax_amount?: string | number;
-  igst_amount?: string | number;
-  currency?: string;
+export interface ShipmozoOverheadCharge {
+  name: string;
+  value: number;
 }
-
+/** Confirmed against a live /international-rate-calculator response. */
 export interface ShipmozoRateProduct {
-  product_name?: string;
-  courier_name?: string;
-  courier?: string;
-  parent_vendor?: string;
+  id: number;
+  name: string;
+  image?: string;
+  /** Often an empty string — Shipmozo doesn't always populate this. */
+  estimated_delivery?: string;
 
-  tat_days?: number | string;
-  tat?: number | string;
-  edd?: number | string;
+  overhead_charges: number;
+  shipping_charges: number;
+  before_tax_total_charges: number;
+  gst: number;
+  gst_percentage?: number;
+  total_charges: number;
 
-  currency?: string;
+  minimum_charges?: number;
+  minimum_charges_applied?: boolean;
 
-  grand_total_with_gst?: number | string;
-  total_with_tax?: number | string;
-  grand_total?: number | string;
+  overhead_charges_details?: ShipmozoOverheadCharge[];
 
-  grand_total_without_gst?: number | string;
-  total_without_tax?: number | string;
-  sub_total?: number | string;
-
-  charges?: ShipmozoRateCharge[];
-  charge_details?: ShipmozoRateCharge[];
+  pickups_automatically_scheduled?: string;
+  minimum_chargeable_weight?: string;
 }
 
 export type ShipmozoRateResponse = ShipmozoEnvelope<ShipmozoRateProduct[]>;

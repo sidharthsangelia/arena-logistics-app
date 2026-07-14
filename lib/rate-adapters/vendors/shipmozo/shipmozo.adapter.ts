@@ -18,14 +18,17 @@
  */
 
 import { BaseVendorAdapter } from "../../core/base.adapter";
-import type { CanonicalRateRequest, RateQuote } from "../../core/types";
+import type {
+  CanonicalChargeBreakdown,
+  CanonicalRateRequest,
+  RateQuote,
+} from "../../core/types";
 import type {
   ShipmozoCountriesResponse,
   ShipmozoCountry,
   ShipmozoDimensionBox,
   ShipmozoPackageType,
   ShipmozoRateCalculatorPayload,
-  ShipmozoRateCharge,
   ShipmozoRateProduct,
   ShipmozoRateRequest,
   ShipmozoRateResponse,
@@ -161,50 +164,52 @@ export class ShipmozoAdapter extends BaseVendorAdapter<
   }
 
   private mapProduct(product: ShipmozoRateProduct): RateQuote {
-    const currency = product.currency ?? "INR";
-    const charges = product.charges ?? product.charge_details ?? [];
+    // Shipmozo's international rate calculator doesn't return a currency
+    // field. Amounts are Indian-GST-inclusive (gst_percentage: 18) and
+    // rupee-scale, so this is duty-paid INR pricing, not the destination
+    // country's currency.
+    const currency = "INR";
+    const charges: CanonicalChargeBreakdown[] = [];
+    if (product.shipping_charges > 0) {
+      charges.push({
+        name: "FREIGHT",
+        amount: product.shipping_charges,
+        currency,
+      });
+    }
 
-    const totalWithTax = this.toNumber(
-      product.grand_total_with_gst ??
-        product.total_with_tax ??
-        product.grand_total,
-    );
-    const totalWithoutTax = this.toNumber(
-      product.grand_total_without_gst ??
-        product.total_without_tax ??
-        product.sub_total ??
-        totalWithTax,
-    );
+    for (const overhead of product.overhead_charges_details ?? []) {
+      if (overhead.value > 0) {
+        charges.push({ name: overhead.name, amount: overhead.value, currency });
+      }
+    }
+
+    if (product.gst > 0) {
+      charges.push({
+        name: "GST",
+        amount: product.gst,
+        currency,
+        taxAmount: product.gst,
+      });
+    }
 
     return {
       vendorId: this.vendorId,
       vendorName: this.vendorName,
-      productName:
-        product.product_name ??
-        product.courier_name ??
-        product.courier ??
-        product.parent_vendor ??
-        "Shipmozo International",
+      productName: product.name,
       currency,
-      totalWithTax,
-      totalWithoutTax,
-      tatDays: this.toNumber(product.tat_days ?? product.tat ?? product.edd),
-      charges: charges
-        .filter((c) => this.toNumber(c.charge_amount ?? c.amount) !== 0)
-        .map((c) => this.mapCharge(c, currency)),
+      totalWithTax: this.toNumber(product.total_charges),
+      totalWithoutTax: this.toNumber(product.before_tax_total_charges),
+      tatDays: this.parseTatDays(product.estimated_delivery),
+      charges,
     };
   }
 
-  private mapCharge(charge: ShipmozoRateCharge, fallbackCurrency: string) {
-    return {
-      name: charge.charge_name ?? charge.name ?? "CHARGE",
-      amount: this.toNumber(charge.charge_amount ?? charge.amount),
-      currency: charge.currency ?? fallbackCurrency,
-      taxAmount:
-        charge.tax_amount !== undefined || charge.igst_amount !== undefined
-          ? this.toNumber(charge.tax_amount ?? charge.igst_amount)
-          : undefined,
-    };
+  /** `estimated_delivery` is a free-text string ("5-7 Days", or often ""). */
+  private parseTatDays(estimatedDelivery?: string): number {
+    if (!estimatedDelivery) return 0;
+    const match = estimatedDelivery.match(/\d+/);
+    return match ? parseInt(match[0], 10) : 0;
   }
 
   // -- Country resolution ---------------------------------------------------
