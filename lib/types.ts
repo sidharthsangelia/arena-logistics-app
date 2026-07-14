@@ -74,6 +74,7 @@ export interface RateResponse {
 export const AVAILABLE_VENDORS = [
   { id: "skart",  label: "sKart Express" },
   { id: "aramex", label: "Aramex"        },
+  { id: "shipmozo", label: "Shipmozo"      },
 ] as const;
 
 export type VendorId = (typeof AVAILABLE_VENDORS)[number]["id"];

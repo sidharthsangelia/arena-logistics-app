@@ -17,9 +17,11 @@
 import { adapterRegistry } from "../core/registry";
 import { SkartAdapter } from "./skart/skart.adapter";
 import { AramexAdapter } from "./aramex/aramex.adapter";
+import { ShipmozoAdapter } from "./shipmozo/shipmozo.adapter";
 
 adapterRegistry.register(new SkartAdapter());
 adapterRegistry.register(new AramexAdapter());
+adapterRegistry.register(new ShipmozoAdapter());
 
 // ↓ Future vendors — uncomment / add as needed
 // import { FedExAdapter } from "./fedex/fedex.adapter";
