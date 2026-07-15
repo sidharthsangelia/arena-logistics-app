@@ -9,8 +9,8 @@ import { Button } from "@/components/ui/button";
 
 import { formatDate, formatMoney, formatTime, formatWeight } from "@/utils/format";
 import { STATUS_CONFIG } from "@/utils/statusConfigColors";
-import type { ShipmentRow } from "@/queries/arena-side-dashboard/shipments";
-import { DataTableColumnHeader } from "@/components/booking/arena/data-table/DataTableColumnHeader";
+import type { ShipmentRow } from "@/queries/shipments";
+import { DataTableColumnHeader } from "@/components/shipments/data-table/DataTableColumnHeader";
 
 // Columns a user is allowed to hide via the "View" menu. Keep the identity
 // (shipmentNumber), status, and the row action pinned/always-visible.

@@ -15,9 +15,10 @@ import {
   getShipmentStatusCounts,
   getShipmentsPage,
   type ShipmentSortField,
-} from "@/queries/arena-side-dashboard/shipments";
-import { ShipmentsTable } from "./ShipmentsTable";
+} from "@/queries/shipments";
+ 
 import StatCard from "@/components/StatCard";
+import { ShipmentsTable } from "@/components/shipments/ShipmentsTable";
  
 
 // ---------------------------------------------------------------------------
