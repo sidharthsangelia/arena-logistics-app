@@ -49,7 +49,7 @@ type PageProps = {
   searchParams: Promise<RawSearchParams>;
 };
 
-export default async function ClientsPage({ searchParams }: PageProps) {
+export default async function ArenaAllClientsPage({ searchParams }: PageProps) {
   const sp = await searchParams;
   const params = parseSearchParams(sp);
 
