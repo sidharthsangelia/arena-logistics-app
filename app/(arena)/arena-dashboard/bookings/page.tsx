@@ -1,9 +1,4 @@
-import {
-  AlertCircle,
-  Clock,
-  Package,
-  TrendingUp,
-} from "lucide-react";
+import { AlertCircle, Clock, Package, TrendingUp } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -16,10 +11,9 @@ import {
   getShipmentsPage,
   type ShipmentSortField,
 } from "@/queries/shipments";
- 
+
 import StatCard from "@/components/StatCard";
 import { ShipmentsTable } from "@/components/shipments/ShipmentsTable";
- 
 
 // ---------------------------------------------------------------------------
 // Search params → typed, validated query params. Anything malformed silently
@@ -30,14 +24,19 @@ type RawSearchParams = Record<string, string | string[] | undefined>;
 
 function parseSearchParams(sp: RawSearchParams) {
   const pageRaw = Number(sp.page);
-  const page = Number.isFinite(pageRaw) && pageRaw > 0 ? Math.floor(pageRaw) : 1;
+  const page =
+    Number.isFinite(pageRaw) && pageRaw > 0 ? Math.floor(pageRaw) : 1;
 
   const pageSizeRaw = Number(sp.pageSize);
-  const pageSize = (PAGE_SIZE_OPTIONS as readonly number[]).includes(pageSizeRaw)
+  const pageSize = (PAGE_SIZE_OPTIONS as readonly number[]).includes(
+    pageSizeRaw,
+  )
     ? pageSizeRaw
     : DEFAULT_PAGE_SIZE;
 
-  const sortField: ShipmentSortField = SORTABLE_FIELDS.includes(sp.sort as ShipmentSortField)
+  const sortField: ShipmentSortField = SORTABLE_FIELDS.includes(
+    sp.sort as ShipmentSortField,
+  )
     ? (sp.sort as ShipmentSortField)
     : "createdAt";
 
@@ -46,7 +45,11 @@ function parseSearchParams(sp: RawSearchParams) {
   const validStatuses = new Set(Object.values(ShipmentStatus));
   const statuses =
     typeof sp.status === "string" && sp.status.length > 0
-      ? (sp.status.split(",").filter((s) => validStatuses.has(s as ShipmentStatus)) as ShipmentStatus[])
+      ? (sp.status
+          .split(",")
+          .filter((s) =>
+            validStatuses.has(s as ShipmentStatus),
+          ) as ShipmentStatus[])
       : undefined;
 
   const query = typeof sp.q === "string" ? sp.q : undefined;
@@ -71,7 +74,10 @@ export default async function ArenaBookingsPage({
     getShipmentStatusCounts(),
   ]);
 
-  const totalAll = Object.values(statusCounts).reduce((sum, n) => sum + (n ?? 0), 0);
+  const totalAll = Object.values(statusCounts).reduce(
+    (sum, n) => sum + (n ?? 0),
+    0,
+  );
   const totalBooked = statusCounts.BOOKED ?? 0;
   const totalProcessing = statusCounts.PROCESSING ?? 0;
   const totalInTransit = statusCounts.IN_TRANSIT ?? 0;
@@ -85,7 +91,9 @@ export default async function ArenaBookingsPage({
       {/* ── Header ── */}
       <div className="flex items-start justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">Bookings</h1>
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">
+            Bookings
+          </h1>
           <p className="mt-1 text-sm text-muted-foreground">
             All shipments submitted by clients, across every business associate.
           </p>
@@ -97,8 +105,17 @@ export default async function ArenaBookingsPage({
 
       {/* ── Summary stats (unfiltered — always the full picture) ── */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <StatCard label="Awaiting ops" value={totalBooked} icon={Clock} sub="Newly booked" />
-        <StatCard label="Processing" value={totalProcessing} icon={TrendingUp} />
+        <StatCard
+          label="Awaiting ops"
+          value={totalBooked}
+          icon={Clock}
+          sub="Newly booked"
+        />
+        <StatCard
+          label="Processing"
+          value={totalProcessing}
+          icon={TrendingUp}
+        />
         <StatCard label="In transit" value={totalInTransit} icon={Package} />
         <StatCard
           label="Needs attention"

@@ -1,97 +1,68 @@
-// app/arena-dashboard/clients/page.tsx
-
-import { prisma } from "@/utils/db";
-import type { Prisma } from "@/generated/prisma";
-
 import ClientsToolbar from "@/components/clients/ClientsToolbar";
- 
 import ClientsTableInternal from "@/components/clients/ClientsTableInternal";
+import {
+  CLIENT_PAGE_SIZE_OPTIONS,
+  CLIENT_SORTABLE_FIELDS,
+  DEFAULT_CLIENT_PAGE_SIZE,
+  getClientOrgOptions,
+  getClientsPage,
+  type ClientSortField,
+} from "@/queries/clients";
 
-const PAGE_SIZE = 25;
+// ---------------------------------------------------------------------------
+// Search params → typed, validated query params. Anything malformed falls
+// back to a sane default instead of throwing.
+// ---------------------------------------------------------------------------
+
+type RawSearchParams = Record<string, string | string[] | undefined>;
+
+function parseSearchParams(sp: RawSearchParams) {
+  const query = typeof sp.q === "string" ? sp.q.trim() : "";
+
+  const pageRaw = Number(sp.page);
+  const page = Number.isFinite(pageRaw) && pageRaw > 0 ? Math.floor(pageRaw) : 1;
+
+  const pageSizeRaw = Number(sp.pageSize);
+  const pageSize = (CLIENT_PAGE_SIZE_OPTIONS as readonly number[]).includes(pageSizeRaw)
+    ? pageSizeRaw
+    : DEFAULT_CLIENT_PAGE_SIZE;
+
+  const sortField: ClientSortField = CLIENT_SORTABLE_FIELDS.includes(sp.sort as ClientSortField)
+    ? (sp.sort as ClientSortField)
+    : "createdAt";
+
+  const sortDir: "asc" | "desc" = sp.dir === "asc" ? "asc" : "desc";
+
+  const orgIds =
+    typeof sp.org === "string" && sp.org.length > 0
+      ? sp.org.split(",").filter(Boolean)
+      : [];
+
+  return { query, page, pageSize, sortField, sortDir, orgIds };
+}
+
+// ---------------------------------------------------------------------------
+// Page
+// ---------------------------------------------------------------------------
 
 type PageProps = {
-  searchParams: Promise<{
-    q?: string;
-    page?: string;
-  }>;
+  searchParams: Promise<RawSearchParams>;
 };
 
-export default async function ClientsPage({
-  searchParams,
-}: PageProps) {
-  const params = await searchParams;
+export default async function ClientsPage({ searchParams }: PageProps) {
+  const sp = await searchParams;
+  const params = parseSearchParams(sp);
 
-  const query = params.q?.trim() ?? "";
-
-  const page = Math.max(
-    1,
-    Number.parseInt(params.page ?? "1", 10) || 1
-  );
-
-  const skip = (page - 1) * PAGE_SIZE;
-
-  const where: Prisma.ClientWhereInput = {
-    deletedAt: null,
-
-    ...(query
-      ? {
-          OR: [
-            {
-              companyName: {
-                contains: query,
-                mode: "insensitive",
-              },
-            },
-            {
-              contactName: {
-                contains: query,
-                mode: "insensitive",
-              },
-            },
-            {
-              email: {
-                contains: query,
-                mode: "insensitive",
-              },
-            },
-            {
-              org: {
-                name: {
-                  contains: query,
-                  mode: "insensitive",
-                },
-              },
-            },
-          ],
-        }
-      : {}),
-  };
-
-  const [clients, total] = await Promise.all([
-    prisma.client.findMany({
-      where,
-
-      include: {
-        org: {
-          select: {
-            id: true,
-            name: true,
-            slug: true,
-          },
-        },
-      },
-
-      orderBy: {
-        createdAt: "desc",
-      },
-
-      skip,
-      take: PAGE_SIZE,
+  const [{ rows, totalRows, pageCount }, orgOptions] = await Promise.all([
+    getClientsPage({
+      page: params.page,
+      pageSize: params.pageSize,
+      sortField: params.sortField,
+      sortDir: params.sortDir,
+      query: params.query,
+      orgIds: params.orgIds,
     }),
-
-    prisma.client.count({
-      where,
-    }),
+    getClientOrgOptions(),
   ]);
 
   return (
@@ -99,11 +70,16 @@ export default async function ClientsPage({
       <ClientsToolbar />
 
       <ClientsTableInternal
-        clients={clients}
-        page={page}
-        total={total}
-        pageSize={PAGE_SIZE}
-        query={query}
+        clients={rows}
+        page={params.page}
+        pageSize={params.pageSize}
+        totalRows={totalRows}
+        pageCount={pageCount}
+        sortField={params.sortField}
+        sortDir={params.sortDir}
+        orgIds={params.orgIds}
+        orgOptions={orgOptions}
+        query={params.query}
       />
     </>
   );
