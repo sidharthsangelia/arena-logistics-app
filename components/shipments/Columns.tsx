@@ -24,7 +24,7 @@ export const SHIPMENT_TOGGLEABLE_COLUMNS: { id: string; label: string }[] = [
   { id: "bookedAt", label: "Booked" },
 ];
 
-export function getShipmentColumns(): ColumnDef<ShipmentRow>[] {
+export function getShipmentColumns(client = false): ColumnDef<ShipmentRow>[] {
   return [
     {
       accessorKey: "shipmentNumber",
@@ -32,7 +32,7 @@ export function getShipmentColumns(): ColumnDef<ShipmentRow>[] {
       enableHiding: false,
       header: ({ column }) => <DataTableColumnHeader column={column} title="Shipment" />,
       cell: ({ row }) => (
-        <Link href={`/arena-dashboard/bookings/${row.original.id}`} className="block">
+        <Link href={client ? `/shipments/${row.original.id}` : `/arena-dashboard/bookings/${row.original.id}`} className="block">
           <p className="font-mono text-xs font-semibold text-foreground hover:underline">
             {row.original.shipmentNumber}
           </p>

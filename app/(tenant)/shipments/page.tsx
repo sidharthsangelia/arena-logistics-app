@@ -135,6 +135,7 @@ export default async function ClientAllShipmentsPage({
         statuses={params.statuses ?? []}
         query={params.query ?? ""}
         statusCounts={statusCounts}
+        client={true}
       />
     </div>
   );

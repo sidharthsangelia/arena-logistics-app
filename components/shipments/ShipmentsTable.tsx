@@ -36,6 +36,7 @@ interface ShipmentsTableProps {
   statuses: string[];
   query: string;
   statusCounts: Partial<Record<ShipmentStatus, number>>;
+  client?: boolean;
 }
 
 export function ShipmentsTable({
@@ -49,6 +50,7 @@ export function ShipmentsTable({
   statuses,
   query,
   statusCounts,
+  client = false,
 }: ShipmentsTableProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -59,7 +61,7 @@ export function ShipmentsTable({
   const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({});
   const debounceRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const columns = React.useMemo(() => getShipmentColumns(), []);
+  const columns = React.useMemo(() => getShipmentColumns(client), [client]);
 
   // Keep the input in sync if the user navigates back/forward.
   React.useEffect(() => {
