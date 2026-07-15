@@ -4,7 +4,7 @@ import Link from "next/link";
 import type { ColumnDef } from "@tanstack/react-table";
 import ClientRowActions from "@/components/clients/ClientRow";
 import { formatDate } from "@/utils/format";
-import { DataTableColumnHeader } from "@/components/shipments/data-table/DataTableColumnHeader";
+import { DataTableColumnHeader } from "@/components/data-table/DataTableColumnHeader";
 import { ClientRow } from "@/queries/clients";
  
 

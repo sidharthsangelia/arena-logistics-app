@@ -12,9 +12,9 @@ import { ShipmentStatus } from "@/generated/prisma";
 import { STATUS_CONFIG } from "@/utils/statusConfigColors";
 import type { ShipmentRow, ShipmentSortField } from "@/queries/shipments";
 import { getShipmentColumns, SHIPMENT_TOGGLEABLE_COLUMNS } from "./Columns";
-import { DataTable } from "@/components/shipments/data-table/DataTable";
-import { DataTableFacetedFilter } from "@/components/shipments/data-table/DataTableFacetedFilter";
-import { DataTableViewOptions } from "@/components/shipments/data-table/DataTableViewOptions";
+import { DataTable } from "@/components/data-table/DataTable";
+import { DataTableFacetedFilter } from "@/components/data-table/DataTableFacetedFilter";
+import { DataTableViewOptions } from "@/components/data-table/DataTableViewOptions";
 
 
 

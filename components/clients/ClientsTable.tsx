@@ -11,9 +11,9 @@ import {
   CLIENT_TOGGLEABLE_COLUMNS,
   getClientColumns,
 } from "@/app/(arena)/arena-dashboard/clients/Columns";
-import { DataTable } from "../shipments/data-table/DataTable";
-import { DataTableFacetedFilter } from "../shipments/data-table/DataTableFacetedFilter";
-import { DataTableViewOptions } from "../shipments/data-table/DataTableViewOptions";
+import { DataTable } from "../data-table/DataTable";
+import { DataTableFacetedFilter } from "../data-table/DataTableFacetedFilter";
+import { DataTableViewOptions } from "../data-table/DataTableViewOptions";
 import { Input } from "../ui/input";
 
 interface OrgOption {
