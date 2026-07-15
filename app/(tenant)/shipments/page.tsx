@@ -1,8 +1,6 @@
 import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/utils/db";
 import { redirect } from "next/navigation";
-import { ShipmentStatus } from "@/generated/prisma";
-
 import { Package, ArrowRight, PackageX } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -14,6 +12,8 @@ import {
 } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import Link from "next/link";
+import { STATUS_CONFIG } from "@/utils/statusConfigColors";
+import { formatDate, formatMoney, formatWeight } from "@/utils/format";
 
 // ---------------------------------------------------------------------------
 // Data fetch — server-side, org-scoped
@@ -58,94 +58,6 @@ async function getShipments() {
   });
 
   return { shipments, orgId: org.id };
-}
-
-// ---------------------------------------------------------------------------
-// Status config — label + Tailwind badge classes for every ShipmentStatus
-// ---------------------------------------------------------------------------
-
-type StatusConfig = { label: string; className: string };
-
-const STATUS_CONFIG: Record<ShipmentStatus, StatusConfig> = {
-  DRAFT: {
-    label: "Draft",
-    className: "bg-slate-50   text-slate-500   border-slate-200",
-  },
-  PENDING_PAYMENT: {
-    label: "Pending Payment",
-    className: "bg-amber-50   text-amber-700   border-amber-200",
-  },
-  BOOKED: {
-    label: "Booked",
-    className: "bg-blue-50    text-blue-700    border-blue-200",
-  },
-  PROCESSING: {
-    label: "Processing",
-    className: "bg-indigo-50  text-indigo-700  border-indigo-200",
-  },
-  DOCUMENTS_PENDING: {
-    label: "Docs Pending",
-    className: "bg-orange-50  text-orange-700  border-orange-200",
-  },
-  IN_TRANSIT: {
-    label: "In Transit",
-    className: "bg-sky-50     text-sky-700     border-sky-200",
-  },
-  CUSTOMS_HOLD: {
-    label: "Customs Hold",
-    className: "bg-red-50     text-red-700     border-red-200",
-  },
-  OUT_FOR_DELIVERY: {
-    label: "Out for Delivery",
-    className: "bg-violet-50  text-violet-700  border-violet-200",
-  },
-  DELIVERED: {
-    label: "Delivered",
-    className: "bg-emerald-50 text-emerald-700 border-emerald-200",
-  },
-  CANCELLED: {
-    label: "Cancelled",
-    className: "bg-slate-50   text-slate-400   border-slate-200",
-  },
-  ON_HOLD: {
-    label: "On Hold",
-    className: "bg-yellow-50  text-yellow-700  border-yellow-200",
-  },
-};
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function formatDate(d: Date): string {
-  return d.toLocaleDateString("en-IN", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
-}
-
-function formatWeight(kg: unknown): string {
-  if (kg == null) return "—";
-  const n =
-    typeof kg === "object" && "toNumber" in (kg as object)
-      ? (kg as { toNumber(): number }).toNumber()
-      : Number(kg);
-  return isNaN(n) ? "—" : `${n.toFixed(2)} kg`;
-}
-
-function formatMoney(amount: unknown, currency: string): string {
-  if (amount == null) return "—";
-  const n =
-    typeof amount === "object" && "toNumber" in (amount as object)
-      ? (amount as { toNumber(): number }).toNumber()
-      : Number(amount);
-  if (isNaN(n)) return "—";
-  return new Intl.NumberFormat("en-IN", {
-    style: "currency",
-    currency: currency || "INR",
-    maximumFractionDigits: 0,
-  }).format(n);
 }
 
 // ---------------------------------------------------------------------------
