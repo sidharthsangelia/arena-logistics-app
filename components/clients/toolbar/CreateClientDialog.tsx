@@ -14,7 +14,7 @@ import {
 
 import { Button } from "@/components/ui/button";
 
-import ClientForm from "@/components/clients/ClientForm";
+import ClientForm from "@/components/clients/toolbar/ClientForm";
 
 import { createClientAction } from "@/actions/clients.action";
 import { ClientFormValues } from "@/lib/validations/clients.schema";

@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
-import CreateClientDialog from "@/components/clients/CreateClientDialog";
+import CreateClientDialog from "@/components/clients/toolbar/CreateClientDialog";
 import ExportClientsButton from "./ExportClientButton";
 import ImportClientsButton from "./ImportClientButton";
 

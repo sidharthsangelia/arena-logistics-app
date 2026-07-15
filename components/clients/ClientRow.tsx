@@ -15,8 +15,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
-import EditClientDialog from "@/components/clients/EditClientDialog";
-import DeleteClientDialog from "@/components/clients/DeleteClientDialog";
+import EditClientDialog from "@/components/clients/toolbar/EditClientDialog";
+import DeleteClientDialog from "@/components/clients/toolbar/DeleteClientDialog";
 
 type Props = {
   client: Client;

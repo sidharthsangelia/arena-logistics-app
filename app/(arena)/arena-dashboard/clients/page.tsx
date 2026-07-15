@@ -1,4 +1,4 @@
-import ClientsToolbar from "@/components/clients/ClientsToolbar";
+import ClientsToolbar from "@/components/clients/toolbar/ClientsToolbar";
 import ClientsTableInternal from "@/components/clients/ClientsTableInternal";
 import {
   CLIENT_PAGE_SIZE_OPTIONS,

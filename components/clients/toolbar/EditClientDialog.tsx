@@ -11,7 +11,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
-import ClientForm from "@/components/clients/ClientForm";
+import ClientForm from "@/components/clients/toolbar/ClientForm";
 
 import { updateClientAction } from "@/actions/clients.action";
 import { ClientFormValues } from "@/lib/validations/clients.schema";
