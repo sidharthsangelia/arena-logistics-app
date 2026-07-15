@@ -47,7 +47,7 @@ export default function ClientsTableInternal({
               </TableHead>
 
               <TableHead className="text-xs uppercase tracking-wide">
-                Organisation
+                Business Associate
               </TableHead>
 
               <TableHead className="text-xs uppercase tracking-wide">

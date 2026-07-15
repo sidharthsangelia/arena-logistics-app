@@ -255,9 +255,7 @@ export function DocumentManager({
       {/* Upload card */}
       <Card>
         <CardContent className="space-y-3 p-4">
-          <p className="text-[11px] text-muted-foreground">
-            <span className="text-destructive">*</span> Required
-          </p>
+        
 
           <div className="grid grid-cols-2 gap-2">
             <div className="space-y-1.5">

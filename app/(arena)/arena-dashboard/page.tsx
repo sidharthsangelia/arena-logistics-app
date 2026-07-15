@@ -445,10 +445,11 @@ export default async function ArenaDashboardPage() {
             icon={Clock}
           />
           <StatCard
-            label="Active Orgs"
+            label="Active Companies"
             value={activeOrgCount}
             sub={`of ${totalOrgsCount} total`}
             icon={Building2}
+             tooltip="Number of business associates and clients that have had at least one shipment booked in the last 30 days."
           />
           <StatCard
             label="Est. Revenue (MTD)"

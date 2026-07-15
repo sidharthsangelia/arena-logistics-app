@@ -212,12 +212,12 @@ function EmptyState({ filtered }: { filtered: boolean }) {
 
 const TABLE_HEADERS = [
   { label: "Shipment", width: "w-48" },
-  { label: "Org / Client", width: "w-44" },
+  { label: "BA / Client", width: "w-44" },
   { label: "Route", width: "" },
   { label: "Carrier", width: "w-36" },
   { label: "Pkgs", width: "w-16" },
   { label: "Weight", width: "w-24" },
-  { label: "Value", width: "w-28" },
+  { label: "Freight", width: "w-28" },
   { label: "Status", width: "w-36" },
   { label: "Booked", width: "w-32" },
   { label: "", width: "w-12" },

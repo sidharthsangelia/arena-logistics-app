@@ -376,11 +376,11 @@ export default async function BookingDetailPage({
             <CardContent className="pt-4">
               <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
                 <AddressCard
-                  title="Pickup (Consignor)"
+                  title="Pickup"
                   address={s.pickupAddress}
                 />
                 <AddressCard
-                  title="Delivery (Consignee)"
+                  title="Delivery"
                   address={s.deliveryAddress}
                 />
                 {s.billingAddress && !s.billingSameAsDelivery && (
@@ -419,7 +419,7 @@ export default async function BookingDetailPage({
                     </span>
                   </span>
                   <span>
-                    Declared:{" "}
+                    Inv. Declared:{" "}
                     <span className="font-medium text-foreground tabular-nums">
                       {fmtMoney(totalDeclared)}
                     </span>
@@ -432,7 +432,7 @@ export default async function BookingDetailPage({
               <Table>
                 <TableHeader>
                   <TableRow className="bg-muted/40">
-                    <TableHead className="text-xs pl-5">Description</TableHead>
+                    <TableHead className="text-xs pl-5">Item Description</TableHead>
                     <TableHead className="text-xs text-right">Qty</TableHead>
                     <TableHead className="text-xs text-right">Weight</TableHead>
                     <TableHead className="text-xs text-right">
