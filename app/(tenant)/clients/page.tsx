@@ -1,5 +1,6 @@
+import ClientsTable from "@/components/clients/ClientsTable";
 import ClientsToolbar from "@/components/clients/toolbar/ClientsToolbar";
-import ClientsTableInternal from "@/components/clients/ClientsTableInternal";
+
 import {
   CLIENT_PAGE_SIZE_OPTIONS,
   CLIENT_SORTABLE_FIELDS,
@@ -68,9 +69,9 @@ export default async function ClientsPage({ searchParams }: PageProps) {
 
   return (
     <>
-      <ClientsToolbar />
+      <ClientsToolbar client={true}/>
 
-      <ClientsTableInternal
+      <ClientsTable
         clients={rows}
         page={params.page}
         pageSize={params.pageSize}

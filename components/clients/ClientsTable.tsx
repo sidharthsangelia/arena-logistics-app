@@ -40,7 +40,7 @@ const DEFAULT_VISIBILITY: VisibilityState = { createdAt: false };
 
 const SEARCH_DEBOUNCE_MS = 350;
 
-export default function ClientsTableInternal({
+export default function ClientsTable({
   clients,
   page,
   pageSize,

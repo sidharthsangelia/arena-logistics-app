@@ -1,5 +1,4 @@
 import ClientsToolbar from "@/components/clients/toolbar/ClientsToolbar";
-import ClientsTableInternal from "@/components/clients/ClientsTableInternal";
 import {
   CLIENT_PAGE_SIZE_OPTIONS,
   CLIENT_SORTABLE_FIELDS,
@@ -8,6 +7,7 @@ import {
   getClientsPage,
   type ClientSortField,
 } from "@/queries/clients";
+import ClientsTable from "@/components/clients/ClientsTable";
 
 // ---------------------------------------------------------------------------
 // Search params → typed, validated query params. Anything malformed falls
@@ -69,7 +69,7 @@ export default async function ArenaAllClientsPage({ searchParams }: PageProps) {
     <>
       <ClientsToolbar />
 
-      <ClientsTableInternal
+      <ClientsTable
         clients={rows}
         page={params.page}
         pageSize={params.pageSize}
