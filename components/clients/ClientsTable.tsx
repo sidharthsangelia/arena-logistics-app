@@ -1,5 +1,3 @@
-
-
 import type { Client } from "@/generated/prisma";
 
 import {
@@ -13,7 +11,6 @@ import {
 import ClientRowActions from "@/components/clients/ClientRow";
 import ClientsPagination from "@/components/clients/ClientsPagination";
 import Link from "next/link";
-
 
 type Props = {
   clients: Client[];
@@ -30,7 +27,6 @@ export default function ClientsTable({
   pageSize,
   query,
 }: Props) {
- 
   const totalPages = Math.ceil(total / pageSize);
 
   return (
@@ -39,11 +35,21 @@ export default function ClientsTable({
         <Table>
           <TableHeader>
             <TableRow className="bg-muted/50 hover:bg-muted/50">
-              <TableHead className="text-xs uppercase tracking-wide">Company</TableHead>
-              <TableHead className="text-xs uppercase tracking-wide">Contact</TableHead>
-              <TableHead className="text-xs uppercase tracking-wide">Email</TableHead>
-              <TableHead className="text-xs uppercase tracking-wide">Phone</TableHead>
-              <TableHead className="text-xs uppercase tracking-wide">Location</TableHead>
+              <TableHead className="text-xs uppercase tracking-wide">
+                Company
+              </TableHead>
+              <TableHead className="text-xs uppercase tracking-wide">
+                Contact
+              </TableHead>
+              <TableHead className="text-xs uppercase tracking-wide">
+                Email
+              </TableHead>
+              <TableHead className="text-xs uppercase tracking-wide">
+                Phone
+              </TableHead>
+              <TableHead className="text-xs uppercase tracking-wide">
+                Location
+              </TableHead>
               <TableHead className="w-[60px]" />
             </TableRow>
           </TableHeader>
@@ -60,19 +66,15 @@ export default function ClientsTable({
               </TableRow>
             ) : (
               clients.map((client) => (
-                <TableRow
-                  key={client.id}
-                
-            
-                >
-                   <TableCell className="font-medium">
-                  <Link href={`/clients/${client.id}`} className="h-4 w-4 text-muted-foreground hover:underline" >
-                  
-                  
-                    {client.companyName}
-              
-                  </Link>
-                     </TableCell>
+                <TableRow key={client.id}>
+                  <TableCell className="font-medium">
+                    <Link
+                      href={`/clients/${client.id}`}
+                      className="h-4 w-4 text-muted-foreground hover:underline"
+                    >
+                      {client.companyName}
+                    </Link>
+                  </TableCell>
 
                   <TableCell className="text-muted-foreground">
                     {client.contactName ?? "—"}
@@ -87,7 +89,8 @@ export default function ClientsTable({
                   </TableCell>
 
                   <TableCell className="text-muted-foreground">
-                    {[client.city, client.country].filter(Boolean).join(", ") || "—"}
+                    {[client.city, client.country].filter(Boolean).join(", ") ||
+                      "—"}
                   </TableCell>
 
                   <TableCell data-stop-propagation>
