@@ -17,6 +17,7 @@ import {
   type ShipmentSortField,
 } from "@/queries/arena-side-dashboard/shipments";
 import { ShipmentsTable } from "./ShipmentsTable";
+import StatCard from "@/components/StatCard";
  
 
 // ---------------------------------------------------------------------------
@@ -50,41 +51,6 @@ function parseSearchParams(sp: RawSearchParams) {
   const query = typeof sp.q === "string" ? sp.q : undefined;
 
   return { page, pageSize, sortField, sortDir, statuses, query };
-}
-
-// ---------------------------------------------------------------------------
-// Summary stat card
-// ---------------------------------------------------------------------------
-
-function StatCard({
-  label,
-  value,
-  icon: Icon,
-  sub,
-}: {
-  label: string;
-  value: number;
-  icon: React.ComponentType<{ className?: string }>;
-  sub?: string;
-}) {
-  return (
-    <Card>
-      <CardContent className="p-5">
-        <div className="flex items-start justify-between">
-          <div>
-            <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">
-              {label}
-            </p>
-            <p className="mt-1.5 text-2xl font-bold text-foreground tabular-nums">{value}</p>
-            {sub && <p className="mt-0.5 text-xs text-muted-foreground">{sub}</p>}
-          </div>
-          <div className="rounded-md bg-muted p-2">
-            <Icon className="h-4 w-4 text-muted-foreground" />
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-  );
 }
 
 // ---------------------------------------------------------------------------

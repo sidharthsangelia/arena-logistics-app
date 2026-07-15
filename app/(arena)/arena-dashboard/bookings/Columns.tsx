@@ -144,7 +144,7 @@ export function getShipmentColumns(): ColumnDef<ShipmentRow>[] {
     {
       accessorKey: "bookedAt",
       id: "bookedAt",
-      header: ({ column }) => <DataTableColumnHeader column={column} title="Booked" />,
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Booked At" />,
       cell: ({ row }) => {
         const bookedAt = row.original.bookedAt;
         return (
@@ -160,17 +160,6 @@ export function getShipmentColumns(): ColumnDef<ShipmentRow>[] {
           </div>
         );
       },
-    },
-    {
-      id: "actions",
-      enableHiding: false,
-      enableSorting: false,
-      header: "",
-      cell: ({ row }) => (
-        <Button asChild variant="ghost" size="sm" className="h-7 px-2 text-xs">
-          <Link href={`/arena-dashboard/bookings/${row.original.id}`}>View</Link>
-        </Button>
-      ),
     },
   ];
 }
