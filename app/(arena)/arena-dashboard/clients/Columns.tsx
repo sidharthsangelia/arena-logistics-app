@@ -20,7 +20,7 @@ export const CLIENT_TOGGLEABLE_COLUMNS: { id: string; label: string }[] = [
   { id: "createdAt", label: "Created" },
 ];
 
-export function getClientColumns(): ColumnDef<ClientRow>[] {
+export function getClientColumns(client = false): ColumnDef<ClientRow>[] {
   return [
     {
       accessorKey: "companyName",
@@ -29,7 +29,8 @@ export function getClientColumns(): ColumnDef<ClientRow>[] {
       header: ({ column }) => <DataTableColumnHeader column={column} title="Client" />,
       cell: ({ row }) => (
         <Link
-          href={`/arena-dashboard/clients/${row.original.id}`}
+          // href={`/clients/${row.original.id}`}
+          href={client ? `/clients/${row.original.id}` : `/arena-dashboard/clients/${row.original.id}`}
           className="font-medium hover:underline"
         >
           {row.original.companyName}

@@ -32,6 +32,7 @@ interface Props {
   orgIds: string[];
   orgOptions: OrgOption[];
   query: string;
+  client?: boolean;
 }
 
 // "Created" is available but hidden by default to keep the table visually
@@ -51,6 +52,7 @@ export default function ClientsTable({
   orgIds,
   orgOptions,
   query,
+  client = false,
 }: Props) {
   const router = useRouter();
   const pathname = usePathname();
@@ -63,7 +65,7 @@ export default function ClientsTable({
 
   const debounceRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const columns = React.useMemo(() => getClientColumns(), []);
+  const columns = React.useMemo(() => getClientColumns(client), [client]);
 
   React.useEffect(() => {
     setSearchValue(query);

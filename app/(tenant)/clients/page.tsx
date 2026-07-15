@@ -82,6 +82,7 @@ export default async function ClientsPage({ searchParams }: PageProps) {
         orgIds={params.orgIds}
         orgOptions={orgOptions}
         query={params.query}
+        client={true}
       />
     </>
   );
