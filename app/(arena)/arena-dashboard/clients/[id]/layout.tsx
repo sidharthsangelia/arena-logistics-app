@@ -10,7 +10,7 @@ export default function ClientDetailLayout({
     <div className="mx-auto max-w-6xl space-y-6 px-4 py-6 sm:px-6 lg:px-8">
       {/* Back — always visible, needs no data */}
       <Link
-        href="/clients"
+        href="/arena-dashboard/clients"
         className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
       >
         <ArrowLeft className="h-3.5 w-3.5" />
