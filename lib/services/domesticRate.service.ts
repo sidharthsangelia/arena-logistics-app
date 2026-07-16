@@ -16,6 +16,9 @@
  *   // GET /api/rates/job-status?jobId=xxx  → proxies to rate service
  */
 
+import { unstable_cache, revalidateTag } from "next/cache";
+import { prisma } from "@/utils/db";
+
 const DOMESTIC_RATE_SERVICE_URL = process.env.DOMESTIC_RATE_SERVICE_URL!;       // e.g. http://rate-service:8000
 const DOMESTIC_RATE_SERVICE_KEY = process.env.DOMESTIC_RATE_SERVICE_SECRET_KEY!; // shared secret
 
@@ -68,6 +71,32 @@ export interface JobStatus {
 export interface ActivateVersionOptions {
   versionId: string;
   activatedBy?: string;
+}
+
+// ─── Active rate version lookup (cached) ───────────────────────────────────
+//
+// `getActiveRateVersionId` is queried once per vendor on EVERY domestic rate
+// quote request (see actions/domesticRates.action.ts) but the underlying
+// answer only changes when ops activates a new rate card — rare, and always
+// via `activateRateVersion` below. Short TTL (60s) as a safety net, plus
+// immediate `revalidateTag` on activation so a freshly activated rate card
+// is never masked by a stale cache entry.
+
+const activeRateVersionTag = (vendor: RateVendor) => `active-rate-version:${vendor}`;
+
+export async function getActiveRateVersionId(vendor: RateVendor): Promise<string | null> {
+  return unstable_cache(
+    async () => {
+      const version = await prisma.rateVersion.findFirst({
+        where: { vendor, isActive: true, isStaged: false },
+        orderBy: { activatedAt: "desc" },
+        select: { id: true },
+      });
+      return version?.id ?? null;
+    },
+    [activeRateVersionTag(vendor)],
+    { tags: [activeRateVersionTag(vendor)], revalidate: 60 },
+  )();
 }
 
 // ─── API calls ──────────────────────────────────────────────────────────────
@@ -136,6 +165,18 @@ export async function activateRateVersion(opts: ActivateVersionOptions): Promise
     const body = await res.json().catch(() => ({}));
     throw new Error(`Activation failed ${res.status}: ${body.detail ?? res.statusText}`);
   }
+
+  // The rate-loader microservice just flipped isActive on this version in
+  // the same Postgres DB we read from — invalidate the cached lookup now so
+  // the next quote request doesn't wait out the 60s TTL.
+  const activated = await prisma.rateVersion.findUnique({
+    where: { id: opts.versionId },
+    select: { vendor: true },
+  });
+  // { expire: 0 } forces immediate expiration (vs. the default stale-while-
+  // revalidate "max" profile) — a newly activated rate card must never be
+  // shadowed by one more stale read of the old one.
+  if (activated) revalidateTag(activeRateVersionTag(activated.vendor), { expire: 0 });
 }
 
 /**

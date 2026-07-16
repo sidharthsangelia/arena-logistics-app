@@ -49,7 +49,7 @@ import {
   Inbox,
 } from "lucide-react";
 import { STATUS_CONFIG } from "@/utils/statusConfigColors";
-import { prisma } from "@/utils/db";
+import { getArenaDashboardStats } from "@/lib/services/arenaDashboard.service";
 import StatCard from "@/components/StatCard";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -73,24 +73,6 @@ const dateFormatter = new Intl.DateTimeFormat("en-IN", {
 
 function formatDate(date: Date) {
   return dateFormatter.format(date);
-}
-
-// Estimates platform markup revenue: quotedTotal already has markup baked in,
-// so back out the vendor cost using the markup % that was actually applied.
-function estimateRevenueByCurrency(
-  shipments: { quotedTotal: unknown; markupPercentApplied: unknown; currency: string }[]
-) {
-  const totals = new Map<string, number>();
-  for (const s of shipments) {
-    if (s.quotedTotal == null || s.markupPercentApplied == null) continue;
-    const quoted = Number(s.quotedTotal as any);
-    const markup = Number(s.markupPercentApplied as any);
-    if (!Number.isFinite(quoted) || !Number.isFinite(markup)) continue;
-    const vendorCost = quoted / (1 + markup / 100);
-    const revenue = quoted - vendorCost;
-    totals.set(s.currency, (totals.get(s.currency) ?? 0) + revenue);
-  }
-  return totals;
 }
 
 const PLAN_VARIANTS: Record<OrgPlan, "default" | "secondary" | "outline"> = {
@@ -157,164 +139,39 @@ export default async function ArenaDashboardPage() {
   const { orgId } = await auth();
   if (orgId !== process.env.ARENA_ORG_ID) redirect("/");
 
-  const now = new Date();
-  const last30 = new Date(now);
-  last30.setDate(last30.getDate() - 30);
-  const last90 = new Date(now);
-  last90.setDate(last90.getDate() - 90);
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const stats = await getArenaDashboardStats();
 
-  const [
-    statusGroups,
+  const {
+    totalShipments,
+    activeShipmentsCount,
+    deliveredThisMonth,
+    successRate,
+    avgTransitDays,
+    activeOrgCount,
     totalOrgsCount,
-    activeOrgShipments,
-    recentShipments,
-    topOrgGroups,
-    activeRateVersions,
-    stagedRateVersions,
-    pendingBaApplications,
+    revenueByCurrency,
+    revenueEligibleCount,
     pendingBaCount,
-    lowWalletOrgsCount,
+    pendingBaNames,
     stuckShipmentsCount,
     unverifiedKycCount,
-    deliveredThisMonth,
-    revenueEligibleShipments,
-    deliveredEvents,
-  ] = await Promise.all([
-    prisma.shipment.groupBy({ by: ["status"], _count: { _all: true } }),
-    prisma.org.count({ where: { deletedAt: null } }),
-    prisma.shipment.findMany({
-      where: { createdAt: { gte: last30 } },
-      distinct: ["orgId"],
-      select: { orgId: true },
-    }),
-    prisma.shipment.findMany({
-      orderBy: { createdAt: "desc" },
-      take: 8,
-      select: {
-        id: true,
-        shipmentNumber: true,
-        status: true,
-        quotedTotal: true,
-        currency: true,
-        createdAt: true,
-        selectedVendorName: true,
-        org: { select: { name: true, companyName: true } },
-        client: { select: { companyName: true } },
-        pickupAddress: { select: { city: true } },
-        deliveryAddress: { select: { city: true } },
-      },
-    }),
-    prisma.shipment.groupBy({
-      by: ["orgId"],
-      where: { createdAt: { gte: last30 } },
-      _count: { orgId: true },
-      orderBy: { _count: { orgId: "desc" } },
-      take: 5,
-    }),
-    prisma.rateVersion.findMany({
-      where: { isActive: true },
-      orderBy: { activatedAt: "desc" },
-    }),
-    prisma.rateVersion.findMany({
-      where: { isStaged: true, isActive: false },
-      orderBy: { uploadedAt: "desc" },
-      take: 5,
-    }),
-    prisma.baApplication.findMany({
-      where: { status: "PENDING" },
-      orderBy: { createdAt: "asc" },
-      take: 5,
-      include: { org: { select: { name: true, companyName: true } } },
-    }),
-    prisma.baApplication.count({ where: { status: "PENDING" } }),
-    prisma.wallet.count({ where: { balance: { lt: 5000 } } }),
-    prisma.shipment.count({ where: { status: { in: ["CUSTOMS_HOLD", "ON_HOLD"] } } }),
-    prisma.kycDocument.count({ where: { verifiedAt: null } }),
-    prisma.shipment.count({
-      where: { status: "DELIVERED", updatedAt: { gte: startOfMonth } },
-    }),
-    prisma.shipment.findMany({
-      where: {
-        createdAt: { gte: startOfMonth },
-        status: { notIn: ["DRAFT", "CANCELLED"] },
-        quotedTotal: { not: null },
-        markupPercentApplied: { not: null },
-      },
-      select: { quotedTotal: true, markupPercentApplied: true, currency: true },
-    }),
-    prisma.shipmentStatusEvent.findMany({
-      where: { toStatus: "DELIVERED", createdAt: { gte: last90 } },
-      select: { createdAt: true, shipment: { select: { bookedAt: true } } },
-    }),
-  ]);
+    lowWalletOrgsCount,
+    stagedRateVersionsCount,
+    stagedRateVersionsLabel,
+    activeRateVersions,
+    needsReviewCount,
+    recentShipments,
+    topOrgs,
+  } = stats;
 
-  // ── Shipment status breakdown ──
-  const statusCountMap = Object.fromEntries(
-    statusGroups.map((g) => [g.status, g._count._all])
-  ) as Partial<Record<ShipmentStatus, number>>;
-  const sumStatuses = (statuses: ShipmentStatus[]) =>
-    statuses.reduce((total, s) => total + (statusCountMap[s] ?? 0), 0);
-
-  const totalShipments = Object.values(statusCountMap).reduce((a, b) => a + (b ?? 0), 0);
-  const activeShipmentsCount = sumStatuses([
-    "BOOKED",
-    "PROCESSING",
-    "DOCUMENTS_PENDING",
-    "IN_TRANSIT",
-    "CUSTOMS_HOLD",
-    "OUT_FOR_DELIVERY",
-  ]);
-  const deliveredAllTime = statusCountMap.DELIVERED ?? 0;
-  const successRate = totalShipments > 0 ? (deliveredAllTime / totalShipments) * 100 : 0;
-
-  // ── Orgs ──
-  const activeOrgCount = new Set(activeOrgShipments.map((s) => s.orgId)).size;
-
-  // ── Top organisations (last 30 days) ──
-  const topOrgIds = topOrgGroups.map((g) => g.orgId);
-  const topOrgDetails = topOrgIds.length
-    ? await prisma.org.findMany({
-        where: { id: { in: topOrgIds } },
-        select: {
-          id: true,
-          name: true,
-          companyName: true,
-          plan: true,
-          markupPercent: true,
-          isBusinessAssociate: true,
-        },
-      })
-    : [];
-  const topOrgs = topOrgGroups
-    .map((g) => {
-      const org = topOrgDetails.find((o) => o.id === g.orgId);
-      if (!org) return null;
-      return { ...org, bookings30d: g._count.orgId };
-    })
-    .filter((o): o is NonNullable<typeof o> => o !== null);
-
-  // ── Avg transit time (booked → delivered, last 90 days) ──
-  const transitDurations = deliveredEvents
-    .filter((e) => e.shipment.bookedAt)
-    .map((e) => (e.createdAt.getTime() - e.shipment.bookedAt!.getTime()) / 86_400_000);
-  const avgTransitDays =
-    transitDurations.length > 0
-      ? transitDurations.reduce((a, b) => a + b, 0) / transitDurations.length
-      : null;
-
-  // ── Estimated MTD revenue ──
-  const revenueByCurrency = estimateRevenueByCurrency(revenueEligibleShipments);
   const revenueDisplay =
-    revenueByCurrency.size === 0
+    revenueByCurrency.length === 0
       ? formatMoney(0)
-      : Array.from(revenueByCurrency.entries())
+      : revenueByCurrency
           .map(([currency, amount]) => formatMoney(amount, currency))
           .join(" + ");
 
-  const needsReviewCount =
-    pendingBaCount + stuckShipmentsCount + unverifiedKycCount + stagedRateVersions.length;
-
+  const now = new Date();
   const todayLabel = new Intl.DateTimeFormat("en-IN", {
     weekday: "long",
     day: "2-digit",
@@ -332,7 +189,7 @@ export default async function ArenaDashboardPage() {
         </div>
 
         {/* ── Alerts ──────────────────────────────────────────────────── */}
-        {(pendingBaCount > 0 || stuckShipmentsCount > 0 || stagedRateVersions.length > 0) && (
+        {(pendingBaCount > 0 || stuckShipmentsCount > 0 || stagedRateVersionsCount > 0) && (
           <div className="space-y-3">
             {stuckShipmentsCount > 0 && (
               <Alert variant="destructive">
@@ -357,10 +214,7 @@ export default async function ArenaDashboardPage() {
                   awaiting review
                 </AlertTitle>
                 <AlertDescription>
-                  {pendingBaApplications
-                    .slice(0, 3)
-                    .map((a) => a.org.companyName || a.org.name)
-                    .join(", ")}
+                  {pendingBaNames.join(", ")}
                   {pendingBaCount > 3 ? ` and ${pendingBaCount - 3} more` : ""}.{" "}
                   <Link
                     href="/arena-dashboard/business-associates"
@@ -372,15 +226,15 @@ export default async function ArenaDashboardPage() {
               </Alert>
             )}
 
-            {stagedRateVersions.length > 0 && (
+            {stagedRateVersionsCount > 0 && (
               <Alert>
                 <FileWarning className="h-4 w-4" />
                 <AlertTitle>
-                  {stagedRateVersions.length} rate card{stagedRateVersions.length === 1 ? "" : "s"}{" "}
+                  {stagedRateVersionsCount} rate card{stagedRateVersionsCount === 1 ? "" : "s"}{" "}
                   staged, not yet active
                 </AlertTitle>
                 <AlertDescription>
-                  {stagedRateVersions.map((v) => `${v.vendor} v${v.id.slice(-4)}`).join(", ")}.{" "}
+                  {stagedRateVersionsLabel}.{" "}
                   <Link href="/arena-dashboard/rate-cards" className="underline underline-offset-2">
                     Review and activate
                   </Link>
@@ -420,7 +274,7 @@ export default async function ArenaDashboardPage() {
           <StatCard
             label="Est. Revenue (MTD)"
             value={revenueDisplay}
-            sub={`From ${revenueEligibleShipments.length} bookings`}
+            sub={`From ${revenueEligibleCount} bookings`}
             icon={BadgeIndianRupee}
             tooltip="Estimated markup earned this month, backed out from each shipment's quoted total using the markup % applied at booking."
           />
@@ -490,20 +344,20 @@ export default async function ArenaDashboardPage() {
                       <TableRow key={s.id} className="cursor-pointer">
                         <TableCell className="pl-6">
                           <p className="text-sm font-medium leading-tight">
-                            {s.org.companyName || s.org.name}
+                            {s.orgName}
                           </p>
                           <p className="text-xs text-muted-foreground mt-0.5">
-                            {s.client?.companyName ?? "Own shipment"}
+                            {s.clientName ?? "Own shipment"}
                           </p>
                         </TableCell>
                         <TableCell className="font-mono text-xs">
-                          {s.pickupAddress.city} → {s.deliveryAddress.city}
+                          {s.pickupCity} → {s.deliveryCity}
                         </TableCell>
                         <TableCell className="text-xs text-muted-foreground">
                           {s.selectedVendorName ?? "—"}
                         </TableCell>
                         <TableCell className="text-sm tabular-nums font-medium">
-                          {s.quotedTotal ? formatMoney(s.quotedTotal.toString(), s.currency) : "—"}
+                          {s.quotedTotal != null ? formatMoney(s.quotedTotal, s.currency) : "—"}
                         </TableCell>
                         <TableCell className="pr-6">
                           <ShipmentStatusBadge status={s.status} />
@@ -550,7 +404,7 @@ export default async function ArenaDashboardPage() {
                 <ReviewRow
                   icon={Upload}
                   label="Rate cards staged"
-                  count={stagedRateVersions.length}
+                  count={stagedRateVersionsCount}
                   href="/arena-dashboard/rate-cards"
                 />
                 <Separator />
@@ -582,7 +436,7 @@ export default async function ArenaDashboardPage() {
                         <div>
                           <p className="text-sm font-medium">{rv.vendor}</p>
                           <p className="text-xs text-muted-foreground mt-0.5">
-                            Effective {formatDate(rv.effectiveFrom)}
+                            Effective {formatDate(new Date(rv.effectiveFromIso))}
                           </p>
                         </div>
                         <Badge
@@ -644,7 +498,7 @@ export default async function ArenaDashboardPage() {
                           </div>
                           <div>
                             <span className="text-sm font-medium">
-                              {org.companyName || org.name}
+                              {org.name}
                             </span>
                             {org.isBusinessAssociate && (
                               <Badge variant="secondary" className="ml-2 text-[10px] px-1.5 h-4">
@@ -659,7 +513,7 @@ export default async function ArenaDashboardPage() {
                       </TableCell>
                       <TableCell className="text-sm tabular-nums">{org.bookings30d}</TableCell>
                       <TableCell className="pr-6 text-sm tabular-nums">
-                        {Number(org.markupPercent).toFixed(1)}%
+                        {org.markupPercent.toFixed(1)}%
                       </TableCell>
                     </TableRow>
                   ))}

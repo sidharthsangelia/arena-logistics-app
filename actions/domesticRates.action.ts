@@ -1,6 +1,6 @@
 "use server";
 
-import { activateRateVersion,  submitRateJob } from "@/lib/services/domesticRate.service";
+import { activateRateVersion, submitRateJob, getActiveRateVersionId } from "@/lib/services/domesticRate.service";
 import { auth } from "@clerk/nextjs/server";
 
 
@@ -150,13 +150,11 @@ async function buildQuoteForVendor(
 ): Promise<{ quote: DomesticRateQuote | null; error: DomesticVendorError | null }> {
   const vendorName = VENDOR_LABEL[vendorId] ?? vendorId;
 
-  // 1. Active, non-staged rate version for this vendor
-  const version = await prisma.rateVersion.findFirst({
-    where: { vendor: vendorId, isActive: true, isStaged: false },
-    orderBy: { activatedAt: "desc" },
-  });
+  // 1. Active, non-staged rate version for this vendor (cached — see
+  // getActiveRateVersionId's doc comment for why this is safe to cache)
+  const versionId = await getActiveRateVersionId(vendorId);
 
-  if (!version) {
+  if (!versionId) {
     return {
       quote: null,
       error: {
@@ -170,7 +168,7 @@ async function buildQuoteForVendor(
   // 2. Matching rate cards for this version + origin/destination/cargo
   const rateCards = await prisma.rateCard.findMany({
     where: {
-      versionId: version.id,
+      versionId,
       vendor: vendorId,
       origin: input.origin,
       destination: input.destination,
@@ -196,7 +194,7 @@ async function buildQuoteForVendor(
 
   // 3. AWB-level charges for this version (fuel surcharge, AWB fee, etc.)
   const awbCharges = await prisma.vendorAwbCharge.findMany({
-    where: { versionId: version.id, vendor: vendorId },
+    where: { versionId, vendor: vendorId },
   });
 
   let best: {
@@ -351,7 +349,7 @@ async function buildQuoteForVendor(
       charges,
       meta: {
         rateCardId: card.id,
-        versionId: version.id,
+        versionId,
         cargoType: input.cargoType,
         chargeableWeightKg: chargeableWeight,
         actualWeightKg: input.actualWeightKg,
