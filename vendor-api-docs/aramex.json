@@ -1,0 +1,42 @@
+{
+	"info": {
+		"_postman_id": "bc23cfd2-2358-4c13-99c1-86de06223460",
+		"name": "Rate calculator",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Rate calculator",
+			"request": {
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\r\n    \"ClientInfo\": {\r\n        \"UserName\": \"test.api@aramex.com\",\r\n        \"Password\": \"Aramex@12345\",\r\n        \"Version\": \"v1.0\",\r\n        \"AccountNumber\": \"60531487\",\r\n        \"AccountPin\": \"654654\",\r\n        \"AccountEntity\": \"BOM\",\r\n        \"AccountCountryCode\": \"IN\",\r\n        \"Source\": 24\r\n    },\r\n    \"OriginAddress\": {\r\n        \"Line1\": \"testaddress1\",\r\n        \"Line2\": \"\",\r\n        \"Line3\": \"\",\r\n        \"City\": \"Mumbai\",\r\n        \"StateOrProvinceCode\": \"\",\r\n        \"PostCode\": \"400093\",\r\n        \"CountryCode\": \"IN\"\r\n    },\r\n    \"DestinationAddress\": {\r\n        \"Line1\": \"testaddessss\",\r\n        \"Line2\": \"\",\r\n        \"Line3\": \"\",\r\n        \"City\": \"Dubai\",\r\n        \"StateOrProvinceCode\": \"\",\r\n        \"PostCode\": \"\",\r\n        \"CountryCode\": \"AE\"\r\n    },\r\n    \"ShipmentDetails\": {\r\n        \"Dimensions\": {\r\n            \"Length\": 30,\r\n            \"Width\": 30,\r\n            \"Height\": 30,\r\n            \"Unit\": \"cm\"\r\n        },\r\n        \"ActualWeight\": {\r\n            \"Unit\": \"KG\",\r\n            \"Value\": 1.4\r\n        },\r\n        \"ChargeableWeight\": null,\r\n        \"DescriptionOfGoods\": \"test\",\r\n        \"GoodsOriginCountry\": \"IN\",\r\n        \"NumberOfPieces\": 1,\r\n        \"ProductGroup\": \"EXP\",\r\n        \"ProductType\": \"PPX\",\r\n        \"PaymentType\": \"P\",\r\n        \"PaymentOptions\": \"\",\r\n        \"Services\": \"\"\r\n    }\r\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "https://ws.aramex.net/ShippingAPI.V2/RateCalculator/Service_1_0.svc/json/CalculateRate",
+					"protocol": "https",
+					"host": [
+						"ws",
+						"aramex",
+						"net"
+					],
+					"path": [
+						"ShippingAPI.V2",
+						"RateCalculator",
+						"Service_1_0.svc",
+						"json",
+						"CalculateRate"
+					]
+				}
+			},
+			"response": []
+		}
+	]
+}
