@@ -74,8 +74,33 @@ function validateRequest(body: unknown): string | null {
   }
 
   const shipment = b.shipment as Record<string, unknown>;
+
+  // Two accepted shapes:
+  //   1. Multi-piece (preferred): shipment.packages = [{ quantity, weightKg,
+  //      lengthCm, widthCm, heightCm }, ...]
+  //   2. Legacy single-package: shipment.weight (total) + shipment.quantity
+  const packages = shipment.packages;
+  if (Array.isArray(packages)) {
+    if (packages.length === 0) {
+      return "shipment.packages must contain at least one package";
+    }
+    for (const [i, pkg] of packages.entries()) {
+      if (typeof pkg !== "object" || pkg === null) {
+        return `shipment.packages[${i}] must be an object`;
+      }
+      const p = pkg as Record<string, unknown>;
+      if (typeof p.weightKg !== "number" || p.weightKg <= 0) {
+        return `shipment.packages[${i}].weightKg must be a positive number`;
+      }
+      if (typeof p.quantity !== "number" || p.quantity < 1) {
+        return `shipment.packages[${i}].quantity must be at least 1`;
+      }
+    }
+    return null;
+  }
+
   if (typeof shipment.weight !== "number" || shipment.weight <= 0) {
-    return "shipment.weight must be a positive number";
+    return "shipment.weight must be a positive number (or provide shipment.packages)";
   }
   if (typeof shipment.quantity !== "number" || shipment.quantity < 1) {
     return "shipment.quantity must be at least 1";

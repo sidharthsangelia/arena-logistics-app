@@ -10,6 +10,10 @@ import type {
   AramexRateRequest,
   AramexRateResponse,
 } from "./aramex.types";
+import {
+  computeShipmentWeights,
+  normalizePackages,
+} from "@/lib/pricing/chargeableWeight";
 
 const ARAMEX_API_URL =
   process.env.ARAMEX_API_URL ??
@@ -24,8 +28,26 @@ export class AramexAdapter extends BaseVendorAdapter<
 
   /**
    * Canonical → Aramex
+   *
+   * Aramex's rate calculator has no true multi-piece input — it takes a single
+   * Dimensions block + ActualWeight + NumberOfPieces. So we normalise the
+   * shipment to ONE chargeable weight (per-package max → sum) and feed it as
+   * ActualWeight, with nominal 1×1×1 dimensions so Aramex's own
+   * max(actual, volumetric) can never exceed the number we computed. This
+   * works regardless of whether a given Aramex account honours an explicit
+   * ChargeableWeight, which is why we drive it through ActualWeight instead.
+   * NumberOfPieces stays the real piece count so any per-piece minimums still
+   * apply correctly.
    */
   protected transformRequest(input: CanonicalRateRequest): AramexRateRequest {
+    const packages = normalizePackages({
+      packages: input.shipment.packages,
+      weight: input.shipment.weight,
+      quantity: input.shipment.quantity,
+      dimensions: input.shipment.dimensions,
+    });
+    const weights = computeShipmentWeights(packages);
+
     return {
       ClientInfo: {
         UserName: process.env.ARAMEX_USERNAME ?? "",
@@ -60,16 +82,20 @@ export class AramexAdapter extends BaseVendorAdapter<
       },
 
       ShipmentDetails: {
+        // Nominal 1×1×1 box: volumetric ≈ 0, so Aramex's internal
+        // max(actual, volumetric) resolves to the ActualWeight we set below —
+        // which is already the normalised total chargeable weight.
         Dimensions: {
-          Length: input.shipment.dimensions.length,
-          Width: input.shipment.dimensions.width,
-          Height: input.shipment.dimensions.height,
+          Length: 1,
+          Width: 1,
+          Height: 1,
           Unit: "cm",
         },
 
         ActualWeight: {
           Unit: "KG",
-          Value: input.shipment.weight,
+          // Normalised total chargeable weight (per-package max → sum)
+          Value: weights.totalChargeableKg,
         },
 
         ChargeableWeight: null,
@@ -81,7 +107,7 @@ export class AramexAdapter extends BaseVendorAdapter<
           input.shipment.goodsOriginCountry ??
           input.origin.countryCode,
 
-        NumberOfPieces: input.shipment.quantity,
+        NumberOfPieces: weights.totalPieces,
 
         ProductGroup: "EXP",
         ProductType: "PPX",

@@ -19,6 +19,7 @@ import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 
 import type { BookingFormData, ServiceOption } from "@/types/booking.types";
+import type { RateRequest } from "@/lib/types";
 import { getRatesAction } from "@/actions/rates.action";
 import { COUNTRY_TO_ISO } from "@/utils/data";
 
@@ -31,34 +32,35 @@ function toISO(country: string): string {
 /**
  * Builds the rate request payload.
  *
- * IMPORTANT: this now sends the *full* item list (one entry per line item,
- * each with its own weight/dimensions/quantity) instead of only the first
- * package's dimensions combined with the total weight of every package —
- * the old version silently mispriced any shipment with more than one
- * differently-sized package.
+ * Sends the real per-box `packages` array (one entry per line item, each
+ * with its own per-box weight, dimensions and quantity). The adapters decide
+ * per vendor how to consume it: Shipmozo takes the multi-box array natively;
+ * Skart and Aramex collapse it to one chargeable weight via
+ * lib/pricing/chargeableWeight (per-package max → sum). This replaces the old
+ * "sum weight + largest single box" hack that mispriced mixed shipments.
  *
- * No chargeable/volumetric weight is computed here, per spec — the carrier
- * API receives the raw per-item data and is responsible for that math.
+ * The legacy single `weight`/`quantity`/`dimensions` fields are still derived
+ * as a fallback so any external consumer of the same shape keeps working, but
+ * `packages` is the source of truth once present.
  *
- * NOTE: `RateRequest` (from `@/lib/types`) currently only has a single
- * `dimensions` object under `shipment`, not an array. This builder sends
- * the full array as `shipment.items` and ALSO derives the old aggregate
- * `weight` / `quantity` / `dimensions` fields (from the highest-volume
- * item) as a fallback so existing vendor adapters that only read the
- * legacy shape keep working. To get genuinely correct multi-package
- * pricing, `RateRequest`, `getRates`, and each vendor adapter need to be
- * extended to consume `shipment.items` directly — flagging this as a
- * follow-up since those files weren't available here.
+ * `declaredValue` (total declared goods value) is sent for Shipmozo's customs
+ * duty calculation.
  */
-function buildRateRequest(data: BookingFormData) {
+function buildRateRequest(data: BookingFormData): RateRequest {
   const items = data.items;
   if (!items.length) throw new Error("At least one item is required.");
 
-  // Legacy fallback dimensions: the single largest-volume item, so an
-  // adapter reading only `dimensions` doesn't undersize the shipment.
-  const largest = items.reduce((a, b) =>
-    a.lengthCm * a.widthCm * a.heightCm > b.lengthCm * b.widthCm * b.heightCm ? a : b,
-  );
+  const packages = items.map((it) => ({
+    quantity: Math.max(1, Math.trunc(Number(it.quantity) || 1)),
+    weightKg: Number(it.weightKg) || 0, // per-box actual weight
+    lengthCm: Number(it.lengthCm) || 0,
+    widthCm: Number(it.widthCm) || 0,
+    heightCm: Number(it.heightCm) || 0,
+  }));
+
+  const totalWeight = items.reduce((s, it) => s + Number(it.weightKg) * Number(it.quantity), 0);
+  const totalPieces = items.reduce((s, it) => s + Number(it.quantity), 0);
+  const declaredValue = items.reduce((s, it) => s + Number(it.unitValue) * Number(it.quantity), 0);
 
   return {
     origin: {
@@ -76,30 +78,19 @@ function buildRateRequest(data: BookingFormData) {
       line1: data.consignee.addressLine1,
     },
     shipment: {
-      // Full per-item breakdown — preferred path for carriers/adapters
-      // that support multi-piece shipments.
-      items: items.map((it) => ({
-        description: it.description || "General Cargo",
-        quantity: it.quantity,
-        weightKg: it.weightKg,
-        lengthCm: it.lengthCm,
-        widthCm: it.widthCm,
-        heightCm: it.heightCm,
-        hsCode: it.hsCode,
-        goodsOriginCountry: toISO(it.countryOfOrigin || "India"),
-        declaredValue: it.unitValue * it.quantity,
-      })),
-      // Legacy aggregate fields — fallback for single-dimension adapters.
-      weight: items.reduce((s, it) => s + it.weightKg * it.quantity, 0),
-      quantity: items.reduce((s, it) => s + it.quantity, 0),
+      // Preferred multi-piece path.
+      packages,
+      declaredValue,
+      description: items[0]?.description || "General Cargo",
+      // Legacy aggregate fallback (first box represents dimensions).
+      weight: totalWeight,
+      quantity: totalPieces,
       dimensions: {
-        length: Math.max(Number(largest.lengthCm) || 0, 1),
-        width:  Math.max(Number(largest.widthCm)  || 0, 1),
-        height: Math.max(Number(largest.heightCm) || 0, 1),
+        length: Math.max(Number(items[0]?.lengthCm) || 0, 1),
+        width: Math.max(Number(items[0]?.widthCm) || 0, 1),
+        height: Math.max(Number(items[0]?.heightCm) || 0, 1),
         unit: "cm" as const,
       },
-      description: items[0]?.description || "General Cargo",
-      goodsOriginCountry: toISO(items[0]?.countryOfOrigin || "India"),
     },
   };
 }
@@ -288,7 +279,7 @@ export default function ServiceSelectionStep({
     startTransition(async () => {
       try {
         const request = buildRateRequest(formData);
-        const result  = await getRatesAction(request as any);
+        const result  = await getRatesAction(request);
 
         if (!result.success && result.quotes.length === 0) {
           setFetchError(result.error ?? "No rates returned from carriers.");

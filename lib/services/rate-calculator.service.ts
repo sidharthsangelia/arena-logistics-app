@@ -20,6 +20,7 @@ import type {
   RateQuote,
   VendorError,
 } from "../rate-adapters/core/types";
+import { applyMarkup } from "@/lib/pricing/markup";
 
 import { Decimal } from "@/generated/prisma/runtime/client";
 
@@ -71,26 +72,13 @@ export async function getRates(
 
   results.forEach((result, idx) => {
     if (result.status === "fulfilled") {
-      // Apply organisation markup to every quote before exposing it to the
-      // caller. The vendor quote itself remains untouched internally.
-      const markedUpQuotes = result.value.quotes.map((quote) => {
-        const markupAmount =
-          quote.totalWithTax * (markupPercent / 100);
-
-        return {
-          ...quote,
-
-          // overwrite customer-facing price
-          totalWithTax: Number(
-            (quote.totalWithTax + markupAmount).toFixed(2)
-          ),
-
-          // optional future reporting fields
-          vendorCost: quote.totalWithTax,
-          markupPercent,
-          markupAmount: Number(markupAmount.toFixed(2)),
-        };
-      });
+      // Apply the org (client/BA) markup to every quote via the single shared
+      // markup path (lib/pricing/markup). This keeps the breakdown internally
+      // consistent and NEVER leaks the raw vendor cost to the customer — the
+      // customer only ever sees marked-up numbers.
+      const markedUpQuotes = result.value.quotes.map((quote) =>
+        applyMarkup(quote, markupPercent),
+      );
 
       quotes.push(...markedUpQuotes);
 

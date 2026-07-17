@@ -36,15 +36,15 @@ export const metadata: Metadata = {
 
 export default function RatesPage() {
   return (
-    <main className="min-h-screen bg-slate-50 dark:bg-slate-950">
+    <main className="min-h-screen bg-muted/30">
       <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:px-8">
 
         {/* Page header — server-rendered, no JS required */}
         <div className="mb-8">
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-50">
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">
             Rate Calculator
           </h1>
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+          <p className="mt-1 text-sm text-muted-foreground">
             Get live freight rates from multiple carriers in seconds.
           </p>
         </div>
