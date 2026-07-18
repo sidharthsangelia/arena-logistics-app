@@ -639,7 +639,7 @@ function CarrierPicker({
           </Button>
         </PopoverTrigger>
         <PopoverContent align="start" className="w-[--radix-popover-trigger-width] p-1.5">
-          {AVAILABLE_VENDORS.map((vendor) => {
+          {vendors.map((vendor) => {
             const checked = selected.includes(vendor.id);
             return (
               <label
