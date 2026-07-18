@@ -22,6 +22,12 @@ import type { BookingFormData, ServiceOption } from "@/types/booking.types";
 import type { RateRequest } from "@/lib/types";
 import { getRatesAction } from "@/actions/rates.action";
 import { COUNTRY_TO_ISO } from "@/utils/data";
+import {
+  boxesToRatePackages,
+  totalActualWeight,
+  totalBoxCount,
+  totalDeclaredValue,
+} from "@/lib/booking/cargo";
 
 function toISO(country: string): string {
   if (!country) return "";
@@ -47,20 +53,15 @@ function toISO(country: string): string {
  * duty calculation.
  */
 function buildRateRequest(data: BookingFormData): RateRequest {
-  const items = data.items;
-  if (!items.length) throw new Error("At least one item is required.");
+  const boxes = data.boxes;
+  if (!boxes.length) throw new Error("At least one box is required.");
 
-  const packages = items.map((it) => ({
-    quantity: Math.max(1, Math.trunc(Number(it.quantity) || 1)),
-    weightKg: Number(it.weightKg) || 0, // per-box actual weight
-    lengthCm: Number(it.lengthCm) || 0,
-    widthCm: Number(it.widthCm) || 0,
-    heightCm: Number(it.heightCm) || 0,
-  }));
+  const packages = boxesToRatePackages(boxes);
 
-  const totalWeight = items.reduce((s, it) => s + Number(it.weightKg) * Number(it.quantity), 0);
-  const totalPieces = items.reduce((s, it) => s + Number(it.quantity), 0);
-  const declaredValue = items.reduce((s, it) => s + Number(it.unitValue) * Number(it.quantity), 0);
+  const totalWeight = totalActualWeight(boxes);
+  const totalPieces = totalBoxCount(boxes);
+  const declaredValue = totalDeclaredValue(boxes);
+  const firstDescription = boxes[0]?.contents[0]?.description || "General Cargo";
 
   return {
     origin: {
@@ -81,14 +82,14 @@ function buildRateRequest(data: BookingFormData): RateRequest {
       // Preferred multi-piece path.
       packages,
       declaredValue,
-      description: items[0]?.description || "General Cargo",
+      description: firstDescription,
       // Legacy aggregate fallback (first box represents dimensions).
       weight: totalWeight,
       quantity: totalPieces,
       dimensions: {
-        length: Math.max(Number(items[0]?.lengthCm) || 0, 1),
-        width: Math.max(Number(items[0]?.widthCm) || 0, 1),
-        height: Math.max(Number(items[0]?.heightCm) || 0, 1),
+        length: Math.max(Number(boxes[0]?.lengthCm) || 0, 1),
+        width: Math.max(Number(boxes[0]?.widthCm) || 0, 1),
+        height: Math.max(Number(boxes[0]?.heightCm) || 0, 1),
         unit: "cm" as const,
       },
     },
@@ -215,8 +216,8 @@ function RateCard({
 // ---------------------------------------------------------------------------
 
 function RouteSummary({ data }: { data: BookingFormData }) {
-  const totalWeight = data.items.reduce((s, it) => s + it.weightKg * it.quantity, 0);
-  const totalPieces = data.items.reduce((s, it) => s + it.quantity, 0);
+  const totalWeight = totalActualWeight(data.boxes);
+  const totalPieces = totalBoxCount(data.boxes);
 
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border bg-muted/40 px-4 py-3 text-xs text-muted-foreground">
@@ -224,7 +225,7 @@ function RouteSummary({ data }: { data: BookingFormData }) {
         {data.consignor.city} → {data.consignee.city}, {data.consignee.country}
       </span>
       <Separator orientation="vertical" className="h-3" />
-      <span>{totalPieces} pc{totalPieces !== 1 ? "s" : ""}</span>
+      <span>{totalPieces} box{totalPieces !== 1 ? "es" : ""}</span>
       <Separator orientation="vertical" className="h-3" />
       <span>{totalWeight.toFixed(2)} kg</span>
     </div>
@@ -337,7 +338,7 @@ export default function ServiceSelectionStep({
         </Button>
       </div>
 
-      {formData.items.length > 0 && <RouteSummary data={formData} />}
+      {formData.boxes.length > 0 && <RouteSummary data={formData} />}
 
       {isPending && <RateSkeleton />}
 

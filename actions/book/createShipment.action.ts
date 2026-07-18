@@ -41,8 +41,13 @@ import {
   ShipmentDocType,
   PartyType,
 } from "@/generated/prisma";
-import type { BookingFormData, ShipmentItem } from "@/types/booking.types";
+import type { BookingFormData, CargoBox } from "@/types/booking.types";
 import { Decimal } from "@/generated/prisma/runtime/client";
+import {
+  totalActualWeight as cargoTotalWeight,
+  totalDeclaredValue as cargoDeclaredValue,
+  boxDeclaredValue,
+} from "@/lib/booking/cargo";
 import {
   debitWalletForShipment,
   InsufficientFundsError,
@@ -166,36 +171,41 @@ function preflight(data: BookingFormData): PreflightResult {
       "The selected service has an invalid price. Please re-select a rate.";
   }
 
-  // Packages
-  if (!data.items?.length) {
-    fieldErrors.items = "At least one shipment item is required.";
+  // Boxes
+  if (!data.boxes?.length) {
+    fieldErrors.boxes = "At least one box is required.";
   }
 
-  for (const [i, item] of (data.items ?? []).entries()) {
-    const w = Number(item.weightKg);
-    const l = Number(item.lengthCm);
-    const wd = Number(item.widthCm);
-    const h = Number(item.heightCm);
-    const uv = Number(item.unitValue);
-    const qty = Number(item.quantity);
+  for (const [bi, box] of (data.boxes ?? []).entries()) {
+    const w = Number(box.weightKg);
+    const l = Number(box.lengthCm);
+    const wd = Number(box.widthCm);
+    const h = Number(box.heightCm);
+    const qty = Number(box.quantity);
 
-    if (!w || w <= 0) {
-      fieldErrors[`items.${i}.weightKg`] = "Weight must be positive.";
-    }
-    if (!l || l <= 0) {
-      fieldErrors[`items.${i}.lengthCm`] = "Length must be positive.";
-    }
-    if (!wd || wd <= 0) {
-      fieldErrors[`items.${i}.widthCm`] = "Width must be positive.";
-    }
-    if (!h || h <= 0) {
-      fieldErrors[`items.${i}.heightCm`] = "Height must be positive.";
-    }
-    if (!Number.isFinite(uv) || uv < 0) {
-      fieldErrors[`items.${i}.unitValue`] = "Unit value is invalid.";
-    }
+    if (!w || w <= 0) fieldErrors[`boxes.${bi}.weightKg`] = "Weight must be positive.";
+    if (!l || l <= 0) fieldErrors[`boxes.${bi}.lengthCm`] = "Length must be positive.";
+    if (!wd || wd <= 0) fieldErrors[`boxes.${bi}.widthCm`] = "Width must be positive.";
+    if (!h || h <= 0) fieldErrors[`boxes.${bi}.heightCm`] = "Height must be positive.";
     if (!Number.isFinite(qty) || qty < 1) {
-      fieldErrors[`items.${i}.quantity`] = "Quantity is invalid.";
+      fieldErrors[`boxes.${bi}.quantity`] = "Number of boxes is invalid.";
+    }
+
+    if (!box.contents?.length) {
+      fieldErrors[`boxes.${bi}.contents`] = "Add at least one item to this box.";
+    }
+    for (const [ii, item] of (box.contents ?? []).entries()) {
+      const uv = Number(item.unitValue);
+      const iqty = Number(item.quantity);
+      if (!item.description?.trim()) {
+        fieldErrors[`boxes.${bi}.contents.${ii}.description`] = "Description is required.";
+      }
+      if (!Number.isFinite(uv) || uv < 0) {
+        fieldErrors[`boxes.${bi}.contents.${ii}.unitValue`] = "Value is invalid.";
+      }
+      if (!Number.isFinite(iqty) || iqty < 1) {
+        fieldErrors[`boxes.${bi}.contents.${ii}.quantity`] = "Quantity is invalid.";
+      }
     }
   }
 
@@ -212,16 +222,9 @@ function preflight(data: BookingFormData): PreflightResult {
     };
   }
 
-  // All coercions are safe here — we validated finiteness above
-  const totalWeightKg = data.items.reduce(
-    (sum, item) => sum + Number(item.weightKg) * Number(item.quantity),
-    0,
-  );
-
-  const declaredTotal = data.items.reduce(
-    (sum, item) => sum + Number(item.unitValue) * Number(item.quantity),
-    0,
-  );
+  // All coercions are safe here — we validated finiteness above.
+  const totalWeightKg = cargoTotalWeight(data.boxes);
+  const declaredTotal = cargoDeclaredValue(data.boxes);
 
   const servicePrice = Number(data.selectedService!.price);
 
@@ -265,21 +268,32 @@ async function assertKycComplete(
 }
 
 // ---------------------------------------------------------------------------
-// Package row builder — every field explicitly coerced with Number(...)
+// Package (box) row builder — one PackageItem per box, with its items nested
+// as PackageContentItem rows. Every numeric field is coerced with Number(...)
 // before .toFixed()/Decimal, since these values may have crossed a
 // client→server (JSON) boundary as strings.
 // ---------------------------------------------------------------------------
 
-function buildPackageRow(item: ShipmentItem) {
-  const weightKg = toFiniteNumber(item.weightKg, "item.weightKg");
-  const lengthCm = toFiniteNumber(item.lengthCm, "item.lengthCm");
-  const widthCm = toFiniteNumber(item.widthCm, "item.widthCm");
-  const heightCm = toFiniteNumber(item.heightCm, "item.heightCm");
-  const unitValue = toFiniteNumber(item.unitValue, "item.unitValue");
-  const quantity = Math.trunc(toFiniteNumber(item.quantity, "item.quantity"));
+function buildPackageRow(box: CargoBox, currency: string) {
+  const weightKg = toFiniteNumber(box.weightKg, "box.weightKg");
+  const lengthCm = toFiniteNumber(box.lengthCm, "box.lengthCm");
+  const widthCm = toFiniteNumber(box.widthCm, "box.widthCm");
+  const heightCm = toFiniteNumber(box.heightCm, "box.heightCm");
+  const quantity = Math.trunc(toFiniteNumber(box.quantity, "box.quantity"));
+
+  // Declared value of one box's contents (not multiplied by box quantity —
+  // that multiplication lives on the box's own `quantity`).
+  const boxValue = boxDeclaredValue(box);
+
+  const description =
+    box.contents
+      .map((c) => c.description)
+      .filter(Boolean)
+      .join(", ") || "Package";
+  const boxHsCode = box.contents.find((c) => c.hsCode)?.hsCode || null;
 
   return {
-    description: item.description,
+    description,
     quantity,
 
     lengthCm: new Decimal(lengthCm.toFixed(2)),
@@ -287,11 +301,21 @@ function buildPackageRow(item: ShipmentItem) {
     heightCm: new Decimal(heightCm.toFixed(2)),
     weightKg: new Decimal(weightKg.toFixed(2)),
 
-    declaredValue: unitValue > 0 ? new Decimal(unitValue.toFixed(2)) : null,
+    declaredValue: boxValue > 0 ? new Decimal(boxValue.toFixed(2)) : null,
+    declaredCurrency: currency,
+    hsCode: boxHsCode,
 
-    declaredCurrency: "INR",
-
-    hsCode: item.hsCode || null,
+    contents: {
+      create: box.contents.map((c) => ({
+        description: c.description,
+        hsCode: c.hsCode || null,
+        quantity: Math.trunc(toFiniteNumber(c.quantity, "item.quantity")),
+        unitValue: new Decimal(
+          toFiniteNumber(c.unitValue, "item.unitValue").toFixed(2),
+        ),
+        currency,
+      })),
+    },
   };
 }
 
@@ -471,6 +495,9 @@ export async function createShipmentAction(
             shipmentNumber,
             clientId: data.selectedClient?.id ?? null,
 
+            shipmentType: data.shipmentType,
+            pickupIncluded: data.pickupIncluded,
+
             pickupAddressId: pickupAddress.id,
             deliveryAddressId: deliveryAddress.id,
             billingAddressId,
@@ -496,7 +523,7 @@ export async function createShipmentAction(
             status: ShipmentStatus.PENDING_PAYMENT,
 
             packages: {
-              create: data.items.map(buildPackageRow),
+              create: data.boxes.map((box) => buildPackageRow(box, data.currency)),
             },
           },
           select: { id: true, shipmentNumber: true },
@@ -624,7 +651,7 @@ export async function createShipmentAction(
         tags: { step: "dbTransaction", orgId: dbOrgId },
         extra: {
           shipmentOwnerMode: data.shipmentOwnerMode,
-          itemCount: data.items.length,
+          boxCount: data.boxes.length,
           selectedVendor: data.selectedService?.vendorId,
           servicePrice,
         },

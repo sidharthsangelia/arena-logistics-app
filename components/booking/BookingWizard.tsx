@@ -39,6 +39,7 @@ import ServiceSelectionStep from "./steps/ServiceStep";
 import { SenderPickupStep } from "./steps/SenderPickupStep";
 import { DeliveryBillingStep } from "./steps/DeliveryBillingStep";
 import { createShipmentAction } from "@/actions/book/createShipment.action";
+import { totalDeclaredValue as cargoDeclaredValue } from "@/lib/booking/cargo";
 import ShipmentDetailsStep from "./steps/ShipmentDetailStep";
 import { TopUpModal } from "@/components/wallet/TopUpModal";
 
@@ -47,7 +48,7 @@ import { TopUpModal } from "@/components/wallet/TopUpModal";
 // ---------------------------------------------------------------------------
 
 function totalDeclaredValue(data: BookingFormData): number {
-  return data.items.reduce((s, it) => s + it.unitValue * it.quantity, 0);
+  return cargoDeclaredValue(data.boxes);
 }
 
 // Steps validated against RHF-registered fields via getValues() + a zod schema.

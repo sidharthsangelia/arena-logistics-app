@@ -106,11 +106,14 @@ const initialFormData: BookingFormData = {
     country: "",
   },
 
+  shipmentType: "CSB4",
+  pickupIncluded: false,
+
   invoiceMode: "GENERATE",
   uploadedInvoice: null,
   invoiceNumber: "",
   currency: "INR",
-  items: [],
+  boxes: [],
 
   selectedService: null,
 };

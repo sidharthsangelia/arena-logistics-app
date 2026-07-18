@@ -102,26 +102,32 @@ export const deliveryBillingSchema = z
 // invoice PDF instead of generating one.
 // ---------------------------------------------------------------------------
 
-const shipmentItemSchema = z.object({
+const boxContentItemSchema = z.object({
   id: z.string(),
   description: z.string().min(2, "Description is required"),
   hsCode: z.string().min(4, "HSN code must be at least 4 digits"),
-  countryOfOrigin: z.string().min(2, "Country of origin is required"),
   quantity: z.number().min(1, "Quantity must be at least 1"),
-  weightKg: z.number().positive("Weight must be greater than 0"),
+  unitValue: z.number().min(0, "Value cannot be negative"),
+});
+
+const cargoBoxSchema = z.object({
+  id: z.string(),
   lengthCm: z.number().positive("Length must be greater than 0"),
   widthCm: z.number().positive("Width must be greater than 0"),
   heightCm: z.number().positive("Height must be greater than 0"),
-  unitValue: z.number().min(0, "Unit value cannot be negative"),
+  weightKg: z.number().positive("Weight must be greater than 0"),
+  quantity: z.number().min(1, "Number of boxes must be at least 1"),
+  contents: z.array(boxContentItemSchema).min(1, "Add at least one item to this box."),
 });
 
 export const shipmentDetailsSchema = z
   .object({
+    shipmentType: z.enum(["CSB4", "CSB5", "COMMERCIAL"]),
     invoiceMode: z.enum(["UPLOAD", "GENERATE"]),
     uploadedInvoice: fileMetaSchema.nullable(),
     invoiceNumber: z.string().optional(),
     currency: z.string().min(1, "Currency is required"),
-    items: z.array(shipmentItemSchema).min(1, "Add at least one item."),
+    boxes: z.array(cargoBoxSchema).min(1, "Add at least one box."),
   })
   .superRefine((data, ctx) => {
     if (data.invoiceMode === "UPLOAD" && !data.uploadedInvoice) {

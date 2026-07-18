@@ -41,32 +41,36 @@ export interface ConsignorForm {
 }
 
 /**
- * A single line item in a shipment.
- *
- * Replaces the old PackageForm + InvoiceItem split — those two types
- * duplicated description/hsCode/countryOfOrigin/quantity and were always
- * filled in twice for the same physical item. Now there's one shape that
- * carries both the commercial attributes (unitValue) needed for the
- * invoice/customs/KYC threshold, and the physical attributes (weight,
- * dimensions) needed for carrier rating — both are required regardless of
- * whether the user uploads their own invoice or generates one, since
- * rating and KYC need this data either way.
- *
- * Currency is intentionally NOT per-item — it lives once on
- * BookingFormData.currency, so totals can never silently mix currencies.
+ * One line item packed inside a box (Description / HSN / Qty / unit value).
+ * A box can hold many. Values are all in BookingFormData.currency — currency
+ * is never per-item, so totals can't silently mix currencies.
  */
-export interface ShipmentItem {
+export interface BoxContentItem {
   id: string;
   description: string;
   hsCode: string;
-  countryOfOrigin: string;
   quantity: number;
-  weightKg: number;
+  unitValue: number;
+}
+
+/**
+ * A physical box. `quantity` = how many identical boxes (same dimensions,
+ * weight AND contents). The UI tells the user to add a separate box only when
+ * one of those differs; otherwise they just bump this quantity. Carrier rating
+ * uses the dimensions + weight; the invoice/customs/KYC threshold uses the
+ * contents' declared value.
+ */
+export interface CargoBox {
+  id: string;
   lengthCm: number;
   widthCm: number;
   heightCm: number;
-  unitValue: number;
+  weightKg: number;
+  quantity: number;
+  contents: BoxContentItem[];
 }
+
+export type ShipmentTypeValue = "CSB4" | "CSB5" | "COMMERCIAL";
 
 export interface ServiceOption {
   vendorId: string;
@@ -122,13 +126,19 @@ export interface BookingFormData {
   billingSameAsDelivery: boolean;
   billing: ConsignorForm;
 
+  /** CSB4 / CSB5 / COMMERCIAL — auto-suggested from total value, then user-adjustable. */
+  shipmentType: ShipmentTypeValue;
+
+  /** Door pickup opt-in — drives the first-mile (door → hub) step later. */
+  pickupIncluded: boolean;
+
   invoiceMode: InvoiceMode;
   uploadedInvoice: FileMeta | null;
   invoiceNumber?: string;
 
   /** Single currency for the whole shipment — every item's unitValue is in this currency. */
   currency: string;
-  items: ShipmentItem[];
+  boxes: CargoBox[];
 
   selectedService: ServiceOption | null;
 }

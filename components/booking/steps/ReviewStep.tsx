@@ -9,6 +9,12 @@ import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import type { BookingFormData, FileMeta } from "@/types/booking.types";
 import { WalletPaymentSummary } from "../WalletPaymentSummary";
+import {
+  totalActualWeight,
+  totalBoxCount,
+  totalDeclaredValue,
+  boxDeclaredValue,
+} from "@/lib/booking/cargo";
  
 
 // ---------------------------------------------------------------------------
@@ -119,22 +125,22 @@ function KycBlock({ docs }: { docs: BookingFormData["kycDocs"] }) {
 // ---------------------------------------------------------------------------
 
 function ShipmentItemsBlock({ data }: { data: BookingFormData }) {
-  const { items, currency, invoiceMode, uploadedInvoice } = data;
+  const { boxes, currency, invoiceMode, uploadedInvoice } = data;
 
-  if (!items.length) {
-    return <p className="text-sm text-muted-foreground">No items added.</p>;
+  if (!boxes.length) {
+    return <p className="text-sm text-muted-foreground">No boxes added.</p>;
   }
 
-  const totalWeight = items.reduce((s, it) => s + it.weightKg * it.quantity, 0);
-  const totalPieces = items.reduce((s, it) => s + it.quantity, 0);
-  const totalValue  = items.reduce((s, it) => s + it.unitValue * it.quantity, 0);
+  const totalWeight = totalActualWeight(boxes);
+  const boxCount = totalBoxCount(boxes);
+  const totalValue = totalDeclaredValue(boxes);
 
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
         <span className="flex items-center gap-1">
           <Scale className="h-3 w-3" />
-          {totalPieces} piece{totalPieces !== 1 ? "s" : ""} · {totalWeight.toFixed(2)} kg total
+          {boxCount} box{boxCount !== 1 ? "es" : ""} · {totalWeight.toFixed(2)} kg total
         </span>
         {invoiceMode === "UPLOAD" && uploadedInvoice && (
           <span className="flex items-center gap-1 text-green-600">
@@ -146,27 +152,34 @@ function ShipmentItemsBlock({ data }: { data: BookingFormData }) {
 
       <div className="rounded-lg border overflow-hidden text-sm">
         <div className="divide-y">
-          {items.map((item, i) => (
-            <div key={item.id} className="flex items-start justify-between gap-3 px-4 py-2.5">
-              <div className="min-w-0">
-                <p className="font-medium truncate">
-                  {i + 1}. {item.description}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  HSN {item.hsCode} · {item.countryOfOrigin} ·{" "}
-                  {item.lengthCm}×{item.widthCm}×{item.heightCm} cm
-                </p>
+          {boxes.map((box, bi) => {
+            const boxValue = boxDeclaredValue(box);
+            return (
+              <div key={box.id} className="px-4 py-2.5">
+                <div className="flex items-start justify-between gap-3">
+                  <p className="font-medium">
+                    Box {bi + 1}
+                    <span className="ml-2 text-xs font-normal text-muted-foreground">
+                      {box.lengthCm}×{box.widthCm}×{box.heightCm} cm · {box.weightKg} kg
+                      {box.quantity > 1 ? ` · ×${box.quantity}` : ""}
+                    </span>
+                  </p>
+                  <p className="shrink-0 text-xs font-medium">
+                    {currency}{" "}
+                    {(boxValue * box.quantity).toLocaleString("en-IN")}
+                  </p>
+                </div>
+                <ul className="mt-1 space-y-0.5 text-xs text-muted-foreground">
+                  {box.contents.map((it) => (
+                    <li key={it.id}>
+                      {it.description || "—"} · HSN {it.hsCode || "—"} · {it.quantity} ×{" "}
+                      {currency} {it.unitValue.toLocaleString("en-IN")}
+                    </li>
+                  ))}
+                </ul>
               </div>
-              <div className="text-right shrink-0 text-xs">
-                <p className="font-medium">
-                  {currency} {(item.unitValue * item.quantity).toLocaleString("en-IN")}
-                </p>
-                <p className="text-muted-foreground">
-                  {item.quantity} × {item.weightKg} kg
-                </p>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
         <div className="flex justify-between border-t bg-muted/30 px-4 py-2 text-xs font-medium">
           <span>Total declared value</span>
