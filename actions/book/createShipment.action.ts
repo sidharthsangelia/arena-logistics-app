@@ -436,6 +436,31 @@ export async function createShipmentAction(
           select: { id: true },
         });
 
+        // 4c-ii. Billing address — only when it differs from delivery.
+        // Otherwise billingSameAsDelivery=true and billing is read from the
+        // delivery address at invoice/display time (no separate row needed).
+        let billingAddressId: string | null = null;
+        if (!data.billingSameAsDelivery && data.billing) {
+          const billingAddress = await tx.address.create({
+            data: {
+              orgId: dbOrgId,
+              kind: "BILLING",
+              contactName: data.billing.contactName,
+              contactPhone: data.billing.phone || null,
+              contactEmail: data.billing.email || null,
+              line1: data.billing.addressLine1,
+              line2: data.billing.addressLine2 || null,
+              city: data.billing.city,
+              state: data.billing.state || null,
+              country: data.billing.country,
+              postalCode: data.billing.postalCode,
+              isDefault: false,
+            },
+            select: { id: true },
+          });
+          billingAddressId = billingAddress.id;
+        }
+
         // 4d. Shipment + PackageItems — created PENDING_PAYMENT, not BOOKED.
         // It only becomes BOOKED once the wallet debit below succeeds. If
         // the debit throws, this whole transaction rolls back and this row
@@ -448,6 +473,7 @@ export async function createShipmentAction(
 
             pickupAddressId: pickupAddress.id,
             deliveryAddressId: deliveryAddress.id,
+            billingAddressId,
             billingSameAsDelivery: data.billingSameAsDelivery,
 
             totalActualWeightKg: new Decimal(totalWeightKg.toFixed(2)),

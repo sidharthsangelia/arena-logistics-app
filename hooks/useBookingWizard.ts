@@ -93,6 +93,18 @@ const initialFormData: BookingFormData = {
   },
 
   billingSameAsDelivery: true,
+  billing: {
+    contactName: "",
+    companyName: "",
+    email: "",
+    phone: "",
+    addressLine1: "",
+    addressLine2: "",
+    city: "",
+    state: "",
+    postalCode: "",
+    country: "",
+  },
 
   invoiceMode: "GENERATE",
   uploadedInvoice: null,

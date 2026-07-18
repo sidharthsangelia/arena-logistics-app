@@ -31,7 +31,7 @@ import { listAddresses, createAddress } from "@/actions/book/addresses";
 
 // One documented cast point — RHF's Path<T> can't infer the template-literal
 // prefix, but consignor/pickup/consignee all share the same address shape.
-type AddressPrefix = "consignor" | "pickup" | "consignee";
+type AddressPrefix = "consignor" | "pickup" | "consignee" | "billing";
 function fieldPath(prefix: AddressPrefix, key: string): Path<BookingFormData> {
   return `${prefix}.${key}` as Path<BookingFormData>;
 }

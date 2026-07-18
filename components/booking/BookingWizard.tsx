@@ -26,7 +26,7 @@ import {
 } from "@/actions/book/bookingDraft.action";
 import {
   senderPickupSchema,
-  consigneeSchema,
+  deliveryBillingSchema,
   shipmentDetailsSchema,
   kycSchema,
   serviceSchema,
@@ -35,9 +35,9 @@ import {
 import ProgressSteps from "./ProgessSteps";
 import ReviewStep from "./steps/ReviewStep";
 import KycStep from "./steps/KycStep";
-import ConsigneeStep from "./steps/ConsigneeStep";
 import ServiceSelectionStep from "./steps/ServiceStep";
 import { SenderPickupStep } from "./steps/SenderPickupStep";
+import { DeliveryBillingStep } from "./steps/DeliveryBillingStep";
 import { createShipmentAction } from "@/actions/book/createShipment.action";
 import ShipmentDetailsStep from "./steps/ShipmentDetailStep";
 import { TopUpModal } from "@/components/wallet/TopUpModal";
@@ -55,7 +55,7 @@ function totalDeclaredValue(data: BookingFormData): number {
 // items via updateFormData, not RHF register) and validated separately below.
 const RHF_STEP_SCHEMAS: Record<number, any> = {
   [STEP.SENDER]: senderPickupSchema,
-  [STEP.CONSIGNEE]: consigneeSchema,
+  [STEP.CONSIGNEE]: deliveryBillingSchema,
   [STEP.KYC]: kycSchema,
   [STEP.SERVICE]: serviceSchema,
 };
@@ -404,10 +404,12 @@ export default function BookingWizard({
             )}
 
             {currentStep === STEP.CONSIGNEE && (
-              <ConsigneeStep
+              <DeliveryBillingStep
+                orgContext={orgContext}
                 register={register}
                 watch={watch}
                 setValue={setValue}
+                clearErrors={clearErrors}
                 errors={errors}
               />
             )}

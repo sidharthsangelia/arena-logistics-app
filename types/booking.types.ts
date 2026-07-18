@@ -111,9 +111,16 @@ export interface BookingFormData {
   pickupSameAsSender: boolean;
   pickup: ConsignorForm;
 
+  /** Receiver / delivery address (international destination). */
   consignee: ConsignorForm;
 
+  /**
+   * Billing — who to invoice + where. Defaults to the delivery address;
+   * `billingSameAsDelivery` lets the user invoice a different party (e.g. a
+   * corporate office in another country) than the one receiving the goods.
+   */
   billingSameAsDelivery: boolean;
+  billing: ConsignorForm;
 
   invoiceMode: InvoiceMode;
   uploadedInvoice: FileMeta | null;

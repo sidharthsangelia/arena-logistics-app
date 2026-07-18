@@ -66,9 +66,32 @@ export const senderPickupSchema = z
     }
   });
 
-export const consigneeSchema = z.object({
-  consignee: addressFormSchema,
-});
+// ---------------------------------------------------------------------------
+// Step 1 — Delivery + Billing (receiver address + optional separate billing).
+// Billing defaults to the delivery address; validated separately only when
+// billingSameAsDelivery is false.
+// ---------------------------------------------------------------------------
+
+export const deliveryBillingSchema = z
+  .object({
+    consignee: addressFormSchema,
+    billingSameAsDelivery: z.boolean(),
+    billing: addressFormSchema.partial().optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (!data.billingSameAsDelivery) {
+      const result = addressFormSchema.safeParse(data.billing ?? {});
+      if (!result.success) {
+        result.error.issues.forEach((issue) => {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["billing", ...issue.path],
+            message: issue.message,
+          });
+        });
+      }
+    }
+  });
 
 // ---------------------------------------------------------------------------
 // Step 3 — Shipment Details (merged Invoice + Packages)
@@ -188,7 +211,7 @@ export const reviewSchema = z.object({});
 // stepSchemas — index MUST match `bookingSteps` / `STEP` in useBookingWizard.ts
 //
 //  0  sender            → senderPickupSchema  (merged owner + sender + pickup)
-//  1  consignee         → consigneeSchema
+//  1  delivery-billing  → deliveryBillingSchema (receiver + optional billing)
 //  2  shipment-details  → shipmentDetailsSchema  (self-managed, not via RHF)
 //  3  kyc               → kycSchema
 //  4  service           → serviceSchema
@@ -197,7 +220,7 @@ export const reviewSchema = z.object({});
 
 export const stepSchemas = [
   senderPickupSchema,    // 0
-  consigneeSchema,       // 1
+  deliveryBillingSchema, // 1
   shipmentDetailsSchema, // 2
   kycSchema,             // 3
   serviceSchema,         // 4
