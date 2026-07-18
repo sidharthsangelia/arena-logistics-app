@@ -47,6 +47,14 @@ const SHIPMOZO_BASE_URL =
 const SHIPMOZO_PUBLIC_KEY = process.env.SHIPMOZO_PUBLIC_KEY ?? "";
 const SHIPMOZO_PRIVATE_KEY = process.env.SHIPMOZO_PRIVATE_KEY ?? "";
 
+// Shipmozo needs a declared goods value for its customs/duty math, but the
+// quick rate calculator intentionally does NOT ask the user for it. When the
+// caller omits it (the rate calculator), we send this neutral mid-range dummy
+// so Shipmozo still returns a quote. The booking flow DOES pass a real value.
+const SHIPMOZO_FALLBACK_DECLARED_VALUE = Number(
+  process.env.SHIPMOZO_DEFAULT_DECLARED_VALUE ?? 50000,
+);
+
 const COUNTRY_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // country list rarely changes
 
 // Module-level so it's shared across requests (and would survive across
@@ -334,33 +342,17 @@ export class ShipmozoAdapter extends BaseVendorAdapter<
   }
 
   /**
-   * Shipmozo requires order_amount (declared shipment value) for customs /
-   * duty calculation on international shipments. The canonical shipment
-   * model doesn't carry a monetary value today, so we read the optional
-   * declaredValue field added below and fail loudly if it's missing —
-   * a clear vendorError beats silently sending a wrong customs value.
+   * Shipmozo needs order_amount (declared goods value) for its customs/duty
+   * math. The booking flow passes a real value; the quick rate calculator
+   * deliberately doesn't ask for one, so we fall back to a neutral dummy so a
+   * quote still comes back. Never throws.
    */
   private resolveDeclaredValue(input: CanonicalRateRequest): number {
     const declared = input.shipment.declaredValue;
     if (declared !== undefined && declared !== null && declared > 0) {
       return declared;
     }
-
-    // No declared value supplied by the caller. Falling back keeps Shipmozo
-    // in the results set for flows that haven't wired up declaredValue yet,
-    // at the cost of a quote that may not reflect real customs value.
-    // This is a stopgap — fix the root cause by passing declaredValue from
-    // the order/cart total in actions/rates.action.ts.
-    const fallback = Number(
-      process.env.SHIPMOZO_DEFAULT_DECLARED_VALUE ?? 1000,
-    );
-
-    console.warn(
-      `[shipmozo] shipment.declaredValue missing/zero — falling back to ${fallback}. ` +
-        "Pass it explicitly from the order total for accurate quotes.",
-    );
-
-    return fallback;
+    return SHIPMOZO_FALLBACK_DECLARED_VALUE;
   }
 
   /**

@@ -25,6 +25,24 @@ interface Props {
   onClick: () => void;
 }
 
+// ─── vendor badge colours (visual cue per carrier) ──────────────────────────
+
+const VENDOR_BADGE: Record<string, string> = {
+  skart:
+    "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/30 dark:text-blue-400 dark:border-blue-800",
+  aramex:
+    "bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-950/30 dark:text-orange-400 dark:border-orange-800",
+  shipmozo:
+    "bg-teal-50 text-teal-700 border-teal-200 dark:bg-teal-950/30 dark:text-teal-400 dark:border-teal-800",
+};
+
+function vendorBadgeClass(id: string) {
+  return (
+    VENDOR_BADGE[id] ??
+    "bg-muted text-muted-foreground border-border"
+  );
+}
+
 // ─── formatters ─────────────────────────────────────────────────────────────
 
 function fmt(amount: number, currency: string) {
@@ -50,11 +68,12 @@ export default function RateResultCard({
 }: Props) {
   const tax = quote.totalWithTax - quote.totalWithoutTax;
 
-  // Ring / border highlight logic (shadcn tokens only)
+  // Ring / border highlight logic. Emerald cue = best price (savings);
+  // primary ring = selected for compare.
   const ringClass = isCompareSelected
     ? "ring-2 ring-primary bg-muted/40"
     : isCheapest && !compareMode
-    ? "ring-2 ring-primary"
+    ? "ring-2 ring-emerald-400 dark:ring-emerald-500"
     : "hover:ring-1 hover:ring-border";
 
   const disabledClass = isCompareDisabled
@@ -90,16 +109,16 @@ export default function RateResultCard({
               {!compareMode && (isCheapest || isFastest) && (
                 <div className="flex flex-wrap gap-1.5">
                   {isCheapest && (
-                    <Badge className="gap-1 text-[10px] font-semibold">
+                    <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-400">
                       <TrendingDown className="h-2.5 w-2.5" />
-                      Best price
-                    </Badge>
+                      Cheapest
+                    </span>
                   )}
                   {isFastest && (
-                    <Badge variant="secondary" className="gap-1 text-[10px] font-semibold">
+                    <span className="inline-flex items-center gap-1 rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[10px] font-semibold text-violet-700 dark:border-violet-800 dark:bg-violet-950/30 dark:text-violet-400">
                       <Zap className="h-2.5 w-2.5" />
                       Fastest
-                    </Badge>
+                    </span>
                   )}
                 </div>
               )}
@@ -108,7 +127,10 @@ export default function RateResultCard({
                 {quote.productName}
               </h3>
 
-              <Badge variant="outline" className="w-fit text-[10px] font-medium">
+              <Badge
+                variant="outline"
+                className={cn("w-fit text-[10px] font-medium", vendorBadgeClass(quote.vendorId))}
+              >
                 {quote.vendorName}
               </Badge>
             </div>

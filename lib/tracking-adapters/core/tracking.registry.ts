@@ -18,20 +18,20 @@ class TrackingAdapterRegistry {
   private readonly adapters = new Map<string, AnyTrackingAdapter>();
 
   /**
-   * Register a tracking adapter. Called once at startup.
-   * Throws on duplicate vendorId to catch typos early.
+   * Register a tracking adapter (called from the vendor index at import time).
+   *
+   * IDEMPOTENT ON PURPOSE, mirroring the rate AdapterRegistry: the registration
+   * module can be re-evaluated (dev HMR, multiple module graphs), so a repeat
+   * vendorId must replace rather than throw and 500 a live request.
    */
   register(adapter: AnyTrackingAdapter): void {
-    if (this.adapters.has(adapter.vendorId)) {
-      throw new Error(
-        `[TrackingAdapterRegistry] Duplicate vendorId "${adapter.vendorId}". ` +
-          `Each vendor must have a unique ID.`
+    const isReRegister = this.adapters.has(adapter.vendorId);
+    this.adapters.set(adapter.vendorId, adapter);
+    if (!isReRegister) {
+      console.log(
+        `[TrackingAdapterRegistry] Registered tracking vendor: ${adapter.vendorId}`
       );
     }
-    this.adapters.set(adapter.vendorId, adapter);
-    console.log(
-      `[TrackingAdapterRegistry] Registered tracking vendor: ${adapter.vendorId}`
-    );
   }
 
   /** Get one specific adapter by id, or undefined if not registered. */
@@ -50,6 +50,15 @@ class TrackingAdapterRegistry {
 }
 
 /**
- * Singleton instance shared across the app.
+ * Singleton instance shared across the app. Pinned to globalThis so there is
+ * exactly one registry per process even across module re-evaluation / HMR.
  */
-export const trackingAdapterRegistry = new TrackingAdapterRegistry();
+const globalForTrackingRegistry = globalThis as unknown as {
+  __arenaTrackingRegistry?: TrackingAdapterRegistry;
+};
+
+export const trackingAdapterRegistry =
+  globalForTrackingRegistry.__arenaTrackingRegistry ??
+  new TrackingAdapterRegistry();
+
+globalForTrackingRegistry.__arenaTrackingRegistry = trackingAdapterRegistry;
