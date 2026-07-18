@@ -10,8 +10,9 @@
 import type { StateCreator } from "zustand";
  
 import type { AppStore, RatesSlice } from "../types";
-import type { VendorId } from "@/lib/types";
+import type { VendorId, RateScope } from "@/lib/types";
 import { getRatesAction } from "@/actions/rates.action";
+import { getDomesticRatesAction } from "@/actions/domesticRateCalculator.action";
 
 export const createRatesSlice: StateCreator<
   AppStore,
@@ -28,7 +29,11 @@ export const createRatesSlice: StateCreator<
 
   // -- Actions ---------------------------------------------------------------
 
-  fetchRates: async (request, vendorIds?: VendorId[]) => {
+  fetchRates: async (
+    request,
+    vendorIds?: VendorId[],
+    scope: RateScope = "international",
+  ) => {
     set(
       (state) => {
         state.request = request;
@@ -51,7 +56,10 @@ export const createRatesSlice: StateCreator<
       "rates/fetchRates/pending"
     );
 
-    const result = await getRatesAction(request, vendorIds);
+    const result =
+      scope === "domestic"
+        ? await getDomesticRatesAction(request, vendorIds)
+        : await getRatesAction(request, vendorIds);
 
     if (result.success) {
       set(

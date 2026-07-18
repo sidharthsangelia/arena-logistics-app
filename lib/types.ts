@@ -22,11 +22,31 @@ export interface Dimensions {
   unit: "cm" | "in";
 }
 
+/**
+ * One physical box line. `weightKg` is per-box; dims are always centimetres
+ * (convert inches at the form boundary). Mirrors CanonicalPackage in
+ * lib/pricing/chargeableWeight.ts.
+ */
+export interface ShipmentPackage {
+  quantity: number;
+  weightKg: number;
+  lengthCm: number;
+  widthCm: number;
+  heightCm: number;
+}
+
 export interface Shipment {
+  // Legacy single-package fields (weight = TOTAL). Kept for backward compat;
+  // when `packages` is set it is the source of truth.
   weight: number;    // kg
   quantity: number;
   dimensions: Dimensions;
   description: string;
+
+  /** Preferred multi-piece shape — one entry per distinct box line. */
+  packages?: ShipmentPackage[];
+  /** Declared goods value (shipment currency) — needed by Shipmozo for duty. */
+  declaredValue?: number;
 }
 
 /** Body sent to POST /api/rates */
@@ -78,3 +98,18 @@ export const AVAILABLE_VENDORS = [
 ] as const;
 
 export type VendorId = (typeof AVAILABLE_VENDORS)[number]["id"];
+
+// -- Domestic calculator vendors -----------------------------------------------
+// The carriers queried by the DOMESTIC rate calculator. These map to the
+// separate domestic adapter registry (lib/rate-adapters/vendors/domestic.index).
+// Shipmozo returns many courier options as individual quotes, all under this
+// one adapter; add another entry here only when a second domestic adapter ships.
+export const DOMESTIC_CALCULATOR_VENDORS = [
+  { id: "shipmozo", label: "Shipmozo" },
+] as const;
+
+export type DomesticCalculatorVendorId =
+  (typeof DOMESTIC_CALCULATOR_VENDORS)[number]["id"];
+
+/** Which calculator a request belongs to — threaded through the shared store. */
+export type RateScope = "international" | "domestic";

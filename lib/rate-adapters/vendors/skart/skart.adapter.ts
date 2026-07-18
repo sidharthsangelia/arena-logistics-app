@@ -15,6 +15,10 @@
 import { BaseVendorAdapter } from "../../core/base.adapter";
 import type { CanonicalRateRequest, RateQuote } from "../../core/types";
 import type { SkartRateRequest, SkartRateResponse, SkartProduct } from "./skart.types";
+import {
+  computeShipmentWeights,
+  normalizePackages,
+} from "@/lib/pricing/chargeableWeight";
 
 // --- CONFIG ------------------------------------------------------------------
 // Keep credentials in env vars; never hard-code them.
@@ -37,8 +41,25 @@ export class SkartAdapter extends BaseVendorAdapter<
   readonly vendorName = "sKart Express";
 
   // -- Step 1: Canonical → Vendor ------------------------------------------
+  //
+  // Skart's international rate calculator has NO multi-piece provision: it
+  // accepts only a single `weight`, `quantity` (pieces) and `length` (max
+  // length) — no per-box dimensions, no width/height, so it cannot compute
+  // volumetric weight itself. Per the agreed rule ("normalise when the vendor
+  // can't take multi-piece"), we collapse the shipment to ONE chargeable
+  // weight here (per-package max → sum) and send that as `weight`. This is
+  // what makes multi-piece pricing correct and stable for Skart — sending raw
+  // actual weight would under-charge any volumetric-heavy box.
 
   protected transformRequest(input: CanonicalRateRequest): SkartRateRequest {
+    const packages = normalizePackages({
+      packages: input.shipment.packages,
+      weight: input.shipment.weight,
+      quantity: input.shipment.quantity,
+      dimensions: input.shipment.dimensions,
+    });
+    const weights = computeShipmentWeights(packages);
+
     return {
       user_name: SKART_USERNAME,
       password: SKART_PASSWORD,
@@ -48,9 +69,11 @@ export class SkartAdapter extends BaseVendorAdapter<
       // Skart needs the full country name in UPPERCASE
       destination_country: (input.destination.country ?? input.destination.countryCode).toUpperCase(),
       shipment_type: 1,
-      weight: input.shipment.weight,
-      quantity: input.shipment.quantity,
-      length: input.shipment.dimensions.length,
+      // Normalised chargeable weight (kg) — the billable figure, not raw actual
+      weight: weights.totalChargeableKg,
+      quantity: weights.totalPieces,
+      // Skart's `length` = max length in cm; use the longest side across boxes
+      length: weights.maxLongestSideCm,
     };
   }
 

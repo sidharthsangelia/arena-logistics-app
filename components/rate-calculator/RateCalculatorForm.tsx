@@ -3,46 +3,53 @@
 /**
  * RateCalculatorForm.tsx
  *
- * RESPONSIBILITY
- * --------------
- * Renders the rate-calculator form and dispatches validated data to the
- * Zustand store's fetchRates action. It has no direct knowledge of loading
- * state — it reads `loading` from the store to disable the submit button.
+ * International freight rate calculator (ships FROM India).
  *
- * BUGS FIXED FROM ORIGINAL
- * -------------------------
- * 1. VENDOR FILTER INVERTED
- *    Original: `vendors.length < 2 ? vendors : []`
- *    This sends an empty array (meaning "all vendors") when 2+ vendors are
- *    selected, which is the normal case. Fixed: pass all selected vendor IDs.
+ * LAYOUT
+ * ------
+ * Two columns on desktop: inputs on the left (route + boxes), a sticky action
+ * rail on the right (carriers + live charged weight + Get Rates). The rail
+ * keeps the payoff (weight + price action) in view while the user edits, so
+ * the tool reads as a quick panel rather than a long form.
  *
- * 2. MULTI-ITEM DATA LOSS
- *    Original: `handleFormSubmit` silently discarded all items except the
- *    first, even though the UI allows adding multiple boxes. Fixed: the
- *    current API accepts a single `shipment` object, so the form now clearly
- *    sends only the first item. The multi-item UI affordance is removed until
- *    the API supports it (keeping the item schema in place for when it does).
- *    This is an honest trade-off — silent data loss is worse than a
- *    temporarily limited UI.
+ * MULTI-PIECE
+ * -----------
+ * Each box line carries its own weight, size and count, all sent as
+ * `shipment.packages`. Adapters use it per carrier (Shipmozo natively;
+ * Skart/Aramex collapse to one charged weight via lib/pricing/chargeableWeight:
+ * "higher of real vs volume, per box, summed").
  *
- * FORM ARCHITECTURE
- * -----------------
- * React Hook Form + Zod. The form manages its own draft state locally
- * (which is correct — form draft state is UI state, not app state). Only
- * after successful validation does it write to the Zustand store via
- * fetchRates. This keeps the store clean: it never holds unvalidated input.
+ * REACTIVITY
+ * ----------
+ * Computed reads use `useWatch` (not `watch()`) because React Compiler can
+ * memoize this component and serve stale values from `watch()` (see the lint
+ * rule react-hooks/incompatible-library). That was the charged-weight bug.
  *
- * RERENDERS
- * ---------
- * - `watch("vendors")` and `watch("destination.countryCode")` are the only
- *   watched fields, scoped to the minimum slice needed.
- * - ItemRow is extracted as a separate component so adding/removing items
- *   doesn't re-render the entire form.
+ * STYLING: shadcn tokens. Plain, jargon-free copy. No em dashes in UI copy.
  */
 
-import { useFieldArray, useForm, Controller } from "react-hook-form";
+import * as React from "react";
+import {
+  useFieldArray,
+  useForm,
+  useWatch,
+  Controller,
+  type Control,
+} from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import {
+  ArrowRight,
+  Check,
+  ChevronDown,
+  Info,
+  Loader2,
+  Lock,
+  Plane,
+  Plus,
+  Scale,
+  Trash2,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -55,528 +62,811 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
-import { Loader2, Plus, Trash2, MapPin, ArrowRight, Box } from "lucide-react";
-
-import { useAppStore } from "@/store"
-import { AVAILABLE_VENDORS, type VendorId } from "@/lib/types";
-import type { RateRequest } from "@/lib/types";
+import { Card, CardContent } from "@/components/ui/card";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
-// ---------------------------------------------------------------------------
-// Zod schema
-// ---------------------------------------------------------------------------
-
-const dimensionsSchema = z.object({
-  length: z.number({ error: "Required" }).positive("Must be > 0"),
-  width: z.number({ error: "Required" }).positive("Must be > 0"),
-  height: z.number({ error: "Required" }).positive("Must be > 0"),
-  unit: z.enum(["cm", "in"]),
-});
-
-const addressSchema = z.object({
-  city: z.string().min(1, "City is required"),
-  pincode: z.string().min(1, "Pincode is required"),
-  countryCode: z.string().length(2, "Must be a 2-letter country code").toUpperCase(),
-  line1: z.string().optional(),
-  country: z.string().optional(),
-});
-
-const itemSchema = z.object({
-  weight: z.number({ error: "Required" }).positive("Must be > 0"),
-  quantity: z.number({ error: "Required" }).int().min(1, "Min 1"),
-  dimensions: dimensionsSchema,
-  description: z.string().min(1, "Description is required"),
-});
-
-const formSchema = z.object({
-  origin: addressSchema,
-  destination: addressSchema,
-  items: z.array(itemSchema).min(1, "Add at least one item"),
-  vendors: z.array(z.string()).min(1, "Select at least one carrier"),
-});
-
-type FormValues = z.infer<typeof formSchema>;
+import { CountryCombobox } from "@/components/booking/CountryComboBox";
+import { usePostalLookup } from "@/hooks/usePostalLookup";
+import {
+  AVAILABLE_VENDORS,
+  DOMESTIC_CALCULATOR_VENDORS,
+  type VendorId,
+  type RateRequest,
+  type RateScope,
+} from "@/lib/types";
+import { COUNTRY_TO_ISO } from "@/utils/data";
+import { computeShipmentWeights } from "@/lib/pricing/chargeableWeight";
+import { useAppStore } from "@/store";
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
-const COUNTRY_OPTIONS = [
-  { label: "Australia",     code: "AU", fullName: "AUSTRALIA"      },
-  { label: "United States", code: "US", fullName: "UNITED STATES"  },
-  { label: "United Kingdom",code: "GB", fullName: "UNITED KINGDOM" },
-  { label: "Canada",        code: "CA", fullName: "CANADA"         },
-  { label: "Germany",       code: "DE", fullName: "GERMANY"        },
-  { label: "France",        code: "FR", fullName: "FRANCE"         },
-  { label: "Singapore",     code: "SG", fullName: "SINGAPORE"      },
-  { label: "UAE",           code: "AE", fullName: "UAE"            },
-  { label: "Japan",         code: "JP", fullName: "JAPAN"          },
-  { label: "New Zealand",   code: "NZ", fullName: "NEW ZEALAND"    },
-  { label: "India",         code: "IN", fullName: "INDIA"          },
-] as const;
+const ORIGIN_COUNTRY = "India";
+// Domestic shipments stay within India — the destination country is fixed, so
+// no country picker is shown and both ends resolve to "IN".
+const DOMESTIC_COUNTRY = "India";
 
-const defaultItem: FormValues["items"][number] = {
-  weight: 1,
-  quantity: 1,
-  dimensions: { length: 30, width: 20, height: 10, unit: "cm" },
-  description: "Electronics",
-};
+type VendorOption = { id: string; label: string };
 
-const defaultValues: FormValues = {
-  origin: {
-    city: "New Delhi",
-    pincode: "110059",
-    countryCode: "IN",
-    line1: "123 Connaught Place",
-    country: "INDIA",
-  },
-  destination: {
-    city: "Sydney",
-    pincode: "7470",
-    countryCode: "AU",
-    country: "AUSTRALIA",
-  },
-  items: [defaultItem],
-  vendors: AVAILABLE_VENDORS.map((v) => v.id),
-};
+/** Carrier list per calculator scope. */
+function vendorsForScope(scope: RateScope): readonly VendorOption[] {
+  return scope === "domestic" ? DOMESTIC_CALCULATOR_VENDORS : AVAILABLE_VENDORS;
+}
 
 // ---------------------------------------------------------------------------
-// Sub-components
+// Schema
+// ---------------------------------------------------------------------------
+
+const boxSchema = z.object({
+  boxCount: z.number({ error: "Required" }).int().min(1, "Min 1"),
+  weightKg: z.number({ error: "Add weight" }).positive("Add weight"),
+  lengthCm: z.number({ error: "Add size" }).positive("Add size"),
+  widthCm: z.number({ error: "Add size" }).positive("Add size"),
+  heightCm: z.number({ error: "Add size" }).positive("Add size"),
+});
+
+const formSchema = z.object({
+  originPincode: z.string().trim().min(1, "Enter a pincode"),
+  originCity: z.string().trim().min(1, "Enter a city"),
+  destinationCountry: z.string().min(1, "Pick a country"),
+  destinationPincode: z.string().trim().min(1, "Enter a postal code"),
+  destinationCity: z.string().trim().min(1, "Enter a city"),
+  sizeUnit: z.enum(["cm", "in"]),
+  boxes: z.array(boxSchema).min(1, "Add at least one box"),
+  vendors: z.array(z.string()).min(1, "Pick at least one carrier"),
+});
+
+type FormValues = z.infer<typeof formSchema>;
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function isoFromName(name: string): string {
+  if (!name) return "";
+  return COUNTRY_TO_ISO[name] ?? name.slice(0, 2).toUpperCase();
+}
+
+function toCmFactor(unit: "cm" | "in"): number {
+  return unit === "in" ? 2.54 : 1;
+}
+
+// Start empty so nothing looks like real data. boxCount defaults to 1 (you
+// always have at least one box); everything else is blank with placeholders.
+const emptyBox = {
+  boxCount: 1,
+  weightKg: undefined,
+  lengthCm: undefined,
+  widthCm: undefined,
+  heightCm: undefined,
+} as unknown as FormValues["boxes"][number];
+
+function makeDefaultValues(scope: RateScope): FormValues {
+  return {
+    originPincode: "",
+    originCity: "",
+    // Domestic is India → India; the country field is fixed and hidden.
+    destinationCountry: scope === "domestic" ? DOMESTIC_COUNTRY : "",
+    destinationPincode: "",
+    destinationCity: "",
+    sizeUnit: "cm",
+    boxes: [emptyBox],
+    // Every carrier selected by default.
+    vendors: vendorsForScope(scope).map((v) => v.id),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Small bits
 // ---------------------------------------------------------------------------
 
 function FieldError({ message }: { message?: string }) {
   if (!message) return null;
-  return <p className="text-xs text-destructive mt-1">{message}</p>;
+  return <p className="mt-1 text-xs text-destructive">{message}</p>;
 }
 
-function SectionHeading({
-  icon: Icon,
-  label,
+function InfoTip({ text }: { text: string }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          tabIndex={-1}
+          className="text-muted-foreground/60 transition-colors hover:text-foreground"
+          aria-label="More info"
+        >
+          <Info className="h-3.5 w-3.5" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-55 text-xs leading-relaxed">
+        {text}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+function SectionLabel({
+  children,
+  tip,
 }: {
-  icon: React.ElementType;
-  label: string;
+  children: React.ReactNode;
+  tip?: string;
 }) {
   return (
-    <div className="flex items-center gap-2 mb-3">
-      <Icon className="h-4 w-4 text-muted-foreground" />
-      <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-        {label}
+    <div className="flex items-center gap-1.5">
+      <span className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+        {children}
       </span>
+      {tip && <InfoTip text={tip} />}
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// ItemRow — extracted to prevent full-form re-render on add/remove
+// Route: From (India, locked) + To (any country)
 // ---------------------------------------------------------------------------
 
-interface ItemRowProps {
+interface RouteProps {
+  register: ReturnType<typeof useForm<FormValues>>["register"];
+  setValue: ReturnType<typeof useForm<FormValues>>["setValue"];
+  errors: ReturnType<typeof useForm<FormValues>>["formState"]["errors"];
+  control: Control<FormValues>;
+  scope: RateScope;
+}
+
+// India chip used for the locked origin (both scopes) and the locked domestic
+// destination. Keeps the "this end is India" cue consistent.
+function IndiaChip({ tip }: { tip: string }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="inline-flex items-center gap-1.5 rounded-full border bg-muted/50 px-2 py-0.5 text-xs font-medium text-foreground">
+          <span className="text-sm leading-none">🇮🇳</span>
+          India
+          <Lock className="h-3 w-3 text-muted-foreground" />
+        </span>
+      </TooltipTrigger>
+      <TooltipContent className="text-xs">{tip}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+function PincodeHint({
+  state,
+  errorMessage,
+}: {
+  state: ReturnType<typeof usePostalLookup>;
+  errorMessage?: string;
+}) {
+  if (state === "found") {
+    return (
+      <p className="mt-1 flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400">
+        <Check className="h-3 w-3" /> City filled in
+      </p>
+    );
+  }
+  return <FieldError message={errorMessage} />;
+}
+
+function RouteCard({ register, setValue, errors, control, scope }: RouteProps) {
+  const isDomestic = scope === "domestic";
+
+  const originPincode = useWatch({ control, name: "originPincode" });
+  const destCountry = useWatch({ control, name: "destinationCountry" });
+  const destPincode = useWatch({ control, name: "destinationPincode" });
+
+  const originLookup = usePostalLookup(ORIGIN_COUNTRY, originPincode ?? "", (city) =>
+    setValue("originCity", city, { shouldValidate: true }),
+  );
+  // Domestic destination is always India; international uses the picked country.
+  const destLookup = usePostalLookup(
+    isDomestic ? DOMESTIC_COUNTRY : destCountry ?? "",
+    destPincode ?? "",
+    (city) => setValue("destinationCity", city, { shouldValidate: true }),
+  );
+
+  const destPincodeLabel = isDomestic ? "Pincode" : "Postal code";
+  const destPincodePlaceholder = isDomestic ? "e.g. 400001" : "Postal / ZIP";
+
+  return (
+    <Card>
+      <CardContent className="space-y-5 p-5">
+        {/* From */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <SectionLabel>Sending from</SectionLabel>
+            <IndiaChip
+              tip={
+                isDomestic
+                  ? "Domestic shipments are picked up within India."
+                  : "This tool quotes shipments leaving India."
+              }
+            />
+          </div>
+          <div className="grid grid-cols-[0.5fr_1fr] gap-3">
+            <div>
+              <Label className="mb-1.5 block text-xs">Pincode</Label>
+              <div className="relative">
+                <Input
+                  {...register("originPincode")}
+                  inputMode="numeric"
+                  placeholder="e.g. 110059"
+                  className="pr-8"
+                />
+                {originLookup === "loading" && (
+                  <Loader2 className="absolute right-2.5 top-2.5 h-4 w-4 animate-spin text-muted-foreground" />
+                )}
+              </div>
+              <PincodeHint state={originLookup} errorMessage={errors.originPincode?.message} />
+            </div>
+            <div>
+              <Label className="mb-1.5 block text-xs">City</Label>
+              <Input
+                {...register("originCity")}
+                placeholder={originLookup === "loading" ? "Looking up..." : "City"}
+              />
+              <FieldError message={errors.originCity?.message} />
+            </div>
+          </div>
+        </div>
+
+        <div className="h-px bg-border" />
+
+        {/* To */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <SectionLabel>Sending to</SectionLabel>
+            {isDomestic && (
+              <IndiaChip tip="Domestic shipments are delivered within India." />
+            )}
+          </div>
+          {!isDomestic && (
+            <Controller
+              control={control}
+              name="destinationCountry"
+              render={({ field }) => (
+                <CountryCombobox
+                  value={field.value}
+                  label={null}
+                  onChange={(name) => {
+                    field.onChange(name);
+                    setValue("destinationPincode", "");
+                    setValue("destinationCity", "");
+                  }}
+                  error={errors.destinationCountry?.message}
+                />
+              )}
+            />
+          )}
+          <div className="grid grid-cols-[0.5fr_1fr] gap-3">
+            <div>
+              <Label className="mb-1.5 block text-xs">{destPincodeLabel}</Label>
+              <div className="relative">
+                <Input
+                  {...register("destinationPincode")}
+                  inputMode={isDomestic ? "numeric" : undefined}
+                  placeholder={destPincodePlaceholder}
+                  className="pr-8"
+                />
+                {destLookup === "loading" && (
+                  <Loader2 className="absolute right-2.5 top-2.5 h-4 w-4 animate-spin text-muted-foreground" />
+                )}
+              </div>
+              <PincodeHint state={destLookup} errorMessage={errors.destinationPincode?.message} />
+            </div>
+            <div>
+              <Label className="mb-1.5 block text-xs">City</Label>
+              <Input
+                {...register("destinationCity")}
+                placeholder={destLookup === "loading" ? "Looking up..." : "City"}
+              />
+              <FieldError message={errors.destinationCity?.message} />
+            </div>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Boxes: compact one-row-per-box table
+// ---------------------------------------------------------------------------
+
+const BOX_GRID = "grid grid-cols-3 gap-2 sm:grid-cols-[3rem_5.5rem_1fr_1fr_1fr_1.75rem] sm:items-center";
+
+interface BoxRowProps {
   index: number;
-  control: ReturnType<typeof useForm<FormValues>>["control"];
   register: ReturnType<typeof useForm<FormValues>>["register"];
   errors: ReturnType<typeof useForm<FormValues>>["formState"]["errors"];
   canRemove: boolean;
   onRemove: () => void;
-  watch: ReturnType<typeof useForm<FormValues>>["watch"];
 }
 
-function ItemRow({
-  index,
-  control,
-  register,
-  errors,
-  canRemove,
-  onRemove,
-  watch,
-}: ItemRowProps) {
-  const itemErrors = errors?.items?.[index];
-  const dimensionUnit = watch(`items.${index}.dimensions.unit`);
+function BoxRow({ index, register, errors, canRemove, onRemove }: BoxRowProps) {
+  const be = errors.boxes?.[index];
+  const hasError = !!(be?.boxCount || be?.weightKg || be?.lengthCm || be?.widthCm || be?.heightCm);
+
+  const numInput = "h-9 text-sm";
 
   return (
-    <div className="relative rounded-lg border bg-white dark:bg-slate-950 shadow-sm overflow-hidden">
-      <div className="flex items-center justify-between px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border-b">
-        <div className="flex items-center gap-2">
-          <div className="flex h-5 w-5 items-center justify-center rounded-md bg-muted text-[11px] font-semibold text-muted-foreground">
-            {index + 1}
-          </div>
-          <span className="text-xs font-medium text-muted-foreground">Box / Item</span>
+    <div className={cn("rounded-md px-1 py-1", hasError && "bg-destructive/5")}>
+      <div className={BOX_GRID}>
+        <Input
+          type="number"
+          min="1"
+          step="1"
+          inputMode="numeric"
+          aria-label="Number of boxes"
+          placeholder="1"
+          className={numInput}
+          {...register(`boxes.${index}.boxCount`, { valueAsNumber: true })}
+        />
+        <Input
+          type="number"
+          min="0.01"
+          step="0.01"
+          inputMode="decimal"
+          aria-label="Weight of each box in kg"
+          placeholder="kg"
+          className={numInput}
+          {...register(`boxes.${index}.weightKg`, { valueAsNumber: true })}
+        />
+        <Input
+          type="number"
+          min="1"
+          step="0.1"
+          inputMode="decimal"
+          aria-label="Length"
+          placeholder="L"
+          className={numInput}
+          {...register(`boxes.${index}.lengthCm`, { valueAsNumber: true })}
+        />
+        <Input
+          type="number"
+          min="1"
+          step="0.1"
+          inputMode="decimal"
+          aria-label="Breadth"
+          placeholder="B"
+          className={numInput}
+          {...register(`boxes.${index}.widthCm`, { valueAsNumber: true })}
+        />
+        <Input
+          type="number"
+          min="1"
+          step="0.1"
+          inputMode="decimal"
+          aria-label="Height"
+          placeholder="H"
+          className={numInput}
+          {...register(`boxes.${index}.heightCm`, { valueAsNumber: true })}
+        />
+        <div className="flex justify-end">
+          {canRemove ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 text-muted-foreground hover:text-destructive"
+              onClick={onRemove}
+              aria-label={`Remove box ${index + 1}`}
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          ) : (
+            <span className="h-8 w-8" />
+          )}
         </div>
-        {canRemove && (
-          <button
-            type="button"
-            onClick={onRemove}
-            className="flex items-center gap-1 text-xs text-slate-400 hover:text-red-500 transition-colors rounded px-1.5 py-1 hover:bg-red-50 dark:hover:bg-red-950"
-          >
-            <Trash2 className="h-3 w-3" />
-            Remove
-          </button>
-        )}
       </div>
+    </div>
+  );
+}
 
-      <div className="p-4 space-y-4">
-        <div className="grid grid-cols-3 gap-3">
-          <div>
-            <Label className="text-xs mb-1.5 block">Weight (kg)</Label>
-            <Input
-              type="number"
-              step="0.1"
-              min="0.1"
-              {...register(`items.${index}.weight`, { valueAsNumber: true })}
-              className="h-9 text-sm"
-            />
-            <FieldError message={itemErrors?.weight?.message} />
-          </div>
-          <div>
-            <Label className="text-xs mb-1.5 block">Qty</Label>
-            <Input
-              type="number"
-              min="1"
-              {...register(`items.${index}.quantity`, { valueAsNumber: true })}
-              className="h-9 text-sm"
-            />
-            <FieldError message={itemErrors?.quantity?.message} />
-          </div>
-          <div>
-            <Label className="text-xs mb-1.5 block">Contents</Label>
-            <Input
-              {...register(`items.${index}.description`)}
-              placeholder="e.g. Electronics"
-              className="h-9 text-sm"
-            />
-            <FieldError message={itemErrors?.description?.message} />
-          </div>
-        </div>
-
-        <div className="rounded-md border bg-muted/30 px-3.5 pt-3 pb-3.5">
-          <div className="flex items-center justify-between mb-2.5">
-            <span className="text-xs font-medium text-muted-foreground">Dimensions</span>
+function BoxesCard({
+  fields,
+  register,
+  errors,
+  control,
+  onAdd,
+  onRemove,
+}: {
+  fields: { id: string }[];
+  register: ReturnType<typeof useForm<FormValues>>["register"];
+  errors: ReturnType<typeof useForm<FormValues>>["formState"]["errors"];
+  control: Control<FormValues>;
+  onAdd: () => void;
+  onRemove: (i: number) => void;
+}) {
+  return (
+    <Card>
+      <CardContent className="space-y-3 p-5">
+        <div className="flex items-center justify-between">
+          <SectionLabel tip="Group identical boxes on one row. Add a row for each different size or weight.">
+            Your boxes
+          </SectionLabel>
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-muted-foreground">Size in</span>
             <Controller
               control={control}
-              name={`items.${index}.dimensions.unit`}
+              name="sizeUnit"
               render={({ field }) => (
                 <Select value={field.value} onValueChange={field.onChange}>
-                  <SelectTrigger className="w-18 h-6 text-xs px-2">
+                  <SelectTrigger className="h-7 w-18 text-xs">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="cm">cm</SelectItem>
-                    <SelectItem value="in">in</SelectItem>
+                    <SelectItem value="in">inches</SelectItem>
                   </SelectContent>
                 </Select>
               )}
             />
           </div>
-          <div className="grid grid-cols-3 gap-3">
-            {(["length", "width", "height"] as const).map((dim) => (
-              <div key={dim}>
-                <Label className="text-xs mb-1 block capitalize text-muted-foreground">
-                  {dim} ({dimensionUnit})
-                </Label>
-                <Input
-                  type="number"
-                  min="1"
-                  {...register(`items.${index}.dimensions.${dim}`, { valueAsNumber: true })}
-                  className="h-9 text-sm"
-                />
-                <FieldError message={itemErrors?.dimensions?.[dim]?.message} />
-              </div>
-            ))}
-          </div>
         </div>
+
+        {/* Column headers (desktop only) */}
+        <div
+          className={cn(
+            BOX_GRID,
+            "hidden px-1 pb-0.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground sm:grid",
+          )}
+        >
+          <span className="flex items-center gap-1">
+            Qty
+            <InfoTip text="How many identical boxes of this size and weight." />
+          </span>
+          <span className="flex items-center gap-1">
+            Weight
+            <InfoTip text="Weight of one box, in kilograms." />
+          </span>
+          <span className="flex items-center gap-1">
+            L
+            <InfoTip text="Length of one box." />
+          </span>
+          <span className="flex items-center gap-1">
+            B
+            <InfoTip text="Breadth (width) of one box." />
+          </span>
+          <span className="flex items-center gap-1">
+            H
+            <InfoTip text="Height of one box." />
+          </span>
+          <span />
+        </div>
+
+        <div className="space-y-1.5">
+          {fields.map((field, index) => (
+            <BoxRow
+              key={field.id}
+              index={index}
+              register={register}
+              errors={errors}
+              canRemove={fields.length > 1}
+              onRemove={() => onRemove(index)}
+            />
+          ))}
+        </div>
+
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={onAdd}
+          className="w-full border-dashed text-muted-foreground"
+        >
+          <Plus className="mr-1.5 h-4 w-4" />
+          Add another box size
+        </Button>
+
+        {typeof errors.boxes?.message === "string" && (
+          <p className="text-xs text-destructive">{errors.boxes.message}</p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Action rail: carriers + charged weight + submit
+// ---------------------------------------------------------------------------
+
+function CarrierPicker({
+  control,
+  setValue,
+  error,
+  vendors,
+}: {
+  control: Control<FormValues>;
+  setValue: ReturnType<typeof useForm<FormValues>>["setValue"];
+  error?: string;
+  vendors: readonly VendorOption[];
+}) {
+  const selected = useWatch({
+    control,
+    name: "vendors",
+    defaultValue: vendors.map((v) => v.id),
+  });
+
+  const toggle = (id: string, checked: boolean) => {
+    setValue(
+      "vendors",
+      checked ? [...selected, id] : selected.filter((v) => v !== id),
+      { shouldValidate: true },
+    );
+  };
+
+  const total = vendors.length;
+  const count = selected.length;
+  const label =
+    count === total
+      ? `All carriers (${total})`
+      : count === 0
+      ? "No carriers picked"
+      : count === 1
+      ? vendors.find((v) => v.id === selected[0])?.label ?? "1 carrier"
+      : `${count} of ${total} carriers`;
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center gap-1.5">
+        <span className="text-xs font-medium text-foreground">Carriers</span>
+        <InfoTip text="We ask each selected carrier for a live rate. Leave all on to compare the most options." />
+      </div>
+      <Popover>
+        <PopoverTrigger asChild>
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full justify-between font-normal"
+          >
+            <span className="flex items-center gap-2">
+              <Plane className="h-4 w-4 text-muted-foreground" />
+              {label}
+            </span>
+            <ChevronDown className="h-4 w-4 shrink-0 opacity-50" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent align="start" className="w-[--radix-popover-trigger-width] p-1.5">
+          {vendors.map((vendor) => {
+            const checked = selected.includes(vendor.id);
+            return (
+              <label
+                key={vendor.id}
+                className="flex cursor-pointer items-center gap-2.5 rounded-sm px-2 py-1.5 text-sm hover:bg-muted"
+              >
+                <Checkbox
+                  checked={checked}
+                  onCheckedChange={(v) => toggle(vendor.id, Boolean(v))}
+                />
+                <span className={checked ? "text-foreground" : "text-muted-foreground"}>
+                  {vendor.label}
+                </span>
+              </label>
+            );
+          })}
+        </PopoverContent>
+      </Popover>
+      {error && <p className="text-xs text-destructive">{error}</p>}
+    </div>
+  );
+}
+
+function ChargedWeightInline({ control }: { control: Control<FormValues> }) {
+  const boxes = useWatch({ control, name: "boxes", defaultValue: [] });
+  const unit = useWatch({ control, name: "sizeUnit", defaultValue: "cm" });
+
+  const w = React.useMemo(() => {
+    const factor = toCmFactor(unit);
+    const packages = boxes.map((b) => ({
+      quantity: Math.max(1, Math.trunc(Number(b?.boxCount) || 1)),
+      weightKg: Number(b?.weightKg) || 0,
+      lengthCm: (Number(b?.lengthCm) || 0) * factor,
+      widthCm: (Number(b?.widthCm) || 0) * factor,
+      heightCm: (Number(b?.heightCm) || 0) * factor,
+    }));
+    return computeShipmentWeights(packages);
+  }, [boxes, unit]);
+
+  const ready = w.totalChargeableKg > 0;
+
+  return (
+    <div className="flex items-center gap-3">
+      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border bg-muted/50">
+        <Scale className="h-4.5 w-4.5 text-muted-foreground" />
+      </div>
+      <div className="min-w-0">
+        <div className="flex items-center gap-1 text-xs text-muted-foreground">
+          You pay for
+          <InfoTip text="Carriers bill the higher of a box's real weight or its size based (volumetric) weight. We work this out for each box, then add them up." />
+        </div>
+        {ready ? (
+          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+            <span className="text-2xl font-bold leading-none tabular-nums text-foreground">
+              {w.totalChargeableKg}
+              <span className="ml-1 text-sm font-medium text-muted-foreground">kg</span>
+            </span>
+            <span className="text-xs text-muted-foreground tabular-nums">
+              Real {w.totalActualKg} kg · Size {w.totalVolumetricKg} kg · {w.totalPieces} box
+              {w.totalPieces !== 1 ? "es" : ""}
+            </span>
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">Add box weight and size to see this.</p>
+        )}
       </div>
     </div>
   );
 }
 
+function BottomBar({
+  control,
+  setValue,
+  errors,
+  loading,
+  vendors,
+}: {
+  control: Control<FormValues>;
+  setValue: ReturnType<typeof useForm<FormValues>>["setValue"];
+  errors: ReturnType<typeof useForm<FormValues>>["formState"]["errors"];
+  loading: boolean;
+  vendors: readonly VendorOption[];
+}) {
+  return (
+    <Card>
+      <CardContent className="flex flex-col gap-4 p-4 lg:flex-row lg:items-center lg:gap-6">
+        <div className="lg:w-60 lg:shrink-0">
+          <CarrierPicker
+            control={control}
+            setValue={setValue}
+            error={errors.vendors?.message}
+            vendors={vendors}
+          />
+        </div>
+
+        <div className="hidden h-11 w-px shrink-0 bg-border lg:block" />
+
+        <div className="flex-1">
+          <ChargedWeightInline control={control} />
+        </div>
+
+        <Button
+          type="submit"
+          size="lg"
+          className="h-11 w-full text-sm font-medium lg:w-auto lg:min-w-52"
+          disabled={loading}
+        >
+          {loading ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              Getting rates...
+            </>
+          ) : (
+            <>
+              Get live rates
+              <ArrowRight className="ml-2 h-4 w-4" />
+            </>
+          )}
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
 // ---------------------------------------------------------------------------
-// Main component
+// Main
 // ---------------------------------------------------------------------------
 
-export default function RateCalculatorForm() {
-  // Read only loading from store — the form does not need any other store state
+export default function RateCalculatorForm({
+  scope = "international",
+}: {
+  /** Which calculator this form drives. Defaults to international. */
+  scope?: RateScope;
+}) {
   const loading = useAppStore((s) => s.loading);
   const fetchRates = useAppStore((s) => s.fetchRates);
+
+  const vendorList = vendorsForScope(scope);
 
   const {
     register,
     control,
     handleSubmit,
-    watch,
     setValue,
     formState: { errors },
   } = useForm<FormValues>({
     resolver: zodResolver(formSchema),
-    defaultValues,
+    defaultValues: makeDefaultValues(scope),
   });
 
-  const { fields, append, remove } = useFieldArray({ control, name: "items" });
+  const { fields, append, remove } = useFieldArray({ control, name: "boxes" });
 
-  const selectedVendors = watch("vendors");
-  const destCountryCode = watch("destination.countryCode");
+  const onSubmit = (data: FormValues) => {
+    const factor = toCmFactor(data.sizeUnit);
 
-  const setDestinationCountry = (countryCode: string) => {
-    const opt = COUNTRY_OPTIONS.find((c) => c.code === countryCode);
-    setValue("destination.countryCode", countryCode);
-    setValue("destination.country", opt?.fullName ?? countryCode);
-  };
+    const shipmentPackages = data.boxes.map((b) => ({
+      quantity: Math.max(1, Math.trunc(b.boxCount) || 1),
+      weightKg: b.weightKg, // weight of each box
+      lengthCm: b.lengthCm * factor,
+      widthCm: b.widthCm * factor,
+      heightCm: b.heightCm * factor,
+    }));
 
-  const toggleVendor = (id: string, checked: boolean) => {
-    const current = selectedVendors ?? [];
-    setValue(
-      "vendors",
-      checked ? [...current, id] : current.filter((v) => v !== id),
-      { shouldValidate: true }
-    );
-  };
+    const totalWeight = shipmentPackages.reduce((s, p) => s + p.weightKg * p.quantity, 0);
+    const totalPieces = shipmentPackages.reduce((s, p) => s + p.quantity, 0);
+    const first = shipmentPackages[0];
 
-  const handleFormSubmit = (data: FormValues) => {
-    // NOTE: The current API accepts a single `shipment` object. We send the
-    // first item. The multi-item fields array is kept in the schema so the
-    // migration to a multi-item API requires only changing this mapping, not
-    // the schema or UI.
-    //
-    // TODO: When the API supports items[], map data.items here and update
-    //       RateRequest accordingly.
-    const firstItem = data.items[0];
-
-    const rateRequest: RateRequest = {
-      origin: data.origin,
-      destination: data.destination,
+    const request: RateRequest = {
+      origin: {
+        city: data.originCity,
+        pincode: data.originPincode,
+        countryCode: isoFromName(ORIGIN_COUNTRY),
+        country: ORIGIN_COUNTRY.toUpperCase(),
+      },
+      destination: {
+        city: data.destinationCity,
+        pincode: data.destinationPincode,
+        countryCode: isoFromName(data.destinationCountry),
+        country: data.destinationCountry.toUpperCase(),
+      },
       shipment: {
-        weight: firstItem.weight,
-        quantity: firstItem.quantity,
-        dimensions: firstItem.dimensions,
-        description: firstItem.description,
+        // Declared value is not collected here; Shipmozo uses a backend dummy.
+        packages: shipmentPackages,
+        description: "General Cargo",
+        weight: totalWeight,
+        quantity: totalPieces,
+        dimensions: {
+          length: Math.max(first?.lengthCm ?? 1, 1),
+          width: Math.max(first?.widthCm ?? 1, 1),
+          height: Math.max(first?.heightCm ?? 1, 1),
+          unit: "cm",
+        },
       },
     };
 
-    // FIX: Pass all selected vendor IDs directly.
-    // Original code had `vendors.length < 2 ? vendors : []` which sent an
-    // empty array (= "all vendors") whenever 2+ were selected — the opposite
-    // of the user's intent.
-    fetchRates(rateRequest, data.vendors as VendorId[]);
+    fetchRates(request, data.vendors as VendorId[], scope);
   };
 
   return (
-    <form onSubmit={handleSubmit(handleFormSubmit)} className="space-y-5">
-
-      {/* ── Route ── */}
-      <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 shadow-sm overflow-hidden">
-        <div className="px-5 py-3.5 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800">
-          <span className="text-xs font-semibold tracking-widest text-slate-500 dark:text-slate-400 uppercase">
-            Route
-          </span>
-        </div>
-
-        <div className="p-5">
-          <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto_1fr] gap-4 items-start">
-
-            {/* Origin */}
-            <div className="space-y-3">
-              <SectionHeading icon={MapPin} label="Origin" />
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label className="text-xs mb-1.5 block">City</Label>
-                  <Input
-                    {...register("origin.city")}
-                    placeholder="New Delhi"
-                    className="h-9 text-sm"
-                  />
-                  <FieldError message={errors.origin?.city?.message} />
-                </div>
-                <div>
-                  <Label className="text-xs mb-1.5 block">Pincode / ZIP</Label>
-                  <Input
-                    {...register("origin.pincode")}
-                    placeholder="110059"
-                    className="h-9 text-sm"
-                  />
-                  <FieldError message={errors.origin?.pincode?.message} />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label className="text-xs mb-1.5 block">Country Code</Label>
-                  <Input
-                    {...register("origin.countryCode")}
-                    placeholder="IN"
-                    maxLength={2}
-                    className="h-9 text-sm uppercase"
-                  />
-                  <FieldError message={errors.origin?.countryCode?.message} />
-                </div>
-                <div>
-                  <Label className="text-xs mb-1.5 block">Address (optional)</Label>
-                  <Input
-                    {...register("origin.line1")}
-                    placeholder="Street address"
-                    className="h-9 text-sm"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Arrow */}
-            <div className="hidden lg:flex items-center justify-center pt-9">
-              <ArrowRight className="h-4 w-4 text-muted-foreground" />
-            </div>
-
-            {/* Destination */}
-            <div className="space-y-3">
-              <SectionHeading icon={MapPin} label="Destination" />
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label className="text-xs mb-1.5 block">City</Label>
-                  <Input
-                    {...register("destination.city")}
-                    placeholder="Sydney"
-                    className="h-9 text-sm"
-                  />
-                  <FieldError message={errors.destination?.city?.message} />
-                </div>
-                <div>
-                  <Label className="text-xs mb-1.5 block">Pincode / ZIP</Label>
-                  <Input
-                    {...register("destination.pincode")}
-                    placeholder="7470"
-                    className="h-9 text-sm"
-                  />
-                  <FieldError message={errors.destination?.pincode?.message} />
-                </div>
-              </div>
-              <div>
-                <Label className="text-xs mb-1.5 block">Country</Label>
-                <Select value={destCountryCode} onValueChange={setDestinationCountry}>
-                  <SelectTrigger className="h-9 text-sm">
-                    <SelectValue placeholder="Select country" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {COUNTRY_OPTIONS.map((c) => (
-                      <SelectItem key={c.code} value={c.code}>
-                        {c.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <FieldError message={errors.destination?.countryCode?.message} />
-              </div>
-            </div>
-
-          </div>
-        </div>
+    <form onSubmit={handleSubmit(onSubmit)} autoComplete="off" className="space-y-5">
+      {/* Top: narrow route + wide boxes */}
+      <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[24rem_1fr]">
+        <RouteCard
+          register={register}
+          setValue={setValue}
+          errors={errors}
+          control={control}
+          scope={scope}
+        />
+        <BoxesCard
+          fields={fields}
+          register={register}
+          errors={errors}
+          control={control}
+          onAdd={() => append(emptyBox)}
+          onRemove={(i) => remove(i)}
+        />
       </div>
 
-      {/* ── Items ── */}
-      <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 shadow-sm overflow-hidden">
-        <div className="flex items-center justify-between px-5 py-3.5 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800">
-          <div className="flex items-center gap-2">
-            <Box className="h-4 w-4 text-muted-foreground" />
-            <span className="text-xs font-semibold tracking-widest text-slate-500 dark:text-slate-400 uppercase">
-              Items / Boxes
-            </span>
-          </div>
-          <Badge variant="secondary" className="text-xs tabular-nums">
-            {fields.length} {fields.length === 1 ? "item" : "items"}
-          </Badge>
-        </div>
-
-        <div className="p-4 space-y-3">
-          {fields.map((field, index) => (
-            <ItemRow
-              key={field.id}
-              index={index}
-              control={control}
-              register={register}
-              errors={errors}
-              canRemove={fields.length > 1}
-              onRemove={() => remove(index)}
-              watch={watch}
-            />
-          ))}
-
-          <button
-            type="button"
-            onClick={() => append(defaultItem)}
-            className={cn(
-              "w-full flex items-center justify-center gap-2 rounded-lg border border-dashed",
-              "py-3 text-sm font-medium transition-colors",
-              "text-muted-foreground hover:text-foreground hover:bg-muted"
-            )}
-          >
-            <Plus className="h-4 w-4" />
-            Add item
-          </button>
-
-          {errors.items?.root && (
-            <p className="text-xs text-destructive">{errors.items.root.message}</p>
-          )}
-        </div>
-      </div>
-
-      {/* ── Carriers ── */}
-      <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 shadow-sm overflow-hidden">
-        <div className="px-5 py-3.5 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800">
-          <span className="text-xs font-semibold tracking-widest text-slate-500 dark:text-slate-400 uppercase">
-            Carriers to query
-          </span>
-        </div>
-        <div className="px-5 py-4">
-          <div className="flex flex-wrap gap-3">
-            {AVAILABLE_VENDORS.map((vendor) => {
-              const checked = selectedVendors?.includes(vendor.id) ?? false;
-              return (
-                <label
-                  key={vendor.id}
-                  className={cn(
-                    "flex items-center gap-2.5 cursor-pointer rounded-lg px-3.5 py-2.5",
-                    "border transition-all duration-150 select-none",
-                    checked ? "border-primary bg-muted" : "hover:bg-muted/50"
-                  )}
-                >
-                  <Checkbox
-                    id={`vendor_${vendor.id}`}
-                    checked={checked}
-                    onCheckedChange={(v) => toggleVendor(vendor.id, Boolean(v))}
-                    className="pointer-events-none"
-                  />
-                  <span
-                    className={cn(
-                      "text-sm font-medium",
-                      checked ? "text-foreground" : "text-muted-foreground"
-                    )}
-                  >
-                    {vendor.label}
-                  </span>
-                </label>
-              );
-            })}
-          </div>
-          {errors.vendors && (
-            <p className="text-xs text-destructive mt-2">{errors.vendors.message}</p>
-          )}
-        </div>
-      </div>
-
-      {/* ── Submit ── */}
-      <Button
-        type="submit"
-        size="lg"
-        className="w-full h-11 text-sm font-medium"
-        disabled={loading}
-      >
-        {loading ? (
-          <>
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            Fetching rates…
-          </>
-        ) : (
-          <>
-            Get Rates
-            <ArrowRight className="ml-2 h-4 w-4" />
-          </>
-        )}
-      </Button>
+      {/* Bottom: carriers + summary + action */}
+      <BottomBar
+        control={control}
+        setValue={setValue}
+        errors={errors}
+        loading={loading}
+        vendors={vendorList}
+      />
     </form>
   );
 }

@@ -15,6 +15,7 @@ import type {
   RateQuote,
   VendorError,
   VendorId,
+  RateScope,
 } from "@/lib/types";
 
 // ---------------------------------------------------------------------------
@@ -42,8 +43,15 @@ export interface RatesSlice {
 
   // -- Actions ---------------------------------------------------------------
 
-  /** Called by the form on submit. Invokes the Server Action. */
-  fetchRates: (request: RateRequest, vendorIds?: VendorId[]) => Promise<void>;
+  /**
+   * Called by the form on submit. Invokes the matching Server Action.
+   * `scope` selects the calculator: "international" (default) or "domestic".
+   */
+  fetchRates: (
+    request: RateRequest,
+    vendorIds?: VendorId[],
+    scope?: RateScope,
+  ) => Promise<void>;
 
   /** Resets all rate state (useful before a new search) */
   clearRates: () => void;

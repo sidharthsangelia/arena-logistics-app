@@ -14,12 +14,14 @@
  */
 
 import { adapterRegistry } from "../rate-adapters/vendors/index";
+import type { AdapterRegistry } from "../rate-adapters/core/registry";
 import type {
   CanonicalRateRequest,
   CanonicalRateResponse,
   RateQuote,
   VendorError,
 } from "../rate-adapters/core/types";
+import { applyMarkup } from "@/lib/pricing/markup";
 
 import { Decimal } from "@/generated/prisma/runtime/client";
 
@@ -29,6 +31,14 @@ export interface GetRatesOptions {
 
   /** Organisation-specific markup percentage. Example: 30 = +30% */
   markupPercent?: number | Decimal;
+
+  /**
+   * Which adapter registry to fan out over. Defaults to the international
+   * registry. The domestic calculator passes its own registry so the same
+   * service, markup path, and response shape serve both flows without any
+   * vendor leaking across the two.
+   */
+  registry?: AdapterRegistry;
 }
 
 export async function getRates(
@@ -36,14 +46,15 @@ export async function getRates(
   options: GetRatesOptions = {}
 ): Promise<CanonicalRateResponse> {
   const markupPercent = Number(options.markupPercent ?? 0);
+  const registry = options.registry ?? adapterRegistry;
 
   // 1. Pick which adapters to use
   const adapters =
     options.vendorIds && options.vendorIds.length > 0
       ? options.vendorIds
-          .map((id) => adapterRegistry.get(id))
+          .map((id) => registry.get(id))
           .filter(Boolean)
-      : adapterRegistry.getAll();
+      : registry.getAll();
 
   if (adapters.length === 0) {
     return {
@@ -71,26 +82,13 @@ export async function getRates(
 
   results.forEach((result, idx) => {
     if (result.status === "fulfilled") {
-      // Apply organisation markup to every quote before exposing it to the
-      // caller. The vendor quote itself remains untouched internally.
-      const markedUpQuotes = result.value.quotes.map((quote) => {
-        const markupAmount =
-          quote.totalWithTax * (markupPercent / 100);
-
-        return {
-          ...quote,
-
-          // overwrite customer-facing price
-          totalWithTax: Number(
-            (quote.totalWithTax + markupAmount).toFixed(2)
-          ),
-
-          // optional future reporting fields
-          vendorCost: quote.totalWithTax,
-          markupPercent,
-          markupAmount: Number(markupAmount.toFixed(2)),
-        };
-      });
+      // Apply the org (client/BA) markup to every quote via the single shared
+      // markup path (lib/pricing/markup). This keeps the breakdown internally
+      // consistent and NEVER leaks the raw vendor cost to the customer — the
+      // customer only ever sees marked-up numbers.
+      const markedUpQuotes = result.value.quotes.map((quote) =>
+        applyMarkup(quote, markupPercent),
+      );
 
       quotes.push(...markedUpQuotes);
 

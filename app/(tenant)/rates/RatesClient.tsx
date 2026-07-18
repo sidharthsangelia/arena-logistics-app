@@ -23,24 +23,41 @@
  * - Does not manage sort/filter/compare state (ui.slice and compare.slice do)
  */
 
+import { useEffect } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { AlertCircle } from "lucide-react";
 
 import RateCalculatorForm from "@/components/rate-calculator/RateCalculatorForm";
 import { useAppStore } from "@/store";
 import RateResultsList from "@/components/rate-calculator/RateResultList";
+import type { RateScope } from "@/lib/types";
 
 
-export default function RatesClient() {
+export default function RatesClient({
+  scope = "international",
+}: {
+  /** Which calculator to render. Defaults to international. */
+  scope?: RateScope;
+}) {
   const error = useAppStore((s) => s.error);
   const hasResults = useAppStore(
     (s) => s.quotes.length > 0 || s.vendorErrors.length > 0
   );
   const hasRequest = useAppStore((s) => s.request !== null);
+  const clearRates = useAppStore((s) => s.clearRates);
+
+  // The rate store is shared between the international and domestic calculators
+  // (separate routes, one in-memory store). Clear any prior result when this
+  // calculator mounts so a fresh visit starts empty — results appear only after
+  // the user fills the form and clicks Get rates, never carried over from the
+  // other calculator.
+  useEffect(() => {
+    clearRates();
+  }, [scope, clearRates]);
 
   return (
     <div className="space-y-6">
-      <RateCalculatorForm />
+      <RateCalculatorForm scope={scope} />
 
       {error && (
         <Alert variant="destructive">

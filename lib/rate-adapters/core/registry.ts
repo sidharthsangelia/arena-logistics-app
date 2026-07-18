@@ -13,22 +13,28 @@ import type { BaseVendorAdapter } from "./base.adapter";
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyAdapter = BaseVendorAdapter<any, any>;
 
-class AdapterRegistry {
+export class AdapterRegistry {
   private readonly adapters = new Map<string, AnyAdapter>();
 
   /**
-   * Register a vendor adapter. Called once at startup from vendors/index.ts.
-   * Throws if the same vendorId is registered twice (catches typos early).
+   * Register a vendor adapter (called from vendors/index.ts at import time).
+   *
+   * IDEMPOTENT ON PURPOSE. The registration module runs its side effects
+   * whenever it is (re-)evaluated, which happens more than once in practice:
+   *   - dev HMR re-runs the module when any adapter file changes
+   *   - the App Router can evaluate the same module in separate server/SSR
+   *     module graphs
+   * An earlier version threw on a repeat vendorId, which turned those benign
+   * re-evaluations into a 500 on /rates. We now replace instead: the latest
+   * adapter instance wins (so HMR picks up code changes) and registration
+   * never throws while users are mid-request.
    */
   register(adapter: AnyAdapter): void {
-    if (this.adapters.has(adapter.vendorId)) {
-      throw new Error(
-        `[AdapterRegistry] Duplicate vendorId "${adapter.vendorId}". ` +
-          `Each vendor must have a unique ID.`
-      );
-    }
+    const isReRegister = this.adapters.has(adapter.vendorId);
     this.adapters.set(adapter.vendorId, adapter);
-    console.log(`[AdapterRegistry] Registered vendor: ${adapter.vendorId}`);
+    if (!isReRegister) {
+      console.log(`[AdapterRegistry] Registered vendor: ${adapter.vendorId}`);
+    }
   }
 
   /** Get one specific adapter by id, or undefined if not registered. */
@@ -49,7 +55,18 @@ class AdapterRegistry {
 
 /**
  * Singleton instance shared across the app.
- * In Next.js 16 with the App Router, module-level singletons are safe
- * because modules are only evaluated once per server process.
+ *
+ * Pinned to globalThis (same pattern as the Prisma client in utils/db.ts) so
+ * there is exactly ONE registry per server process even if this module gets
+ * evaluated in more than one module graph or reloaded by dev HMR. Combined
+ * with the idempotent `register` above, adapter setup can never crash a
+ * request.
  */
-export const adapterRegistry = new AdapterRegistry();
+const globalForRegistry = globalThis as unknown as {
+  __arenaAdapterRegistry?: AdapterRegistry;
+};
+
+export const adapterRegistry =
+  globalForRegistry.__arenaAdapterRegistry ?? new AdapterRegistry();
+
+globalForRegistry.__arenaAdapterRegistry = adapterRegistry;

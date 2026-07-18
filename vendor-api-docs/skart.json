@@ -1,0 +1,2192 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "sKart APIs",
+    "description": "API endpoints of sKart services documented on swagger.",
+    "contact": {
+      "name": "sKartedge",
+      "email": "info@skart-express.com",
+      "url": "https://booking.skart-express.com/"
+    },
+    "license": {
+      "name": "Download PDF",
+      "url": "https://skartnew-dev.s3.amazonaws.com/OTHERS//live-sKart-booking-api-document.pdf"
+    },
+    "version": "1.0.0"
+  },
+  "servers": [{ "url": "/api/v1/booking", "description": "Server" }],
+  "tags": [
+    {
+      "name": "1.1. Booking API International",
+      "description": "Endpoint to book international shipment"
+    },
+    {
+      "name": "1.2. Booking API Domestic",
+      "description": "Endpoint to book domestic shipment"
+    },
+    {
+      "name": "2.1. Rate Calculation API International",
+      "description": "Endpoint to calculate rate for international shipment"
+    },
+    {
+      "name": "2.2. Rate Calculation API Domestic",
+      "description": "Endpoint to calculate rate for domestic shipment"
+    },
+    {
+      "name": "3. Shipment Tracker API",
+      "description": "Endpoint to track shipment"
+    },
+    {
+      "name": "4. Fetch Courier Details API",
+      "description": "Endpoint to fetch courier details based on courier_id"
+    },
+    {
+      "name": "5. Fetch Country Details API",
+      "description": "Endpoint to fetch country details based on country_name"
+    },
+    {
+      "name": "6. Fetch Currency Details API",
+      "description": "Endpoint to fetch currency details"
+    },
+    {
+      "name": "7. Fetch Organization Details API",
+      "description": "Endpoint to fetch organization details"
+    },
+    {
+      "name": "7.1. Fetch Organization Document Details API",
+      "description": "Endpoint to fetch organization document details."
+    },
+    {
+      "name": "8. Credit Limit Check API",
+      "description": "Endpoint to check credit limit"
+    },
+    {
+      "name": "9. Fetch Consigner Details API",
+      "description": "Endpoint to fetch consigner details"
+    },
+    {
+      "name": "10. Fetch Consignee Details API",
+      "description": "Endpoint to fetch consignee details"
+    },
+    {
+      "name": "11. FLM API",
+      "description": "Endpoint to check flm service enabled or not"
+    },
+    {
+      "name": "12. GST Slabs API",
+      "description": "Endpoint to fetch gst-slabs information"
+    },
+    {
+      "name": "13. Zipcode Existence Check API",
+      "description": "Endpoint to check zipcode existence in our system."
+    },
+    {
+      "name": "14. KYC Upload API",
+      "description": "Endpoint to upload documents for KYC."
+    },
+    {
+      "name": "15. Fetch all MSME API",
+      "description": "Endpoint to fetch all MSMEs."
+    },
+    {
+      "name": "16. Fetch single MSME API",
+      "description": "Endpoint to fetch single MSME."
+    },
+    {
+      "name": "17. Check Pickup Availability API",
+      "description": "Endpoint to fetch pickup availabilty information. 👉**(Note: This API is for *Fedex Import* only)**"
+    },
+    {
+      "name": "18. Create Pickup API",
+      "description": "Endpoint to create pickup. 👉**(Note: This API is for *Fedex Import* and *Aramex - Import* only)**"
+    },
+    {
+      "name": "19. Cancel Pickup API",
+      "description": "Endpoint to cancel a pickup. 👉**(Note: This API is for *Fedex Import* only)**"
+    }
+  ],
+  "paths": {
+    "/booking-api": {
+      "post": {
+        "tags": ["1.1. Booking API International"],
+        "description": "Use to book international shipment",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  { "$ref": "#/components/schemas/DHL DEL" },
+                  { "$ref": "#/components/schemas/FEDEX DEL" },
+                  { "$ref": "#/components/schemas/UPS Express DEL" },
+                  { "$ref": "#/components/schemas/Aramex Exp DEL" },
+                  { "$ref": "#/components/schemas/SKYNET" },
+                  { "$ref": "#/components/schemas/Skynet AUS DEL" },
+                  { "$ref": "#/components/schemas/Import Booking" }
+                ]
+              },
+              "examples": {
+                "DHL DEL": {
+                  "value": {
+                    "user_name": "sgate",
+                    "password": "123456",
+                    "origin_pincode": "110049",
+                    "destination_pincode": "3001",
+                    "city": "Melbourne",
+                    "booking_type": 1,
+                    "destination_country_id": 12,
+                    "shipment_type": 1,
+                    "unit": {
+                      "weight_unit": "kgs",
+                      "length_unit": "cms",
+                      "currency": "24"
+                    },
+                    "shipment_dimensions": [
+                      {
+                        "item_description": "First description",
+                        "value": "1000",
+                        "quantity": "1",
+                        "weight": "0.5",
+                        "length": "11",
+                        "breadth": "11",
+                        "height": "2",
+                        "hsn_code": "49011010"
+                      }
+                    ],
+                    "courier_id": 121,
+                    "consigner_first_name": "Ajay",
+                    "consigner_company_name": "sgate",
+                    "consigner_mobile_number": "9582529747",
+                    "consigner_email_id": "ajay@gmail.com",
+                    "consigner_address_1": "K-99",
+                    "consigner_address_2": "Budh Vihar",
+                    "consigner_city": "NEW DELHI",
+                    "consigner_pincode": "110049",
+                    "consigner_state": "Delhi",
+                    "consigner_doc_type": "4",
+                    "consignee_first_name": "Sonu",
+                    "consignee_company_name": "datamotive",
+                    "consignee_mobile_number": "9582529747",
+                    "consignee_email_id": "sonu@gmail.com",
+                    "consignee_address_1": "xyz rd vicoria suit melbourne",
+                    "consignee_address_2": "vicoria rd suit",
+                    "booking_invoice_number": "78645",
+                    "booking_invoice_date": "2024-07-10",
+                    "consigner_gst_number": "987456615215",
+                    "consigner_gst_applicable": "2",
+                    "consigner_tax_payment": "3",
+                    "pickup_required": 1,
+                    "pickup_location": 2,
+                    "pickup_name": "ajay",
+                    "pickup_address_1": "street no 4",
+                    "pickup_address_2": "near general store",
+                    "pickup_pincode": "110049",
+                    "pickup_city": "NEW DELHI",
+                    "pickup_state": "Delhi",
+                    "pickup_ready_start_time": "11:47 AM",
+                    "pickup_ready_end_time": "18:17 PM",
+                    "tax_paid": 1,
+                    "tax_amount": "123",
+                    "export_type": "3",
+                    "consignee_reference_no": "7894564",
+                    "consignee_gst_number": "09AAACH7409R1ZZ",
+                    "shipper_type": "1",
+                    "otp": ""
+                  }
+                },
+                "DHL Express": {
+                  "value": {
+                    "user_name": "sgate",
+                    "password": "123456",
+                    "origin_pincode": "110049",
+                    "destination_pincode": "3001",
+                    "city": "Melbourne",
+                    "booking_type": 1,
+                    "destination_country_id": 12,
+                    "shipment_type": 1,
+                    "unit": {
+                      "weight_unit": "kgs",
+                      "length_unit": "cms",
+                      "currency": "24"
+                    },
+                    "shipment_dimensions": [
+                      {
+                        "item_description": "First description",
+                        "value": "1000",
+                        "quantity": "1",
+                        "weight": "0.5",
+                        "length": "11",
+                        "breadth": "11",
+                        "height": "2",
+                        "hsn_code": "49011010"
+                      }
+                    ],
+                    "courier_id": 157,
+                    "consigner_first_name": "Ajay",
+                    "consigner_company_name": "sgate",
+                    "consigner_mobile_number": "9582529747",
+                    "consigner_email_id": "ajay@gmail.com",
+                    "consigner_address_1": "K-99",
+                    "consigner_address_2": "Budh Vihar",
+                    "consigner_city": "NEW DELHI",
+                    "consigner_pincode": "110049",
+                    "consigner_state": "Delhi",
+                    "consigner_doc_type": "4",
+                    "consignee_first_name": "Sonu",
+                    "consignee_company_name": "datamotive",
+                    "consignee_mobile_number": "9582529747",
+                    "consignee_email_id": "sonu@gmail.com",
+                    "consignee_address_1": "xyz rd vicoria suit melbourne",
+                    "consignee_address_2": "vicoria rd suit",
+                    "booking_invoice_number": "78645",
+                    "booking_invoice_date": "2024-07-10",
+                    "consigner_gst_number": "987456615215",
+                    "consigner_gst_applicable": "2",
+                    "consigner_tax_payment": "3",
+                    "pickup_required": 1,
+                    "pickup_location": 2,
+                    "pickup_name": "ajay",
+                    "pickup_address_1": "street no 4",
+                    "pickup_address_2": "near general store",
+                    "pickup_pincode": "110049",
+                    "pickup_city": "NEW DELHI",
+                    "pickup_state": "Delhi",
+                    "pickup_ready_start_time": "11:47 AM",
+                    "pickup_ready_end_time": "18:17 PM",
+                    "tax_paid": 1,
+                    "tax_amount": "123",
+                    "export_type": "3",
+                    "consignee_reference_no": "7894564",
+                    "consignee_gst_number": "09AAACH7409R1ZZ",
+                    "shipper_type": "1",
+                    "otp": ""
+                  }
+                },
+                "FEDEX DEL": {
+                  "value": {
+                    "user_name": "sgate",
+                    "password": "123456",
+                    "origin_pincode": "110049",
+                    "destination_pincode": "3001",
+                    "city": "Melbourne",
+                    "booking_type": 1,
+                    "destination_country_id": 12,
+                    "shipment_type": 1,
+                    "unit": {
+                      "weight_unit": "kgs",
+                      "length_unit": "cms",
+                      "currency": "24"
+                    },
+                    "shipment_dimensions": [
+                      {
+                        "item_description": "First description",
+                        "value": "1000",
+                        "quantity": "1",
+                        "weight": "0.5",
+                        "length": "11",
+                        "breadth": "11",
+                        "height": "2",
+                        "hsn_code": "49011010"
+                      }
+                    ],
+                    "courier_id": 122,
+                    "consigner_first_name": "Ajay",
+                    "consigner_company_name": "sgate",
+                    "consigner_mobile_number": "9582529747",
+                    "consigner_email_id": "ajay@gmail.com",
+                    "consigner_address_1": "K-99",
+                    "consigner_address_2": "Budh Vihar",
+                    "consigner_city": "NEW DELHI",
+                    "consigner_pincode": "110049",
+                    "consigner_state": "Delhi",
+                    "consigner_doc_type": "4",
+                    "consignee_first_name": "Sonu",
+                    "consignee_company_name": "datamotive",
+                    "consignee_mobile_number": "9582529747",
+                    "consignee_email_id": "sonu@gmail.com",
+                    "consignee_address_1": "xyz rd vicoria suit melbourne",
+                    "consignee_address_2": "vicoria rd suit",
+                    "booking_invoice_number": "78645",
+                    "booking_invoice_date": "2024-07-10",
+                    "consigner_gst_number": "987456615215",
+                    "consigner_gst_applicable": "2",
+                    "consigner_tax_payment": "3",
+                    "pickup_required": 1,
+                    "pickup_location": 2,
+                    "pickup_name": "ajay",
+                    "pickup_address_1": "street no 4",
+                    "pickup_address_2": "near general store",
+                    "pickup_pincode": "110049",
+                    "pickup_city": "NEW DELHI",
+                    "pickup_state": "Delhi",
+                    "pickup_ready_start_time": "11:47 AM",
+                    "pickup_ready_end_time": "18:17 PM",
+                    "tax_paid": 1,
+                    "tax_amount": "123",
+                    "export_type": "3",
+                    "consignee_reference_no": "7894564",
+                    "consignee_gst_number": "09AAACH7409R1ZZ",
+                    "invoiceData": {
+                      "shipperInvoice": [
+                        {
+                          "box_no": "1",
+                          "description": "Book",
+                          "hsn": "48201090",
+                          "quantity": 1,
+                          "rate": 112,
+                          "uom": "dom"
+                        }
+                      ],
+                      "gstDataId": "106",
+                      "gstType": "1"
+                    }
+                  }
+                },
+                "UPS Express DEL": {
+                  "value": {
+                    "user_name": "sgate",
+                    "password": "123456",
+                    "origin_pincode": "110049",
+                    "destination_pincode": "70001",
+                    "city": "Metairie",
+                    "booking_type": 1,
+                    "destination_country_id": 225,
+                    "shipment_type": 1,
+                    "unit": {
+                      "weight_unit": "kgs",
+                      "length_unit": "cms",
+                      "currency": "24"
+                    },
+                    "shipment_dimensions": [
+                      {
+                        "item_description": "First description",
+                        "value": "1000",
+                        "quantity": "1",
+                        "weight": "0.5",
+                        "length": "11",
+                        "breadth": "11",
+                        "height": "2",
+                        "hsn_code": "49011010"
+                      }
+                    ],
+                    "courier_id": 133,
+                    "consigner_first_name": "Ajay",
+                    "consigner_company_name": "sgate",
+                    "consigner_mobile_number": "9582529747",
+                    "consigner_email_id": "ajay@gmail.com",
+                    "consigner_address_1": "K-99",
+                    "consigner_address_2": "Budh Vihar",
+                    "consigner_city": "NEW DELHI",
+                    "consigner_pincode": "110049",
+                    "consigner_state": "Delhi",
+                    "consigner_doc_type": "4",
+                    "consignee_first_name": "Sonu",
+                    "consignee_company_name": "datamotive",
+                    "consignee_mobile_number": "9582529747",
+                    "consignee_email_id": "sonu@gmail.com",
+                    "consignee_address_1": "xyz rd vicoria suit melbourne",
+                    "consignee_address_2": "vicoria rd suit",
+                    "booking_invoice_number": "78645",
+                    "booking_invoice_date": "2024-07-10",
+                    "consigner_gst_number": "987456615215",
+                    "consigner_gst_applicable": "2",
+                    "consigner_tax_payment": "3",
+                    "pickup_required": 1,
+                    "pickup_location": 2,
+                    "pickup_name": "ajay",
+                    "pickup_address_1": "street no 4",
+                    "pickup_address_2": "near general store",
+                    "pickup_pincode": "110049",
+                    "pickup_city": "NEW DELHI",
+                    "pickup_state": "Delhi",
+                    "pickup_ready_start_time": "11:47 AM",
+                    "pickup_ready_end_time": "18:17 PM",
+                    "tax_paid": 1,
+                    "tax_amount": "123",
+                    "export_type": "3",
+                    "consignee_reference_no": "7894564",
+                    "consignee_gst_number": "09AAACH7409R1ZZ",
+                    "invoiceData": {
+                      "shipperInvoice": [
+                        {
+                          "box_no": "1",
+                          "description": "Book",
+                          "hsn": "48201090",
+                          "quantity": 1,
+                          "rate": 112,
+                          "uom": "dom"
+                        }
+                      ],
+                      "gstDataId": "106",
+                      "gstType": "1"
+                    }
+                  }
+                },
+                "Aramex Exp DEL": {
+                  "value": {
+                    "user_name": "sgate",
+                    "password": "123456",
+                    "origin_pincode": "110049",
+                    "destination_pincode": "3001",
+                    "city": "Melbourne",
+                    "booking_type": 1,
+                    "destination_country_id": 12,
+                    "shipment_type": 1,
+                    "unit": {
+                      "weight_unit": "kgs",
+                      "length_unit": "cms",
+                      "currency": "24"
+                    },
+                    "shipment_dimensions": [
+                      {
+                        "item_description": "First description",
+                        "value": "1000",
+                        "quantity": "1",
+                        "weight": "0.5",
+                        "length": "11",
+                        "breadth": "11",
+                        "height": "2",
+                        "hsn_code": "49011010"
+                      }
+                    ],
+                    "courier_id": 124,
+                    "consigner_first_name": "Ajay",
+                    "consigner_company_name": "sgate",
+                    "consigner_mobile_number": "9582529747",
+                    "consigner_email_id": "ajay@gmail.com",
+                    "consigner_address_1": "K-99",
+                    "consigner_address_2": "Budh Vihar",
+                    "consigner_city": "NEW DELHI",
+                    "consigner_pincode": "110049",
+                    "consigner_state": "Delhi",
+                    "consigner_doc_type": "4",
+                    "consignee_first_name": "Sonu",
+                    "consignee_company_name": "datamotive",
+                    "consignee_mobile_number": "9582529747",
+                    "consignee_email_id": "sonu@gmail.com",
+                    "consignee_address_1": "xyz rd vicoria suit melbourne",
+                    "consignee_address_2": "vicoria rd suit",
+                    "booking_invoice_number": "78645",
+                    "booking_invoice_date": "2024-07-10",
+                    "consigner_gst_number": "987456615215",
+                    "consigner_gst_applicable": "2",
+                    "consigner_tax_payment": "3",
+                    "pickup_required": 1,
+                    "pickup_location": 2,
+                    "pickup_name": "ajay",
+                    "pickup_address_1": "street no 4",
+                    "pickup_address_2": "near general store",
+                    "pickup_pincode": "110049",
+                    "pickup_city": "NEW DELHI",
+                    "pickup_state": "Delhi",
+                    "pickup_ready_start_time": "11:47 AM",
+                    "pickup_ready_end_time": "18:17 PM",
+                    "tax_paid": 1,
+                    "tax_amount": "123",
+                    "export_type": "3",
+                    "consignee_reference_no": "7894564",
+                    "consignee_gst_number": "09AAACH7409R1ZZ"
+                  }
+                },
+                "SKYNET": {
+                  "value": {
+                    "user_name": "sgate",
+                    "password": "123456",
+                    "origin_pincode": "110049",
+                    "destination_pincode": "0000",
+                    "city": "Dubai",
+                    "booking_type": 1,
+                    "destination_country_id": 223,
+                    "shipment_type": 1,
+                    "unit": {
+                      "weight_unit": "kgs",
+                      "length_unit": "cms",
+                      "currency": "24"
+                    },
+                    "shipment_dimensions": [
+                      {
+                        "item_description": "First description",
+                        "value": "1000",
+                        "quantity": "1",
+                        "weight": "0.5",
+                        "length": "11",
+                        "breadth": "11",
+                        "height": "2",
+                        "hsn_code": "49011010"
+                      }
+                    ],
+                    "courier_id": 136,
+                    "consigner_first_name": "Ajay",
+                    "consigner_company_name": "sgate",
+                    "consigner_mobile_number": "9582529747",
+                    "consigner_email_id": "ajay@gmail.com",
+                    "consigner_address_1": "K-99",
+                    "consigner_address_2": "Budh Vihar",
+                    "consigner_city": "NEW DELHI",
+                    "consigner_pincode": "110049",
+                    "consigner_state": "Delhi",
+                    "consigner_doc_type": "2",
+                    "consignee_first_name": "Sonu",
+                    "consignee_company_name": "datamotive",
+                    "consignee_mobile_number": "9582529747",
+                    "consignee_email_id": "sonu@gmail.com",
+                    "consignee_address_1": "xyz rd vicoria suit melbourne",
+                    "consignee_address_2": "vicoria rd suit",
+                    "consignee_state_code": "AE",
+                    "booking_invoice_number": "78645",
+                    "booking_invoice_date": "2024-07-10",
+                    "consigner_gst_number": "ABCDE1234F",
+                    "consigner_gst_applicable": "2",
+                    "consigner_tax_payment": "3",
+                    "pickup_required": 1,
+                    "pickup_location": 2,
+                    "pickup_name": "ajay",
+                    "pickup_address_1": "street no 4",
+                    "pickup_address_2": "near general store",
+                    "pickup_pincode": "110049",
+                    "pickup_city": "NEW DELHI",
+                    "pickup_state": "Delhi",
+                    "pickup_ready_start_time": "11:47 AM",
+                    "pickup_ready_end_time": "18:17 PM",
+                    "shipment_purpose": 8,
+                    "consignee_reference_no": "7894564",
+                    "consignee_gst_number": "09AAACH7409R1ZZ",
+                    "tax_paid": 1,
+                    "tax_amount": "123",
+                    "export_type": "3"
+                  }
+                },
+                "Skynet AUS DEL": {
+                  "value": {
+                    "user_name": "sgate",
+                    "password": "123456",
+                    "origin_pincode": "110049",
+                    "destination_pincode": "7054",
+                    "city": "Tinderbox",
+                    "booking_type": 1,
+                    "destination_country_id": 12,
+                    "shipment_type": 1,
+                    "unit": {
+                      "weight_unit": "kgs",
+                      "length_unit": "cms",
+                      "currency": "24"
+                    },
+                    "shipment_dimensions": [
+                      {
+                        "item_description": "First description",
+                        "value": "1000",
+                        "quantity": "1",
+                        "weight": "0.5",
+                        "length": "11",
+                        "breadth": "11",
+                        "height": "2",
+                        "hsn_code": "49011010"
+                      }
+                    ],
+                    "courier_id": 158,
+                    "consigner_first_name": "Ajay",
+                    "consigner_company_name": "sgate",
+                    "consigner_mobile_number": "9582529747",
+                    "consigner_email_id": "ajay@gmail.com",
+                    "consigner_address_1": "K-99",
+                    "consigner_address_2": "Budh Vihar",
+                    "consigner_city": "NEW DELHI",
+                    "consigner_pincode": "110049",
+                    "consigner_state": "Delhi",
+                    "consigner_doc_type": "4",
+                    "consignee_first_name": "Sonu",
+                    "consignee_company_name": "datamotive",
+                    "consignee_mobile_number": "9582529747",
+                    "consignee_email_id": "sonu@gmail.com",
+                    "consignee_address_1": "xyz rd vicoria suit melbourne",
+                    "consignee_address_2": "vicoria rd suit",
+                    "booking_invoice_number": "78645",
+                    "booking_invoice_date": "2024-07-10",
+                    "consigner_gst_number": "987456615215",
+                    "consigner_gst_applicable": "2",
+                    "consigner_tax_payment": "3",
+                    "pickup_required": 1,
+                    "pickup_location": 2,
+                    "pickup_name": "ajay",
+                    "pickup_address_1": "street no 4",
+                    "pickup_address_2": "near general store",
+                    "pickup_pincode": "110049",
+                    "pickup_city": "NEW DELHI",
+                    "pickup_state": "Delhi",
+                    "pickup_ready_start_time": "11:47 AM",
+                    "pickup_ready_end_time": "18:17 PM",
+                    "tax_paid": 1,
+                    "tax_amount": "123",
+                    "export_type": "3",
+                    "consignee_reference_no": "7894564",
+                    "consignee_gst_number": "09AAACH7409R1ZZ"
+                  }
+                },
+                "Import Booking (Fedex Import)": {
+                  "value": {
+                    "user_name": "sgate",
+                    "password": "123456",
+                    "origin_pincode": "3001",
+                    "origin_city": "Melbourne",
+                    "origin_country_id": "12",
+                    "destination_pincode": "110049",
+                    "import_booking": 2,
+                    "import_booking_type": 1,
+                    "city": "New Delhi",
+                    "booking_type": 1,
+                    "destination_country_id": 97,
+                    "shipment_type": 1,
+                    "unit": {
+                      "weight_unit": "kgs",
+                      "length_unit": "cms",
+                      "currency": "24"
+                    },
+                    "shipment_dimensions": [
+                      {
+                        "item_description": "First description",
+                        "value": "1000",
+                        "quantity": "1",
+                        "weight": "0.5",
+                        "length": "11",
+                        "breadth": "11",
+                        "height": "2",
+                        "hsn_code": "49011010"
+                      }
+                    ],
+                    "courier_id": 201,
+                    "consigner_first_name": "Ajay",
+                    "consigner_company_name": "sgate",
+                    "consigner_mobile_number": "9582529747",
+                    "consigner_email_id": "ajay@gmail.com",
+                    "consigner_address_1": "K-99",
+                    "consigner_address_2": "Budh Vihar",
+                    "consigner_city": "Victoria",
+                    "consigner_pincode": "3001",
+                    "consigner_state": "Victoria",
+                    "consigner_doc_type": "4",
+                    "consignee_first_name": "Sonu",
+                    "consignee_company_name": "datamotive",
+                    "consignee_mobile_number": "9582529747",
+                    "consignee_email_id": "sonu@gmail.com",
+                    "consignee_address_1": "xyz rd vicoria suit melbourne",
+                    "consignee_address_2": "vicoria rd suit",
+                    "booking_invoice_number": "78645",
+                    "booking_invoice_date": "2024-07-10",
+                    "consigner_gst_number": "987456615215",
+                    "consigner_gst_applicable": "2",
+                    "consigner_tax_payment": "3",
+                    "pickup_required": 1,
+                    "pickup_location": 2,
+                    "pickup_name": "ajay",
+                    "pickup_address_1": "street no 4",
+                    "pickup_address_2": "near general store",
+                    "pickup_pincode": "110049",
+                    "pickup_city": "NEW DELHI",
+                    "pickup_state": "Delhi",
+                    "pickup_ready_start_time": "11:47 AM",
+                    "pickup_ready_end_time": "18:17 PM",
+                    "tax_paid": 1,
+                    "tax_amount": "123",
+                    "export_type": "3",
+                    "consignee_reference_no": "7894564",
+                    "consignee_gst_number": "09AAACH7409R1ZZ",
+                    "invoiceData": {
+                      "shipperInvoice": [
+                        {
+                          "box_no": "1",
+                          "description": "Book",
+                          "hsn": "48201090",
+                          "quantity": 1,
+                          "rate": 112,
+                          "uom": "dom"
+                        }
+                      ],
+                      "gstDataId": "106",
+                      "gstType": "1"
+                    }
+                  }
+                },
+                "Commercial Booking (Aramex Exp Del)": {
+                  "value": {
+                    "user_name": "sgate",
+                    "password": "123456",
+                    "origin_pincode": "110049",
+                    "destination_pincode": "3001",
+                    "city": "Melbourne",
+                    "booking_type": 1,
+                    "destination_country_id": 12,
+                    "shipment_type": 4,
+                    "unit": {
+                      "weight_unit": "kgs",
+                      "length_unit": "cms",
+                      "currency": "24"
+                    },
+                    "shipment_dimensions": [
+                      {
+                        "item_description": "First description",
+                        "value": "1000",
+                        "quantity": "1",
+                        "weight": "0.5",
+                        "length": "11",
+                        "breadth": "11",
+                        "height": "2",
+                        "hsn_code": "49011010"
+                      }
+                    ],
+                    "courier_id": 124,
+                    "consigner_first_name": "Ajay",
+                    "consigner_company_name": "sgate",
+                    "consigner_mobile_number": "9582529747",
+                    "consigner_email_id": "ajay@gmail.com",
+                    "consigner_address_1": "K-99",
+                    "consigner_address_2": "Budh Vihar",
+                    "consigner_city": "NEW DELHI",
+                    "consigner_pincode": "110049",
+                    "consigner_state": "Delhi",
+                    "consigner_doc_type": "4",
+                    "consignee_first_name": "Sonu",
+                    "consignee_company_name": "datamotive",
+                    "consignee_mobile_number": "9582529747",
+                    "consignee_email_id": "sonu@gmail.com",
+                    "consignee_address_1": "xyz rd vicoria suit melbourne",
+                    "consignee_address_2": "vicoria rd suit",
+                    "booking_invoice_number": "78645",
+                    "booking_invoice_date": "2024-07-10",
+                    "consigner_gst_number": "987456615215",
+                    "consigner_gst_applicable": "2",
+                    "consigner_tax_payment": "3",
+                    "pickup_required": 1,
+                    "pickup_location": 2,
+                    "pickup_name": "ajay",
+                    "pickup_address_1": "street no 4",
+                    "pickup_address_2": "near general store",
+                    "pickup_pincode": "110049",
+                    "pickup_city": "NEW DELHI",
+                    "pickup_state": "Delhi",
+                    "pickup_ready_start_time": "11:47 AM",
+                    "pickup_ready_end_time": "18:17 PM",
+                    "tax_paid": 1,
+                    "tax_amount": "123",
+                    "export_type": "3",
+                    "consignee_reference_no": "7894564",
+                    "consignee_gst_number": "09AAACH7409R1ZZ",
+                    "cargo_type": "1",
+                    "clearence_type": "3",
+                    "inco_term": "2"
+                  }
+                },
+                "Commercial Booking (SKART SELF INTERNATIONAL)": {
+                  "value": {
+                    "user_name": "sgate",
+                    "password": "123456",
+                    "origin_pincode": "110049",
+                    "destination_pincode": "3001",
+                    "city": "Melbourne",
+                    "booking_type": 1,
+                    "destination_country_id": 12,
+                    "shipment_type": 4,
+                    "unit": {
+                      "weight_unit": "kgs",
+                      "length_unit": "cms",
+                      "currency": "24"
+                    },
+                    "shipment_dimensions": [
+                      {
+                        "item_description": "First description",
+                        "value": "1000",
+                        "quantity": "1",
+                        "weight": "0.5",
+                        "length": "11",
+                        "breadth": "11",
+                        "height": "2",
+                        "hsn_code": "49011010"
+                      }
+                    ],
+                    "courier_id": 138,
+                    "consigner_first_name": "Ajay",
+                    "consigner_company_name": "sgate",
+                    "consigner_mobile_number": "9582529747",
+                    "consigner_email_id": "ajay@gmail.com",
+                    "consigner_address_1": "K-99",
+                    "consigner_address_2": "Budh Vihar",
+                    "consigner_city": "NEW DELHI",
+                    "consigner_pincode": "110049",
+                    "consigner_state": "Delhi",
+                    "consigner_doc_type": "4",
+                    "consignee_first_name": "Sonu",
+                    "consignee_company_name": "datamotive",
+                    "consignee_mobile_number": "9582529747",
+                    "consignee_email_id": "sonu@gmail.com",
+                    "consignee_address_1": "xyz rd vicoria suit melbourne",
+                    "consignee_address_2": "vicoria rd suit",
+                    "booking_invoice_number": "78645",
+                    "booking_invoice_date": "2024-07-10",
+                    "consigner_gst_number": "987456615215",
+                    "consigner_gst_applicable": "2",
+                    "consigner_tax_payment": "3",
+                    "pickup_required": 1,
+                    "pickup_location": 2,
+                    "pickup_name": "ajay",
+                    "pickup_address_1": "street no 4",
+                    "pickup_address_2": "near general store",
+                    "pickup_pincode": "110049",
+                    "pickup_city": "NEW DELHI",
+                    "pickup_state": "Delhi",
+                    "pickup_ready_start_time": "11:47 AM",
+                    "pickup_ready_end_time": "18:17 PM",
+                    "tax_paid": 1,
+                    "tax_amount": "123",
+                    "export_type": "3",
+                    "consignee_reference_no": "7894564",
+                    "consignee_gst_number": "09AAACH7409R1ZZ",
+                    "cargo_type": "1",
+                    "clearence_type": "3",
+                    "inco_term": "2"
+                  }
+                },
+                "Commercial Booking (FEDEX DEL)": {
+                  "value": {
+                    "user_name": "sgate",
+                    "password": "123456",
+                    "origin_pincode": "110049",
+                    "destination_pincode": "3001",
+                    "city": "Melbourne",
+                    "booking_type": 1,
+                    "destination_country_id": 12,
+                    "shipment_type": 4,
+                    "unit": {
+                      "weight_unit": "kgs",
+                      "length_unit": "cms",
+                      "currency": "24"
+                    },
+                    "shipment_dimensions": [
+                      {
+                        "item_description": "First description",
+                        "value": "1000",
+                        "quantity": "1",
+                        "weight": "0.5",
+                        "length": "11",
+                        "breadth": "11",
+                        "height": "2",
+                        "hsn_code": "49011010"
+                      }
+                    ],
+                    "courier_id": 192,
+                    "consigner_first_name": "Ajay",
+                    "consigner_company_name": "sgate",
+                    "consigner_mobile_number": "9582529747",
+                    "consigner_email_id": "ajay@gmail.com",
+                    "consigner_address_1": "K-99",
+                    "consigner_address_2": "Budh Vihar",
+                    "consigner_city": "NEW DELHI",
+                    "consigner_pincode": "110049",
+                    "consigner_state": "Delhi",
+                    "consigner_doc_type": "4",
+                    "consignee_first_name": "Sonu",
+                    "consignee_company_name": "datamotive",
+                    "consignee_mobile_number": "9582529747",
+                    "consignee_email_id": "sonu@gmail.com",
+                    "consignee_address_1": "xyz rd vicoria suit melbourne",
+                    "consignee_address_2": "vicoria rd suit",
+                    "booking_invoice_number": "78645",
+                    "booking_invoice_date": "2024-07-10",
+                    "consigner_gst_number": "987456615215",
+                    "consigner_gst_applicable": "2",
+                    "consigner_tax_payment": "3",
+                    "pickup_required": 1,
+                    "pickup_location": 2,
+                    "pickup_name": "ajay",
+                    "pickup_address_1": "street no 4",
+                    "pickup_address_2": "near general store",
+                    "pickup_pincode": "110049",
+                    "pickup_city": "NEW DELHI",
+                    "pickup_state": "Delhi",
+                    "pickup_ready_start_time": "11:47 AM",
+                    "pickup_ready_end_time": "18:17 PM",
+                    "tax_paid": 1,
+                    "tax_amount": "123",
+                    "export_type": "3",
+                    "consignee_reference_no": "7894564",
+                    "consignee_gst_number": "09AAACH7409R1ZZ",
+                    "invoiceData": {
+                      "shipperInvoice": [
+                        {
+                          "box_no": "1",
+                          "description": "Book",
+                          "hsn": "48201090",
+                          "quantity": 1,
+                          "rate": 112,
+                          "uom": "dom"
+                        }
+                      ],
+                      "gstDataId": "106",
+                      "gstType": "1"
+                    },
+                    "cargo_type": "1",
+                    "clearence_type": "3",
+                    "inco_term": "2"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Booking placed successfully" },
+          "400": { "description": "Bad request" },
+          "404": { "description": "Not found" },
+          "422": { "description": "Unprocessable Entity" },
+          "500": { "description": "Internal server error" }
+        }
+      }
+    },
+    "/booking-api/": {
+      "post": {
+        "tags": ["1.2. Booking API Domestic"],
+        "description": "Use to book domestic shipment",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["franchisee_id", "hub_id", "branch_id"],
+                "properties": {
+                  "user_name": { "type": "string", "example": "sgate" },
+                  "password": { "type": "string", "example": 123456 },
+                  "origin_pincode": { "type": "string", "example": 110049 },
+                  "destination_pincode": {
+                    "type": "string",
+                    "example": 201102
+                  },
+                  "city": { "type": "string", "example": "Loni" },
+                  "booking_type": {
+                    "type": "integer",
+                    "example": 2,
+                    "description": "booking_type can be a number or integer string. Allowed values are either of: 1, 2."
+                  },
+                  "shipment_type": { "type": "integer", "example": 1 },
+                  "unit": {
+                    "type": "string",
+                    "example": {
+                      "weight_unit": "kgs",
+                      "length_unit": "cms",
+                      "currency": "24"
+                    }
+                  },
+                  "shipment_dimensions": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "item_description": {
+                          "type": "string",
+                          "example": "First description"
+                        },
+                        "value": { "type": "string", "example": "1000" },
+                        "quantity": { "type": "string", "example": "1" },
+                        "weight": { "type": "string", "example": "0.5" },
+                        "length": { "type": "string", "example": "11" },
+                        "breadth": { "type": "string", "example": "11" },
+                        "height": { "type": "string", "example": "2" },
+                        "hsn_code": { "type": "string", "example": "49011010" }
+                      }
+                    }
+                  },
+                  "courier_id": { "type": "integer", "example": 156 },
+                  "consigner_first_name": {
+                    "type": "string",
+                    "example": "Ajay"
+                  },
+                  "consigner_company_name": {
+                    "type": "string",
+                    "example": "sgate"
+                  },
+                  "consigner_mobile_number": {
+                    "type": "string",
+                    "example": 9582529747
+                  },
+                  "consigner_email_id": {
+                    "type": "string",
+                    "example": "ajay@gmail.com"
+                  },
+                  "consigner_address_1": {
+                    "type": "string",
+                    "example": "K-99"
+                  },
+                  "consigner_address_2": {
+                    "type": "string",
+                    "example": "Budh Vihar"
+                  },
+                  "consigner_city": {
+                    "type": "string",
+                    "example": "NEW DELHI"
+                  },
+                  "consigner_pincode": { "type": "string", "example": 110049 },
+                  "consigner_state": { "type": "string", "example": "Delhi" },
+                  "consigner_doc_type": { "type": "string", "example": 4 },
+                  "consigner_gst_number": {
+                    "type": "string",
+                    "example": 987456615215
+                  },
+                  "consigner_gst_applicable": {
+                    "type": "string",
+                    "example": 2
+                  },
+                  "consigner_tax_payment": { "type": "string", "example": 3 },
+                  "consignee_first_name": {
+                    "type": "string",
+                    "example": "Sonu"
+                  },
+                  "consignee_company_name": {
+                    "type": "string",
+                    "example": "datamotive"
+                  },
+                  "consignee_mobile_number": {
+                    "type": "string",
+                    "example": 9582529747
+                  },
+                  "consignee_email_id": {
+                    "type": "string",
+                    "example": "sonu@gmail.com"
+                  },
+                  "consignee_address_1": {
+                    "type": "string",
+                    "example": "xyz rd vicoria suit melbourne"
+                  },
+                  "consignee_address_2": {
+                    "type": "string",
+                    "example": "vicoria rd suit"
+                  },
+                  "consignee_city": {
+                    "type": "string",
+                    "example": "NEW DELHI"
+                  },
+                  "consignee_pincode": { "type": "string", "example": 110063 },
+                  "consignee_state": { "type": "string", "example": "Delhi" },
+                  "consignee_country": { "type": "string", "example": "INDIA" },
+                  "booking_invoice_date": {
+                    "type": "string",
+                    "example": "2024-07-10"
+                  },
+                  "pickup_required": { "type": "integer", "example": 2 },
+                  "pickup_location": { "type": "integer", "example": "" },
+                  "pickup_name": { "type": "string", "example": "" },
+                  "pickup_address_1": { "type": "string", "example": "" },
+                  "pickup_address_2": { "type": "string", "example": "" },
+                  "pickup_pincode": { "type": "string", "example": 110049 },
+                  "pickup_city": { "type": "string", "example": "NEW DELHI" },
+                  "pickup_state": { "type": "string", "example": "Delhi" },
+                  "pickup_ready_start_time": {
+                    "type": "string",
+                    "example": ""
+                  },
+                  "pickup_ready_end_time": { "type": "string", "example": "" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Booking placed successfully" },
+          "400": { "description": "Bad request" },
+          "404": { "description": "Not found" },
+          "422": { "description": "Unprocessable Entity" },
+          "500": { "description": "Internal server error" }
+        }
+      }
+    },
+    "/get-consignee-details": {
+      "post": {
+        "tags": ["10. Fetch Consignee Details API"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "consignee_mobile_number",
+                  "user_name",
+                  "password"
+                ],
+                "properties": {
+                  "user_name": { "type": "string", "example": "sgate" },
+                  "password": { "type": "string", "example": 123456 },
+                  "consignee_mobile_number": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 10,
+                    "example": 9582529747
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "success response" },
+          "400": { "description": "Bad request" },
+          "404": { "description": "Not found" },
+          "422": { "description": "Unprocessable Entity" },
+          "500": { "description": "Internal server error" }
+        }
+      }
+    },
+    "/flm-service-enabled": {
+      "post": {
+        "tags": ["11. FLM API"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["pincode", "courier_id"],
+                "properties": {
+                  "pincode": { "type": "string", "example": 110028 },
+                  "courier_id": { "type": "string", "example": 122 }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "success response" },
+          "400": { "description": "Bad request" },
+          "404": { "description": "Not found" },
+          "422": { "description": "Unprocessable Entity" },
+          "500": { "description": "Internal server error" }
+        }
+      }
+    },
+    "/gst-slabs": {
+      "get": {
+        "tags": ["12. GST Slabs API"],
+        "description": "This API fetches GST slab details.",
+        "responses": {
+          "200": { "description": "Success response" },
+          "400": { "description": "Bad request" },
+          "404": { "description": "Not found" },
+          "422": { "description": "Unprocessable entity" },
+          "500": { "description": "Internal server error" }
+        }
+      }
+    },
+    "/check-zipcode": {
+      "post": {
+        "tags": ["13. Zipcode Existence Check API"],
+        "description": "This API can be used to check whether a zipcode exists in our record or not.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["user_name", "password", "country_id", "zipcode"],
+                "properties": {
+                  "user_name": {
+                    "type": "string",
+                    "example": "sgate",
+                    "description": "It is the username of the user"
+                  },
+                  "password": {
+                    "type": "string",
+                    "example": 123456,
+                    "description": "Password of the user"
+                  },
+                  "country_id": {
+                    "type": "string",
+                    "example": 12,
+                    "description": "country_id must be a number or numeric string."
+                  },
+                  "zipcode": {
+                    "type": "string",
+                    "example": 7054,
+                    "description": "zipcode must be a string."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "success response" },
+          "400": { "description": "Bad request" },
+          "404": { "description": "Not found" },
+          "422": { "description": "Unprocessable Entity" },
+          "500": { "description": "Internal server error" }
+        }
+      }
+    },
+    "/kyc-upload": {
+      "post": {
+        "tags": ["14. KYC Upload API"],
+        "description": "This API can be used to upload the document for KYC which will be used in booking.",
+        "consumes": ["multipart/form-data"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "user_name",
+                  "password",
+                  "organization_id",
+                  "document_1_id",
+                  "document_1",
+                  "document_2_id",
+                  "document_2"
+                ],
+                "properties": {
+                  "user_name": {
+                    "type": "string",
+                    "example": "sgate",
+                    "description": "It is the username of the user"
+                  },
+                  "password": {
+                    "type": "string",
+                    "example": 123456,
+                    "description": "Password of the user"
+                  },
+                  "organization_id": {
+                    "type": "string",
+                    "example": "1",
+                    "description": "for ***Individual***, **organization_id: 1**, i.e. **1** is the **id** for ***Individual***. Refer the API: **7. Fetch Organization Details API**"
+                  },
+                  "document_1_id": {
+                    "type": "string",
+                    "example": "2",
+                    "description": "for ***PAN card***, **document_1_id: 2**, i.e. **2** is the **id** for ***PAN card.***. Refer the API: **7.1. Fetch Organization Document Details API**"
+                  },
+                  "document_1": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "This file is expected to be an image of ***PAN card*** because we are passing **document_1_id: 2**"
+                  },
+                  "document_2_id": {
+                    "type": "string",
+                    "example": "7",
+                    "description": "for ***Aadhar card***, **document_2_id: 7**, i.e. **7** is the **id** for ***Aadhar card***. Refer the API: **7.1. Fetch Organization Document Details API**"
+                  },
+                  "document_2": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "This file is expected to be an image of ***Aadhar card*** because we are passing **document_2_id: 7**"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "success response" },
+          "400": { "description": "Bad request" },
+          "404": { "description": "Not found" },
+          "422": { "description": "Unprocessable Entity" },
+          "500": { "description": "Internal server error" }
+        }
+      }
+    },
+    "/get-all-msme": {
+      "post": {
+        "tags": ["15. Fetch all MSME API"],
+        "description": "*This API fetches the list of all MSMEs associated with a franchisee.*",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["user_name", "password"],
+                "properties": {
+                  "user_name": {
+                    "type": "string",
+                    "example": "sgate",
+                    "description": "It is the username of the user."
+                  },
+                  "password": {
+                    "type": "string",
+                    "example": 123456,
+                    "description": "Password of the user."
+                  },
+                  "offset": {
+                    "type": "string",
+                    "example": "0",
+                    "description": "offset * limit = count of records to be skipped. for eg: if you pass offset: 2 and limit: 20 then it means that **40** records will be skipped in the fetched data."
+                  },
+                  "limit": {
+                    "type": "string",
+                    "example": "10",
+                    "description": "It is the number of records to be fetched during a single API hit. **Default is: 10**"
+                  },
+                  "search_key": {
+                    "type": "string",
+                    "example": "",
+                    "description": "Pass the part of the mobile number based on which you want to search."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "success response" },
+          "400": { "description": "Bad request" },
+          "404": { "description": "Not found" },
+          "422": { "description": "Unprocessable Entity" },
+          "500": { "description": "Internal server error" }
+        }
+      }
+    },
+    "/get-single-msme/{msme_id}": {
+      "get": {
+        "tags": ["16. Fetch single MSME API"],
+        "description": "This API fetches the details of a single MSME associated with a franchisee based on **msme_id**.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "msme_id",
+            "type": "integer",
+            "description": "Id of the MSME. You can get it from the API: **15. Fetch all MSME API**. Pick the value of msme_id.",
+            "required": false
+          },
+          {
+            "in": "query",
+            "name": "user_name",
+            "type": "string",
+            "description": "user_name",
+            "required": true,
+            "example": "sgate"
+          },
+          {
+            "in": "query",
+            "name": "password",
+            "type": "string",
+            "description": "password",
+            "required": true,
+            "example": 123456
+          }
+        ],
+        "responses": {
+          "200": { "description": "A successful response" },
+          "400": { "description": "Bad request" },
+          "404": { "description": "Not found" },
+          "422": { "description": "Unprocessable Entity" },
+          "500": { "description": "Internal server error" }
+        }
+      }
+    },
+    "/check-pickup-availability": {
+      "post": {
+        "tags": ["17. Check Pickup Availability API"],
+        "description": "*This API fetches the details regarding pickup availability.*",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["user_name", "password"],
+                "properties": {
+                  "user_name": {
+                    "type": "string",
+                    "example": "sgate",
+                    "description": "It is the username of the user."
+                  },
+                  "password": {
+                    "type": "string",
+                    "example": 123456,
+                    "description": "Password of the user."
+                  },
+                  "awb": {
+                    "type": "string",
+                    "example": "794960629833",
+                    "description": "It is a unique string associated to each booking placed."
+                  },
+                  "consigner_pincode": { "type": "string", "example": "3001" },
+                  "consigner_country_code": {
+                    "type": "string",
+                    "example": "AU"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "success response" },
+          "400": { "description": "Bad request" },
+          "404": { "description": "Not found" },
+          "422": { "description": "Unprocessable Entity" },
+          "500": { "description": "Internal server error" }
+        }
+      }
+    },
+    "/create-pickup": {
+      "post": {
+        "tags": ["18. Create Pickup API"],
+        "description": "*This API creates a pickup for a pre-placed import booking.*",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["user_name", "password", "password", "password"],
+                "properties": {
+                  "user_name": {
+                    "type": "string",
+                    "example": "sgate",
+                    "description": "It is the username of the user."
+                  },
+                  "password": {
+                    "type": "string",
+                    "example": 123456,
+                    "description": "Password of the user."
+                  },
+                  "awb": {
+                    "type": "string",
+                    "example": "794960629833",
+                    "description": "It is a unique string associated to each booking placed."
+                  },
+                  "booking_from_date": {
+                    "type": "date",
+                    "example": "2026-02-16"
+                  },
+                  "booking_to_date": {
+                    "type": "date",
+                    "example": "2026-02-16"
+                  },
+                  "pickup_date": { "type": "date", "example": "2026-02-17" },
+                  "pickup_start_slot": {
+                    "type": "string",
+                    "example": "08:00:00"
+                  },
+                  "pickup_end_slot": { "type": "string", "example": "23:00:00" }
+                }
+              },
+              "examples": {
+                "Fedex Import": {
+                  "value": {
+                    "user_name": "sgate",
+                    "password": "123456",
+                    "awb": "794960629833",
+                    "booking_from_date": "2026-02-16",
+                    "booking_to_date": "2026-02-16",
+                    "pickup_date": "2026-02-17",
+                    "pickup_start_slot": "08:00:00",
+                    "pickup_end_slot": "23:00:00"
+                  }
+                },
+                "Aramex - Import": {
+                  "value": {
+                    "user_name": "sgate",
+                    "password": "123456",
+                    "awb": "029431PIK",
+                    "booking_from_date": "2026-01-09",
+                    "booking_to_date": "2026-01-09",
+                    "pickup_date": "2026-01-12",
+                    "pickup_start_slot": "08:00:00",
+                    "pickup_end_slot": "23:00:00"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "success response" },
+          "400": { "description": "Bad request" },
+          "404": { "description": "Not found" },
+          "422": { "description": "Unprocessable Entity" },
+          "500": { "description": "Internal server error" }
+        }
+      }
+    },
+    "/cancel-pickup": {
+      "post": {
+        "tags": ["19. Cancel Pickup API"],
+        "description": "*This API cancels a pickup for a pre-placed import booking.*",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["user_name", "password", "password", "password"],
+                "properties": {
+                  "user_name": {
+                    "type": "string",
+                    "example": "sgate",
+                    "description": "It is the username of the user."
+                  },
+                  "password": {
+                    "type": "string",
+                    "example": 123456,
+                    "description": "Password of the user."
+                  },
+                  "awb": {
+                    "type": "string",
+                    "example": "794960629833",
+                    "description": "It is a unique string associated to each booking placed."
+                  },
+                  "location": {
+                    "type": "string",
+                    "example": "Melbourne, Australia"
+                  },
+                  "pickup_confirmation_code": { "type": "int", "example": 1 },
+                  "scheduled_date": { "type": "date", "example": "2025-12-03" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "success response" },
+          "400": { "description": "Bad request" },
+          "404": { "description": "Not found" },
+          "422": { "description": "Unprocessable Entity" },
+          "500": { "description": "Internal server error" }
+        }
+      }
+    },
+    "/rate-calculator": {
+      "post": {
+        "tags": ["2.1. Rate Calculation API International"],
+        "description": "International Rate Calculator",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "user_name": {
+                    "type": "string",
+                    "example": "sgate",
+                    "description": "Required. Must be a string."
+                  },
+                  "password": {
+                    "type": "string",
+                    "example": 123456,
+                    "description": "Required. Must be a string."
+                  },
+                  "booking_type": {
+                    "type": "integer",
+                    "enum": [1, 2],
+                    "example": 1,
+                    "description": "Required. Must be 1 or 2. 1 -> international, 2 -> domestic."
+                  },
+                  "origin_pincode": {
+                    "type": "string",
+                    "example": 11059,
+                    "description": "Required. Must be a string."
+                  },
+                  "destination_pincode": {
+                    "type": "string",
+                    "example": 7470,
+                    "description": "Required. Must be a string."
+                  },
+                  "destination_country": {
+                    "type": "string",
+                    "example": "AUSTRALIA",
+                    "description": "Required if booking_type=1. Must be a string. Please refer the API ****5. Fetch Country Details API**** to find the genuine country name. *** Leave the country_name field to be empty if you want to fetch all country names."
+                  },
+                  "shipment_type": {
+                    "type": "integer",
+                    "enum": [1, 2, 4],
+                    "example": 1,
+                    "description": "Required. Must be 1, 2, or 4. 1 for non-doc, 2 for doc, 4 for commercial"
+                  },
+                  "weight": {
+                    "type": "number",
+                    "example": 1,
+                    "description": "Required. Must be a number. Weight in kilograms."
+                  },
+                  "quantity": {
+                    "type": "integer",
+                    "example": 1,
+                    "description": "Value of quantity will be effective if and only if shipment_type is 1 or 4. Must be an integer or numeric string. It represents number of pieces."
+                  },
+                  "length": {
+                    "type": "integer",
+                    "example": 5,
+                    "description": "Value of length will be effective if and only if shipment_type is 1 or 4. Must be an integer or numeric string. It represents max length in centimeters."
+                  }
+                }
+              },
+              "examples": {
+                "Export": {
+                  "value": {
+                    "user_name": "sgate",
+                    "password": "123456",
+                    "booking_type": 1,
+                    "origin_pincode": "110059",
+                    "destination_pincode": "7470",
+                    "destination_country": "AUSTRALIA",
+                    "shipment_type": 1,
+                    "weight": 1,
+                    "quantity": 1,
+                    "length": 5
+                  }
+                },
+                "Import": {
+                  "value": {
+                    "user_name": "sgate",
+                    "password": "123456",
+                    "booking_type": 1,
+                    "origin_country_name": "AUSTRALIA",
+                    "origin_pincode": "3001",
+                    "shipment_type": 1,
+                    "weight": 1,
+                    "quantity": 1,
+                    "length": 5
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "success response" },
+          "400": { "description": "Bad request" },
+          "404": { "description": "Not found" },
+          "422": { "description": "Unprocessable Entity" },
+          "500": { "description": "Internal server error" }
+        }
+      }
+    },
+    "/rate-calculator/": {
+      "post": {
+        "tags": ["2.2. Rate Calculation API Domestic"],
+        "description": "Domestic Rate Calculator",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "user_name": {
+                    "type": "string",
+                    "example": "sgate",
+                    "description": "Required. Must be a string."
+                  },
+                  "password": {
+                    "type": "string",
+                    "example": 123456,
+                    "description": "Required. Must be a string."
+                  },
+                  "booking_type": {
+                    "type": "integer",
+                    "enum": [1, 2],
+                    "example": 2,
+                    "description": "Required. Must be 1 or 2. 1 -> international, 2 -> domestic."
+                  },
+                  "origin_pincode": {
+                    "type": "string",
+                    "example": 110028,
+                    "description": "Required. Must be a string."
+                  },
+                  "destination_pincode": {
+                    "type": "string",
+                    "example": 110049,
+                    "description": "Required. Must be a string."
+                  },
+                  "shipment_type": {
+                    "type": "integer",
+                    "enum": [1, 2, 4],
+                    "example": 1,
+                    "description": "Required. Must be 1, 2, or 4. 1 for non-doc, 2 for doc, 4 for commercial"
+                  },
+                  "weight": {
+                    "type": "number",
+                    "example": 1,
+                    "description": "Required. Must be a number. Weight in kilograms."
+                  },
+                  "quantity": {
+                    "type": "integer",
+                    "example": 1,
+                    "description": "Value of quantity will be effective if and only if shipment_type is 1 or 4. Must be an integer or numeric string. It represents number of pieces."
+                  },
+                  "length": {
+                    "type": "integer",
+                    "example": 5,
+                    "description": "Value of length will be effective if and only if shipment_type is 1 or 4. Must be an integer or numeric string. It represents max length in centimeters."
+                  }
+                },
+                "required": [
+                  "user_name",
+                  "password",
+                  "booking_type",
+                  "origin_pincode",
+                  "destination_pincode",
+                  "shipment_type",
+                  "weight"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "success response" },
+          "400": { "description": "Bad request" },
+          "404": { "description": "Not found" },
+          "422": { "description": "Unprocessable Entity" },
+          "500": { "description": "Internal server error" }
+        }
+      }
+    },
+    "/track-shipment": {
+      "post": {
+        "tags": ["3. Shipment Tracker API"],
+        "description": "Use to track shipment",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["consignee_mobile_number"],
+                "properties": {
+                  "user_name": { "type": "string", "example": "sgate" },
+                  "password": { "type": "string", "example": 123456 },
+                  "awb": { "type": "string", "example": 37207354542 }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "success response" },
+          "204": { "description": "No Content" },
+          "422": { "description": "Unprocessable Entity" }
+        }
+      }
+    },
+    "/courier/{courier_id}": {
+      "get": {
+        "404": { "description": "Not found" },
+        "tags": ["4. Fetch Courier Details API"],
+        "description": "Used to get courier vendor data",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "courier_id",
+            "type": "integer",
+            "description": "courier_id",
+            "required": false
+          },
+          {
+            "in": "query",
+            "name": "user_name",
+            "type": "string",
+            "description": "user_name",
+            "required": true,
+            "example": "sgate"
+          },
+          {
+            "in": "query",
+            "name": "password",
+            "type": "string",
+            "description": "password",
+            "required": true,
+            "example": 123456
+          }
+        ],
+        "responses": {
+          "200": { "description": "A successful response" },
+          "400": { "description": "Bad request" },
+          "500": { "description": "Internal server error" }
+        }
+      }
+    },
+    "/country/{country_name}": {
+      "get": {
+        "404": { "description": "Not found" },
+        "tags": ["5. Fetch Country Details API"],
+        "description": "Used to get country data",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "country_name",
+            "type": "integer",
+            "description": "country_name",
+            "required": false
+          },
+          {
+            "in": "query",
+            "name": "user_name",
+            "type": "string",
+            "description": "user_name",
+            "required": true,
+            "example": "sgate"
+          },
+          {
+            "in": "query",
+            "name": "password",
+            "type": "string",
+            "description": "password",
+            "required": true,
+            "example": 123456
+          }
+        ],
+        "responses": {
+          "200": { "description": "A successful response" },
+          "400": { "description": "Bad request" },
+          "500": { "description": "Internal server error" }
+        }
+      }
+    },
+    "/currency": {
+      "get": {
+        "description": "Used to get all currency details",
+        "tags": ["6. Fetch Currency Details API"],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "user_name",
+            "type": "string",
+            "description": "user_name",
+            "required": true,
+            "example": "sgate"
+          },
+          {
+            "in": "query",
+            "name": "password",
+            "type": "string",
+            "description": "password",
+            "required": true,
+            "example": 123456
+          }
+        ],
+        "responses": {
+          "200": { "description": "Resource added successfully" },
+          "400": { "description": "Bad request" },
+          "500": { "description": "Internal server error" }
+        }
+      }
+    },
+    "/get-organization-document": {
+      "get": {
+        "tags": ["7.1. Fetch Organization Document Details API"],
+        "description": "This API fetches organization document details",
+        "responses": {
+          "200": { "description": "Success response" },
+          "400": { "description": "Bad request" },
+          "404": { "description": "Not found" },
+          "422": { "description": "Unprocessable entity" },
+          "500": { "description": "Internal server error" }
+        }
+      }
+    },
+    "/get-organization": {
+      "get": {
+        "tags": ["7. Fetch Organization Details API"],
+        "description": "This API fetches organization details",
+        "responses": {
+          "200": { "description": "Success response" },
+          "400": { "description": "Bad request" },
+          "404": { "description": "Not found" },
+          "422": { "description": "Unprocessable entity" },
+          "500": { "description": "Internal server error" }
+        }
+      }
+    },
+    "/check-available-credit-limit": {
+      "post": {
+        "tags": ["8. Credit Limit Check API"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["franchisee_id", "shipment_rates"],
+                "properties": {
+                  "user_name": { "type": "string", "example": "sgate" },
+                  "password": { "type": "string", "example": 123456 },
+                  "shipment_rates": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000,
+                    "example": 16569.56
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "success response" },
+          "400": { "description": "Bad request" },
+          "404": { "description": "Not found" },
+          "422": { "description": "Unprocessable Entity" },
+          "500": { "description": "Internal server error" }
+        }
+      }
+    },
+    "/get-consigner-details": {
+      "post": {
+        "tags": ["9. Fetch Consigner Details API"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "consigner_mobile_number",
+                  "user_name",
+                  "password"
+                ],
+                "properties": {
+                  "user_name": { "type": "string", "example": "sgate" },
+                  "password": { "type": "string", "example": 123456 },
+                  "consigner_mobile_number": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 10,
+                    "example": 9582529747
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "success response" },
+          "400": { "description": "Bad request" },
+          "404": { "description": "Not found" },
+          "422": { "description": "Unprocessable Entity" },
+          "500": { "description": "Internal server error" }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "DHL DEL": {
+        "type": "object",
+        "required": [
+          "user_name",
+          "password",
+          "origin_pincode",
+          "destination_pincode",
+          "city",
+          "booking_type",
+          "destination_country_id",
+          "shipment_type",
+          "unit",
+          "courier_id"
+        ],
+        "properties": {
+          "user_name": { "type": "string", "example": "sgate" },
+          "password": { "type": "string", "example": "123456" },
+          "origin_pincode": { "type": "string", "example": "110049" },
+          "destination_pincode": { "type": "string", "example": "3001" },
+          "city": { "type": "string", "example": "Melbourne" },
+          "booking_type": {
+            "type": "integer",
+            "example": 1,
+            "description": "booking_type can be a number or integer string. Allowed values are either of: 1, 2."
+          },
+          "destination_country_id": { "type": "integer", "example": 12 },
+          "shipment_type": {
+            "type": "integer",
+            "example": 1,
+            "description": "shipment_type can be a number or numeric string. Allowed values are either of: 1, 2, 4."
+          },
+          "weight": {
+            "type": "integer",
+            "example": 1,
+            "description": "weight can be a number or numeric string. weight must exist when shipment_type: 2, i.e. doc"
+          },
+          "description": {
+            "type": "string",
+            "description": "description must exist when shipment_type: 2, i.e. doc.",
+            "example": "Books"
+          },
+          "unit": {
+            "type": "object",
+            "description": "**unit must exist when shipment_type: 2, i.e. doc.**",
+            "properties": {
+              "weight_unit": { "type": "string", "example": "kgs" },
+              "length_unit": { "type": "string", "example": "cms" },
+              "currency": { "type": "string", "example": "24" }
+            }
+          },
+          "shipment_dimensions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "item_description": {
+                  "type": "string",
+                  "example": "First description"
+                }
+              }
+            }
+          },
+          "courier_id": {
+            "type": "integer",
+            "description": "It is the unique identifier for the courier",
+            "example": "121"
+          }
+        }
+      },
+      "FEDEX DEL": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "id": { "type": "integer", "format": "int64", "example": 1 },
+          "name": { "type": "string", "example": "New order" },
+          "name2": { "type": "string", "example": "New order2" }
+        }
+      },
+      "UPS Express DEL": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer", "format": "int64", "example": 1 },
+          "name": { "type": "string", "example": "New order" },
+          "UPS": { "type": "string", "example": "New order2" }
+        }
+      },
+      "Aramex Exp DEL": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer", "format": "int64", "example": 1 },
+          "name": { "type": "string", "example": "New order" },
+          "ARAMEX": { "type": "string", "example": "New order2" }
+        }
+      },
+      "SKYNET": {
+        "type": "object",
+        "properties": {
+          "user_name": { "type": "string", "example": "sgate" },
+          "password": { "type": "string", "example": "123456" },
+          "origin_pincode": { "type": "string", "example": "110049" },
+          "destination_pincode": { "type": "string", "example": "0000" },
+          "city": { "type": "string", "example": "Dubai" },
+          "booking_type": { "type": "integer", "example": 1 },
+          "destination_country_id": { "type": "integer", "example": 223 },
+          "shipment_type": { "type": "integer", "example": 1 },
+          "unit": {
+            "type": "object",
+            "properties": {
+              "weight_unit": { "type": "string", "example": "kgs" },
+              "length_unit": { "type": "string", "example": "cms" },
+              "currency": { "type": "string", "example": "24" }
+            }
+          },
+          "shipment_dimensions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "item_description": {
+                  "type": "string",
+                  "example": "First description"
+                },
+                "value": { "type": "string", "example": "1000" },
+                "quantity": { "type": "string", "example": "1" },
+                "weight": { "type": "string", "example": "0.5" },
+                "length": { "type": "string", "example": "11" },
+                "breadth": { "type": "string", "example": "11" },
+                "height": { "type": "string", "example": "2" },
+                "hsn_code": { "type": "string", "example": "49011010" }
+              }
+            }
+          },
+          "courier_id": { "type": "integer", "example": 136 },
+          "consigner_first_name": { "type": "string", "example": "Ajay" },
+          "consigner_company_name": { "type": "string", "example": "sgate" },
+          "consigner_mobile_number": {
+            "type": "string",
+            "example": "9582529747"
+          },
+          "consigner_email_id": {
+            "type": "string",
+            "example": "ajay@gmail.com"
+          },
+          "consigner_address_1": { "type": "string", "example": "K-99" },
+          "consigner_address_2": { "type": "string", "example": "Budh Vihar" },
+          "consigner_city": { "type": "string", "example": "NEW DELHI" },
+          "consigner_pincode": { "type": "string", "example": "110049" },
+          "consigner_state": { "type": "string", "example": "Delhi" },
+          "consigner_doc_type": { "type": "string", "example": "2" },
+          "consignee_first_name": { "type": "string", "example": "Sonu" },
+          "consignee_company_name": {
+            "type": "string",
+            "example": "datamotive"
+          },
+          "consignee_mobile_number": {
+            "type": "string",
+            "example": "9582529747"
+          },
+          "consignee_email_id": {
+            "type": "string",
+            "example": "sonu@gmail.com"
+          },
+          "consignee_address_1": {
+            "type": "string",
+            "example": "xyz rd vicoria suit melbourne"
+          },
+          "consignee_address_2": {
+            "type": "string",
+            "example": "vicoria rd suit"
+          },
+          "consignee_state_code": { "type": "string", "example": "AE" },
+          "booking_invoice_number": { "type": "string", "example": "78645" },
+          "booking_invoice_date": { "type": "string", "example": "2024-07-10" },
+          "consigner_gst_number": { "type": "string", "example": "ABCDE1234F" },
+          "consigner_gst_applicable": { "type": "string", "example": "2" },
+          "consigner_tax_payment": { "type": "string", "example": "3" },
+          "pickup_required": { "type": "integer", "example": 1 },
+          "pickup_location": { "type": "integer", "example": 2 },
+          "pickup_name": { "type": "string", "example": "ajay" },
+          "pickup_address_1": { "type": "string", "example": "street no 4" },
+          "pickup_address_2": {
+            "type": "string",
+            "example": "near general store"
+          },
+          "pickup_pincode": { "type": "string", "example": "110049" },
+          "pickup_city": { "type": "string", "example": "NEW DELHI" },
+          "pickup_state": { "type": "string", "example": "Delhi" },
+          "pickup_ready_start_time": {
+            "type": "string",
+            "example": "11:47 AM"
+          },
+          "pickup_ready_end_time": { "type": "string", "example": "18:17 PM" },
+          "shipment_purpose": { "type": "integer", "example": 8 },
+          "consignee_reference_no": { "type": "string", "example": "7894564" },
+          "consignee_gst_number": {
+            "type": "string",
+            "example": "09AAACH7409R1ZZ"
+          },
+          "tax_paid": { "type": "integer", "example": 1 },
+          "tax_amount": { "type": "string", "example": "123" },
+          "export_type": { "type": "string", "example": "3" }
+        }
+      },
+      "Skynet AUS DEL": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer", "format": "int64", "example": 1 },
+          "name": { "type": "string", "example": "New order" },
+          "SKYNET": { "type": "string", "example": "New order2" }
+        }
+      },
+      "Import Booking": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer", "format": "int64", "example": 1 },
+          "name": { "type": "string", "example": "New order" },
+          "Import Booking": { "type": "string", "example": "Import Booking" }
+        }
+      }
+    }
+  }
+}

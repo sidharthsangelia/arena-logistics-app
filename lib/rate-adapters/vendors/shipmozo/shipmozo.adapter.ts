@@ -34,6 +34,10 @@ import type {
   ShipmozoRateResponse,
   ShipmozoShipmentPurpose,
 } from "./shipmozo.types";
+import {
+  computeShipmentWeights,
+  normalizePackages,
+} from "@/lib/pricing/chargeableWeight";
 
 // --- CONFIG -------------------------------------------------------------------
 
@@ -42,6 +46,14 @@ const SHIPMOZO_BASE_URL =
 
 const SHIPMOZO_PUBLIC_KEY = process.env.SHIPMOZO_PUBLIC_KEY ?? "";
 const SHIPMOZO_PRIVATE_KEY = process.env.SHIPMOZO_PRIVATE_KEY ?? "";
+
+// Shipmozo needs a declared goods value for its customs/duty math, but the
+// quick rate calculator intentionally does NOT ask the user for it. When the
+// caller omits it (the rate calculator), we send this neutral mid-range dummy
+// so Shipmozo still returns a quote. The booking flow DOES pass a real value.
+const SHIPMOZO_FALLBACK_DECLARED_VALUE = Number(
+  process.env.SHIPMOZO_DEFAULT_DECLARED_VALUE ?? 50000,
+);
 
 const COUNTRY_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // country list rarely changes
 
@@ -70,26 +82,35 @@ export class ShipmozoAdapter extends BaseVendorAdapter<
     }
 
     const declaredValue = this.resolveDeclaredValue(input);
-    const { length, width, height } = this.normalizeDimensionsToCm(input);
 
-    const dimensions: ShipmozoDimensionBox[] = [
-      {
-        no_of_box: input.shipment.quantity || 1,
-        length,
-        width,
-        height,
-      },
-    ];
+    // Shipmozo DOES support multi-piece natively via a `dimensions` array of
+    // boxes, so — per the agreed rule — we pass the real per-box array and let
+    // Shipmozo compute volumetric its own way, rather than pre-normalising.
+    // `weight` is a single total (grams); we send the total ACTUAL weight.
+    const packages = normalizePackages({
+      packages: input.shipment.packages,
+      weight: input.shipment.weight,
+      quantity: input.shipment.quantity,
+      dimensions: input.shipment.dimensions,
+    });
+    const weights = computeShipmentWeights(packages);
+
+    const dimensions: ShipmozoDimensionBox[] = packages.map((pkg) => ({
+      no_of_box: Math.max(1, Math.trunc(pkg.quantity) || 1),
+      length: Math.ceil(pkg.lengthCm),
+      width: Math.ceil(pkg.widthCm),
+      height: Math.ceil(pkg.heightCm),
+    }));
 
     const payload: Omit<ShipmozoRateCalculatorPayload, "delivery_country_id"> =
       {
         pickup_pincode: input.origin.pincode,
         delivery_pincode: input.destination.pincode,
         order_amount: String(declaredValue),
-        type_of_package: this.resolvePackageType(input),
+        type_of_package: this.resolvePackageType(input, weights.totalPieces),
         shipment_purpose: this.resolveShipmentPurpose(input),
         // Shipmozo wants weight in GRAM; canonical weight is always KG.
-        weight: String(Math.round(input.shipment.weight * 1000)),
+        weight: String(Math.round(weights.totalActualKg * 1000)),
         dimensions,
       };
 
@@ -320,48 +341,30 @@ export class ShipmozoAdapter extends BaseVendorAdapter<
     return 0;
   }
 
-  private normalizeDimensionsToCm(input: CanonicalRateRequest) {
-    const { length, width, height, unit } = input.shipment.dimensions;
-    const factor = unit === "in" ? 2.54 : 1;
-    return {
-      length: Math.ceil(length * factor),
-      width: Math.ceil(width * factor),
-      height: Math.ceil(height * factor),
-    };
-  }
-
   /**
-   * Shipmozo requires order_amount (declared shipment value) for customs /
-   * duty calculation on international shipments. The canonical shipment
-   * model doesn't carry a monetary value today, so we read the optional
-   * declaredValue field added below and fail loudly if it's missing —
-   * a clear vendorError beats silently sending a wrong customs value.
+   * Shipmozo needs order_amount (declared goods value) for its customs/duty
+   * math. The booking flow passes a real value; the quick rate calculator
+   * deliberately doesn't ask for one, so we fall back to a neutral dummy so a
+   * quote still comes back. Never throws.
    */
   private resolveDeclaredValue(input: CanonicalRateRequest): number {
     const declared = input.shipment.declaredValue;
     if (declared !== undefined && declared !== null && declared > 0) {
       return declared;
     }
-
-    // No declared value supplied by the caller. Falling back keeps Shipmozo
-    // in the results set for flows that haven't wired up declaredValue yet,
-    // at the cost of a quote that may not reflect real customs value.
-    // This is a stopgap — fix the root cause by passing declaredValue from
-    // the order/cart total in actions/rates.action.ts.
-    const fallback = Number(
-      process.env.SHIPMOZO_DEFAULT_DECLARED_VALUE ?? 1000,
-    );
-
-    console.warn(
-      `[shipmozo] shipment.declaredValue missing/zero — falling back to ${fallback}. ` +
-        "Pass it explicitly from the order total for accurate quotes.",
-    );
-
-    return fallback;
+    return SHIPMOZO_FALLBACK_DECLARED_VALUE;
   }
 
-  private resolvePackageType(input: CanonicalRateRequest): ShipmozoPackageType {
-    return input.shipment.packageType ?? "SPS";
+  /**
+   * SPS (single) vs MPS (multi-piece). Honours an explicit override, else
+   * auto-selects MPS whenever the shipment has more than one physical box.
+   */
+  private resolvePackageType(
+    input: CanonicalRateRequest,
+    totalPieces: number,
+  ): ShipmozoPackageType {
+    if (input.shipment.packageType) return input.shipment.packageType;
+    return totalPieces > 1 ? "MPS" : "SPS";
   }
 
   private resolveShipmentPurpose(
@@ -371,20 +374,7 @@ export class ShipmozoAdapter extends BaseVendorAdapter<
   }
 }
 
-/**
- * Non-invasive augmentation of the canonical shipment shape: adds a few
- * OPTIONAL fields that only Shipmozo's international rate calculator needs.
- * Skart and Aramex simply ignore them — nothing about their behavior
- * changes. This keeps the shared core/types.ts file untouched, per the
- * "only touch the vendor folder + index.ts" rule.
- */
-declare module "../../core/types" {
-  interface CanonicalShipmentDetails {
-    /** Declared value of the goods, required by Shipmozo for customs. */
-    declaredValue?: number;
-    /** Defaults to "SPS" (single package) if omitted. */
-    packageType?: "SPS" | "MPS" | "B2B";
-    /** Defaults to "SCSB4" if omitted. */
-    shipmentPurpose?: "DCSB4" | "SCSB4" | "CSB5";
-  }
-}
+// NOTE: the canonical shipment fields Shipmozo needs (declaredValue,
+// packageType, shipmentPurpose, packages[]) now live directly in
+// lib/rate-adapters/core/types.ts — the previous `declare module`
+// augmentation here has been removed to keep a single source of truth.
