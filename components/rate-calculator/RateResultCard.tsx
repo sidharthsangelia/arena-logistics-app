@@ -10,7 +10,14 @@ import {
 } from "@/components/ui/collapsible";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
-import { ChevronDown, Clock, FileText, Layers, TrendingDown, Zap } from "lucide-react";
+import {
+  ChevronDown,
+  Clock,
+  FileText,
+  Layers,
+  TrendingDown,
+  Zap,
+} from "lucide-react";
 import { RateQuote } from "@/lib/types";
 
 interface Props {
@@ -37,10 +44,7 @@ const VENDOR_BADGE: Record<string, string> = {
 };
 
 function vendorBadgeClass(id: string) {
-  return (
-    VENDOR_BADGE[id] ??
-    "bg-muted text-muted-foreground border-border"
-  );
+  return VENDOR_BADGE[id] ?? "bg-muted text-muted-foreground border-border";
 }
 
 // ─── formatters ─────────────────────────────────────────────────────────────
@@ -73,8 +77,8 @@ export default function RateResultCard({
   const ringClass = isCompareSelected
     ? "ring-2 ring-primary bg-muted/40"
     : isCheapest && !compareMode
-    ? "ring-2 ring-emerald-400 dark:ring-emerald-500"
-    : "hover:ring-1 hover:ring-border";
+      ? "ring-2 ring-emerald-400 dark:ring-emerald-500"
+      : "hover:ring-1 hover:ring-border";
 
   const disabledClass = isCompareDisabled
     ? "opacity-50 cursor-not-allowed"
@@ -101,8 +105,12 @@ export default function RateResultCard({
         />
       )}
 
-      <div className={viewMode === "list" ? "flex flex-1 items-center" : "flex-1"}>
-        <CardHeader className={cn("pb-2", viewMode === "list" && "flex-1 py-3")}>
+      <div
+        className={viewMode === "list" ? "flex flex-1 items-center" : "flex-1"}
+      >
+        <CardHeader
+          className={cn("pb-2", viewMode === "list" && "flex-1 py-3")}
+        >
           <div className="flex items-start justify-between gap-3">
             {/* ── left: badges + name + vendor ── */}
             <div className="min-w-0 flex-1 space-y-1.5">
@@ -129,7 +137,10 @@ export default function RateResultCard({
 
               <Badge
                 variant="outline"
-                className={cn("w-fit text-[10px] font-medium", vendorBadgeClass(quote.vendorId))}
+                className={cn(
+                  "w-fit text-[10px] font-medium",
+                  vendorBadgeClass(quote.vendorId),
+                )}
               >
                 {quote.vendorName}
               </Badge>
@@ -154,13 +165,10 @@ export default function RateResultCard({
                 <p className="text-[10px] text-muted-foreground">incl. tax</p>
                 <p className="mt-0.5 text-xs text-muted-foreground">
                   {fmt(quote.totalWithoutTax, quote.currency)}{" "}
-                  <span className="text-[10px] text-muted-foreground">excl.</span>
+                  <span className="text-[10px] text-muted-foreground">
+                    excl.
+                  </span>
                 </p>
-                {tax > 0 && (
-                  <p className="text-[10px] text-muted-foreground">
-                    Tax: {fmt(tax, quote.currency)}
-                  </p>
-                )}
               </div>
             )}
           </div>
@@ -175,7 +183,8 @@ export default function RateResultCard({
             </span>
             <span className="flex items-center gap-1">
               <Layers className="h-3 w-3" />
-              {quote.charges.length} charge{quote.charges.length !== 1 ? "s" : ""}
+              {quote.charges.length} charge
+              {quote.charges.length !== 1 ? "s" : ""}
             </span>
             {!compareMode && (
               <span className="ml-auto flex items-center gap-1 text-primary">
@@ -202,16 +211,19 @@ export default function RateResultCard({
                 <div className="mt-2.5 space-y-1.5">
                   {quote.charges.map((charge, i) => (
                     <div key={i} className="flex justify-between text-xs">
-                      <span className="text-muted-foreground">{charge.name}</span>
+                      <span className="text-muted-foreground">
+                        {charge.name}
+                      </span>
                       <div className="text-right">
                         <span className="font-medium text-foreground">
                           {fmt(charge.amount, charge.currency)}
                         </span>
-                        {charge.taxAmount !== undefined && charge.taxAmount > 0 && (
-                          <span className="ml-1.5 text-muted-foreground">
-                            (+{fmt(charge.taxAmount, charge.currency)} tax)
-                          </span>
-                        )}
+                        {charge.taxAmount !== undefined &&
+                          charge.taxAmount > 0 && (
+                            <span className="ml-1.5 text-muted-foreground">
+                              (+{fmt(charge.taxAmount, charge.currency)} tax)
+                            </span>
+                          )}
                       </div>
                     </div>
                   ))}
