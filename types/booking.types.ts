@@ -99,7 +99,18 @@ export interface BookingFormData {
     iec: FileMeta | null;
   };
 
+  /** Sender — who the shipment is from (the consignor). */
   consignor: ConsignorForm;
+
+  /**
+   * Pickup — where the parcel is physically collected (India, for first-mile
+   * door → hub). Defaults to the sender's address; `pickupSameAsSender` lets
+   * the user reuse the sender address instead of entering a separate one
+   * (e.g. sender is a client but the goods ship from a different warehouse).
+   */
+  pickupSameAsSender: boolean;
+  pickup: ConsignorForm;
+
   consignee: ConsignorForm;
 
   billingSameAsDelivery: boolean;

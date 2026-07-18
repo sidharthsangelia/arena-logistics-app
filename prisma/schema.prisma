@@ -521,6 +521,7 @@ enum AddressKind {
   PICKUP
   DELIVERY
   BILLING
+  OTHER // warehouse, registered office, etc. — free "any other" address-book type
 }
 
 // CSB-IV / CSB-V / Commercial — Indian customs export categories.
@@ -641,6 +642,7 @@ model Address {
 
   contactName  String?
   contactPhone String?
+  contactEmail String? // optional — address-book entries can carry an email for notifications/invoice
 
   line1      String
   line2      String?

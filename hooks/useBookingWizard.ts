@@ -3,7 +3,6 @@
 import { useState } from "react";
 
 import {
-  User,
   Shield,
   Package,
   MapPinned,
@@ -22,18 +21,16 @@ import type { BookingDraftPayload } from "@/actions/book/bookingDraft.action";
 // ---------------------------------------------------------------------------
 
 export const STEP = {
-  OWNER: 0,
-  CONSIGNOR: 1,
-  CONSIGNEE: 2,
-  SHIPMENT_DETAILS: 3, // merged Invoice + Packages — self-managed, not RHF
-  KYC: 4,
-  SERVICE: 5,
-  REVIEW: 6,
+  SENDER: 0, // merged "who's shipping" + sender address + pickup address
+  CONSIGNEE: 1,
+  SHIPMENT_DETAILS: 2, // merged Invoice + Packages — self-managed, not RHF
+  KYC: 3,
+  SERVICE: 4,
+  REVIEW: 5,
 } as const;
 
 export const bookingSteps: BookingStep[] = [
-  { id: "shipment-owner", name: "Shipment", icon: User },
-  { id: "consignor", name: "Sender", icon: Building },
+  { id: "sender", name: "Sender", icon: Building },
   { id: "consignee", name: "Receiver", icon: MapPinned },
   { id: "shipment-details", name: "Items", icon: Package },
   { id: "kyc", name: "KYC", icon: Shield },
@@ -56,6 +53,20 @@ const initialFormData: BookingFormData = {
   },
 
   consignor: {
+    contactName: "",
+    companyName: "",
+    email: "",
+    phone: "",
+    addressLine1: "",
+    addressLine2: "",
+    city: "",
+    state: "",
+    postalCode: "",
+    country: "India",
+  },
+
+  pickupSameAsSender: true,
+  pickup: {
     contactName: "",
     companyName: "",
     email: "",

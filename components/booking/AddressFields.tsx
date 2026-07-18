@@ -28,7 +28,7 @@ import { CountryCombobox } from "./CountryComboBox";
 // sender form had no country combobox and no postal autofill at all.
 // ---------------------------------------------------------------------------
 
-type AddressPrefix = "consignor" | "consignee";
+type AddressPrefix = "consignor" | "consignee" | "pickup";
 
 interface AddressFieldsProps {
   prefix: AddressPrefix;

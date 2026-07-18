@@ -16,7 +16,6 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 
 import type {
   BookingFormData,
-  ClientSummary,
   BookingOrgContext,
 } from "@/types/booking.types";
 import { bookingSteps, useBookingWizard, STEP } from "@/hooks/useBookingWizard";
@@ -26,8 +25,7 @@ import {
   type BookingDraftPayload,
 } from "@/actions/book/bookingDraft.action";
 import {
-  shipmentOwnerSchema,
-  consignorSchema,
+  senderPickupSchema,
   consigneeSchema,
   shipmentDetailsSchema,
   kycSchema,
@@ -39,8 +37,7 @@ import ReviewStep from "./steps/ReviewStep";
 import KycStep from "./steps/KycStep";
 import ConsigneeStep from "./steps/ConsigneeStep";
 import ServiceSelectionStep from "./steps/ServiceStep";
-import { ConsignorStep } from "./steps/ConsignorStep";
-import { ShipmentOwnerStep } from "./steps/ShipmentOwnerStep";
+import { SenderPickupStep } from "./steps/SenderPickupStep";
 import { createShipmentAction } from "@/actions/book/createShipment.action";
 import ShipmentDetailsStep from "./steps/ShipmentDetailStep";
 import { TopUpModal } from "@/components/wallet/TopUpModal";
@@ -48,21 +45,6 @@ import { TopUpModal } from "@/components/wallet/TopUpModal";
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function clientToConsignor(client: ClientSummary): BookingFormData["consignor"] {
-  return {
-    contactName: client.contactName ?? "",
-    companyName: client.companyName ?? "",
-    email: client.email ?? "",
-    phone: client.phone ?? "",
-    addressLine1: client.addressLine1 ?? "",
-    addressLine2: "",
-    city: client.city ?? "",
-    state: client.state ?? "",
-    postalCode: client.postalCode ?? "",
-    country: client.country ?? "",
-  };
-}
 
 function totalDeclaredValue(data: BookingFormData): number {
   return data.items.reduce((s, it) => s + it.unitValue * it.quantity, 0);
@@ -72,8 +54,7 @@ function totalDeclaredValue(data: BookingFormData): number {
 // SHIPMENT_DETAILS is intentionally excluded — it's self-managed (array of
 // items via updateFormData, not RHF register) and validated separately below.
 const RHF_STEP_SCHEMAS: Record<number, any> = {
-  [STEP.OWNER]: shipmentOwnerSchema,
-  [STEP.CONSIGNOR]: consignorSchema,
+  [STEP.SENDER]: senderPickupSchema,
   [STEP.CONSIGNEE]: consigneeSchema,
   [STEP.KYC]: kycSchema,
   [STEP.SERVICE]: serviceSchema,
@@ -332,17 +313,6 @@ export default function BookingWizard({
       ...currentValues,
     };
 
-    if (currentStep === STEP.OWNER && merged.shipmentOwnerMode === "EXISTING_CLIENT") {
-      if (!merged.selectedClient) {
-        setError("selectedClient" as any, {
-          type: "manual",
-          message: "Please select a client to continue.",
-        });
-        return;
-      }
-      merged.consignor = clientToConsignor(merged.selectedClient);
-    }
-
     if (currentStep === STEP.KYC) {
       // Computed from real item data now that Shipment Details (step 3)
       // always runs before KYC (step 4) — fixes the bug where IEC
@@ -390,8 +360,6 @@ export default function BookingWizard({
     );
   }
 
-  const isSelfMode = watch("shipmentOwnerMode") === "SELF";
-
   // On the Review step, the Pay button stays disabled until we've
   // confirmed (via WalletPaymentSummary's callback) that the balance is
   // sufficient. If there's somehow no selected service yet, don't block —
@@ -423,31 +391,15 @@ export default function BookingWizard({
           )}
 
           <div className="space-y-8">
-            {currentStep === STEP.OWNER && (
-              <ShipmentOwnerStep
-                isBusinessAssociate={orgContext.isBusinessAssociate}
-                value={watch("shipmentOwnerMode")}
-                selectedClient={watch("selectedClient")}
-                onModeChange={(v) => {
-                  setValue("shipmentOwnerMode", v);
-                  if (v !== "EXISTING_CLIENT") setValue("selectedClient", null);
-                  clearErrors();
-                }}
-                onClientChange={(c) => {
-                  setValue("selectedClient", c);
-                  clearErrors("selectedClient" as any);
-                }}
-                clientError={(errors as any).selectedClient?.message}
-              />
-            )}
-
-            {currentStep === STEP.CONSIGNOR && (
-              <ConsignorStep
+            {currentStep === STEP.SENDER && (
+              <SenderPickupStep
+                orgContext={orgContext}
                 register={register}
-                errors={errors}
                 watch={watch}
                 setValue={setValue}
-                isSelfMode={isSelfMode}
+                clearErrors={clearErrors}
+                errors={errors}
+                clientError={(errors as any).selectedClient?.message}
               />
             )}
 

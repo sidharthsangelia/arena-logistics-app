@@ -13,18 +13,7 @@ const fileMetaSchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
-// Step 0 — Shipment Owner
-// ---------------------------------------------------------------------------
-
-export const shipmentOwnerSchema = z.object({
-  shipmentOwnerMode: z.enum(["SELF", "EXISTING_CLIENT", "OTHER_PERSON"]),
-  selectedClient: z.any().nullable(),
-});
-
-// ---------------------------------------------------------------------------
-// Step 1 — Consignor / Step 2 — Consignee
-// (identical shape — kept as two exports since they validate different
-// paths on the same form)
+// Shared address-form shape (sender / pickup / receiver all use it)
 // ---------------------------------------------------------------------------
 
 const addressFormSchema = z.object({
@@ -40,9 +29,42 @@ const addressFormSchema = z.object({
   country: z.string().min(2, "Country is required"),
 });
 
-export const consignorSchema = z.object({
-  consignor: addressFormSchema,
-});
+// ---------------------------------------------------------------------------
+// Step 0 — Sender + Pickup (merged "who's shipping" + sender address +
+// pickup address). One step: mode selector, sender fields, and a pickup
+// section gated by the "pickup same as sender" checkbox.
+// ---------------------------------------------------------------------------
+
+export const senderPickupSchema = z
+  .object({
+    shipmentOwnerMode: z.enum(["SELF", "EXISTING_CLIENT", "OTHER_PERSON"]),
+    selectedClient: z.any().nullable(),
+    consignor: addressFormSchema,
+    pickupSameAsSender: z.boolean(),
+    // Only validated when pickup differs from the sender (see superRefine).
+    pickup: addressFormSchema.partial().optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.shipmentOwnerMode === "EXISTING_CLIENT" && !data.selectedClient) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["selectedClient"],
+        message: "Please select a client to continue.",
+      });
+    }
+    if (!data.pickupSameAsSender) {
+      const result = addressFormSchema.safeParse(data.pickup ?? {});
+      if (!result.success) {
+        result.error.issues.forEach((issue) => {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["pickup", ...issue.path],
+            message: issue.message,
+          });
+        });
+      }
+    }
+  });
 
 export const consigneeSchema = z.object({
   consignee: addressFormSchema,
@@ -165,21 +187,19 @@ export const reviewSchema = z.object({});
 // ---------------------------------------------------------------------------
 // stepSchemas — index MUST match `bookingSteps` / `STEP` in useBookingWizard.ts
 //
-//  0  shipment-owner    → shipmentOwnerSchema
-//  1  consignor         → consignorSchema
-//  2  consignee         → consigneeSchema
-//  3  shipment-details  → shipmentDetailsSchema  (self-managed, not via RHF)
-//  4  kyc               → kycSchema
-//  5  service            → serviceSchema
-//  6  review            → reviewSchema
+//  0  sender            → senderPickupSchema  (merged owner + sender + pickup)
+//  1  consignee         → consigneeSchema
+//  2  shipment-details  → shipmentDetailsSchema  (self-managed, not via RHF)
+//  3  kyc               → kycSchema
+//  4  service           → serviceSchema
+//  5  review            → reviewSchema
 // ---------------------------------------------------------------------------
 
 export const stepSchemas = [
-  shipmentOwnerSchema,   // 0
-  consignorSchema,       // 1
-  consigneeSchema,       // 2
-  shipmentDetailsSchema, // 3
-  kycSchema,              // 4
-  serviceSchema,          // 5
-  reviewSchema,            // 6
+  senderPickupSchema,    // 0
+  consigneeSchema,       // 1
+  shipmentDetailsSchema, // 2
+  kycSchema,             // 3
+  serviceSchema,         // 4
+  reviewSchema,          // 5
 ];

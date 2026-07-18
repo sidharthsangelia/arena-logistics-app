@@ -1,5 +1,7 @@
 "use server";
 
+import * as Sentry from "@sentry/nextjs";
+
 import { prisma } from "@/utils/db";
 import { getCurrentOrg, assertOrgOwnsClient, assertOrgOwnsAddress } from "@/actions/book/getOrgs";
 import { newAddressSchema } from "@/types/validations/booking";
@@ -30,6 +32,7 @@ export async function listAddresses(
 
     return ok(addresses);
   } catch (e) {
+    Sentry.captureException(e, { tags: { action: "listAddresses" } });
     return fail(e instanceof Error ? e.message : "Could not load addresses.");
   }
 }
@@ -64,6 +67,7 @@ export async function createAddress(
           label: data.label || null,
           contactName: data.contactName,
           contactPhone: data.contactPhone,
+          contactEmail: data.contactEmail || null,
           line1: data.line1,
           line2: data.line2 || null,
           city: data.city,
@@ -77,6 +81,7 @@ export async function createAddress(
 
     return ok(address);
   } catch (e) {
+    Sentry.captureException(e, { tags: { action: "createAddress" } });
     return fail(e instanceof Error ? e.message : "Could not save address.");
   }
 }

@@ -391,19 +391,27 @@ export async function createShipmentAction(
           level: "info",
         });
 
-        // 4b. Pickup address (consignor → sender)
+        // 4b. Pickup address — the sender's address unless the user entered a
+        // separate pickup location (pickupSameAsSender === false). Falls back
+        // to the sender if pickup data is somehow absent (e.g. an old draft).
+        const pickupSource =
+          !data.pickupSameAsSender && data.pickup
+            ? data.pickup
+            : data.consignor;
+
         const pickupAddress = await tx.address.create({
           data: {
             orgId: dbOrgId,
             kind: "PICKUP",
-            contactName: data.consignor.contactName,
-            contactPhone: data.consignor.phone || null,
-            line1: data.consignor.addressLine1,
-            line2: data.consignor.addressLine2 || null,
-            city: data.consignor.city,
-            state: data.consignor.state || null,
-            country: data.consignor.country,
-            postalCode: data.consignor.postalCode,
+            contactName: pickupSource.contactName,
+            contactPhone: pickupSource.phone || null,
+            contactEmail: pickupSource.email || null,
+            line1: pickupSource.addressLine1,
+            line2: pickupSource.addressLine2 || null,
+            city: pickupSource.city,
+            state: pickupSource.state || null,
+            country: pickupSource.country,
+            postalCode: pickupSource.postalCode,
             isDefault: false,
           },
           select: { id: true },
@@ -416,6 +424,7 @@ export async function createShipmentAction(
             kind: "DELIVERY",
             contactName: data.consignee.contactName,
             contactPhone: data.consignee.phone || null,
+            contactEmail: data.consignee.email || null,
             line1: data.consignee.addressLine1,
             line2: data.consignee.addressLine2 || null,
             city: data.consignee.city,
