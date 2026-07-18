@@ -45,19 +45,16 @@ import {
   Info,
   Loader2,
   Lock,
-  Package,
   Plane,
   Plus,
   Scale,
   Trash2,
-  Truck,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Badge } from "@/components/ui/badge";
 import {
   Select,
   SelectContent,
@@ -259,7 +256,7 @@ function RouteCard({ register, setValue, errors, control }: RouteProps) {
               </TooltipContent>
             </Tooltip>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-[0.5fr_1fr] gap-3">
             <div>
               <Label className="mb-1.5 block text-xs">Pincode</Label>
               <div className="relative">
@@ -307,7 +304,7 @@ function RouteCard({ register, setValue, errors, control }: RouteProps) {
               />
             )}
           />
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-[0.5fr_1fr] gap-3">
             <div>
               <Label className="mb-1.5 block text-xs">Postal code</Label>
               <div className="relative">
@@ -395,8 +392,8 @@ function BoxRow({ index, register, errors, canRemove, onRemove }: BoxRowProps) {
           min="1"
           step="0.1"
           inputMode="decimal"
-          aria-label="Width"
-          placeholder="W"
+          aria-label="Breadth"
+          placeholder="B"
           className={numInput}
           {...register(`boxes.${index}.widthCm`, { valueAsNumber: true })}
         />
@@ -488,9 +485,18 @@ function BoxesCard({
             Weight
             <InfoTip text="Weight of one box, in kilograms." />
           </span>
-          <span>Length</span>
-          <span>Width</span>
-          <span>Height</span>
+          <span className="flex items-center gap-1">
+            L
+            <InfoTip text="Length of one box." />
+          </span>
+          <span className="flex items-center gap-1">
+            B
+            <InfoTip text="Breadth (width) of one box." />
+          </span>
+          <span className="flex items-center gap-1">
+            H
+            <InfoTip text="Height of one box." />
+          </span>
           <span />
         </div>
 
@@ -605,7 +611,7 @@ function CarrierPicker({
   );
 }
 
-function ChargedWeight({ control }: { control: Control<FormValues> }) {
+function ChargedWeightInline({ control }: { control: Control<FormValues> }) {
   const boxes = useWatch({ control, name: "boxes", defaultValue: [] });
   const unit = useWatch({ control, name: "sizeUnit", defaultValue: "cm" });
 
@@ -624,36 +630,35 @@ function ChargedWeight({ control }: { control: Control<FormValues> }) {
   const ready = w.totalChargeableKg > 0;
 
   return (
-    <div className="rounded-lg border bg-muted/40 p-4">
-      <div className="mb-1.5 flex items-center gap-1.5">
-        <Scale className="h-3.5 w-3.5 text-muted-foreground" />
-        <span className="text-xs font-medium text-foreground">You pay for</span>
-        <InfoTip text="Carriers bill the higher of a box's real weight or its size based (volumetric) weight. We work this out for each box, then add them up." />
-        <Badge variant="secondary" className="ml-auto text-[10px]">
-          {w.totalPieces} box{w.totalPieces !== 1 ? "es" : ""}
-        </Badge>
+    <div className="flex items-center gap-3">
+      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border bg-muted/50">
+        <Scale className="h-4.5 w-4.5 text-muted-foreground" />
       </div>
-
-      {ready ? (
-        <>
-          <p className="text-3xl font-bold tracking-tight tabular-nums text-foreground">
-            {w.totalChargeableKg}
-            <span className="ml-1 text-base font-medium text-muted-foreground">kg</span>
-          </p>
-          <p className="mt-1 text-xs text-muted-foreground tabular-nums">
-            Real {w.totalActualKg} kg · Size {w.totalVolumetricKg} kg
-          </p>
-        </>
-      ) : (
-        <p className="py-1 text-sm text-muted-foreground">
-          Add box weight and size to see this.
-        </p>
-      )}
+      <div className="min-w-0">
+        <div className="flex items-center gap-1 text-xs text-muted-foreground">
+          You pay for
+          <InfoTip text="Carriers bill the higher of a box's real weight or its size based (volumetric) weight. We work this out for each box, then add them up." />
+        </div>
+        {ready ? (
+          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+            <span className="text-2xl font-bold leading-none tabular-nums text-foreground">
+              {w.totalChargeableKg}
+              <span className="ml-1 text-sm font-medium text-muted-foreground">kg</span>
+            </span>
+            <span className="text-xs text-muted-foreground tabular-nums">
+              Real {w.totalActualKg} kg · Size {w.totalVolumetricKg} kg · {w.totalPieces} box
+              {w.totalPieces !== 1 ? "es" : ""}
+            </span>
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">Add box weight and size to see this.</p>
+        )}
+      </div>
     </div>
   );
 }
 
-function ActionRail({
+function BottomBar({
   control,
   setValue,
   errors,
@@ -665,11 +670,24 @@ function ActionRail({
   loading: boolean;
 }) {
   return (
-    <Card className="lg:sticky lg:top-6">
-      <CardContent className="space-y-4 p-5">
-        <CarrierPicker control={control} setValue={setValue} error={errors.vendors?.message} />
-        <ChargedWeight control={control} />
-        <Button type="submit" size="lg" className="h-11 w-full text-sm font-medium" disabled={loading}>
+    <Card>
+      <CardContent className="flex flex-col gap-4 p-4 lg:flex-row lg:items-center lg:gap-6">
+        <div className="lg:w-60 lg:shrink-0">
+          <CarrierPicker control={control} setValue={setValue} error={errors.vendors?.message} />
+        </div>
+
+        <div className="hidden h-11 w-px shrink-0 bg-border lg:block" />
+
+        <div className="flex-1">
+          <ChargedWeightInline control={control} />
+        </div>
+
+        <Button
+          type="submit"
+          size="lg"
+          className="h-11 w-full text-sm font-medium lg:w-auto lg:min-w-52"
+          disabled={loading}
+        >
           {loading ? (
             <>
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -682,10 +700,6 @@ function ActionRail({
             </>
           )}
         </Button>
-        <p className="flex items-center justify-center gap-1.5 text-center text-[11px] text-muted-foreground">
-          <Package className="h-3 w-3" />
-          Live prices from the carriers.
-        </p>
       </CardContent>
     </Card>
   );
@@ -759,12 +773,9 @@ export default function RateCalculatorForm() {
   };
 
   return (
-    <form
-      onSubmit={handleSubmit(onSubmit)}
-      autoComplete="off"
-      className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[1fr_20rem]"
-    >
-      <div className="space-y-5">
+    <form onSubmit={handleSubmit(onSubmit)} autoComplete="off" className="space-y-5">
+      {/* Top: narrow route + wide boxes */}
+      <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[24rem_1fr]">
         <RouteCard register={register} setValue={setValue} errors={errors} control={control} />
         <BoxesCard
           fields={fields}
@@ -776,7 +787,8 @@ export default function RateCalculatorForm() {
         />
       </div>
 
-      <ActionRail control={control} setValue={setValue} errors={errors} loading={loading} />
+      {/* Bottom: carriers + summary + action */}
+      <BottomBar control={control} setValue={setValue} errors={errors} loading={loading} />
     </form>
   );
 }
