@@ -14,8 +14,17 @@ import { useForm } from "react-hook-form";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 
-import type { BookingFormData, ClientSummary } from "@/types/booking.types";
+import type {
+  BookingFormData,
+  ClientSummary,
+  BookingOrgContext,
+} from "@/types/booking.types";
 import { bookingSteps, useBookingWizard, STEP } from "@/hooks/useBookingWizard";
+import {
+  saveBookingDraft,
+  clearBookingDraft,
+  type BookingDraftPayload,
+} from "@/actions/book/bookingDraft.action";
 import {
   shipmentOwnerSchema,
   consignorSchema,
@@ -134,7 +143,15 @@ function SuccessScreen({
 // BookingWizard
 // ---------------------------------------------------------------------------
 
-export default function BookingWizard() {
+interface BookingWizardProps {
+  orgContext: BookingOrgContext;
+  initialDraft: BookingDraftPayload | null;
+}
+
+export default function BookingWizard({
+  orgContext,
+  initialDraft,
+}: BookingWizardProps) {
   const {
     currentStep,
     formData,
@@ -144,10 +161,16 @@ export default function BookingWizard() {
     goToPreviousStep,
     updateFormData,
     resetBooking,
-  } = useBookingWizard();
+  } = useBookingWizard(initialDraft);
 
   const [submitting, setSubmitting] = React.useState(false);
   const [submitError, setSubmitError] = React.useState<string | null>(null);
+
+  // "Save & Next" persists the wizard state to a BookingDraft after each step
+  // validates, so the user can leave and resume. `savingDraft` drives the
+  // button's saving state; `draftResumed` shows a one-time "resumed" banner.
+  const [savingDraft, setSavingDraft] = React.useState(false);
+  const [draftResumed, setDraftResumed] = React.useState(!!initialDraft);
 
   // `submitting` (React state) only updates on the next render, so if the
   // auto-submit fired from onTopUpSuccess and a manual button click land
@@ -228,6 +251,9 @@ export default function BookingWizard() {
       const result = await createShipmentAction(finalData);
 
       if (result.success) {
+        // Booking is now a real Shipment — the draft has served its purpose.
+        // Fire-and-forget: a failed cleanup shouldn't block the success screen.
+        void clearBookingDraft();
         setSubmitted({
           shipmentId: result.shipmentId,
           shipmentNumber: result.shipmentNumber,
@@ -261,6 +287,24 @@ export default function BookingWizard() {
     }
   };
 
+  // Persist the wizard state as a BookingDraft, then advance. Saving to the
+  // step the user is moving TO (currentStep + 1) so a resume lands them there.
+  // A failed save is non-fatal — we still advance; the next "Save & Next"
+  // re-attempts persistence. The `draftResumed` banner is dismissed on the
+  // first save so it doesn't linger past the resumed step.
+  const saveDraftAndNext = async (data: BookingFormData) => {
+    setSavingDraft(true);
+    try {
+      await saveBookingDraft(currentStep + 1, data);
+    } catch {
+      // swallow — advancing without a saved draft is acceptable degradation
+    } finally {
+      setSavingDraft(false);
+      setDraftResumed(false);
+    }
+    goToNextStep();
+  };
+
   // ── Next / Submit ────────────────────────────────────────────────────────
   const handleNext = async () => {
     setSubmitError(null);
@@ -277,7 +321,7 @@ export default function BookingWizard() {
       if (isLastStep) {
         await handleSubmit(formData);
       } else {
-        goToNextStep();
+        await saveDraftAndNext(formData);
       }
       return;
     }
@@ -328,7 +372,7 @@ export default function BookingWizard() {
       // ensures this only fires once balance has been confirmed sufficient.
       await handleSubmit(merged);
     } else {
-      goToNextStep();
+      await saveDraftAndNext(merged);
     }
   };
 
@@ -368,9 +412,20 @@ export default function BookingWizard() {
         </CardHeader>
 
         <CardContent>
+          {draftResumed && (
+            <div className="mb-6 flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-4 py-2.5 text-sm">
+              <CheckCircle2 className="h-4 w-4 shrink-0 text-primary" />
+              <span className="text-muted-foreground">
+                Resumed your saved booking — pick up where you left off. Your
+                progress is saved each time you continue.
+              </span>
+            </div>
+          )}
+
           <div className="space-y-8">
             {currentStep === STEP.OWNER && (
               <ShipmentOwnerStep
+                isBusinessAssociate={orgContext.isBusinessAssociate}
                 value={watch("shipmentOwnerMode")}
                 selectedClient={watch("selectedClient")}
                 onModeChange={(v) => {
@@ -470,7 +525,7 @@ export default function BookingWizard() {
               <div className="flex flex-col items-end gap-1.5">
                 <Button
                   type="button"
-                  disabled={submitting || walletBlocking}
+                  disabled={submitting || savingDraft || walletBlocking}
                   onClick={handleNext}
                 >
                   {submitting ? (
@@ -478,11 +533,16 @@ export default function BookingWizard() {
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                       {isLastStep ? "Placing booking…" : "Submitting…"}
                     </>
+                  ) : savingDraft ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Saving…
+                    </>
                   ) : isLastStep ? (
                     "Pay & Place Booking"
                   ) : (
                     <>
-                      Next
+                      Save &amp; Next
                       <ChevronRight className="ml-2 h-4 w-4" />
                     </>
                   )}

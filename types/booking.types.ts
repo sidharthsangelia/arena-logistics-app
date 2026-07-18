@@ -121,6 +121,33 @@ export interface BookingStep {
   icon: React.ComponentType<{ className?: string }>;
 }
 
+/**
+ * Org context passed into the wizard from the server (book page). Decides
+ * which BA-only features show, whether payment is collected up-front or
+ * deferred, and seeds the "Use my saved profile" sender option.
+ *
+ * `markupPercent` is serialised to a plain number (Prisma Decimal → number)
+ * before it crosses the server→client boundary.
+ */
+export interface BookingOrgContext {
+  orgId: string;
+  isBusinessAssociate: boolean;
+  skipPayment: boolean;
+  markupPercent: number;
+  /** The org's own registered profile — used for the SELF sender option. */
+  self: {
+    companyName: string | null;
+    contactName: string | null;
+    email: string | null;
+    phone: string | null;
+    addressLine1: string | null;
+    city: string | null;
+    state: string | null;
+    country: string | null;
+    postalCode: string | null;
+  };
+}
+
 export type ShipmentOwnerMode = "SELF" | "EXISTING_CLIENT" | "OTHER_PERSON";
 
 export type InvoiceMode = "UPLOAD" | "GENERATE";

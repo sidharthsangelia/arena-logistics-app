@@ -1,6 +1,18 @@
 import BookingWizard from "@/components/booking/BookingWizard";
+import { getBookingOrgContext } from "@/actions/book/bookingContext.action";
+import { getBookingDraft } from "@/actions/book/bookingDraft.action";
 
-export default function BookPage() {
+export default async function BookPage() {
+  // Fetched server-side and handed to the (client) wizard: org flags drive
+  // BA-only features + payment mode, and any saved draft lets the user resume
+  // a half-finished booking.
+  const [orgContext, draftResult] = await Promise.all([
+    getBookingOrgContext(),
+    getBookingDraft(),
+  ]);
+
+  const initialDraft = draftResult.ok ? draftResult.data : null;
+
   return (
     <div className="max-w-5xl mx-auto px-6 py-8">
       <div className="mb-8">
@@ -11,7 +23,7 @@ export default function BookPage() {
           Create and confirm a new shipment booking.
         </p>
       </div>
-      <BookingWizard />
+      <BookingWizard orgContext={orgContext} initialDraft={initialDraft} />
     </div>
   );
 }

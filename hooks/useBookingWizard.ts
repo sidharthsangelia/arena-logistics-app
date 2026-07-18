@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { BookingFormData, BookingStep } from "@/types/booking.types";
 import { stepSchemas } from "@/types/booking.schema";
+import type { BookingDraftPayload } from "@/actions/book/bookingDraft.action";
 
 // ---------------------------------------------------------------------------
 // Named step indices — avoids magic numbers scattered across BookingWizard.
@@ -91,10 +92,17 @@ const initialFormData: BookingFormData = {
   selectedService: null,
 };
 
-export function useBookingWizard() {
-  const [currentStep, setCurrentStep] = useState(0);
+export function useBookingWizard(initialDraft?: BookingDraftPayload | null) {
+  // A resumed draft seeds both the step and the form data. Merge over
+  // `initialFormData` so a draft saved by an older wizard build (missing
+  // newer fields) still hydrates cleanly instead of leaving fields undefined.
+  const draftData = (initialDraft?.data ?? null) as Partial<BookingFormData> | null;
+
+  const [currentStep, setCurrentStep] = useState(initialDraft?.currentStep ?? 0);
   const [isSubmitted, setIsSubmitted] = useState(false);
-  const [formData, setFormData] = useState<BookingFormData>(initialFormData);
+  const [formData, setFormData] = useState<BookingFormData>(
+    draftData ? { ...initialFormData, ...draftData } : initialFormData,
+  );
 
   const isFirstStep = currentStep === 0;
   const isLastStep = currentStep === bookingSteps.length - 1;

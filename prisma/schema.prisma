@@ -37,6 +37,7 @@ enum KycDocType {
   BANK_STATEMENT
   TRADE_LICENSE
   AUTHORIZED_SIGNATORY
+  LUT // Letter of Undertaking — zero-rated/no-IGST exports
   OTHER
 }
 
@@ -74,6 +75,7 @@ model Org {
   addresses      Address[]
   shipments      Shipment[]
   baApplications BaApplication[]
+  bookingDrafts  BookingDraft[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -521,6 +523,16 @@ enum AddressKind {
   BILLING
 }
 
+// CSB-IV / CSB-V / Commercial — Indian customs export categories.
+// Drives which KYC docs are required and how customs paperwork is handled.
+// CSB4 is only valid while total declared value < ₹25,000; at/above that
+// threshold a shipment must be CSB5 or COMMERCIAL (enforced in the app layer).
+enum ShipmentType {
+  CSB4
+  CSB5
+  COMMERCIAL
+}
+
 enum ShipmentStatus {
   DRAFT // form in progress, not yet submitted
   PENDING_PAYMENT // service selected, awaiting wallet debit
@@ -748,9 +760,32 @@ model Shipment {
   // ── package / cargo details ──
   packages PackageItem[]
 
+  // CSB4 / CSB5 / COMMERCIAL — set once packages are entered. Nullable so a
+  // half-finished DRAFT (or legacy row) can exist without it.
+  shipmentType ShipmentType?
+
   declaredCargoType       String? // free text, or map to your existing CargoType enum if useful here too
   totalActualWeightKg     Decimal? @db.Decimal(12, 2)
   totalChargeableWeightKg Decimal? @db.Decimal(12, 2)
+
+  // ── first-mile (door → carrier hub) pickup ──
+  // Only relevant when the customer opts into door pickup. The chosen
+  // domestic courier (via Shipmozo) that carries the parcel from the sender's
+  // door to the selected international vendor's nearest hub, priced with the
+  // org's markup already applied. Snapshotted at booking time like the main
+  // service, so later rate/markup changes don't rewrite history.
+  pickupIncluded          Boolean  @default(false)
+  firstMileVendorId       String?
+  firstMileVendorName     String?
+  firstMileCharge         Decimal? @db.Decimal(14, 4)
+  firstMileHubLabel       String? // which hub the parcel is routed to (e.g. "Dwarka, New Delhi")
+  firstMileChargeSnapshot Json? // full first-mile price breakdown shown at selection time
+
+  // Payment collected on arrival at the hub instead of up-front — set for
+  // orgs with payments turned off (Org.skipPayment). The shipment still
+  // becomes BOOKED and enters the ops queue, but flagged so ops can filter
+  // "payment pending" bookings and follow up.
+  paymentDeferred Boolean @default(false)
 
   // ── selected service / rate snapshot ──
   // mirrors Quote's snapshot philosophy: price/service locked at booking time.
@@ -806,7 +841,10 @@ model PackageItem {
   shipmentId String
   shipment   Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
 
-  description String // contents description, e.g. "Cotton t-shirts"
+  // A PackageItem is a physical BOX. `quantity` = how many identical boxes
+  // (same dimensions, weight and contents) — the UI tells the user to add a
+  // separate box only when L/B/H, weight, OR contents differ.
+  description String // short box-level summary, e.g. "Apparel carton" — derived from contents when present
   quantity    Int    @default(1)
 
   lengthCm Decimal @db.Decimal(8, 2)
@@ -814,15 +852,42 @@ model PackageItem {
   heightCm Decimal @db.Decimal(8, 2)
   weightKg Decimal @db.Decimal(8, 2)
 
-  declaredValue    Decimal? @db.Decimal(14, 2)
+  declaredValue    Decimal? @db.Decimal(14, 2) // sum of contents' value for one box (× quantity for total)
   declaredCurrency String?  @default("INR")
 
-  hsCode String? // harmonized system code — international shipments will need this eventually
+  hsCode String? // legacy box-level HS code; per-item HS now lives on contents
+
+  // Items packed inside this box (Description / HSN / Qty / Price) — drives
+  // the commercial invoice & customs packing list. A box can hold many items.
+  contents PackageContentItem[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([shipmentId])
+}
+
+// ─────────────────────────────────────────────
+// PackageContentItem — one line item inside a box.
+// (Description / HSN / Qty / unit value) — a box can
+// contain many. Powers the invoice + customs packing list.
+// ─────────────────────────────────────────────
+
+model PackageContentItem {
+  id            String      @id @default(cuid())
+  packageItemId String
+  packageItem   PackageItem @relation(fields: [packageItemId], references: [id], onDelete: Cascade)
+
+  description String
+  hsCode     String? // HSN code for this specific item
+  quantity   Int     @default(1)
+  unitValue  Decimal @db.Decimal(14, 2) // price/value per unit, in `currency`
+  currency   String  @default("INR")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([packageItemId])
 }
 
 // ─────────────────────────────────────────────
@@ -915,4 +980,34 @@ model BaApplication {
 
   @@index([orgId])
   @@index([status])
+}
+
+// ─────────────────────────────────────────────
+// BookingDraft — a half-finished booking, saved
+// per "Save & Next" step so the user can leave and
+// resume. Holds the whole wizard state as JSON plus
+// the step they're on. The real Shipment + Address
+// rows are only materialised at final submit, so the
+// Shipment table stays 100% real bookings (no DRAFT
+// clutter, no nullable address FKs).
+// ─────────────────────────────────────────────
+
+model BookingDraft {
+  id    String @id @default(cuid())
+  orgId String
+  org   Org    @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  userId String // Clerk user id who owns this draft
+
+  currentStep Int  @default(0)
+  data        Json // serialized BookingFormData
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // One in-progress draft per user per org is the intent; enforced in the
+  // action layer (find-then-update/create) rather than a DB unique, so the
+  // additive push stays non-destructive.
+  @@index([orgId])
+  @@index([orgId, userId])
 }

@@ -4,7 +4,10 @@ import { prisma } from "@/utils/db";
 import type { Org } from "@/generated/prisma";
 import { resolveOrgContext, type OrgContext } from "@/actions/book/resolveOrg";
 
-export type { OrgContext };
+// NOTE: do NOT re-export the OrgContext *type* from this "use server" file.
+// Turbopack treats every export of a server-actions module as an action, and
+// a type has no runtime value — the re-export broke the production build.
+// Import OrgContext directly from "@/actions/book/resolveOrg" instead.
 
 export async function getCurrentOrg(): Promise<Org> {
   const { org } = await resolveOrgContext();

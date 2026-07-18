@@ -8,6 +8,10 @@ import type { ClientSummary } from "@/types/booking.types";
 import { ClientCombobox } from "../ClientComboBox";
 
 interface Props {
+  /** BA-only: "Existing Client" (book on behalf of a saved client) is only
+   *  offered to Business Associates. Normal orgs ship for themselves or for
+   *  another person entered manually. */
+  isBusinessAssociate: boolean;
   value: string;
   selectedClient: ClientSummary | null;
   onModeChange: (value: "SELF" | "EXISTING_CLIENT" | "OTHER_PERSON") => void;
@@ -17,6 +21,7 @@ interface Props {
 }
 
 export function ShipmentOwnerStep({
+  isBusinessAssociate,
   value,
   selectedClient,
   onModeChange,
@@ -52,18 +57,21 @@ export function ShipmentOwnerStep({
           </div>
         </label>
 
-        <label
-          htmlFor="client"
-          className="flex items-start gap-3 rounded-lg border p-4 cursor-pointer hover:bg-muted/40 has-[[data-state=checked]]:border-primary has-[[data-state=checked]]:bg-primary/5"
-        >
-          <RadioGroupItem value="EXISTING_CLIENT" id="client" className="mt-0.5" />
-          <div>
-            <p className="font-medium text-sm">Existing Client</p>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Book a shipment on behalf of one of your saved clients.
-            </p>
-          </div>
-        </label>
+        {/* BA-only: book on behalf of a saved client. */}
+        {isBusinessAssociate && (
+          <label
+            htmlFor="client"
+            className="flex items-start gap-3 rounded-lg border p-4 cursor-pointer hover:bg-muted/40 has-[[data-state=checked]]:border-primary has-[[data-state=checked]]:bg-primary/5"
+          >
+            <RadioGroupItem value="EXISTING_CLIENT" id="client" className="mt-0.5" />
+            <div>
+              <p className="font-medium text-sm">Existing Client</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Book a shipment on behalf of one of your saved clients.
+              </p>
+            </div>
+          </label>
+        )}
 
         <label
           htmlFor="other"

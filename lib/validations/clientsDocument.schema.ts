@@ -12,6 +12,7 @@ export const KYC_DOC_TYPES = [
   "BANK_STATEMENT",
   "TRADE_LICENSE",
   "AUTHORIZED_SIGNATORY",
+  "LUT",
   "OTHER",
 ] as const;
 
@@ -29,6 +30,7 @@ export const KYC_DOC_TYPE_LABELS: Record<KycDocType, string> = {
   BANK_STATEMENT:      "Bank Statement",
   TRADE_LICENSE:       "Trade License",
   AUTHORIZED_SIGNATORY:"Authorised Signatory / POA",
+  LUT:                 "LUT (Letter of Undertaking)",
   OTHER:               "Other",
 };
 
@@ -44,6 +46,7 @@ export const KYC_DOC_TYPE_HINTS: Record<KycDocType, string> = {
   BANK_STATEMENT:      "Latest 3–6 months bank statement",
   TRADE_LICENSE:       "Municipal / state trade license",
   AUTHORIZED_SIGNATORY:"Board resolution or Power of Attorney",
+  LUT:                 "Letter of Undertaking for zero-rated exports",
   OTHER:               "Any other supporting document",
 };
 
