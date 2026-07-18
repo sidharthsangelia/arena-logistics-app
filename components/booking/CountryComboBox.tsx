@@ -26,7 +26,8 @@ interface CountryComboboxProps {
   /** Stores the country *name* (not ISO code), matching ConsignorForm/ConsigneeForm. */
   value: string;
   onChange: (countryName: string) => void;
-  label?: string;
+  /** Field label. Pass `null` to render the combobox with no label of its own. */
+  label?: string | null;
   error?: string;
 }
 
@@ -50,9 +51,11 @@ export function CountryCombobox({
 
   return (
     <div className="space-y-1">
-      <Label>
-        {label} <span className="text-destructive">*</span>
-      </Label>
+      {label ? (
+        <Label>
+          {label} <span className="text-destructive">*</span>
+        </Label>
+      ) : null}
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <Button

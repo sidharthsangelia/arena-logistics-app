@@ -3,24 +3,29 @@
 /**
  * RateCalculatorForm.tsx
  *
- * International freight rate calculator form (ships FROM India).
+ * International freight rate calculator (ships FROM India).
+ *
+ * LAYOUT
+ * ------
+ * Two columns on desktop: inputs on the left (route + boxes), a sticky action
+ * rail on the right (carriers + live charged weight + Get Rates). The rail
+ * keeps the payoff (weight + price action) in view while the user edits, so
+ * the tool reads as a quick panel rather than a long form.
  *
  * MULTI-PIECE
  * -----------
- * Every box line carries its own per-box weight, size and count, and all of
- * them are sent as `shipment.packages`. The adapters decide per carrier how to
- * use it (Shipmozo natively; Skart/Aramex collapse to one charged weight via
- * lib/pricing/chargeableWeight, "higher of real vs volume, per box, summed").
- * The form shows that charged weight live so nothing about the price is hidden.
+ * Each box line carries its own weight, size and count, all sent as
+ * `shipment.packages`. Adapters use it per carrier (Shipmozo natively;
+ * Skart/Aramex collapse to one charged weight via lib/pricing/chargeableWeight:
+ * "higher of real vs volume, per box, summed").
  *
- * REACTIVITY NOTE
- * ---------------
- * Reactive/computed reads use `useWatch`, not `watch()`. React Compiler can
- * memoize this component and serve stale values from `watch()` (the lint rule
- * react-hooks/incompatible-library warns about exactly this), which is what
- * made the charged-weight card fail to update when the box count changed.
+ * REACTIVITY
+ * ----------
+ * Computed reads use `useWatch` (not `watch()`) because React Compiler can
+ * memoize this component and serve stale values from `watch()` (see the lint
+ * rule react-hooks/incompatible-library). That was the charged-weight bug.
  *
- * STYLING: shadcn tokens only. Plain, jargon-free copy.
+ * STYLING: shadcn tokens. Plain, jargon-free copy. No em dashes in UI copy.
  */
 
 import * as React from "react";
@@ -35,14 +40,17 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import {
   ArrowRight,
-  Box,
   Check,
+  ChevronDown,
+  Info,
   Loader2,
-  MapPin,
+  Lock,
+  Package,
+  Plane,
   Plus,
   Scale,
   Trash2,
-  AlertCircle,
+  Truck,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -57,7 +65,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 import { CountryCombobox } from "@/components/booking/CountryComboBox";
@@ -68,31 +86,32 @@ import { computeShipmentWeights } from "@/lib/pricing/chargeableWeight";
 import { useAppStore } from "@/store";
 
 // ---------------------------------------------------------------------------
-// This calculator always ships out of India.
+// Constants
 // ---------------------------------------------------------------------------
 
 const ORIGIN_COUNTRY = "India";
+
+// Every carrier is selected by default.
+const ALL_VENDOR_IDS = AVAILABLE_VENDORS.map((v) => v.id);
 
 // ---------------------------------------------------------------------------
 // Schema
 // ---------------------------------------------------------------------------
 
 const boxSchema = z.object({
-  boxCount: z.number({ error: "Required" }).int().min(1, "Add at least 1"),
-  weightKg: z.number({ error: "Required" }).positive("Enter a weight"),
-  lengthCm: z.number({ error: "Required" }).positive("Enter a size"),
-  widthCm: z.number({ error: "Required" }).positive("Enter a size"),
-  heightCm: z.number({ error: "Required" }).positive("Enter a size"),
+  boxCount: z.number({ error: "Required" }).int().min(1, "Min 1"),
+  weightKg: z.number({ error: "Add weight" }).positive("Add weight"),
+  lengthCm: z.number({ error: "Add size" }).positive("Add size"),
+  widthCm: z.number({ error: "Add size" }).positive("Add size"),
+  heightCm: z.number({ error: "Add size" }).positive("Add size"),
 });
 
 const formSchema = z.object({
   originPincode: z.string().trim().min(1, "Enter a pincode"),
   originCity: z.string().trim().min(1, "Enter a city"),
-
   destinationCountry: z.string().min(1, "Pick a country"),
   destinationPincode: z.string().trim().min(1, "Enter a postal code"),
   destinationCity: z.string().trim().min(1, "Enter a city"),
-
   sizeUnit: z.enum(["cm", "in"]),
   boxes: z.array(boxSchema).min(1, "Add at least one box"),
   vendors: z.array(z.string()).min(1, "Pick at least one carrier"),
@@ -113,22 +132,24 @@ function toCmFactor(unit: "cm" | "in"): number {
   return unit === "in" ? 2.54 : 1;
 }
 
-const defaultBox: FormValues["boxes"][number] = {
+// Start empty so nothing looks like real data. boxCount defaults to 1 (you
+// always have at least one box); everything else is blank with placeholders.
+const emptyBox = {
   boxCount: 1,
-  weightKg: 1,
-  lengthCm: 30,
-  widthCm: 20,
-  heightCm: 10,
-};
+  weightKg: undefined,
+  lengthCm: undefined,
+  widthCm: undefined,
+  heightCm: undefined,
+} as unknown as FormValues["boxes"][number];
 
 const defaultValues: FormValues = {
-  originPincode: "110059",
-  originCity: "New Delhi",
-  destinationCountry: "Australia",
-  destinationPincode: "2000",
-  destinationCity: "Sydney",
+  originPincode: "",
+  originCity: "",
+  destinationCountry: "",
+  destinationPincode: "",
+  destinationCity: "",
   sizeUnit: "cm",
-  boxes: [defaultBox],
+  boxes: [emptyBox],
   vendors: AVAILABLE_VENDORS.map((v) => v.id),
 };
 
@@ -141,284 +162,454 @@ function FieldError({ message }: { message?: string }) {
   return <p className="mt-1 text-xs text-destructive">{message}</p>;
 }
 
-function SectionLabel({ children }: { children: React.ReactNode }) {
+function InfoTip({ text }: { text: string }) {
   return (
-    <span className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-      {children}
-    </span>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          tabIndex={-1}
+          className="text-muted-foreground/60 transition-colors hover:text-foreground"
+          aria-label="More info"
+        >
+          <Info className="h-3.5 w-3.5" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-55 text-xs leading-relaxed">
+        {text}
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
-// India flag emoji for the locked origin field.
-function indiaFlag() {
-  return "🇮🇳";
+function SectionLabel({
+  children,
+  tip,
+}: {
+  children: React.ReactNode;
+  tip?: string;
+}) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <span className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+        {children}
+      </span>
+      {tip && <InfoTip text={tip} />}
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------
-// From (locked to India) + To (any country) endpoints
+// Route: From (India, locked) + To (any country)
 // ---------------------------------------------------------------------------
 
-interface EndpointProps {
+interface RouteProps {
   register: ReturnType<typeof useForm<FormValues>>["register"];
   setValue: ReturnType<typeof useForm<FormValues>>["setValue"];
   errors: ReturnType<typeof useForm<FormValues>>["formState"]["errors"];
   control: Control<FormValues>;
 }
 
-function FromEndpoint({ register, setValue, errors, control }: EndpointProps) {
-  const pincode = useWatch({ control, name: "originPincode" });
-
-  const lookupState = usePostalLookup(ORIGIN_COUNTRY, pincode ?? "", (city) => {
-    setValue("originCity", city, { shouldValidate: true });
-  });
-
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center gap-2">
-        <MapPin className="h-4 w-4 text-muted-foreground" />
-        <SectionLabel>Sending from</SectionLabel>
-      </div>
-
-      <div className="space-y-1">
-        <Label>Country</Label>
-        <div className="flex h-9 items-center gap-2 rounded-md border bg-muted/40 px-3 text-sm text-foreground">
-          <span className="text-base leading-none">{indiaFlag()}</span>
-          India
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 gap-3">
-        <div className="space-y-1">
-          <Label>
-            Pincode <span className="text-destructive">*</span>
-          </Label>
-          <div className="relative">
-            <Input {...register("originPincode")} placeholder="e.g. 110059" className="pr-8" />
-            {lookupState === "loading" && (
-              <Loader2 className="absolute right-2.5 top-2.5 h-4 w-4 animate-spin text-muted-foreground" />
-            )}
-          </div>
-          {lookupState === "found" ? (
-            <p className="flex items-center gap-1 text-xs text-muted-foreground">
-              <Check className="h-3 w-3" /> City filled in for you
-            </p>
-          ) : (
-            <FieldError message={errors.originPincode?.message} />
-          )}
-        </div>
-
-        <div className="space-y-1">
-          <Label>
-            City <span className="text-destructive">*</span>
-          </Label>
-          <Input
-            {...register("originCity")}
-            placeholder={lookupState === "loading" ? "Looking up..." : "e.g. New Delhi"}
-          />
-          <FieldError message={errors.originCity?.message} />
-        </div>
-      </div>
-    </div>
-  );
+function PincodeHint({
+  state,
+  errorMessage,
+}: {
+  state: ReturnType<typeof usePostalLookup>;
+  errorMessage?: string;
+}) {
+  if (state === "found") {
+    return (
+      <p className="mt-1 flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400">
+        <Check className="h-3 w-3" /> City filled in
+      </p>
+    );
+  }
+  return <FieldError message={errorMessage} />;
 }
 
-function ToEndpoint({ register, setValue, errors, control }: EndpointProps) {
-  const country = useWatch({ control, name: "destinationCountry" });
-  const pincode = useWatch({ control, name: "destinationPincode" });
+function RouteCard({ register, setValue, errors, control }: RouteProps) {
+  const originPincode = useWatch({ control, name: "originPincode" });
+  const destCountry = useWatch({ control, name: "destinationCountry" });
+  const destPincode = useWatch({ control, name: "destinationPincode" });
 
-  const lookupState = usePostalLookup(country ?? "", pincode ?? "", (city) => {
-    setValue("destinationCity", city, { shouldValidate: true });
-  });
+  const originLookup = usePostalLookup(ORIGIN_COUNTRY, originPincode ?? "", (city) =>
+    setValue("originCity", city, { shouldValidate: true }),
+  );
+  const destLookup = usePostalLookup(destCountry ?? "", destPincode ?? "", (city) =>
+    setValue("destinationCity", city, { shouldValidate: true }),
+  );
 
   return (
-    <div className="space-y-3">
-      <div className="flex items-center gap-2">
-        <MapPin className="h-4 w-4 text-muted-foreground" />
-        <SectionLabel>Sending to</SectionLabel>
-      </div>
-
-      <Controller
-        control={control}
-        name="destinationCountry"
-        render={({ field }) => (
-          <CountryCombobox
-            value={field.value}
-            label="Country"
-            onChange={(name) => {
-              field.onChange(name);
-              // Clear the old postal code and city so they can't stay behind.
-              setValue("destinationPincode", "");
-              setValue("destinationCity", "");
-            }}
-            error={errors.destinationCountry?.message}
-          />
-        )}
-      />
-
-      <div className="grid grid-cols-2 gap-3">
-        <div className="space-y-1">
-          <Label>
-            Postal code <span className="text-destructive">*</span>
-          </Label>
-          <div className="relative">
-            <Input
-              {...register("destinationPincode")}
-              placeholder="Postal / ZIP code"
-              className="pr-8"
-            />
-            {lookupState === "loading" && (
-              <Loader2 className="absolute right-2.5 top-2.5 h-4 w-4 animate-spin text-muted-foreground" />
-            )}
+    <Card>
+      <CardContent className="space-y-5 p-5">
+        {/* From */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <SectionLabel>Sending from</SectionLabel>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="inline-flex items-center gap-1.5 rounded-full border bg-muted/50 px-2 py-0.5 text-xs font-medium text-foreground">
+                  <span className="text-sm leading-none">🇮🇳</span>
+                  India
+                  <Lock className="h-3 w-3 text-muted-foreground" />
+                </span>
+              </TooltipTrigger>
+              <TooltipContent className="text-xs">
+                This tool quotes shipments leaving India.
+              </TooltipContent>
+            </Tooltip>
           </div>
-          {lookupState === "found" ? (
-            <p className="flex items-center gap-1 text-xs text-muted-foreground">
-              <Check className="h-3 w-3" /> City filled in for you
-            </p>
-          ) : (
-            <FieldError message={errors.destinationPincode?.message} />
-          )}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label className="mb-1.5 block text-xs">Pincode</Label>
+              <div className="relative">
+                <Input
+                  {...register("originPincode")}
+                  inputMode="numeric"
+                  placeholder="e.g. 110059"
+                  className="pr-8"
+                />
+                {originLookup === "loading" && (
+                  <Loader2 className="absolute right-2.5 top-2.5 h-4 w-4 animate-spin text-muted-foreground" />
+                )}
+              </div>
+              <PincodeHint state={originLookup} errorMessage={errors.originPincode?.message} />
+            </div>
+            <div>
+              <Label className="mb-1.5 block text-xs">City</Label>
+              <Input
+                {...register("originCity")}
+                placeholder={originLookup === "loading" ? "Looking up..." : "City"}
+              />
+              <FieldError message={errors.originCity?.message} />
+            </div>
+          </div>
         </div>
 
-        <div className="space-y-1">
-          <Label>
-            City <span className="text-destructive">*</span>
-          </Label>
-          <Input
-            {...register("destinationCity")}
-            placeholder={lookupState === "loading" ? "Looking up..." : "Destination city"}
+        <div className="h-px bg-border" />
+
+        {/* To */}
+        <div className="space-y-2">
+          <SectionLabel>Sending to</SectionLabel>
+          <Controller
+            control={control}
+            name="destinationCountry"
+            render={({ field }) => (
+              <CountryCombobox
+                value={field.value}
+                label={null}
+                onChange={(name) => {
+                  field.onChange(name);
+                  setValue("destinationPincode", "");
+                  setValue("destinationCity", "");
+                }}
+                error={errors.destinationCountry?.message}
+              />
+            )}
           />
-          <FieldError message={errors.destinationCity?.message} />
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label className="mb-1.5 block text-xs">Postal code</Label>
+              <div className="relative">
+                <Input
+                  {...register("destinationPincode")}
+                  placeholder="Postal / ZIP"
+                  className="pr-8"
+                />
+                {destLookup === "loading" && (
+                  <Loader2 className="absolute right-2.5 top-2.5 h-4 w-4 animate-spin text-muted-foreground" />
+                )}
+              </div>
+              <PincodeHint state={destLookup} errorMessage={errors.destinationPincode?.message} />
+            </div>
+            <div>
+              <Label className="mb-1.5 block text-xs">City</Label>
+              <Input
+                {...register("destinationCity")}
+                placeholder={destLookup === "loading" ? "Looking up..." : "City"}
+              />
+              <FieldError message={errors.destinationCity?.message} />
+            </div>
+          </div>
         </div>
-      </div>
-    </div>
+      </CardContent>
+    </Card>
   );
 }
 
 // ---------------------------------------------------------------------------
-// BoxRow
+// Boxes: compact one-row-per-box table
 // ---------------------------------------------------------------------------
+
+const BOX_GRID = "grid grid-cols-3 gap-2 sm:grid-cols-[3rem_5.5rem_1fr_1fr_1fr_1.75rem] sm:items-center";
 
 interface BoxRowProps {
   index: number;
-  unit: "cm" | "in";
   register: ReturnType<typeof useForm<FormValues>>["register"];
   errors: ReturnType<typeof useForm<FormValues>>["formState"]["errors"];
   canRemove: boolean;
   onRemove: () => void;
 }
 
-function BoxRow({ index, unit, register, errors, canRemove, onRemove }: BoxRowProps) {
+function BoxRow({ index, register, errors, canRemove, onRemove }: BoxRowProps) {
   const be = errors.boxes?.[index];
+  const hasError = !!(be?.boxCount || be?.weightKg || be?.lengthCm || be?.widthCm || be?.heightCm);
+
+  const numInput = "h-9 text-sm";
 
   return (
-    <div className="rounded-lg border bg-card">
-      <div className="flex items-center justify-between border-b bg-muted/40 px-4 py-2">
-        <div className="flex items-center gap-2">
-          <div className="flex h-5 w-5 items-center justify-center rounded-md bg-muted text-[11px] font-semibold text-muted-foreground">
-            {index + 1}
-          </div>
-          <span className="text-xs font-medium text-muted-foreground">
-            Box type {index + 1}
-          </span>
-        </div>
-        {canRemove && (
-          <button
-            type="button"
-            onClick={onRemove}
-            className="flex items-center gap-1 rounded px-1.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-destructive"
-          >
-            <Trash2 className="h-3 w-3" />
-            Remove
-          </button>
-        )}
-      </div>
-
-      <div className="space-y-4 p-4">
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-[140px_140px]">
-          <div>
-            <Label className="mb-1.5 block text-xs">How many boxes</Label>
-            <Input
-              type="number"
-              min="1"
-              step="1"
-              {...register(`boxes.${index}.boxCount`, { valueAsNumber: true })}
-            />
-            <FieldError message={be?.boxCount?.message} />
-          </div>
-          <div>
-            <Label className="mb-1.5 block text-xs">Weight of each box (kg)</Label>
-            <Input
-              type="number"
-              step="0.01"
-              min="0.01"
-              {...register(`boxes.${index}.weightKg`, { valueAsNumber: true })}
-            />
-            <FieldError message={be?.weightKg?.message} />
-          </div>
-        </div>
-
-        <div className="rounded-md border bg-muted/30 p-3">
-          <div className="mb-2 flex items-center justify-between">
-            <span className="text-xs font-medium text-muted-foreground">
-              Size of each box
-            </span>
-            <span className="text-xs text-muted-foreground">measured in {unit}</span>
-          </div>
-          <div className="grid grid-cols-3 gap-3">
-            {(["lengthCm", "widthCm", "heightCm"] as const).map((dim, i) => (
-              <div key={dim}>
-                <Label className="mb-1 block text-xs text-muted-foreground">
-                  {["Length", "Width", "Height"][i]}
-                </Label>
-                <Input
-                  type="number"
-                  min="1"
-                  step="0.1"
-                  {...register(`boxes.${index}.${dim}`, { valueAsNumber: true })}
-                />
-                <FieldError message={be?.[dim]?.message} />
-              </div>
-            ))}
-          </div>
+    <div className={cn("rounded-md px-1 py-1", hasError && "bg-destructive/5")}>
+      <div className={BOX_GRID}>
+        <Input
+          type="number"
+          min="1"
+          step="1"
+          inputMode="numeric"
+          aria-label="Number of boxes"
+          placeholder="1"
+          className={numInput}
+          {...register(`boxes.${index}.boxCount`, { valueAsNumber: true })}
+        />
+        <Input
+          type="number"
+          min="0.01"
+          step="0.01"
+          inputMode="decimal"
+          aria-label="Weight of each box in kg"
+          placeholder="kg"
+          className={numInput}
+          {...register(`boxes.${index}.weightKg`, { valueAsNumber: true })}
+        />
+        <Input
+          type="number"
+          min="1"
+          step="0.1"
+          inputMode="decimal"
+          aria-label="Length"
+          placeholder="L"
+          className={numInput}
+          {...register(`boxes.${index}.lengthCm`, { valueAsNumber: true })}
+        />
+        <Input
+          type="number"
+          min="1"
+          step="0.1"
+          inputMode="decimal"
+          aria-label="Width"
+          placeholder="W"
+          className={numInput}
+          {...register(`boxes.${index}.widthCm`, { valueAsNumber: true })}
+        />
+        <Input
+          type="number"
+          min="1"
+          step="0.1"
+          inputMode="decimal"
+          aria-label="Height"
+          placeholder="H"
+          className={numInput}
+          {...register(`boxes.${index}.heightCm`, { valueAsNumber: true })}
+        />
+        <div className="flex justify-end">
+          {canRemove ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 text-muted-foreground hover:text-destructive"
+              onClick={onRemove}
+              aria-label={`Remove box ${index + 1}`}
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          ) : (
+            <span className="h-8 w-8" />
+          )}
         </div>
       </div>
     </div>
   );
 }
 
-// ---------------------------------------------------------------------------
-// ChargedWeight card: reactive via useWatch (fixes the stale-value bug)
-// ---------------------------------------------------------------------------
-
-function Metric({
-  label,
-  value,
-  highlight,
+function BoxesCard({
+  fields,
+  register,
+  errors,
+  control,
+  onAdd,
+  onRemove,
 }: {
-  label: string;
-  value: string;
-  highlight?: boolean;
+  fields: { id: string }[];
+  register: ReturnType<typeof useForm<FormValues>>["register"];
+  errors: ReturnType<typeof useForm<FormValues>>["formState"]["errors"];
+  control: Control<FormValues>;
+  onAdd: () => void;
+  onRemove: (i: number) => void;
 }) {
   return (
-    <div className="flex flex-col">
-      <span className="text-xs text-muted-foreground">{label}</span>
-      <span
-        className={cn(
-          "text-sm font-semibold tabular-nums",
-          highlight ? "text-emerald-600 dark:text-emerald-400" : "text-foreground",
+    <Card>
+      <CardContent className="space-y-3 p-5">
+        <div className="flex items-center justify-between">
+          <SectionLabel tip="Group identical boxes on one row. Add a row for each different size or weight.">
+            Your boxes
+          </SectionLabel>
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-muted-foreground">Size in</span>
+            <Controller
+              control={control}
+              name="sizeUnit"
+              render={({ field }) => (
+                <Select value={field.value} onValueChange={field.onChange}>
+                  <SelectTrigger className="h-7 w-18 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="cm">cm</SelectItem>
+                    <SelectItem value="in">inches</SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
+            />
+          </div>
+        </div>
+
+        {/* Column headers (desktop only) */}
+        <div
+          className={cn(
+            BOX_GRID,
+            "hidden px-1 pb-0.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground sm:grid",
+          )}
+        >
+          <span className="flex items-center gap-1">
+            Qty
+            <InfoTip text="How many identical boxes of this size and weight." />
+          </span>
+          <span className="flex items-center gap-1">
+            Weight
+            <InfoTip text="Weight of one box, in kilograms." />
+          </span>
+          <span>Length</span>
+          <span>Width</span>
+          <span>Height</span>
+          <span />
+        </div>
+
+        <div className="space-y-1.5">
+          {fields.map((field, index) => (
+            <BoxRow
+              key={field.id}
+              index={index}
+              register={register}
+              errors={errors}
+              canRemove={fields.length > 1}
+              onRemove={() => onRemove(index)}
+            />
+          ))}
+        </div>
+
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={onAdd}
+          className="w-full border-dashed text-muted-foreground"
+        >
+          <Plus className="mr-1.5 h-4 w-4" />
+          Add another box size
+        </Button>
+
+        {typeof errors.boxes?.message === "string" && (
+          <p className="text-xs text-destructive">{errors.boxes.message}</p>
         )}
-      >
-        {value}
-      </span>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Action rail: carriers + charged weight + submit
+// ---------------------------------------------------------------------------
+
+function CarrierPicker({
+  control,
+  setValue,
+  error,
+}: {
+  control: Control<FormValues>;
+  setValue: ReturnType<typeof useForm<FormValues>>["setValue"];
+  error?: string;
+}) {
+  const selected = useWatch({ control, name: "vendors", defaultValue: ALL_VENDOR_IDS });
+
+  const toggle = (id: string, checked: boolean) => {
+    setValue(
+      "vendors",
+      checked ? [...selected, id] : selected.filter((v) => v !== id),
+      { shouldValidate: true },
+    );
+  };
+
+  const total = AVAILABLE_VENDORS.length;
+  const count = selected.length;
+  const label =
+    count === total
+      ? `All carriers (${total})`
+      : count === 0
+      ? "No carriers picked"
+      : count === 1
+      ? AVAILABLE_VENDORS.find((v) => v.id === selected[0])?.label ?? "1 carrier"
+      : `${count} of ${total} carriers`;
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center gap-1.5">
+        <span className="text-xs font-medium text-foreground">Carriers</span>
+        <InfoTip text="We ask each selected carrier for a live rate. Leave all on to compare the most options." />
+      </div>
+      <Popover>
+        <PopoverTrigger asChild>
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full justify-between font-normal"
+          >
+            <span className="flex items-center gap-2">
+              <Plane className="h-4 w-4 text-muted-foreground" />
+              {label}
+            </span>
+            <ChevronDown className="h-4 w-4 shrink-0 opacity-50" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent align="start" className="w-[--radix-popover-trigger-width] p-1.5">
+          {AVAILABLE_VENDORS.map((vendor) => {
+            const checked = selected.includes(vendor.id);
+            return (
+              <label
+                key={vendor.id}
+                className="flex cursor-pointer items-center gap-2.5 rounded-sm px-2 py-1.5 text-sm hover:bg-muted"
+              >
+                <Checkbox
+                  checked={checked}
+                  onCheckedChange={(v) => toggle(vendor.id, Boolean(v))}
+                />
+                <span className={checked ? "text-foreground" : "text-muted-foreground"}>
+                  {vendor.label}
+                </span>
+              </label>
+            );
+          })}
+        </PopoverContent>
+      </Popover>
+      {error && <p className="text-xs text-destructive">{error}</p>}
     </div>
   );
 }
 
-function ChargedWeightCard({ control }: { control: Control<FormValues> }) {
+function ChargedWeight({ control }: { control: Control<FormValues> }) {
   const boxes = useWatch({ control, name: "boxes", defaultValue: [] });
   const unit = useWatch({ control, name: "sizeUnit", defaultValue: "cm" });
 
-  const weights = React.useMemo(() => {
+  const w = React.useMemo(() => {
     const factor = toCmFactor(unit);
     const packages = boxes.map((b) => ({
       quantity: Math.max(1, Math.trunc(Number(b?.boxCount) || 1)),
@@ -430,27 +621,73 @@ function ChargedWeightCard({ control }: { control: Control<FormValues> }) {
     return computeShipmentWeights(packages);
   }, [boxes, unit]);
 
+  const ready = w.totalChargeableKg > 0;
+
   return (
-    <div className="rounded-lg border bg-muted/40 px-4 py-3">
-      <div className="mb-2 flex items-center gap-2">
+    <div className="rounded-lg border bg-muted/40 p-4">
+      <div className="mb-1.5 flex items-center gap-1.5">
         <Scale className="h-3.5 w-3.5 text-muted-foreground" />
-        <span className="text-xs font-medium text-foreground">
-          Weight you will be charged for
-        </span>
+        <span className="text-xs font-medium text-foreground">You pay for</span>
+        <InfoTip text="Carriers bill the higher of a box's real weight or its size based (volumetric) weight. We work this out for each box, then add them up." />
         <Badge variant="secondary" className="ml-auto text-[10px]">
-          {weights.totalPieces} box{weights.totalPieces !== 1 ? "es" : ""}
+          {w.totalPieces} box{w.totalPieces !== 1 ? "es" : ""}
         </Badge>
       </div>
-      <div className="grid grid-cols-3 gap-3">
-        <Metric label="Real weight" value={`${weights.totalActualKg} kg`} />
-        <Metric label="Size weight" value={`${weights.totalVolumetricKg} kg`} />
-        <Metric label="Charged" value={`${weights.totalChargeableKg} kg`} highlight />
-      </div>
-      <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
-        Carriers charge for whichever is higher: the real weight of a box, or
-        the space it takes up. We work this out for every box, then add them up.
-      </p>
+
+      {ready ? (
+        <>
+          <p className="text-3xl font-bold tracking-tight tabular-nums text-foreground">
+            {w.totalChargeableKg}
+            <span className="ml-1 text-base font-medium text-muted-foreground">kg</span>
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground tabular-nums">
+            Real {w.totalActualKg} kg · Size {w.totalVolumetricKg} kg
+          </p>
+        </>
+      ) : (
+        <p className="py-1 text-sm text-muted-foreground">
+          Add box weight and size to see this.
+        </p>
+      )}
     </div>
+  );
+}
+
+function ActionRail({
+  control,
+  setValue,
+  errors,
+  loading,
+}: {
+  control: Control<FormValues>;
+  setValue: ReturnType<typeof useForm<FormValues>>["setValue"];
+  errors: ReturnType<typeof useForm<FormValues>>["formState"]["errors"];
+  loading: boolean;
+}) {
+  return (
+    <Card className="lg:sticky lg:top-6">
+      <CardContent className="space-y-4 p-5">
+        <CarrierPicker control={control} setValue={setValue} error={errors.vendors?.message} />
+        <ChargedWeight control={control} />
+        <Button type="submit" size="lg" className="h-11 w-full text-sm font-medium" disabled={loading}>
+          {loading ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              Getting rates...
+            </>
+          ) : (
+            <>
+              Get live rates
+              <ArrowRight className="ml-2 h-4 w-4" />
+            </>
+          )}
+        </Button>
+        <p className="flex items-center justify-center gap-1.5 text-center text-[11px] text-muted-foreground">
+          <Package className="h-3 w-3" />
+          Live prices from the carriers.
+        </p>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -475,34 +712,15 @@ export default function RateCalculatorForm() {
 
   const { fields, append, remove } = useFieldArray({ control, name: "boxes" });
 
-  const selectedVendors = useWatch({ control, name: "vendors" }) ?? [];
-  const unit = useWatch({ control, name: "sizeUnit" }) ?? "cm";
-
-  const toggleVendor = (id: string, checked: boolean) => {
-    setValue(
-      "vendors",
-      checked ? [...selectedVendors, id] : selectedVendors.filter((v) => v !== id),
-      { shouldValidate: true },
-    );
-  };
-
   const onSubmit = (data: FormValues) => {
     const factor = toCmFactor(data.sizeUnit);
 
-    const packages = data.boxes.map((b) => ({
-      boxCountRounded: Math.max(1, Math.trunc(b.boxCount) || 1),
+    const shipmentPackages = data.boxes.map((b) => ({
+      quantity: Math.max(1, Math.trunc(b.boxCount) || 1),
       weightKg: b.weightKg, // weight of each box
       lengthCm: b.lengthCm * factor,
       widthCm: b.widthCm * factor,
       heightCm: b.heightCm * factor,
-    }));
-
-    const shipmentPackages = packages.map((p) => ({
-      quantity: p.boxCountRounded,
-      weightKg: p.weightKg,
-      lengthCm: p.lengthCm,
-      widthCm: p.widthCm,
-      heightCm: p.heightCm,
     }));
 
     const totalWeight = shipmentPackages.reduce((s, p) => s + p.weightKg * p.quantity, 0);
@@ -523,11 +741,9 @@ export default function RateCalculatorForm() {
         country: data.destinationCountry.toUpperCase(),
       },
       shipment: {
-        // Declared value is intentionally NOT collected here. Shipmozo uses a
-        // neutral dummy on the backend for the quick calculator.
+        // Declared value is not collected here; Shipmozo uses a backend dummy.
         packages: shipmentPackages,
         description: "General Cargo",
-        // Legacy aggregate fallback for any single-shape consumer.
         weight: totalWeight,
         quantity: totalPieces,
         dimensions: {
@@ -543,159 +759,24 @@ export default function RateCalculatorForm() {
   };
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
-      {/* ── Route ── */}
-      <Card>
-        <CardHeader className="border-b py-3.5">
-          <SectionLabel>Where is it going?</SectionLabel>
-        </CardHeader>
-        <CardContent className="pt-5">
-          <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[1fr_auto_1fr]">
-            <FromEndpoint
-              register={register}
-              setValue={setValue}
-              errors={errors}
-              control={control}
-            />
-            <div className="hidden items-center justify-center pt-10 lg:flex">
-              <div className="flex h-8 w-8 items-center justify-center rounded-full border bg-muted">
-                <ArrowRight className="h-4 w-4 text-muted-foreground" />
-              </div>
-            </div>
-            <ToEndpoint
-              register={register}
-              setValue={setValue}
-              errors={errors}
-              control={control}
-            />
-          </div>
-        </CardContent>
-      </Card>
+    <form
+      onSubmit={handleSubmit(onSubmit)}
+      autoComplete="off"
+      className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[1fr_20rem]"
+    >
+      <div className="space-y-5">
+        <RouteCard register={register} setValue={setValue} errors={errors} control={control} />
+        <BoxesCard
+          fields={fields}
+          register={register}
+          errors={errors}
+          control={control}
+          onAdd={() => append(emptyBox)}
+          onRemove={(i) => remove(i)}
+        />
+      </div>
 
-      {/* ── Boxes ── */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between border-b py-3.5">
-          <div className="flex items-center gap-2">
-            <Box className="h-4 w-4 text-muted-foreground" />
-            <SectionLabel>What are you sending?</SectionLabel>
-          </div>
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-1.5">
-              <span className="text-xs text-muted-foreground">Size in</span>
-              <Controller
-                control={control}
-                name="sizeUnit"
-                render={({ field }) => (
-                  <Select value={field.value} onValueChange={field.onChange}>
-                    <SelectTrigger className="h-7 w-16 text-xs">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="cm">cm</SelectItem>
-                      <SelectItem value="in">inches</SelectItem>
-                    </SelectContent>
-                  </Select>
-                )}
-              />
-            </div>
-            <Badge variant="secondary" className="text-xs tabular-nums">
-              {fields.length} {fields.length === 1 ? "box type" : "box types"}
-            </Badge>
-          </div>
-        </CardHeader>
-
-        <CardContent className="space-y-3 pt-4">
-          <p className="text-xs text-muted-foreground">
-            Group boxes that are the same. If some boxes are a different size or
-            weight, add another box type for them.
-          </p>
-
-          {fields.map((field, index) => (
-            <BoxRow
-              key={field.id}
-              index={index}
-              unit={unit}
-              register={register}
-              errors={errors}
-              canRemove={fields.length > 1}
-              onRemove={() => remove(index)}
-            />
-          ))}
-
-          <button
-            type="button"
-            onClick={() => append(defaultBox)}
-            className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed py-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-          >
-            <Plus className="h-4 w-4" />
-            Add another box type
-          </button>
-
-          {typeof errors.boxes?.message === "string" && (
-            <p className="text-xs text-destructive">{errors.boxes.message}</p>
-          )}
-
-          <ChargedWeightCard control={control} />
-        </CardContent>
-      </Card>
-
-      {/* ── Carriers ── */}
-      <Card>
-        <CardHeader className="border-b py-3.5">
-          <SectionLabel>Which carriers should we check?</SectionLabel>
-        </CardHeader>
-        <CardContent className="pt-4">
-          <div className="flex flex-wrap gap-3">
-            {AVAILABLE_VENDORS.map((vendor) => {
-              const checked = selectedVendors.includes(vendor.id);
-              return (
-                <label
-                  key={vendor.id}
-                  className={cn(
-                    "flex cursor-pointer select-none items-center gap-2.5 rounded-lg border px-3.5 py-2.5 transition-colors",
-                    checked ? "border-primary bg-muted" : "hover:bg-muted/50",
-                  )}
-                >
-                  <Checkbox
-                    checked={checked}
-                    onCheckedChange={(v) => toggleVendor(vendor.id, Boolean(v))}
-                    className="pointer-events-none"
-                  />
-                  <span
-                    className={cn(
-                      "text-sm font-medium",
-                      checked ? "text-foreground" : "text-muted-foreground",
-                    )}
-                  >
-                    {vendor.label}
-                  </span>
-                </label>
-              );
-            })}
-          </div>
-          {errors.vendors && (
-            <p className="mt-2 flex items-center gap-1 text-xs text-destructive">
-              <AlertCircle className="h-3.5 w-3.5" />
-              {errors.vendors.message}
-            </p>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* ── Submit ── */}
-      <Button type="submit" size="lg" className="h-11 w-full text-sm font-medium" disabled={loading}>
-        {loading ? (
-          <>
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            Getting live rates...
-          </>
-        ) : (
-          <>
-            Show me the rates
-            <ArrowRight className="ml-2 h-4 w-4" />
-          </>
-        )}
-      </Button>
+      <ActionRail control={control} setValue={setValue} errors={errors} loading={loading} />
     </form>
   );
 }
