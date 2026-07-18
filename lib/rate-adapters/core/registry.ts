@@ -13,7 +13,7 @@ import type { BaseVendorAdapter } from "./base.adapter";
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyAdapter = BaseVendorAdapter<any, any>;
 
-class AdapterRegistry {
+export class AdapterRegistry {
   private readonly adapters = new Map<string, AnyAdapter>();
 
   /**

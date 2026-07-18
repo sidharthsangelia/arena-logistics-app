@@ -14,6 +14,7 @@
  */
 
 import { adapterRegistry } from "../rate-adapters/vendors/index";
+import type { AdapterRegistry } from "../rate-adapters/core/registry";
 import type {
   CanonicalRateRequest,
   CanonicalRateResponse,
@@ -30,6 +31,14 @@ export interface GetRatesOptions {
 
   /** Organisation-specific markup percentage. Example: 30 = +30% */
   markupPercent?: number | Decimal;
+
+  /**
+   * Which adapter registry to fan out over. Defaults to the international
+   * registry. The domestic calculator passes its own registry so the same
+   * service, markup path, and response shape serve both flows without any
+   * vendor leaking across the two.
+   */
+  registry?: AdapterRegistry;
 }
 
 export async function getRates(
@@ -37,14 +46,15 @@ export async function getRates(
   options: GetRatesOptions = {}
 ): Promise<CanonicalRateResponse> {
   const markupPercent = Number(options.markupPercent ?? 0);
+  const registry = options.registry ?? adapterRegistry;
 
   // 1. Pick which adapters to use
   const adapters =
     options.vendorIds && options.vendorIds.length > 0
       ? options.vendorIds
-          .map((id) => adapterRegistry.get(id))
+          .map((id) => registry.get(id))
           .filter(Boolean)
-      : adapterRegistry.getAll();
+      : registry.getAll();
 
   if (adapters.length === 0) {
     return {

@@ -98,3 +98,18 @@ export const AVAILABLE_VENDORS = [
 ] as const;
 
 export type VendorId = (typeof AVAILABLE_VENDORS)[number]["id"];
+
+// -- Domestic calculator vendors -----------------------------------------------
+// The carriers queried by the DOMESTIC rate calculator. These map to the
+// separate domestic adapter registry (lib/rate-adapters/vendors/domestic.index).
+// Shipmozo returns many courier options as individual quotes, all under this
+// one adapter; add another entry here only when a second domestic adapter ships.
+export const DOMESTIC_CALCULATOR_VENDORS = [
+  { id: "shipmozo", label: "Shipmozo" },
+] as const;
+
+export type DomesticCalculatorVendorId =
+  (typeof DOMESTIC_CALCULATOR_VENDORS)[number]["id"];
+
+/** Which calculator a request belongs to — threaded through the shared store. */
+export type RateScope = "international" | "domestic";

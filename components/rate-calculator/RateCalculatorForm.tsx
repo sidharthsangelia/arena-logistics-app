@@ -77,7 +77,13 @@ import { cn } from "@/lib/utils";
 
 import { CountryCombobox } from "@/components/booking/CountryComboBox";
 import { usePostalLookup } from "@/hooks/usePostalLookup";
-import { AVAILABLE_VENDORS, type VendorId, type RateRequest } from "@/lib/types";
+import {
+  AVAILABLE_VENDORS,
+  DOMESTIC_CALCULATOR_VENDORS,
+  type VendorId,
+  type RateRequest,
+  type RateScope,
+} from "@/lib/types";
 import { COUNTRY_TO_ISO } from "@/utils/data";
 import { computeShipmentWeights } from "@/lib/pricing/chargeableWeight";
 import { useAppStore } from "@/store";
@@ -87,9 +93,16 @@ import { useAppStore } from "@/store";
 // ---------------------------------------------------------------------------
 
 const ORIGIN_COUNTRY = "India";
+// Domestic shipments stay within India — the destination country is fixed, so
+// no country picker is shown and both ends resolve to "IN".
+const DOMESTIC_COUNTRY = "India";
 
-// Every carrier is selected by default.
-const ALL_VENDOR_IDS = AVAILABLE_VENDORS.map((v) => v.id);
+type VendorOption = { id: string; label: string };
+
+/** Carrier list per calculator scope. */
+function vendorsForScope(scope: RateScope): readonly VendorOption[] {
+  return scope === "domestic" ? DOMESTIC_CALCULATOR_VENDORS : AVAILABLE_VENDORS;
+}
 
 // ---------------------------------------------------------------------------
 // Schema
@@ -139,16 +152,20 @@ const emptyBox = {
   heightCm: undefined,
 } as unknown as FormValues["boxes"][number];
 
-const defaultValues: FormValues = {
-  originPincode: "",
-  originCity: "",
-  destinationCountry: "",
-  destinationPincode: "",
-  destinationCity: "",
-  sizeUnit: "cm",
-  boxes: [emptyBox],
-  vendors: AVAILABLE_VENDORS.map((v) => v.id),
-};
+function makeDefaultValues(scope: RateScope): FormValues {
+  return {
+    originPincode: "",
+    originCity: "",
+    // Domestic is India → India; the country field is fixed and hidden.
+    destinationCountry: scope === "domestic" ? DOMESTIC_COUNTRY : "",
+    destinationPincode: "",
+    destinationCity: "",
+    sizeUnit: "cm",
+    boxes: [emptyBox],
+    // Every carrier selected by default.
+    vendors: vendorsForScope(scope).map((v) => v.id),
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Small bits
@@ -205,6 +222,24 @@ interface RouteProps {
   setValue: ReturnType<typeof useForm<FormValues>>["setValue"];
   errors: ReturnType<typeof useForm<FormValues>>["formState"]["errors"];
   control: Control<FormValues>;
+  scope: RateScope;
+}
+
+// India chip used for the locked origin (both scopes) and the locked domestic
+// destination. Keeps the "this end is India" cue consistent.
+function IndiaChip({ tip }: { tip: string }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="inline-flex items-center gap-1.5 rounded-full border bg-muted/50 px-2 py-0.5 text-xs font-medium text-foreground">
+          <span className="text-sm leading-none">🇮🇳</span>
+          India
+          <Lock className="h-3 w-3 text-muted-foreground" />
+        </span>
+      </TooltipTrigger>
+      <TooltipContent className="text-xs">{tip}</TooltipContent>
+    </Tooltip>
+  );
 }
 
 function PincodeHint({
@@ -224,7 +259,9 @@ function PincodeHint({
   return <FieldError message={errorMessage} />;
 }
 
-function RouteCard({ register, setValue, errors, control }: RouteProps) {
+function RouteCard({ register, setValue, errors, control, scope }: RouteProps) {
+  const isDomestic = scope === "domestic";
+
   const originPincode = useWatch({ control, name: "originPincode" });
   const destCountry = useWatch({ control, name: "destinationCountry" });
   const destPincode = useWatch({ control, name: "destinationPincode" });
@@ -232,9 +269,15 @@ function RouteCard({ register, setValue, errors, control }: RouteProps) {
   const originLookup = usePostalLookup(ORIGIN_COUNTRY, originPincode ?? "", (city) =>
     setValue("originCity", city, { shouldValidate: true }),
   );
-  const destLookup = usePostalLookup(destCountry ?? "", destPincode ?? "", (city) =>
-    setValue("destinationCity", city, { shouldValidate: true }),
+  // Domestic destination is always India; international uses the picked country.
+  const destLookup = usePostalLookup(
+    isDomestic ? DOMESTIC_COUNTRY : destCountry ?? "",
+    destPincode ?? "",
+    (city) => setValue("destinationCity", city, { shouldValidate: true }),
   );
+
+  const destPincodeLabel = isDomestic ? "Pincode" : "Postal code";
+  const destPincodePlaceholder = isDomestic ? "e.g. 400001" : "Postal / ZIP";
 
   return (
     <Card>
@@ -243,18 +286,13 @@ function RouteCard({ register, setValue, errors, control }: RouteProps) {
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <SectionLabel>Sending from</SectionLabel>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span className="inline-flex items-center gap-1.5 rounded-full border bg-muted/50 px-2 py-0.5 text-xs font-medium text-foreground">
-                  <span className="text-sm leading-none">🇮🇳</span>
-                  India
-                  <Lock className="h-3 w-3 text-muted-foreground" />
-                </span>
-              </TooltipTrigger>
-              <TooltipContent className="text-xs">
-                This tool quotes shipments leaving India.
-              </TooltipContent>
-            </Tooltip>
+            <IndiaChip
+              tip={
+                isDomestic
+                  ? "Domestic shipments are picked up within India."
+                  : "This tool quotes shipments leaving India."
+              }
+            />
           </div>
           <div className="grid grid-cols-[0.5fr_1fr] gap-3">
             <div>
@@ -287,30 +325,38 @@ function RouteCard({ register, setValue, errors, control }: RouteProps) {
 
         {/* To */}
         <div className="space-y-2">
-          <SectionLabel>Sending to</SectionLabel>
-          <Controller
-            control={control}
-            name="destinationCountry"
-            render={({ field }) => (
-              <CountryCombobox
-                value={field.value}
-                label={null}
-                onChange={(name) => {
-                  field.onChange(name);
-                  setValue("destinationPincode", "");
-                  setValue("destinationCity", "");
-                }}
-                error={errors.destinationCountry?.message}
-              />
+          <div className="flex items-center justify-between">
+            <SectionLabel>Sending to</SectionLabel>
+            {isDomestic && (
+              <IndiaChip tip="Domestic shipments are delivered within India." />
             )}
-          />
+          </div>
+          {!isDomestic && (
+            <Controller
+              control={control}
+              name="destinationCountry"
+              render={({ field }) => (
+                <CountryCombobox
+                  value={field.value}
+                  label={null}
+                  onChange={(name) => {
+                    field.onChange(name);
+                    setValue("destinationPincode", "");
+                    setValue("destinationCity", "");
+                  }}
+                  error={errors.destinationCountry?.message}
+                />
+              )}
+            />
+          )}
           <div className="grid grid-cols-[0.5fr_1fr] gap-3">
             <div>
-              <Label className="mb-1.5 block text-xs">Postal code</Label>
+              <Label className="mb-1.5 block text-xs">{destPincodeLabel}</Label>
               <div className="relative">
                 <Input
                   {...register("destinationPincode")}
-                  placeholder="Postal / ZIP"
+                  inputMode={isDomestic ? "numeric" : undefined}
+                  placeholder={destPincodePlaceholder}
                   className="pr-8"
                 />
                 {destLookup === "loading" && (
@@ -540,12 +586,18 @@ function CarrierPicker({
   control,
   setValue,
   error,
+  vendors,
 }: {
   control: Control<FormValues>;
   setValue: ReturnType<typeof useForm<FormValues>>["setValue"];
   error?: string;
+  vendors: readonly VendorOption[];
 }) {
-  const selected = useWatch({ control, name: "vendors", defaultValue: ALL_VENDOR_IDS });
+  const selected = useWatch({
+    control,
+    name: "vendors",
+    defaultValue: vendors.map((v) => v.id),
+  });
 
   const toggle = (id: string, checked: boolean) => {
     setValue(
@@ -555,7 +607,7 @@ function CarrierPicker({
     );
   };
 
-  const total = AVAILABLE_VENDORS.length;
+  const total = vendors.length;
   const count = selected.length;
   const label =
     count === total
@@ -563,7 +615,7 @@ function CarrierPicker({
       : count === 0
       ? "No carriers picked"
       : count === 1
-      ? AVAILABLE_VENDORS.find((v) => v.id === selected[0])?.label ?? "1 carrier"
+      ? vendors.find((v) => v.id === selected[0])?.label ?? "1 carrier"
       : `${count} of ${total} carriers`;
 
   return (
@@ -663,17 +715,24 @@ function BottomBar({
   setValue,
   errors,
   loading,
+  vendors,
 }: {
   control: Control<FormValues>;
   setValue: ReturnType<typeof useForm<FormValues>>["setValue"];
   errors: ReturnType<typeof useForm<FormValues>>["formState"]["errors"];
   loading: boolean;
+  vendors: readonly VendorOption[];
 }) {
   return (
     <Card>
       <CardContent className="flex flex-col gap-4 p-4 lg:flex-row lg:items-center lg:gap-6">
         <div className="lg:w-60 lg:shrink-0">
-          <CarrierPicker control={control} setValue={setValue} error={errors.vendors?.message} />
+          <CarrierPicker
+            control={control}
+            setValue={setValue}
+            error={errors.vendors?.message}
+            vendors={vendors}
+          />
         </div>
 
         <div className="hidden h-11 w-px shrink-0 bg-border lg:block" />
@@ -709,9 +768,16 @@ function BottomBar({
 // Main
 // ---------------------------------------------------------------------------
 
-export default function RateCalculatorForm() {
+export default function RateCalculatorForm({
+  scope = "international",
+}: {
+  /** Which calculator this form drives. Defaults to international. */
+  scope?: RateScope;
+}) {
   const loading = useAppStore((s) => s.loading);
   const fetchRates = useAppStore((s) => s.fetchRates);
+
+  const vendorList = vendorsForScope(scope);
 
   const {
     register,
@@ -721,7 +787,7 @@ export default function RateCalculatorForm() {
     formState: { errors },
   } = useForm<FormValues>({
     resolver: zodResolver(formSchema),
-    defaultValues,
+    defaultValues: makeDefaultValues(scope),
   });
 
   const { fields, append, remove } = useFieldArray({ control, name: "boxes" });
@@ -769,14 +835,20 @@ export default function RateCalculatorForm() {
       },
     };
 
-    fetchRates(request, data.vendors as VendorId[]);
+    fetchRates(request, data.vendors as VendorId[], scope);
   };
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} autoComplete="off" className="space-y-5">
       {/* Top: narrow route + wide boxes */}
       <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[24rem_1fr]">
-        <RouteCard register={register} setValue={setValue} errors={errors} control={control} />
+        <RouteCard
+          register={register}
+          setValue={setValue}
+          errors={errors}
+          control={control}
+          scope={scope}
+        />
         <BoxesCard
           fields={fields}
           register={register}
@@ -788,7 +860,13 @@ export default function RateCalculatorForm() {
       </div>
 
       {/* Bottom: carriers + summary + action */}
-      <BottomBar control={control} setValue={setValue} errors={errors} loading={loading} />
+      <BottomBar
+        control={control}
+        setValue={setValue}
+        errors={errors}
+        loading={loading}
+        vendors={vendorList}
+      />
     </form>
   );
 }
