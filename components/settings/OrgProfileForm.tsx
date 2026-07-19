@@ -11,9 +11,20 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { saveOrgProfileAction, type OrgProfileInput } from "@/actions/settings/profile.action";
 
-const FIELDS: { name: keyof OrgProfileInput; label: string; span?: "full" }[] = [
-  { name: "contactName", label: "Contact name" },
-  { name: "companyName", label: "Company name" },
+const FIELDS: {
+  name: keyof OrgProfileInput;
+  label: string;
+  span?: "full";
+  optional?: boolean;
+  hint?: string;
+}[] = [
+  { name: "contactName", label: "Full name" },
+  {
+    name: "companyName",
+    label: "Company name",
+    optional: true,
+    hint: "Leave blank if you're shipping as an individual.",
+  },
   { name: "email", label: "Email" },
   { name: "phone", label: "Phone" },
   { name: "addressLine1", label: "Address", span: "full" },
@@ -63,8 +74,18 @@ export function OrgProfileForm({
           <div className="grid grid-cols-2 gap-4">
             {FIELDS.map((f) => (
               <div key={f.name} className={f.span === "full" ? "col-span-2 space-y-1.5" : "space-y-1.5"}>
-                <Label htmlFor={f.name}>{f.label}</Label>
+                <Label htmlFor={f.name} className="flex items-center gap-1.5">
+                  {f.label}
+                  {f.optional && (
+                    <span className="text-xs font-normal text-muted-foreground">
+                      (optional)
+                    </span>
+                  )}
+                </Label>
                 <Input id={f.name} {...register(f.name)} />
+                {f.hint && (
+                  <p className="text-xs text-muted-foreground">{f.hint}</p>
+                )}
               </div>
             ))}
           </div>

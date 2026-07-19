@@ -2,6 +2,8 @@
 "use server";
 
 import { z } from "zod";
+import * as Sentry from "@sentry/nextjs";
+import { clerkClient } from "@clerk/nextjs/server";
 import { prisma } from "@/utils/db";
 import { getCurrentOrgContext } from "@/actions/book/getOrgs";
 import { syncOrgProfileMetadata } from "@/utils/clerk/syncProfileMetadata";
@@ -40,6 +42,23 @@ export async function saveOrgProfileAction(
 
     const updated = await prisma.org.update({ where: { id: org.id }, data });
     await syncOrgProfileMetadata(org.id);
+
+    // Keep the Clerk org name (the workspace name, pre-filled into this field)
+    // in step with an edited company name. Non-fatal: the profile save already
+    // succeeded, so a Clerk hiccup must never surface as a failed save.
+    const nextName = parsed.data.companyName.trim();
+    if (nextName && nextName !== org.name) {
+      try {
+        const client = await clerkClient();
+        await client.organizations.updateOrganization(org.clerkOrgId, {
+          name: nextName,
+        });
+        await prisma.org.update({ where: { id: org.id }, data: { name: nextName } });
+      } catch (e) {
+        Sentry.captureException(e, { tags: { action: "saveOrgProfile.syncClerkName" } });
+        console.error("[saveOrgProfileAction] Clerk name sync failed", e);
+      }
+    }
 
     const { isOrgAddressComplete } = await import("@/lib/booking/profile");
     return ok({ addressComplete: isOrgAddressComplete(updated) });

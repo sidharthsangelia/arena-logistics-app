@@ -3,8 +3,12 @@ import { PartyType } from "@/generated/prisma";
 import { prisma } from "@/utils/db";
 import { KYC_DOC_CONFIGS } from "@/lib/booking/kyc";
 
+// companyName is intentionally NOT here: an individual shipping to a relative
+// abroad has no company, and requiring it would leave them permanently unable
+// to "complete" their profile. Company name stays a nice-to-have field on the
+// form; only these identify a usable sender.
 const PROFILE_ADDRESS_FIELDS = [
-  "contactName", "companyName", "email", "phone",
+  "contactName", "email", "phone",
   "addressLine1", "city", "state", "country", "postalCode",
 ] as const;
 
