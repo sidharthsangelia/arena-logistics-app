@@ -14,10 +14,7 @@ import { useForm } from "react-hook-form";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 
-import type {
-  BookingFormData,
-  BookingOrgContext,
-} from "@/types/booking.types";
+import type { BookingFormData, BookingOrgContext } from "@/types/booking.types";
 import { useBookingWizard, STEP_KEY } from "@/hooks/useBookingWizard";
 import {
   saveBookingDraft,
@@ -67,7 +64,10 @@ interface WalletStatus {
   sufficient: boolean;
 }
 
-const WALLET_STATUS_UNKNOWN: WalletStatus = { loading: true, sufficient: false };
+const WALLET_STATUS_UNKNOWN: WalletStatus = {
+  loading: true,
+  sufficient: false,
+};
 
 // ---------------------------------------------------------------------------
 // Success screen
@@ -188,7 +188,9 @@ export default function BookingWizard({
 
   // Reported up by ReviewStep's WalletPaymentSummary. Drives whether the
   // "Pay & Place Booking" button is enabled on the last step.
-  const [walletStatus, setWalletStatus] = React.useState<WalletStatus>(WALLET_STATUS_UNKNOWN);
+  const [walletStatus, setWalletStatus] = React.useState<WalletStatus>(
+    WALLET_STATUS_UNKNOWN,
+  );
 
   // Reset to "unknown" every time Review is (re-)entered, so a stale
   // `sufficient: true` from a previous visit to this step can never enable
@@ -296,6 +298,40 @@ export default function BookingWizard({
     goToNextStep();
   };
 
+  // Scroll to (and focus) the first field that failed validation, so the user
+  // is taken straight to what needs fixing rather than hunting for a red line.
+  // Fields are matched by their RHF-registered `name` attribute; controlled
+  // widgets without a name (checkboxes/comboboxes) simply no-op here — the
+  // top-level banner still tells the user what's wrong.
+  const focusFirstInvalidField = (paths: string[]) => {
+    if (typeof document === "undefined" || paths.length === 0) return;
+    requestAnimationFrame(() => {
+      for (const path of paths) {
+        const el = document.querySelector<HTMLElement>(
+          `[name="${CSS.escape(path)}"]`,
+        );
+        if (el) {
+          el.scrollIntoView({ behavior: "smooth", block: "center" });
+          el.focus({ preventScroll: true });
+          return;
+        }
+      }
+    });
+  };
+
+  // Belt-and-braces: whatever the UI did, never let "same as X" mean "empty
+  // address" downstream. saveBookingDraft / createShipmentAction should never
+  // have to guess — they always receive a complete address either way.
+  function normalizeLinkedAddresses(data: BookingFormData): BookingFormData {
+    return {
+      ...data,
+      pickup: data.pickupSameAsSender ? { ...data.consignor } : data.pickup,
+      billing: data.billingSameAsDelivery
+        ? { ...data.consignee }
+        : data.billing,
+    };
+  }
+
   // ── Next / Submit ────────────────────────────────────────────────────────
   const handleNext = async () => {
     setSubmitError(null);
@@ -306,7 +342,10 @@ export default function BookingWizard({
     if (currentStepKey === STEP_KEY.SHIPMENT_DETAILS) {
       const result = shipmentDetailsSchema.safeParse(formData);
       if (!result.success) {
-        setSubmitError(result.error.issues[0]?.message ?? "Please complete the shipment details.");
+        setSubmitError(
+          result.error.issues[0]?.message ??
+            "Please complete the shipment details.",
+        );
         return;
       }
       if (isLastStep) {
@@ -318,28 +357,47 @@ export default function BookingWizard({
     }
 
     const currentValues = getValues();
-    const merged: BookingFormData & Record<string, any> = {
-      ...formData,
-      ...currentValues,
-    };
+    const merged: BookingFormData & Record<string, any> =
+      normalizeLinkedAddresses({
+        ...formData,
+        ...currentValues,
+      });
 
     // KYC requirements now branch by shipmentType (read straight off the
     // merged form via kycSchema) — no injected value needed.
+
+    // Re-validate from a clean slate so a field the user just corrected
+    // doesn't keep a stale red line: only fields that fail *this* pass stay
+    // highlighted.
+    clearErrors();
 
     const schema = RHF_STEP_SCHEMAS[currentStepKey ?? ""];
     const result = schema?.safeParse(merged);
 
     if (result && !result.success) {
-      result.error.issues.forEach((issue: any) => {
+      const issues = result.error.issues;
+      issues.forEach((issue: any) => {
         setError(issue.path.join(".") as any, {
           type: "manual",
           message: issue.message,
         });
       });
+
+      // Always give top-level feedback next to the button. Inline field
+      // errors alone made a failed "Save & Next" look like a dead button:
+      // the offending field could be scrolled far above the fold, or have
+      // no visible error slot at all (e.g. the "pickup same as sender"
+      // toggle, or a collapsed pickup/billing block), so nothing appeared
+      // to happen. Summarise here and jump the user to the first bad field.
+      setSubmitError(
+        issues.length === 1
+          ? issues[0].message
+          : `Please fix the ${issues.length} highlighted fields before continuing.`,
+      );
+      focusFirstInvalidField(issues.map((i: any) => i.path.join(".")));
       return;
     }
 
-    clearErrors();
     updateFormData(merged);
 
     if (isLastStep) {
@@ -429,7 +487,9 @@ export default function BookingWizard({
             {currentStepKey === STEP_KEY.SHIPMENT_DETAILS && (
               <ShipmentDetailsStep
                 data={formData}
-                onChange={(partial) => updateFormData(partial as Partial<BookingFormData>)}
+                onChange={(partial) =>
+                  updateFormData(partial as Partial<BookingFormData>)
+                }
                 error={submitError ?? undefined}
               />
             )}
@@ -441,8 +501,12 @@ export default function BookingWizard({
                 errors={errors}
                 shipmentType={formData.shipmentType}
                 party={
-                  formData.shipmentOwnerMode === "EXISTING_CLIENT" && formData.selectedClient
-                    ? { partyType: "CLIENT", clientId: formData.selectedClient.id }
+                  formData.shipmentOwnerMode === "EXISTING_CLIENT" &&
+                  formData.selectedClient
+                    ? {
+                        partyType: "CLIENT",
+                        clientId: formData.selectedClient.id,
+                      }
                     : { partyType: "ORG", orgId: orgContext.orgId }
                 }
               />
@@ -471,7 +535,10 @@ export default function BookingWizard({
                 data={formData}
                 skipPayment={orgContext.skipPayment}
                 onWalletStatusChange={(info) =>
-                  setWalletStatus({ loading: info.loading, sufficient: info.sufficient })
+                  setWalletStatus({
+                    loading: info.loading,
+                    sufficient: info.sufficient,
+                  })
                 }
                 onTopUpSuccess={() => {
                   // Balance just cleared via the inline top-up — complete
@@ -485,7 +552,10 @@ export default function BookingWizard({
             {/* Submit error — not shown on the Shipment Details step, which renders
                 its own inline error via the `error` prop above. */}
             {submitError && currentStepKey !== STEP_KEY.SHIPMENT_DETAILS && (
-              <div className="flex items-start gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm" aria-live="polite">
+              <div
+                className="flex items-start gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm"
+                aria-live="polite"
+              >
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
                 <p className="text-destructive">{submitError}</p>
               </div>
@@ -520,7 +590,11 @@ export default function BookingWizard({
                       Saving…
                     </>
                   ) : isLastStep ? (
-                    orgContext.skipPayment ? "Place Booking" : "Pay & Place Booking"
+                    orgContext.skipPayment ? (
+                      "Place Booking"
+                    ) : (
+                      "Pay & Place Booking"
+                    )
                   ) : (
                     <>
                       Save &amp; Next

@@ -90,6 +90,33 @@ interface Props {
   clientError?: string;
 }
 
+const ADDRESS_FIELD_KEYS = [
+  "contactName",
+  "companyName",
+  "email",
+  "phone",
+  "addressLine1",
+  "addressLine2",
+  "city",
+  "state",
+  "postalCode",
+  "country",
+] as const;
+
+// clearErrors("pickup") only clears an error set on the exact key "pickup" —
+// it does NOT clear nested errors like "pickup.city" that setError() creates
+// from a superRefine issue path. Left uncleared, those linger in formState
+// even after the section is hidden.
+function clearAddressErrors(
+  clearErrors: UseFormClearErrors<BookingFormData>,
+  prefix: "pickup" | "billing",
+) {
+  clearErrors([
+    prefix,
+    ...ADDRESS_FIELD_KEYS.map((k) => `${prefix}.${k}` as any),
+  ]);
+}
+
 export function SenderPickupStep({
   orgContext,
   register,
@@ -120,20 +147,22 @@ export function SenderPickupStep({
     prefilledRef.current = true;
     const c = watch("consignor");
     if (mode === "SELF" && !c?.contactName && !c?.addressLine1) {
-      setValue("consignor", selfToConsignor(orgContext.self), { shouldValidate: false });
+      setValue("consignor", selfToConsignor(orgContext.self), {
+        shouldValidate: false,
+      });
     }
     // Run once on mount only.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleModeChange = (
-    v: "SELF" | "EXISTING_CLIENT" | "OTHER_PERSON",
-  ) => {
+  const handleModeChange = (v: "SELF" | "EXISTING_CLIENT" | "OTHER_PERSON") => {
     setValue("shipmentOwnerMode", v);
     clearErrors();
 
     if (v === "SELF") {
-      setValue("consignor", selfToConsignor(orgContext.self), { shouldValidate: false });
+      setValue("consignor", selfToConsignor(orgContext.self), {
+        shouldValidate: false,
+      });
     } else if (v === "OTHER_PERSON") {
       setValue("consignor", EMPTY_CONSIGNOR, { shouldValidate: false });
     } else {
@@ -152,6 +181,28 @@ export function SenderPickupStep({
   // Sender fields show once we know whose details to collect: always for
   // SELF/OTHER_PERSON, and for EXISTING_CLIENT only after a client is chosen.
   const showSender = mode !== "EXISTING_CLIENT" || !!selectedClient;
+
+  // Keep pickup.* mirrored to consignor.* for as long as "same as sender" is
+  // checked, so formData.pickup is always a real, submittable address — never
+  // the empty-string defaults — regardless of whether the Pickup section is
+  // currently rendered. Uses watch's callback form (not the `pickupSameAsSender`
+  // variable) so it reacts to every keystroke without re-subscribing per render.
+  useEffect(() => {
+    const subscription = watch((values, { name }) => {
+      if (!values.pickupSameAsSender) return;
+      if (
+        name === "pickupSameAsSender" ||
+        name === "consignor" ||
+        name?.startsWith("consignor.")
+      ) {
+        setValue("pickup", { ...values.consignor } as ConsignorForm, {
+          shouldValidate: false,
+          shouldDirty: false,
+        });
+      }
+    });
+    return () => subscription.unsubscribe();
+  }, [watch, setValue]);
 
   return (
     <div className="space-y-8">
@@ -176,7 +227,8 @@ export function SenderPickupStep({
           <div>
             <p className="text-sm font-medium">Use my saved profile</p>
             <p className="mt-0.5 text-xs text-muted-foreground">
-              Your organisation&apos;s registered details are used as the sender.
+              Your organisation&apos;s registered details are used as the
+              sender.
             </p>
           </div>
         </label>
@@ -186,11 +238,16 @@ export function SenderPickupStep({
             htmlFor="mode-client"
             className="flex items-start gap-3 rounded-lg border p-4 cursor-pointer hover:bg-muted/40 has-[[data-state=checked]]:border-primary has-[[data-state=checked]]:bg-primary/5"
           >
-            <RadioGroupItem value="EXISTING_CLIENT" id="mode-client" className="mt-0.5" />
+            <RadioGroupItem
+              value="EXISTING_CLIENT"
+              id="mode-client"
+              className="mt-0.5"
+            />
             <div>
               <p className="text-sm font-medium">Existing client</p>
               <p className="mt-0.5 text-xs text-muted-foreground">
-                Book on behalf of one of your saved clients — their details pre-fill the sender.
+                Book on behalf of one of your saved clients — their details
+                pre-fill the sender.
               </p>
             </div>
           </label>
@@ -200,11 +257,16 @@ export function SenderPickupStep({
           htmlFor="mode-other"
           className="flex items-start gap-3 rounded-lg border p-4 cursor-pointer hover:bg-muted/40 has-[[data-state=checked]]:border-primary has-[[data-state=checked]]:bg-primary/5"
         >
-          <RadioGroupItem value="OTHER_PERSON" id="mode-other" className="mt-0.5" />
+          <RadioGroupItem
+            value="OTHER_PERSON"
+            id="mode-other"
+            className="mt-0.5"
+          />
           <div>
             <p className="text-sm font-medium">Someone else</p>
             <p className="mt-0.5 text-xs text-muted-foreground">
-              Shipping for another person (e.g. a family member) — enter their details below.
+              Shipping for another person (e.g. a family member) — enter their
+              details below.
             </p>
           </div>
         </label>
@@ -214,7 +276,10 @@ export function SenderPickupStep({
       {mode === "EXISTING_CLIENT" && (
         <div className="space-y-2">
           <Label>Select client</Label>
-          <ClientCombobox value={selectedClient} onChange={handleClientChange} />
+          <ClientCombobox
+            value={selectedClient}
+            onChange={handleClientChange}
+          />
           {clientError && (
             <p className="flex items-center gap-1.5 text-sm text-destructive">
               <AlertCircle className="h-3.5 w-3.5" />
@@ -262,14 +327,18 @@ export function SenderPickupStep({
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <button type="button" className="text-muted-foreground" aria-label="About pickup">
+                  <button
+                    type="button"
+                    className="text-muted-foreground"
+                    aria-label="About pickup"
+                  >
                     <Info className="h-3.5 w-3.5" />
                   </button>
                 </TooltipTrigger>
                 <TooltipContent className="max-w-xs">
-                  Where we physically collect the parcel. It&apos;s usually the same as
-                  the sender, but can differ — e.g. the goods ship from a warehouse
-                  while the sender is your office.
+                  Where we physically collect the parcel. It&apos;s usually the
+                  same as the sender, but can differ — e.g. the goods ship from
+                  a warehouse while the sender is your office.
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
@@ -279,13 +348,25 @@ export function SenderPickupStep({
             <Checkbox
               checked={pickupSameAsSender}
               onCheckedChange={(checked) => {
-                setValue("pickupSameAsSender", checked === true);
-                if (checked === true) clearErrors("pickup");
+                const isSame = checked === true;
+                setValue("pickupSameAsSender", isSame, {
+                  shouldValidate: false,
+                });
+                if (isSame) {
+                  setValue(
+                    "pickup",
+                    { ...watch("consignor") } as ConsignorForm,
+                    { shouldValidate: false },
+                  );
+                  clearAddressErrors(clearErrors, "pickup");
+                }
               }}
               className="mt-0.5"
             />
             <div>
-              <p className="text-sm font-medium">Pickup address is the same as the sender</p>
+              <p className="text-sm font-medium">
+                Pickup address is the same as the sender
+              </p>
               <p className="mt-0.5 text-xs text-muted-foreground">
                 Uncheck if the parcel is collected from a different address.
               </p>

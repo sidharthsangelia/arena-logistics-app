@@ -42,8 +42,13 @@ export const senderPickupSchema = z
     selectedClient: z.any().nullable(),
     consignor: addressFormSchema,
     pickupSameAsSender: z.boolean(),
-    // Only validated when pickup differs from the sender (see superRefine).
-    pickup: addressFormSchema.partial().optional(),
+    // Intentionally untyped/unvalidated here — when pickupSameAsSender is
+    // true this can legitimately be empty strings (mirrored later, or just
+    // not filled yet). Real validation only happens below, and only when
+    // it's actually required. A partial() schema would still run each
+    // field's validator against "" (empty string is a defined value, not
+    // undefined), which is what caused the checkbox to have no effect.
+    pickup: z.unknown().optional(),
   })
   .superRefine((data, ctx) => {
     if (data.shipmentOwnerMode === "EXISTING_CLIENT" && !data.selectedClient) {
@@ -77,7 +82,7 @@ export const deliveryBillingSchema = z
   .object({
     consignee: addressFormSchema,
     billingSameAsDelivery: z.boolean(),
-    billing: addressFormSchema.partial().optional(),
+    billing: z.unknown().optional(), // see note on `pickup` above
   })
   .superRefine((data, ctx) => {
     if (!data.billingSameAsDelivery) {

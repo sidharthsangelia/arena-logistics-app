@@ -19,11 +19,16 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
-import type { BookingFormData, BookingOrgContext } from "@/types/booking.types";
+import type {
+  BookingFormData,
+  BookingOrgContext,
+  ConsignorForm,
+} from "@/types/booking.types";
 import type { Party } from "@/types/booking";
 
 import { AddressFields } from "../AddressFields";
 import { AddressBookControls } from "../AddressBookControls";
+import { useEffect } from "react";
 
 interface Props {
   orgContext: BookingOrgContext;
@@ -32,6 +37,33 @@ interface Props {
   setValue: UseFormSetValue<BookingFormData>;
   clearErrors: UseFormClearErrors<BookingFormData>;
   errors: FieldErrors<BookingFormData>;
+}
+
+const ADDRESS_FIELD_KEYS = [
+  "contactName",
+  "companyName",
+  "email",
+  "phone",
+  "addressLine1",
+  "addressLine2",
+  "city",
+  "state",
+  "postalCode",
+  "country",
+] as const;
+
+// clearErrors("pickup") only clears an error set on the exact key "pickup" —
+// it does NOT clear nested errors like "pickup.city" that setError() creates
+// from a superRefine issue path. Left uncleared, those linger in formState
+// even after the section is hidden.
+function clearAddressErrors(
+  clearErrors: UseFormClearErrors<BookingFormData>,
+  prefix: "pickup" | "billing",
+) {
+  clearErrors([
+    prefix,
+    ...ADDRESS_FIELD_KEYS.map((k) => `${prefix}.${k}` as any),
+  ]);
 }
 
 export function DeliveryBillingStep({
@@ -52,6 +84,23 @@ export function DeliveryBillingStep({
     mode === "EXISTING_CLIENT" && selectedClient
       ? { partyType: "CLIENT", clientId: selectedClient.id }
       : { partyType: "ORG", orgId: orgContext.orgId };
+
+  useEffect(() => {
+    const subscription = watch((values, { name }) => {
+      if (!values.billingSameAsDelivery) return;
+      if (
+        name === "billingSameAsDelivery" ||
+        name === "consignee" ||
+        name?.startsWith("consignee.")
+      ) {
+        setValue("billing", { ...values.consignee } as ConsignorForm, {
+          shouldValidate: false,
+          shouldDirty: false,
+        });
+      }
+    });
+    return () => subscription.unsubscribe();
+  }, [watch, setValue]);
 
   return (
     <div className="space-y-8">
@@ -97,14 +146,18 @@ export function DeliveryBillingStep({
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
-                <button type="button" className="text-muted-foreground" aria-label="About billing">
+                <button
+                  type="button"
+                  className="text-muted-foreground"
+                  aria-label="About billing"
+                >
                   <Info className="h-3.5 w-3.5" />
                 </button>
               </TooltipTrigger>
               <TooltipContent className="max-w-xs">
                 Who the invoice is addressed to. Often the same as the receiver,
-                but can differ — e.g. a corporate office is billed while the goods
-                are delivered elsewhere.
+                but can differ — e.g. a corporate office is billed while the
+                goods are delivered elsewhere.
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
@@ -114,13 +167,25 @@ export function DeliveryBillingStep({
           <Checkbox
             checked={billingSameAsDelivery}
             onCheckedChange={(checked) => {
-              setValue("billingSameAsDelivery", checked === true);
-              if (checked === true) clearErrors("billing");
+              const isSame = checked === true;
+              setValue("billingSameAsDelivery", isSame, {
+                shouldValidate: false,
+              });
+              if (isSame) {
+                setValue(
+                  "billing",
+                  { ...watch("consignee") } as ConsignorForm,
+                  { shouldValidate: false },
+                );
+                clearAddressErrors(clearErrors, "billing");
+              }
             }}
             className="mt-0.5"
           />
           <div>
-            <p className="text-sm font-medium">Billing address is the same as delivery</p>
+            <p className="text-sm font-medium">
+              Billing address is the same as delivery
+            </p>
             <p className="mt-0.5 text-xs text-muted-foreground">
               Uncheck to invoice a different address (e.g. a head office).
             </p>
