@@ -11,6 +11,7 @@
  */
 
 import { getCurrentOrgContext } from "@/actions/book/getOrgs";
+import { isOrgAddressComplete } from "@/lib/booking/profile";
 import type { BookingOrgContext } from "@/types/booking.types";
 
 export async function getBookingOrgContext(): Promise<BookingOrgContext> {
@@ -21,6 +22,7 @@ export async function getBookingOrgContext(): Promise<BookingOrgContext> {
     isBusinessAssociate: org.isBusinessAssociate,
     skipPayment: org.skipPayment,
     markupPercent: Number(org.markupPercent),
+    profileAddressComplete: isOrgAddressComplete(org), // NEW
     self: {
       companyName: org.companyName,
       contactName: org.contactName,

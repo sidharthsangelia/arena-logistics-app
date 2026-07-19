@@ -186,6 +186,8 @@ export interface BookingOrgContext {
     country: string | null;
     postalCode: string | null;
   };
+
+  profileAddressComplete: boolean;
 }
 
 export type ShipmentOwnerMode = "SELF" | "EXISTING_CLIENT" | "OTHER_PERSON";

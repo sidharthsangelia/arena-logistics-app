@@ -94,7 +94,7 @@ model Org {
   notes        String?
 
   skipPayment Boolean @default(false)
-
+  profileCompletedAt DateTime? 
   emailEvents QuoteEmailEvent[]
 
   @@index([slug])

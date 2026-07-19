@@ -146,12 +146,16 @@ export function SenderPickupStep({
     if (prefilledRef.current) return;
     prefilledRef.current = true;
     const c = watch("consignor");
-    if (mode === "SELF" && !c?.contactName && !c?.addressLine1) {
+    if (
+      mode === "SELF" &&
+      !c?.contactName &&
+      !c?.addressLine1 &&
+      orgContext.profileAddressComplete
+    ) {
       setValue("consignor", selfToConsignor(orgContext.self), {
         shouldValidate: false,
       });
     }
-    // Run once on mount only.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -227,8 +231,23 @@ export function SenderPickupStep({
           <div>
             <p className="text-sm font-medium">Use my saved profile</p>
             <p className="mt-0.5 text-xs text-muted-foreground">
-              Your organisation&apos;s registered details are used as the
-              sender.
+              {orgContext.profileAddressComplete ? (
+                "Your organisation's registered details are used as the sender."
+              ) : (
+                <>
+                  You haven't saved an address yet —{" "}
+                  <a
+                    href="/settings/profile"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline"
+                  >
+                    add one in Settings
+                  </a>{" "}
+                  to prefill this automatically, or just fill it in below for
+                  this shipment.
+                </>
+              )}
             </p>
           </div>
         </label>

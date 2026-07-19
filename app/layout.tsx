@@ -46,16 +46,9 @@ export default function RootLayout({
         <ClerkProvider>
           <TooltipProvider>
             <Toaster richColors position="top-right" closeButton />
-           {/* <ThemeProvider
-            attribute="class"
-            defaultTheme="system"
-            enableSystem
-            disableTransitionOnChange
-          > */}
+
             {children}
-          {/* </ThemeProvider> */}
           </TooltipProvider>
-          
         </ClerkProvider>
       </body>
     </html>

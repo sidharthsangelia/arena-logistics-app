@@ -169,6 +169,8 @@ export async function saveKycDocAction(
     });
 
     return { success: true, docId: doc.id };
+
+    
   } catch (err) {
     console.error("[saveKycDocAction]", err);
     Sentry.captureException(err, { tags: { action: "saveKycDoc" } });
