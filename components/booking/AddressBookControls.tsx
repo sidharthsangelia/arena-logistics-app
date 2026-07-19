@@ -1,18 +1,25 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Path, UseFormSetValue, UseFormWatch } from "react-hook-form";
-import { BookMarked, Loader2, Plus, Check } from "lucide-react";
+import { BookMarked, Loader2, Plus, Check, ChevronsUpDown } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Dialog,
   DialogContent,
@@ -57,6 +64,24 @@ function addressOneLiner(a: AddressSummary): string {
   );
 }
 
+// Everything a user might type to find this entry — cmdk filters on this string.
+function addressSearchText(a: AddressSummary): string {
+  return [
+    a.label,
+    a.contactName,
+    a.contactEmail,
+    a.contactPhone,
+    a.line1,
+    a.line2,
+    a.city,
+    a.state,
+    a.postalCode,
+    a.country,
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
 export function AddressBookControls({
   party,
   kind,
@@ -68,6 +93,7 @@ export function AddressBookControls({
   const [saved, setSaved] = useState<AddressSummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedId, setSelectedId] = useState<string>("");
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   const [saveOpen, setSaveOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -106,11 +132,16 @@ export function AddressBookControls({
     setValue(fieldPath(prefix, "addressLine2"), a.line2 ?? "", { shouldValidate: true });
   };
 
-  const handlePick = (id: string) => {
-    setSelectedId(id);
-    const a = saved.find((x) => x.id === id);
-    if (a) applyAddress(a);
+  const handlePick = (a: AddressSummary) => {
+    setSelectedId(a.id);
+    applyAddress(a);
+    setPickerOpen(false);
   };
+
+  const selectedLabel = useMemo(
+    () => saved.find((x) => x.id === selectedId),
+    [saved, selectedId],
+  );
 
   const handleSave = async () => {
     const v = (watch(prefix as Path<BookingFormData>) ?? {}) as BookingFormData["consignor"];
@@ -150,30 +181,66 @@ export function AddressBookControls({
           <BookMarked className="h-3.5 w-3.5" />
           Use a saved {noun}
         </Label>
-        <Select
-          value={selectedId}
-          onValueChange={handlePick}
-          disabled={loading || saved.length === 0}
-        >
-          <SelectTrigger className="w-full">
-            <SelectValue
-              placeholder={
-                loading
+        <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
+          <PopoverTrigger asChild>
+            <Button
+              type="button"
+              variant="outline"
+              role="combobox"
+              aria-expanded={pickerOpen}
+              disabled={loading || saved.length === 0}
+              className="w-full justify-between font-normal"
+            >
+              <span className="truncate">
+                {loading
                   ? "Loading…"
                   : saved.length === 0
                     ? "No saved addresses yet"
-                    : "Select from address book"
-              }
-            />
-          </SelectTrigger>
-          <SelectContent>
-            {saved.map((a) => (
-              <SelectItem key={a.id} value={a.id}>
-                {addressOneLiner(a)}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+                    : selectedLabel
+                      ? addressOneLiner(selectedLabel)
+                      : "Select from address book"}
+              </span>
+              <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent
+            className="w-[--radix-popover-trigger-width] p-0"
+            align="start"
+          >
+            <Command>
+              <CommandInput placeholder={`Search saved ${noun}s…`} />
+              <CommandList>
+                <CommandEmpty>No matching addresses.</CommandEmpty>
+                <CommandGroup>
+                  {saved.map((a) => (
+                    <CommandItem
+                      key={a.id}
+                      value={`${addressSearchText(a)} ${a.id}`}
+                      onSelect={() => handlePick(a)}
+                    >
+                      <Check
+                        className={cn(
+                          "mr-2 h-4 w-4 shrink-0",
+                          selectedId === a.id ? "opacity-100" : "opacity-0",
+                        )}
+                      />
+                      <div className="flex min-w-0 flex-col">
+                        <span className="truncate">{addressOneLiner(a)}</span>
+                        {(a.contactName || a.city) && (
+                          <span className="truncate text-xs text-muted-foreground">
+                            {[a.contactName, a.city, a.postalCode]
+                              .filter(Boolean)
+                              .join(" · ")}
+                          </span>
+                        )}
+                      </div>
+                    </CommandItem>
+                  ))}
+                </CommandGroup>
+              </CommandList>
+            </Command>
+          </PopoverContent>
+        </Popover>
       </div>
 
       <Button

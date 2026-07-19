@@ -132,26 +132,38 @@ export function SenderPickupStep({
 
   const isBA = orgContext.isBusinessAssociate;
 
+  // "Has the org saved *any* usable profile detail?" — deliberately looser than
+  // the strict all-fields `profileAddressComplete` flag. A partially-filled
+  // profile (e.g. missing state) still has a sender worth pre-filling, so we key
+  // both the auto-prefill and the helper copy off this instead of the strict
+  // flag. Otherwise a single blank field silently disabled prefill and wrongly
+  // showed the "you haven't saved an address" message.
+  const self = orgContext.self;
+  const hasSavedProfile = !!(
+    self.contactName ||
+    self.addressLine1 ||
+    self.companyName ||
+    self.email ||
+    self.phone
+  );
+
   // Which address book the sender/pickup pickers read + save to.
   const party: Party =
     mode === "EXISTING_CLIENT" && selectedClient
       ? { partyType: "CLIENT", clientId: selectedClient.id }
       : { partyType: "ORG", orgId: orgContext.orgId };
 
-  // Fresh booking defaults to SELF — seed the sender from the org profile once
-  // so "use my saved profile" isn't an empty form. Guarded so a resumed draft
-  // (which already has sender data) is never overwritten.
+  // "Use my saved profile" is selected by default, so seed the sender from the
+  // org profile on mount without the user having to re-tap the radio. Guarded so
+  // a resumed draft (which already has sender data) is never overwritten, and
+  // keyed off `hasSavedProfile` so any saved detail — not only a fully complete
+  // address — triggers the prefill.
   const prefilledRef = useRef(false);
   useEffect(() => {
     if (prefilledRef.current) return;
     prefilledRef.current = true;
     const c = watch("consignor");
-    if (
-      mode === "SELF" &&
-      !c?.contactName &&
-      !c?.addressLine1 &&
-      orgContext.profileAddressComplete
-    ) {
+    if (mode === "SELF" && !c?.contactName && !c?.addressLine1 && hasSavedProfile) {
       setValue("consignor", selfToConsignor(orgContext.self), {
         shouldValidate: false,
       });
@@ -231,7 +243,7 @@ export function SenderPickupStep({
           <div>
             <p className="text-sm font-medium">Use my saved profile</p>
             <p className="mt-0.5 text-xs text-muted-foreground">
-              {orgContext.profileAddressComplete ? (
+              {hasSavedProfile ? (
                 "Your organisation's registered details are used as the sender."
               ) : (
                 <>
@@ -315,14 +327,19 @@ export function SenderPickupStep({
             <h3 className="text-sm font-semibold">Sender details</h3>
           </div>
 
-          <AddressBookControls
-            party={party}
-            kind="PICKUP"
-            prefix="consignor"
-            watch={watch}
-            setValue={setValue}
-            noun="sender"
-          />
+          {/* Address-book picker is redundant under "Use my saved profile" — the
+              sender is already filled from the org profile. Only offer it when
+              the sender is someone else (a saved client / one-off recipient). */}
+          {mode !== "SELF" && (
+            <AddressBookControls
+              party={party}
+              kind="PICKUP"
+              prefix="consignor"
+              watch={watch}
+              setValue={setValue}
+              noun="sender"
+            />
+          )}
 
           <AddressFields
             prefix="consignor"
