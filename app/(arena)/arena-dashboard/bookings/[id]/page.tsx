@@ -49,8 +49,10 @@ import { CarrierTrackingPanel } from "@/components/booking/arena/CarrierTracking
 import { DocumentManager } from "@/components/booking/arena/DocumentManager";
 import { CopyButton } from "@/components/booking/arena/CopyButton";
 import { PackageBoxList } from "@/components/booking/PackageBoxList";
-import { KYC_DOC_CONFIGS } from "@/lib/booking/kyc";
+import { KycDocsCard } from "@/components/booking/arena/KycDocsCard";
+import { KYC_DOC_CONFIGS, requiredKycDocTypes } from "@/lib/booking/kyc";
 import { CSB4_MAX_VALUE } from "@/lib/booking/cargo";
+import { PartyType } from "@/generated/prisma";
 import { cn } from "@/lib/utils";
 
 // ---------------------------------------------------------------------------
@@ -117,6 +119,54 @@ async function getShipment(id: string) {
 
   if (!shipment) notFound();
   return shipment;
+}
+
+// KYC docs live in a per-party vault (the shipment's client, or the org when
+// there is no client). Ops reads them straight here — the (arena) layout
+// already gates access — so they never have to leave the booking page. We keep
+// the newest document per type.
+async function getPartyKycDocs(orgId: string, clientId: string | null) {
+  const rows = await prisma.kycDocument.findMany({
+    where: clientId
+      ? { partyType: PartyType.CLIENT, clientId }
+      : { partyType: PartyType.ORG, orgId },
+    orderBy: { uploadedAt: "desc" },
+    select: {
+      id: true,
+      docType: true,
+      label: true,
+      docNumber: true,
+      fileUrl: true,
+      fileName: true,
+      fileSize: true,
+      mimeType: true,
+      verifiedAt: true,
+      expiresAt: true,
+      uploadedAt: true,
+    },
+  });
+
+  const now = Date.now();
+  const seen = new Set<string>();
+  const latest = [];
+  for (const r of rows) {
+    if (seen.has(r.docType)) continue;
+    seen.add(r.docType);
+    latest.push({
+      id: r.id,
+      docType: r.docType,
+      label: r.label,
+      docNumber: r.docNumber,
+      fileUrl: r.fileUrl,
+      fileName: r.fileName,
+      fileSize: r.fileSize,
+      mimeType: r.mimeType,
+      verifiedAt: r.verifiedAt,
+      expired: r.expiresAt != null && r.expiresAt.getTime() < now,
+      uploadedAt: r.uploadedAt,
+    });
+  }
+  return latest;
 }
 
 // ---------------------------------------------------------------------------
@@ -330,6 +380,7 @@ function NeedsAttention({
   selectedVendorId,
   totalBoxes,
   missingHsnCount,
+  missingKycCount,
   hasAwb,
 }: {
   status: ShipmentStatus;
@@ -340,6 +391,7 @@ function NeedsAttention({
   selectedVendorId: string | null;
   totalBoxes: number;
   missingHsnCount: number;
+  missingKycCount: number;
   hasAwb: boolean;
 }) {
   const closed = status === "DELIVERED" || status === "CANCELLED";
@@ -407,6 +459,13 @@ function NeedsAttention({
       tone: "warn",
       icon: PackageX,
       text: "AWB is not recorded. Add the MAWB / HAWB for tracking.",
+    });
+
+  if (missingKycCount > 0)
+    items.push({
+      tone: "danger",
+      icon: FileWarning,
+      text: `${missingKycCount} required KYC document${missingKycCount > 1 ? "s are" : " is"} missing from the vault. See KYC documents below.`,
     });
 
   if (missingHsnCount > 0)
@@ -591,6 +650,7 @@ export default async function BookingDetailPage({
 }) {
   const { id } = await params;
   const s = await getShipment(id);
+  const kycDocs = await getPartyKycDocs(s.orgId, s.clientId);
 
   const cfg = STATUS_CONFIG[s.status] ?? {
     label: s.status,
@@ -612,6 +672,11 @@ export default async function BookingDetailPage({
   );
   const hasAwb = Boolean(s.hawbNumber || s.mawbNumber);
   const isMultipiece = totalBoxes > 1;
+  const missingKycCount = s.shipmentType
+    ? requiredKycDocTypes(s.shipmentType).filter(
+        (dt) => !kycDocs.some((d) => d.docType === dt),
+      ).length
+    : 0;
 
   const allStatuses = Object.entries(STATUS_CONFIG).map(([value, c]) => ({
     value: value as ShipmentStatus,
@@ -690,6 +755,7 @@ export default async function BookingDetailPage({
             selectedVendorId={s.selectedVendorId}
             totalBoxes={totalBoxes}
             missingHsnCount={missingHsnCount}
+            missingKycCount={missingKycCount}
             hasAwb={hasAwb}
           />
 
@@ -698,6 +764,13 @@ export default async function BookingDetailPage({
             shipmentType={s.shipmentType}
             totalDeclared={totalDeclared}
             currency={s.currency}
+          />
+
+          {/* KYC documents — view / download right here */}
+          <KycDocsCard
+            docs={kycDocs}
+            shipmentType={s.shipmentType}
+            partyLabel={s.client?.companyName ?? s.org.name}
           />
 
           {/* Parties */}
