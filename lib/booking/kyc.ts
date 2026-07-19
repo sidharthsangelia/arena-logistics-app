@@ -84,6 +84,30 @@ export const KYC_DOC_CONFIGS: KycDocConfig[] = [
 
 export const KYC_DOC_KEYS = KYC_DOC_CONFIGS.map((c) => c.key);
 
+// ── Document groupings for the profile / vault UI ──────────────────────────
+// Baseline = the two everyone needs (CSB-4 and up); shown up-front, never
+// scary. Export = the commercial / CSB-V extras, tucked into a collapsible
+// section so a first-time individual shipper isn't confronted with GST/IEC/LUT.
+export const BASELINE_KYC_KEYS = ["pan", "aadhaar"] as const;
+export const EXPORT_KYC_KEYS = ["companyPan", "gst", "iec", "lut"] as const;
+
+export const BASELINE_KYC_CONFIGS = KYC_DOC_CONFIGS.filter((c) =>
+  (BASELINE_KYC_KEYS as readonly string[]).includes(c.key),
+);
+export const EXPORT_KYC_CONFIGS = KYC_DOC_CONFIGS.filter((c) =>
+  (EXPORT_KYC_KEYS as readonly string[]).includes(c.key),
+);
+
+/** Human label for the shipment types a doc is required for, e.g. "CSB-V, Commercial". */
+export function requiredForLabel(config: KycDocConfig): string {
+  const NICE: Record<string, string> = {
+    CSB4: "CSB-4",
+    CSB5: "CSB-V",
+    COMMERCIAL: "Commercial",
+  };
+  return config.requiredFor.map((t) => NICE[t] ?? t).join(", ");
+}
+
 /** Map a form key → its Prisma docType. */
 export const KYC_KEY_TO_DOC_TYPE = Object.fromEntries(
   KYC_DOC_CONFIGS.map((c) => [c.key, c.docType]),
