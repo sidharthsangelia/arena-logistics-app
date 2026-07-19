@@ -56,6 +56,7 @@ import {
 } from "lucide-react";
 import { STATUS_CONFIG } from "@/utils/statusConfigColors";
 import { prisma } from "@/utils/db";
+import { OnboardingChecklist } from "@/components/onboarding/OnboardingChecklist";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Formatting helpers
@@ -437,6 +438,9 @@ export default async function DashboardOverviewPage() {
             )}
           </div>
         )}
+
+        {/* ── Onboarding checklist (auto-hides once complete) ─────────── */}
+        <OnboardingChecklist org={org} />
 
         {/* ── Stat cards ──────────────────────────────────────────────── */}
         <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
