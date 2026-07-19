@@ -6,6 +6,8 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 
 import { ClerkProvider } from "@clerk/nextjs";
 import { Toaster } from "@/components/ui/sonner";
+import { QueryProvider } from "@/providers/query-provider";
+ 
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 
@@ -42,13 +44,15 @@ export default function RootLayout({
         inter.variable,
       )}
     >
-      <body className="min-h-full flex flex-col">
+   <body className="min-h-full flex flex-col">
         <ClerkProvider>
-          <TooltipProvider>
-            <Toaster richColors position="top-right" closeButton />
-
-            {children}
-          </TooltipProvider>
+          <QueryProvider>
+            <TooltipProvider>
+              <Toaster richColors position="top-center" closeButton />
+              
+              {children}
+            </TooltipProvider>
+          </QueryProvider>
         </ClerkProvider>
       </body>
     </html>

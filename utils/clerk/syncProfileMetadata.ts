@@ -4,17 +4,17 @@ import { clerkClient } from "@clerk/nextjs/server";
 import { prisma } from "@/utils/db";
 import { computeOrgProfileStatus } from "@/lib/booking/profile";
 
-export async function syncOrgProfileMetadata(dbOrgId: string) {
-  const org = await prisma.org.findUnique({ where: { id: dbOrgId } });
-  if (!org) return;
-
-  const status = await computeOrgProfileStatus(org);
-
-  if (status.complete && !org.profileCompletedAt) {
-    await prisma.org.update({ where: { id: org.id }, data: { profileCompletedAt: new Date() } });
-  }
-
+export async function syncOrgProfileMetadata(dbOrgId: string): Promise<void> {
   try {
+    const org = await prisma.org.findUnique({ where: { id: dbOrgId } });
+    if (!org) return;
+
+    const status = await computeOrgProfileStatus(org);
+
+    if (status.complete && !org.profileCompletedAt) {
+      await prisma.org.update({ where: { id: org.id }, data: { profileCompletedAt: new Date() } });
+    }
+
     const client = await clerkClient();
     await client.organizations.updateOrganizationMetadata(org.clerkOrgId, {
       publicMetadata: {
@@ -24,6 +24,8 @@ export async function syncOrgProfileMetadata(dbOrgId: string) {
       },
     });
   } catch (err) {
-    console.error("[syncOrgProfileMetadata] Clerk sync failed:", err);
+    // Non-fatal by design: this is a UI cache, not the source of truth.
+    // The caller's DB write already succeeded — never let this bubble up.
+    console.error("[syncOrgProfileMetadata]", err);
   }
 }

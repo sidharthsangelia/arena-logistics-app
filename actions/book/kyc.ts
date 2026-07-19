@@ -26,6 +26,7 @@ import {
   KYC_DOC_TYPE_TO_KEY,
   type KycDocKey,
 } from "@/lib/booking/kyc";
+import { syncOrgProfileMetadata } from "@/utils/clerk/syncProfileMetadata";
 
 // ---------------------------------------------------------------------------
 // Party → { orgId, clientId } resolver (asserts ownership)
@@ -34,10 +35,16 @@ import {
 async function resolveParty(party: Party, currentOrgId: string) {
   if (party.partyType === "ORG") {
     if (party.orgId !== currentOrgId) throw new Error("Org mismatch.");
-    return { orgId: currentOrgId as string | null, clientId: null as string | null };
+    return {
+      orgId: currentOrgId as string | null,
+      clientId: null as string | null,
+    };
   }
   await assertOrgOwnsClient(currentOrgId, party.clientId);
-  return { orgId: null as string | null, clientId: party.clientId as string | null };
+  return {
+    orgId: null as string | null,
+    clientId: party.clientId as string | null,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -117,7 +124,8 @@ export async function getKycDocs(party: Party): Promise<GetKycDocsResult> {
     Sentry.captureException(err, { tags: { action: "getKycDocs" } });
     return {
       success: false,
-      error: err instanceof Error ? err.message : "Failed to fetch KYC documents.",
+      error:
+        err instanceof Error ? err.message : "Failed to fetch KYC documents.",
       docs: [],
     };
   }
@@ -168,9 +176,10 @@ export async function saveKycDocAction(
       select: { id: true },
     });
 
+    if (party.partyType === "ORG" && orgId) {
+      await syncOrgProfileMetadata(orgId);
+    }
     return { success: true, docId: doc.id };
-
-    
   } catch (err) {
     console.error("[saveKycDocAction]", err);
     Sentry.captureException(err, { tags: { action: "saveKycDoc" } });

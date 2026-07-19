@@ -10,14 +10,14 @@ const DISMISS_KEY = "profile-banner-dismissed";
 
 export function ProfileCompletionBanner() {
   const { organization, isLoaded } = useOrganization();
-  const [dismissed, setDismissed] = useState(true); // hidden until we know
+  const [dismissed, setDismissed] = useState(true);
 
   useEffect(() => {
     setDismissed(localStorage.getItem(DISMISS_KEY) === "1");
   }, []);
 
-  if (!isLoaded || dismissed) return null;
-  if (organization?.publicMetadata?.profileComplete === true) return null;
+  if (!isLoaded || !organization || dismissed) return null;
+  if (organization.publicMetadata?.profileComplete === true) return null;
 
   return (
     <div className="flex items-center justify-between gap-3 border-b bg-amber-50 px-4 py-2 text-sm text-amber-800">
