@@ -4,6 +4,7 @@ import {
   User, Building2, MapPinned, Shield, FileText,
   Truck, CheckCircle2, FileCheck2, Clock3,
   MapPin, ArrowRight, Scale, Wallet, Home, PackageCheck,
+  Plane,
 } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
@@ -454,7 +455,7 @@ export default function ReviewStep({
 
       <RouteBar data={data} />
 
-      <Section icon={Truck} title="Shipping Service">
+      <Section icon={Plane} title="Shipping Service">
         <ServiceBlock service={data.selectedService} />
       </Section>
 

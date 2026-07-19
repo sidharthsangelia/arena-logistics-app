@@ -110,7 +110,7 @@ const NAV_CONFIGS: Record<string, NavConfig> = {
         items: [
           {title: "Wallet", href: "/wallet", icon: Wallet},
           { title: "Invoices", href: "/invoices", icon: FileText },
-          { title: "Settings", href: "/settings", icon: Settings },
+          { title: "Settings", href: "/settings/profile", icon: Settings },
         ],
       },
     ],
