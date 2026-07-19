@@ -35,6 +35,40 @@ export function totalActualWeight(boxes: CargoBox[]): number {
   );
 }
 
+/**
+ * Volumetric divisor for air cargo. Volumetric (dimensional) weight in kg is
+ * length × width × height in cm ÷ this number. 5000 is the industry-standard
+ * air divisor (e.g. 30×20×10 cm = 6000 → 1.2 kg; 50×40×30 cm = 60000 → 12 kg).
+ */
+export const VOLUMETRIC_DIVISOR = 5000;
+
+/** Volumetric (size-based) weight of ONE box in kg: L×W×H ÷ 5000. */
+export function boxVolumetricWeight(box: CargoBox): number {
+  const vol =
+    Number(box.lengthCm) * Number(box.widthCm) * Number(box.heightCm);
+  return vol > 0 ? vol / VOLUMETRIC_DIVISOR : 0;
+}
+
+/**
+ * Chargeable weight of ONE box: carriers bill the greater of the box's actual
+ * weight and its volumetric weight, so we take the max of the two.
+ */
+export function boxChargeableWeight(box: CargoBox): number {
+  return Math.max(Number(box.weightKg) || 0, boxVolumetricWeight(box));
+}
+
+/**
+ * Total chargeable weight across all boxes. We take the max(actual, volumetric)
+ * per box, then multiply by that box's quantity before summing — the number the
+ * shipment is actually priced on.
+ */
+export function totalChargeableWeight(boxes: CargoBox[]): number {
+  return (boxes ?? []).reduce(
+    (sum, box) => sum + boxChargeableWeight(box) * Number(box.quantity),
+    0,
+  );
+}
+
 /** Total number of physical boxes (sum of each box's quantity). */
 export function totalBoxCount(boxes: CargoBox[]): number {
   return (boxes ?? []).reduce((sum, box) => sum + Number(box.quantity), 0);

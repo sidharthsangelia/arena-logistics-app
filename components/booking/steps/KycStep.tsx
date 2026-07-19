@@ -19,21 +19,30 @@
  *   2. Each existing doc shows a consent checkbox instead of an upload zone.
  *   3. Consent ticked → RHF FileMeta is set from the DB row (only then does the
  *      field become valid). Unticked → cleared, so validation blocks Next.
+ *
+ * Layout: required docs stay visible and collapse to a slim "ready" row once
+ * satisfied; every optional doc lives behind a single collapsible so the user
+ * never scrolls a long list to reach Next.
  */
 
-import { useState, useEffect, useTransition } from "react";
+import { useState, useEffect, useMemo, useTransition } from "react";
 import { useUploadThing } from "@/utils/uploadthing";
 import {
-  Upload, X, FileCheck2, AlertCircle,
-  ShieldCheck, Clock, Loader2, Info,
+  Upload, X, FileCheck2, AlertCircle, CheckCircle2,
+  ShieldCheck, Clock, Loader2, ChevronDown, Plus,
 } from "lucide-react";
 import { UseFormSetValue, UseFormWatch, FieldErrors } from "react-hook-form";
 
-import { Badge }     from "@/components/ui/badge";
-import { Button }    from "@/components/ui/button";
-import { Checkbox }  from "@/components/ui/checkbox";
-import { Separator } from "@/components/ui/separator";
-import { cn }        from "@/lib/utils";
+import { Badge }    from "@/components/ui/badge";
+import { Button }   from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Progress } from "@/components/ui/progress";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import { cn } from "@/lib/utils";
 
 import type { BookingFormData, FileMeta, ShipmentTypeValue } from "@/types/booking.types";
 import type { Party } from "@/types/booking";
@@ -75,43 +84,69 @@ const TYPE_LABEL: Record<ShipmentTypeValue, string> = {
 };
 
 // ---------------------------------------------------------------------------
-// ExistingDocCard — shown when doc is already in the vault
+// ReadyRow — the slim confirmation shown once a doc is satisfied
 // ---------------------------------------------------------------------------
 
-function ExistingDocCard({
+function ReadyRow({
+  label,
+  fileName,
+  onChange,
+}: {
+  label: string;
+  fileName: string;
+  onChange: () => void;
+}) {
+  return (
+    <div className="flex items-center gap-3 rounded-lg border border-emerald-200 bg-card px-3.5 py-2.5">
+      <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-medium leading-tight">{label}</p>
+        <p className="truncate text-xs text-muted-foreground">{fileName}</p>
+      </div>
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="h-7 shrink-0 text-xs text-muted-foreground"
+        onClick={onChange}
+      >
+        Change
+      </Button>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// ExistingDocConsent — shown when doc is on file in the vault
+// ---------------------------------------------------------------------------
+
+function ExistingDocConsent({
   doc,
   consentGiven,
   onConsentChange,
   onReplace,
-  required,
 }: {
   doc: PartyKycDoc;
   consentGiven: boolean;
   onConsentChange: (v: boolean) => void;
   onReplace: () => void;
-  required: boolean;
 }) {
   const id = `consent-${doc.key}`;
   return (
-    <div className={cn(
-      "rounded-lg border-2 p-4 space-y-3 transition-colors",
-      consentGiven ? "border-green-300 bg-green-50" : "border-border bg-card",
-    )}>
-      <div className="flex items-start gap-3">
-        <div className="rounded-md bg-primary/10 p-2 mt-0.5">
-          <FileCheck2 className="h-4 w-4 text-primary" />
-        </div>
+    <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
+      <div className="flex items-center gap-2.5">
+        <FileCheck2 className="h-4 w-4 shrink-0 text-muted-foreground" />
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium truncate">{doc.fileName}</p>
-          <p className="text-xs text-muted-foreground flex items-center gap-2 mt-0.5">
+          <p className="truncate text-sm">{doc.fileName}</p>
+          <p className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
             {formatBytes(doc.fileSize)}
             {doc.verifiedAt ? (
-              <span className="flex items-center gap-1 text-green-600">
-                <ShieldCheck className="h-3 w-3" />Verified
+              <span className="flex items-center gap-1 text-emerald-600">
+                · <ShieldCheck className="h-3 w-3" /> Verified
               </span>
             ) : (
               <span className="flex items-center gap-1 text-amber-600">
-                <Clock className="h-3 w-3" />Pending verification
+                · <Clock className="h-3 w-3" /> Pending review
               </span>
             )}
           </p>
@@ -119,25 +154,21 @@ function ExistingDocCard({
         <button
           type="button"
           onClick={onReplace}
-          className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 shrink-0"
+          className="shrink-0 text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
         >
           Replace
         </button>
       </div>
 
-      <label htmlFor={id} className="flex items-start gap-2.5 cursor-pointer">
+      <label htmlFor={id} className="flex cursor-pointer items-start gap-2.5">
         <Checkbox
           id={id}
           checked={consentGiven}
           onCheckedChange={(v) => onConsentChange(!!v)}
           className="mt-0.5"
         />
-        <span className="text-xs text-muted-foreground leading-relaxed">
-          I consent to using this document for this shipment&apos;s customs and
-          compliance processing.
-          {required && (
-            <span className="ml-1 text-destructive font-medium">(Required to proceed)</span>
-          )}
+        <span className="text-xs leading-relaxed text-muted-foreground">
+          Use this saved document for this shipment.
         </span>
       </label>
     </div>
@@ -145,22 +176,18 @@ function ExistingDocCard({
 }
 
 // ---------------------------------------------------------------------------
-// UploadZone — real UploadThing upload + immediate DB persist to the party vault
+// UploadZone — UploadThing upload + immediate DB persist to the party vault
 // ---------------------------------------------------------------------------
 
 function UploadZone({
   config,
   party,
-  value,
   onDone,
-  onClear,
   error,
 }: {
   config: KycDocConfig;
   party: Party;
-  value: FileMeta | null;
   onDone: (meta: FileMeta) => void;
-  onClear: () => void;
   error?: string;
 }) {
   const [uploading, setUploading] = useState(false);
@@ -171,7 +198,7 @@ function UploadZone({
     onClientUploadComplete: async (res) => {
       const file = res?.[0];
       if (!file) {
-        setUploadErr("Upload completed but no file data returned.");
+        setUploadErr("Upload finished but no file came back. Please try again.");
         setUploading(false);
         return;
       }
@@ -214,27 +241,6 @@ function UploadZone({
     e.target.value = "";
   };
 
-  if (value) {
-    return (
-      <div className="flex items-center gap-3 rounded-lg border border-green-200 bg-green-50 px-4 py-3">
-        <FileCheck2 className="h-5 w-5 shrink-0 text-green-600" />
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium text-green-900">{value.fileName}</p>
-          <p className="text-xs text-green-700">{formatBytes(value.fileSize)}</p>
-        </div>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="h-7 w-7 text-green-700 hover:text-destructive"
-          onClick={onClear}
-        >
-          <X className="h-4 w-4" />
-        </Button>
-      </div>
-    );
-  }
-
   const displayError = error ?? uploadErr;
 
   return (
@@ -242,21 +248,25 @@ function UploadZone({
       <label
         htmlFor={inputId}
         className={cn(
-          "flex cursor-pointer flex-col items-center gap-2 rounded-lg border-2 border-dashed px-4 py-6 transition-colors",
+          "flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed px-4 py-4 text-sm transition-colors",
           uploading
-            ? "border-primary/40 bg-primary/5"
-            : "border-border hover:border-primary/50 hover:bg-muted/40",
+            ? "border-primary/40 bg-primary/5 text-primary"
+            : "text-muted-foreground hover:border-primary/50 hover:bg-muted/40",
           displayError && "border-destructive/60 bg-destructive/5",
         )}
       >
-        {uploading
-          ? <Loader2 className="h-6 w-6 animate-spin text-primary" />
-          : <Upload className="h-6 w-6 text-muted-foreground" />
-        }
-        <span className="text-sm text-muted-foreground">
-          {uploading ? "Uploading & saving…" : "Click to upload or drag & drop"}
-        </span>
-        <span className="text-xs text-muted-foreground">PDF, JPG, PNG · Max 16 MB</span>
+        {uploading ? (
+          <>
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Uploading and saving…
+          </>
+        ) : (
+          <>
+            <Upload className="h-4 w-4" />
+            Click to upload
+            <span className="text-xs text-muted-foreground">PDF, JPG or PNG, up to 16 MB</span>
+          </>
+        )}
         <input
           id={inputId}
           type="file"
@@ -269,7 +279,7 @@ function UploadZone({
 
       {displayError && (
         <p className="flex items-center gap-1.5 text-xs text-destructive" aria-live="polite">
-          <AlertCircle className="h-3.5 w-3.5" />
+          <AlertCircle className="h-3.5 w-3.5 shrink-0" />
           {displayError}
         </p>
       )}
@@ -278,7 +288,7 @@ function UploadZone({
 }
 
 // ---------------------------------------------------------------------------
-// DocSection
+// DocSection — one document (required or optional)
 // ---------------------------------------------------------------------------
 
 function DocSection({
@@ -292,7 +302,7 @@ function DocSection({
   onConsentChange,
   onStartReplace,
   onDone,
-  onClear,
+  onReset,
   error,
 }: {
   config: KycDocConfig;
@@ -305,56 +315,54 @@ function DocSection({
   onConsentChange: (v: boolean) => void;
   onStartReplace: () => void;
   onDone: (meta: FileMeta) => void;
-  onClear: () => void;
+  onReset: () => void;
   error?: string;
 }) {
+  // Satisfied → slim ready row (keeps the list short as you progress).
+  if (formValue) {
+    return <ReadyRow label={config.label} fileName={formValue.fileName} onChange={onReset} />;
+  }
+
   const showExisting = !!existingDoc && !isReplacing;
 
   return (
-    <div className={cn(
-      "rounded-xl border bg-card p-5 space-y-4 transition-all",
-      error && "border-destructive/40",
-      showExisting && "border-primary/20",
-      formValue && "border-green-300 bg-green-50/30",
-    )}>
+    <div
+      className={cn(
+        "space-y-3 rounded-lg border bg-card p-4",
+        error && "border-destructive/50",
+      )}
+    >
       <div className="flex items-start justify-between gap-3">
-        <div className="space-y-1">
-          <h3 className="text-sm font-semibold">{config.label}</h3>
-          <p className="text-xs text-muted-foreground leading-relaxed">{config.hint}</p>
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <h3 className="text-sm font-medium">{config.label}</h3>
+            {showExisting && (
+              <Badge variant="secondary" className="h-5 text-[10px] font-normal">
+                On file
+              </Badge>
+            )}
+          </div>
+          <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{config.hint}</p>
         </div>
-        <div className="flex flex-col items-end gap-1.5 shrink-0">
-          {isRequired
-            ? <Badge variant="secondary" className="text-xs">Required</Badge>
-            : <Badge variant="outline" className="text-xs">Optional</Badge>
-          }
-          {showExisting && (
-            <Badge className="text-xs bg-primary/10 text-primary border-0">On file</Badge>
-          )}
-        </div>
+        {isRequired && (
+          <span className="shrink-0 text-[11px] font-medium text-muted-foreground">Required</span>
+        )}
       </div>
 
       {showExisting ? (
-        <ExistingDocCard
+        <ExistingDocConsent
           doc={existingDoc}
           consentGiven={consentGiven}
           onConsentChange={onConsentChange}
           onReplace={onStartReplace}
-          required={isRequired}
         />
       ) : (
-        <UploadZone
-          config={config}
-          party={party}
-          value={formValue}
-          onDone={onDone}
-          onClear={onClear}
-          error={error}
-        />
+        <UploadZone config={config} party={party} onDone={onDone} error={error} />
       )}
 
       {showExisting && !consentGiven && isRequired && error && (
         <p className="flex items-center gap-1.5 text-xs text-destructive" aria-live="polite">
-          <AlertCircle className="h-3.5 w-3.5" />
+          <AlertCircle className="h-3.5 w-3.5 shrink-0" />
           {error}
         </p>
       )}
@@ -380,6 +388,7 @@ export default function KycStep({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [consents, setConsents] = useState<Partial<Record<KycDocKey, boolean>>>({});
   const [replacing, setReplacing] = useState<Partial<Record<KycDocKey, boolean>>>({});
+  const [optionalOpen, setOptionalOpen] = useState(false);
 
   const partyKey = party.partyType === "ORG" ? party.orgId : party.clientId;
 
@@ -398,16 +407,23 @@ export default function KycStep({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [partyKey]);
 
-  const byKey = Object.fromEntries(
-    existingDocs.map((d) => [d.key, d]),
-  ) as Partial<Record<KycDocKey, PartyKycDoc>>;
+  const byKey = useMemo(
+    () =>
+      Object.fromEntries(existingDocs.map((d) => [d.key, d])) as Partial<
+        Record<KycDocKey, PartyKycDoc>
+      >,
+    [existingDocs],
+  );
 
   const kycErrors = errors.kycDocs as Record<string, { message?: string }> | undefined;
 
-  const requiredKeys = new Set(requiredKycKeys(shipmentType));
+  const requiredKeys = useMemo(() => new Set(requiredKycKeys(shipmentType)), [shipmentType]);
   const requiredConfigs = KYC_DOC_CONFIGS.filter((c) => requiredKeys.has(c.key));
   const optionalConfigs = KYC_DOC_CONFIGS.filter((c) => !requiredKeys.has(c.key));
+
   const completedCount = requiredConfigs.filter((c) => !!kycDocs?.[c.key]).length;
+  const allDone = requiredConfigs.length > 0 && completedCount === requiredConfigs.length;
+  const optionalAdded = optionalConfigs.filter((c) => !!kycDocs?.[c.key]).length;
 
   const handleConsent = (key: KycDocKey) => (given: boolean) => {
     setConsents((prev) => ({ ...prev, [key]: given }));
@@ -416,13 +432,17 @@ export default function KycStep({
     } else {
       const doc = byKey[key];
       if (doc) {
-        setValue(`kycDocs.${key}`, {
-          fileUrl: doc.fileUrl,
-          fileKey: doc.fileKey,
-          fileName: doc.fileName,
-          fileSize: doc.fileSize,
-          mimeType: doc.mimeType,
-        }, { shouldValidate: true });
+        setValue(
+          `kycDocs.${key}`,
+          {
+            fileUrl: doc.fileUrl,
+            fileKey: doc.fileKey,
+            fileName: doc.fileName,
+            fileSize: doc.fileSize,
+            mimeType: doc.mimeType,
+          },
+          { shouldValidate: true },
+        );
       }
     }
   };
@@ -437,83 +457,68 @@ export default function KycStep({
     setValue(`kycDocs.${key}`, meta, { shouldValidate: true });
   };
 
-  const handleClear = (key: KycDocKey) => () => {
+  // Back to square one for this doc: clears the form value, consent and any
+  // in-progress replace, so it falls back to the "on file" card (if the vault
+  // has it) or a fresh upload zone.
+  const handleReset = (key: KycDocKey) => () => {
     setValue(`kycDocs.${key}`, null, { shouldValidate: true });
+    setConsents((prev) => ({ ...prev, [key]: false }));
+    setReplacing((prev) => ({ ...prev, [key]: false }));
   };
 
   const forClient = party.partyType === "CLIENT";
+  const progress = requiredConfigs.length
+    ? Math.round((completedCount / requiredConfigs.length) * 100)
+    : 100;
 
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-base font-semibold">KYC Documents</h2>
+        <h2 className="text-lg font-semibold">Documents for customs</h2>
         <p className="mt-0.5 text-sm text-muted-foreground">
-          Customs requires identity and export-compliance documents for every
-          international shipment from India.
+          Indian customs needs a few identity and export documents for every
+          international shipment. {forClient
+            ? "We read from and save to this client's vault, so you only upload each one once."
+            : "We read from and save to your vault, so you only upload each one once."}
         </p>
       </div>
 
-      <div className="flex items-start gap-3 rounded-lg border bg-muted/30 px-4 py-3 text-sm">
-        <Info className="h-4 w-4 mt-0.5 shrink-0 text-muted-foreground" />
-        <div>
-          <p className="font-medium">
-            {TYPE_LABEL[shipmentType]} shipment — {requiredConfigs.length} required document
-            {requiredConfigs.length !== 1 ? "s" : ""}
-          </p>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            {forClient
-              ? "Reading from this client's document vault — anything you upload is saved to their vault for next time."
-              : "Reading from your document vault — anything you upload is saved for next time."}
-          </p>
+      {/* Progress */}
+      <div className="rounded-lg border bg-muted/20 p-4">
+        <div className="flex items-center justify-between text-sm">
+          <span className="font-medium">
+            {TYPE_LABEL[shipmentType]} shipment
+          </span>
+          <span className={cn("text-xs", allDone ? "text-emerald-600" : "text-muted-foreground")}>
+            {allDone ? (
+              <span className="flex items-center gap-1">
+                <CheckCircle2 className="h-3.5 w-3.5" /> All required documents ready
+              </span>
+            ) : (
+              `${completedCount} of ${requiredConfigs.length} required ready`
+            )}
+          </span>
         </div>
+        <Progress value={progress} className="mt-2.5 h-1.5" />
       </div>
 
       {loadingDocs && (
         <div className="flex items-center gap-2 text-sm text-muted-foreground" aria-live="polite">
           <Loader2 className="h-4 w-4 animate-spin" />
-          Checking the document vault…
+          Checking your document vault…
         </div>
       )}
 
       {loadError && !loadingDocs && (
         <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
           <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-          Could not load saved documents ({loadError}). Please upload below.
+          Could not load saved documents ({loadError}). You can still upload below.
         </div>
       )}
 
-      {!loadingDocs && existingDocs.length > 0 && (
-        <div className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-xs text-green-700">
-          <ShieldCheck className="h-3.5 w-3.5 shrink-0" />
-          {existingDocs.length} document{existingDocs.length !== 1 ? "s" : ""} found in the
-          vault — tick consent on each to reuse them for this shipment.
-        </div>
-      )}
-
+      {/* Required documents */}
       {!loadingDocs && (
-        <div className="flex items-center justify-between rounded-lg border bg-muted/30 px-4 py-3">
-          <div>
-            <p className="text-sm font-medium">Required documents</p>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              {completedCount} of {requiredConfigs.length} completed
-            </p>
-          </div>
-          <div className={cn(
-            "flex h-10 w-10 items-center justify-center rounded-full text-sm font-bold transition-colors",
-            completedCount === requiredConfigs.length
-              ? "bg-green-100 text-green-700"
-              : "bg-muted text-muted-foreground",
-          )}>
-            {completedCount}/{requiredConfigs.length}
-          </div>
-        </div>
-      )}
-
-      {!loadingDocs && (
-        <div className="space-y-3">
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Required
-          </p>
+        <div className="space-y-2.5">
           {requiredConfigs.map((config) => (
             <DocSection
               key={config.key}
@@ -527,20 +532,38 @@ export default function KycStep({
               onConsentChange={handleConsent(config.key)}
               onStartReplace={handleReplace(config.key)}
               onDone={handleDone(config.key)}
-              onClear={handleClear(config.key)}
+              onReset={handleReset(config.key)}
               error={kycErrors?.[config.key]?.message}
             />
           ))}
         </div>
       )}
 
+      {/* Optional documents — tucked away so they never block the path to Next */}
       {!loadingDocs && optionalConfigs.length > 0 && (
-        <>
-          <Separator />
-          <div className="space-y-3">
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Optional
-            </p>
+        <Collapsible open={optionalOpen} onOpenChange={setOptionalOpen}>
+          <CollapsibleTrigger asChild>
+            <button
+              type="button"
+              className="flex w-full items-center justify-between rounded-lg border border-dashed px-4 py-3 text-left transition-colors hover:bg-muted/40"
+            >
+              <span className="flex items-center gap-2 text-sm">
+                <Plus className="h-4 w-4 text-muted-foreground" />
+                <span className="font-medium">Add optional documents</span>
+                <span className="text-xs text-muted-foreground">
+                  Not needed to continue
+                  {optionalAdded > 0 && ` · ${optionalAdded} added`}
+                </span>
+              </span>
+              <ChevronDown
+                className={cn(
+                  "h-4 w-4 text-muted-foreground transition-transform",
+                  optionalOpen && "rotate-180",
+                )}
+              />
+            </button>
+          </CollapsibleTrigger>
+          <CollapsibleContent className="space-y-2.5 pt-2.5">
             {optionalConfigs.map((config) => (
               <DocSection
                 key={config.key}
@@ -554,12 +577,12 @@ export default function KycStep({
                 onConsentChange={handleConsent(config.key)}
                 onStartReplace={handleReplace(config.key)}
                 onDone={handleDone(config.key)}
-                onClear={handleClear(config.key)}
+                onReset={handleReset(config.key)}
                 error={undefined}
               />
             ))}
-          </div>
-        </>
+          </CollapsibleContent>
+        </Collapsible>
       )}
     </div>
   );
