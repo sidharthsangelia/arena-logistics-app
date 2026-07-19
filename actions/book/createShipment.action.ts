@@ -66,7 +66,18 @@ import {
 // ---------------------------------------------------------------------------
 
 export type CreateShipmentResult =
-  | { success: true; shipmentId: string; shipmentNumber: string }
+  | {
+      success: true;
+      shipmentId: string;
+      shipmentNumber: string;
+      /**
+       * True when the org has payments turned off (Org.skipPayment): the
+       * shipment was booked WITHOUT a wallet debit and flagged so ops collect
+       * payment when the parcel reaches the hub. The success screen shows
+       * different copy in this case.
+       */
+      paymentDeferred: boolean;
+    }
   | {
       success: false;
       /** Safe to show to the user */
@@ -103,6 +114,7 @@ class AuthError extends Error {
 async function resolveOrg(): Promise<{
   dbOrgId: string;
   markupPercent: Decimal;
+  skipPayment: boolean;
   userId: string;
 }> {
   const { userId, orgId: clerkOrgId } = await auth();
@@ -110,11 +122,16 @@ async function resolveOrg(): Promise<{
 
   const org = await prisma.org.findUnique({
     where: { clerkOrgId },
-    select: { id: true, markupPercent: true },
+    select: { id: true, markupPercent: true, skipPayment: true },
   });
   if (!org) throw new AuthError("ORG_NOT_FOUND");
 
-  return { dbOrgId: org.id, markupPercent: org.markupPercent, userId };
+  return {
+    dbOrgId: org.id,
+    markupPercent: org.markupPercent,
+    skipPayment: org.skipPayment,
+    userId,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -358,15 +375,18 @@ export async function createShipmentAction(
     // ── 1. Auth ───────────────────────────────────────────────────────────
     let dbOrgId: string;
     let markupPercent: Decimal;
+    let skipPayment: boolean;
     let userId: string;
 
     try {
       const resolved = await resolveOrg();
       dbOrgId = resolved.dbOrgId;
       markupPercent = resolved.markupPercent;
+      skipPayment = resolved.skipPayment;
       userId = resolved.userId;
       scope.setUser({ id: userId });
       scope.setTag("orgId", dbOrgId);
+      scope.setTag("skipPayment", String(skipPayment));
     } catch (err) {
       if (err instanceof AuthError) {
         if (err.code === "UNAUTHENTICATED") {
@@ -580,6 +600,11 @@ export async function createShipmentAction(
 
             status: ShipmentStatus.PENDING_PAYMENT,
 
+            // Orgs with payments turned off (Org.skipPayment) book without a
+            // wallet debit; ops collect the charge when the parcel reaches the
+            // hub. The flag lets ops filter these "payment pending" bookings.
+            paymentDeferred: skipPayment,
+
             packages: {
               create: data.boxes.map((box) => buildPackageRow(box, data.currency)),
             },
@@ -619,19 +644,32 @@ export async function createShipmentAction(
           },
         });
 
-        // 4g. Atomic, race-safe wallet debit. Throws InsufficientFundsError
-        // if the org's wallet can't cover servicePrice — that error
-        // propagates out of this callback, and Prisma rolls back
-        // everything created above (addresses, shipment, packages,
-        // invoice doc, status event) automatically.
-        Sentry.addBreadcrumb({
-          message: `Debiting wallet ₹${chargeTotal} (service ₹${servicePrice} + first-mile ₹${firstMileCharge}) for shipment ${shipmentNumber}`,
-          level: "info",
-        });
+        // 4g. Payment. Two mutually exclusive paths:
+        //
+        //   • skipPayment orgs — NO wallet debit. The shipment is booked with
+        //     paymentDeferred=true (set above) and ops collect the charge at
+        //     the hub. This is the ONLY path that must never touch the wallet.
+        //
+        //   • everyone else — atomic, race-safe wallet debit. Throws
+        //     InsufficientFundsError if the wallet can't cover chargeTotal;
+        //     that error propagates out of this callback and Prisma rolls back
+        //     everything created above (addresses, shipment, packages, invoice
+        //     doc, status event) automatically. No orphaned PENDING_PAYMENT
+        //     row is ever left behind.
+        if (skipPayment) {
+          Sentry.addBreadcrumb({
+            message: `Payment deferred (skipPayment org) — booking ${shipmentNumber} without debit`,
+            level: "info",
+          });
+        } else {
+          Sentry.addBreadcrumb({
+            message: `Debiting wallet ₹${chargeTotal} (service ₹${servicePrice} + first-mile ₹${firstMileCharge}) for shipment ${shipmentNumber}`,
+            level: "info",
+          });
+          await debitWalletForShipment(tx, dbOrgId, chargeTotal, shipment.id);
+        }
 
-        await debitWalletForShipment(tx, dbOrgId, chargeTotal, shipment.id);
-
-        // 4h. Debit succeeded — flip to BOOKED.
+        // 4h. Payment resolved — flip to BOOKED.
         await tx.shipment.update({
           where: { id: shipment.id },
           data: {
@@ -645,7 +683,9 @@ export async function createShipmentAction(
             shipmentId: shipment.id,
             fromStatus: ShipmentStatus.PENDING_PAYMENT,
             toStatus: ShipmentStatus.BOOKED,
-            note: "Wallet debit successful.",
+            note: skipPayment
+              ? "Booked with payment deferred — to be collected at hub."
+              : "Wallet debit successful.",
             changedByType: "SYSTEM",
           },
         });
@@ -667,6 +707,7 @@ export async function createShipmentAction(
         success: true,
         shipmentId: txResult.shipmentId,
         shipmentNumber: txResult.shipmentNumber,
+        paymentDeferred: skipPayment,
       };
     } catch (err) {
       // Insufficient wallet balance — not a bug, not reported to Sentry.

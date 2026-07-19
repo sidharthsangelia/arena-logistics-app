@@ -76,10 +76,12 @@ const WALLET_STATUS_UNKNOWN: WalletStatus = { loading: true, sufficient: false }
 function SuccessScreen({
   shipmentNumber,
   shipmentId,
+  paymentDeferred,
   onReset,
 }: {
   shipmentNumber: string;
   shipmentId: string;
+  paymentDeferred: boolean;
   onReset: () => void;
 }) {
   return (
@@ -91,8 +93,16 @@ function SuccessScreen({
           </div>
           <h2 className="mt-6 text-xl font-semibold">Shipment booked</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Your booking is confirmed and now in the ops queue.
+            {paymentDeferred
+              ? "Your booking is confirmed and now in the ops queue. Payment will be collected when your parcel reaches the hub."
+              : "Your booking is confirmed and now in the ops queue."}
           </p>
+          {paymentDeferred && (
+            <div className="mt-4 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-xs font-medium text-amber-700">
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+              Payment pending — collected at hub
+            </div>
+          )}
           <div className="mt-4 rounded-lg border bg-muted/40 px-6 py-3 text-center">
             <p className="text-xs text-muted-foreground uppercase tracking-wider">
               Shipment number
@@ -161,6 +171,7 @@ export default function BookingWizard({
   const [submitted, setSubmitted] = React.useState<{
     shipmentId: string;
     shipmentNumber: string;
+    paymentDeferred: boolean;
   } | null>(null);
 
   // Set only when createShipmentAction fails specifically because the
@@ -236,6 +247,7 @@ export default function BookingWizard({
         setSubmitted({
           shipmentId: result.shipmentId,
           shipmentNumber: result.shipmentNumber,
+          paymentDeferred: result.paymentDeferred,
         });
         return;
       }
@@ -346,6 +358,7 @@ export default function BookingWizard({
       <SuccessScreen
         shipmentNumber={submitted.shipmentNumber}
         shipmentId={submitted.shipmentId}
+        paymentDeferred={submitted.paymentDeferred}
         onReset={() => {
           setSubmitted(null);
           resetBooking();
@@ -360,8 +373,13 @@ export default function BookingWizard({
   // the schema validation earlier in the wizard already guards against
   // reaching Review without one, and ServiceBlock/ReviewStep surface that
   // as an error state instead.
+  // skipPayment orgs defer payment to the hub — there's no wallet check to
+  // pass, and WalletPaymentSummary never reports a status, so the gate must be
+  // bypassed entirely (otherwise walletStatus stays loading/insufficient and
+  // the button would never enable).
   const walletBlocking =
     isLastStep &&
+    !orgContext.skipPayment &&
     !!formData.selectedService &&
     (walletStatus.loading || !walletStatus.sufficient);
 
@@ -451,6 +469,7 @@ export default function BookingWizard({
             {currentStepKey === STEP_KEY.REVIEW && (
               <ReviewStep
                 data={formData}
+                skipPayment={orgContext.skipPayment}
                 onWalletStatusChange={(info) =>
                   setWalletStatus({ loading: info.loading, sufficient: info.sufficient })
                 }
@@ -501,7 +520,7 @@ export default function BookingWizard({
                       Saving…
                     </>
                   ) : isLastStep ? (
-                    "Pay & Place Booking"
+                    orgContext.skipPayment ? "Place Booking" : "Pay & Place Booking"
                   ) : (
                     <>
                       Save &amp; Next

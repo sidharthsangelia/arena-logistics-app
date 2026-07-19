@@ -2,14 +2,18 @@
 
 import {
   User, Building2, MapPinned, Shield, FileText,
-  Truck, CheckCircle2, FileCheck2,
-  MapPin, ArrowRight, Scale, Wallet, Home,
+  Truck, CheckCircle2, FileCheck2, Clock3,
+  MapPin, ArrowRight, Scale, Wallet, Home, PackageCheck,
 } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
-import type { BookingFormData, FileMeta } from "@/types/booking.types";
+import type {
+  BookingFormData,
+  FileMeta,
+  ShipmentTypeValue,
+} from "@/types/booking.types";
 import { WalletPaymentSummary } from "../WalletPaymentSummary";
-import { KYC_DOC_CONFIGS } from "@/lib/booking/kyc";
+import { KYC_DOC_CONFIGS, requiredKycKeys } from "@/lib/booking/kyc";
 import {
   totalActualWeight,
   totalBoxCount,
@@ -98,22 +102,68 @@ const KYC_LABELS: Record<string, string> = Object.fromEntries(
   KYC_DOC_CONFIGS.map((c) => [c.key, c.label]),
 );
 
-function KycBlock({ docs }: { docs: BookingFormData["kycDocs"] }) {
-  const uploaded = Object.entries(docs).filter(([, v]) => v !== null) as [string, FileMeta][];
+const SHIPMENT_TYPE_LABELS: Record<ShipmentTypeValue, string> = {
+  CSB4: "CSB-IV",
+  CSB5: "CSB-V",
+  COMMERCIAL: "Commercial",
+};
+
+/**
+ * KYC completeness for the current shipment type. `required` is the set of doc
+ * keys the shipment type demands; `missing` are the ones not yet on the form.
+ * The server re-verifies against the vault at submit — this is the friendly
+ * heads-up so the user isn't surprised by a rejection on the last click.
+ */
+function kycStatusOf(data: BookingFormData) {
+  const required = requiredKycKeys(data.shipmentType);
+  const missing = required.filter((k) => !data.kycDocs[k]);
+  return { required, missing, complete: missing.length === 0 };
+}
+
+function KycStatusBadge({ data }: { data: BookingFormData }) {
+  const { required, missing } = kycStatusOf(data);
+  if (missing.length === 0) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full border border-green-200 bg-green-50 px-2 py-0.5 text-[11px] font-medium text-green-700">
+        <PackageCheck className="h-3 w-3" />
+        {required.length}/{required.length} complete
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">
+      <Clock3 className="h-3 w-3" />
+      {missing.length} missing
+    </span>
+  );
+}
+
+function KycBlock({ data }: { data: BookingFormData }) {
+  const uploaded = Object.entries(data.kycDocs).filter(([, v]) => v !== null) as [string, FileMeta][];
+  const { missing } = kycStatusOf(data);
+
   if (uploaded.length === 0) {
     return <p className="text-sm text-muted-foreground">No documents uploaded.</p>;
   }
   return (
-    <div className="grid grid-cols-2 gap-2">
-      {uploaded.map(([key, meta]) => (
-        <div key={key} className="flex items-center gap-2 rounded-md border bg-muted/30 px-3 py-2 text-xs">
-          <FileCheck2 className="h-3.5 w-3.5 shrink-0 text-green-600" />
-          <div className="min-w-0">
-            <p className="font-medium text-foreground">{KYC_LABELS[key] ?? key}</p>
-            <p className="truncate text-muted-foreground">{meta.fileName}</p>
+    <div className="space-y-2">
+      <div className="grid grid-cols-2 gap-2">
+        {uploaded.map(([key, meta]) => (
+          <div key={key} className="flex items-center gap-2 rounded-md border bg-muted/30 px-3 py-2 text-xs">
+            <FileCheck2 className="h-3.5 w-3.5 shrink-0 text-green-600" />
+            <div className="min-w-0">
+              <p className="font-medium text-foreground">{KYC_LABELS[key] ?? key}</p>
+              <p className="truncate text-muted-foreground">{meta.fileName}</p>
+            </div>
           </div>
-        </div>
-      ))}
+        ))}
+      </div>
+      {missing.length > 0 && (
+        <p className="text-xs text-amber-700">
+          Still required for {SHIPMENT_TYPE_LABELS[data.shipmentType]}:{" "}
+          {missing.map((k) => KYC_LABELS[k] ?? k).join(", ")}
+        </p>
+      )}
     </div>
   );
 }
@@ -265,13 +315,86 @@ function FirstMileBlock({ data }: { data: BookingFormData }) {
 
 function RouteBar({ data }: { data: BookingFormData }) {
   return (
-    <div className="flex items-center gap-2 rounded-lg border bg-muted/30 px-4 py-3 text-sm">
+    <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-muted/30 px-4 py-3 text-sm">
       <MapPin className="h-4 w-4 shrink-0 text-muted-foreground" />
       <span className="font-medium text-foreground">{data.consignor.city || "Origin"}</span>
       <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground" />
       <span className="font-medium text-foreground">
         {data.consignee.city || "Destination"}, {data.consignee.country}
       </span>
+      <div className="ml-auto flex flex-wrap items-center gap-1.5">
+        <Badge variant="secondary" className="text-[11px]">
+          {SHIPMENT_TYPE_LABELS[data.shipmentType]}
+        </Badge>
+        {data.pickupIncluded && (
+          <Badge variant="outline" className="gap-1 text-[11px]">
+            <Home className="h-3 w-3" />
+            Door pickup
+          </Badge>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Charge breakdown — international service + door-pickup first mile → total.
+// Shared by the wallet and deferred-payment paths.
+// ---------------------------------------------------------------------------
+
+function ChargeBreakdown({ data }: { data: BookingFormData }) {
+  const service = data.selectedService;
+  if (!service) return null;
+  const firstMile = firstMileChargeOf(data);
+  const total = service.price + firstMile;
+
+  return (
+    <div className="rounded-lg border bg-muted/30 px-4 py-3 text-sm">
+      <div className="flex justify-between text-muted-foreground">
+        <span>International shipping</span>
+        <span className="text-foreground">{fmt(service.price, service.currency)}</span>
+      </div>
+      {data.pickupIncluded && data.firstMile && (
+        <div className="mt-1 flex justify-between text-muted-foreground">
+          <span>Door pickup (first mile)</span>
+          <span className="text-foreground">{fmt(firstMile, service.currency)}</span>
+        </div>
+      )}
+      <Separator className="my-2" />
+      <div className="flex justify-between font-semibold text-foreground">
+        <span>Total</span>
+        <span>{fmt(total, service.currency)}</span>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Deferred payment panel — shown for skipPayment orgs. No wallet, no debit;
+// the charge is collected when the parcel reaches the hub.
+// ---------------------------------------------------------------------------
+
+function DeferredPaymentPanel({
+  amountRupees,
+  currency,
+}: {
+  amountRupees: number;
+  currency: string;
+}) {
+  return (
+    <div className="rounded-lg border border-primary/30 bg-primary/5 px-4 py-3">
+      <div className="flex items-start gap-3 text-sm">
+        <Clock3 className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+        <div className="space-y-1">
+          <p className="font-medium text-foreground">Pay on arrival at hub</p>
+          <p className="text-muted-foreground">
+            No payment is taken now. This booking is placed straight away and our
+            team collects{" "}
+            <span className="font-semibold text-foreground">{fmt(amountRupees, currency)}</span>{" "}
+            when your parcel reaches the carrier hub.
+          </p>
+        </div>
+      </div>
     </div>
   );
 }
@@ -289,9 +412,16 @@ interface WalletSufficiencyInfo {
 interface ReviewStepProps {
   data: BookingFormData;
   /**
+   * Org has payments turned off (Org.skipPayment). When true, no wallet
+   * balance is checked and no debit happens — the booking is placed with
+   * payment deferred (collected at the hub). The wallet summary is replaced
+   * by an informational "pay on arrival" panel.
+   */
+  skipPayment?: boolean;
+  /**
    * Fired whenever the wallet balance check (initial load, manual refresh,
    * post-topup refresh) changes. The wizard uses this to gate/enable the
-   * "Pay & Place Booking" button.
+   * "Pay & Place Booking" button. Never fired when skipPayment is true.
    */
   onWalletStatusChange?: (info: WalletSufficiencyInfo) => void;
   /**
@@ -301,7 +431,12 @@ interface ReviewStepProps {
   onTopUpSuccess?: () => void;
 }
 
-export default function ReviewStep({ data, onWalletStatusChange, onTopUpSuccess }: ReviewStepProps) {
+export default function ReviewStep({
+  data,
+  skipPayment = false,
+  onWalletStatusChange,
+  onTopUpSuccess,
+}: ReviewStepProps) {
   const ownerLabel: Record<string, string> = {
     SELF: "My saved profile",
     EXISTING_CLIENT: data.selectedClient?.companyName ?? "Existing client",
@@ -343,9 +478,27 @@ export default function ReviewStep({ data, onWalletStatusChange, onTopUpSuccess 
       <div className="grid gap-6 sm:grid-cols-2">
         <Section icon={Building2} title="Sender">
           <AddressBlock data={data.consignor} />
+          {!data.pickupSameAsSender && (
+            <div className="space-y-1.5 pt-1">
+              <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                <Home className="h-3 w-3" />
+                Parcel collected from
+              </p>
+              <AddressBlock data={data.pickup} />
+            </div>
+          )}
         </Section>
         <Section icon={MapPinned} title="Receiver">
           <AddressBlock data={data.consignee} />
+          {!data.billingSameAsDelivery && (
+            <div className="space-y-1.5 pt-1">
+              <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                <FileText className="h-3 w-3" />
+                Invoice billed to
+              </p>
+              <AddressBlock data={data.billing} />
+            </div>
+          )}
         </Section>
       </div>
 
@@ -365,8 +518,12 @@ export default function ReviewStep({ data, onWalletStatusChange, onTopUpSuccess 
 
       <Separator />
 
-      <Section icon={Shield} title="KYC Documents">
-        <KycBlock docs={data.kycDocs} />
+      <Section
+        icon={Shield}
+        title="KYC Documents"
+        aside={<KycStatusBadge data={data} />}
+      >
+        <KycBlock data={data} />
       </Section>
 
       <Separator />
@@ -374,40 +531,27 @@ export default function ReviewStep({ data, onWalletStatusChange, onTopUpSuccess 
       <Section icon={Wallet} title="Payment">
         {data.selectedService ? (
           <div className="space-y-3">
-            {/* Charge breakdown — the wallet is debited for the combined total
-                (international service + door-pickup first mile). */}
-            {data.pickupIncluded && data.firstMile && (
-              <div className="rounded-lg border bg-muted/30 px-4 py-3 text-sm">
-                <div className="flex justify-between text-muted-foreground">
-                  <span>International shipping</span>
-                  <span className="text-foreground">
-                    {fmt(data.selectedService.price, data.selectedService.currency)}
-                  </span>
-                </div>
-                <div className="mt-1 flex justify-between text-muted-foreground">
-                  <span>Door pickup (first mile)</span>
-                  <span className="text-foreground">
-                    {fmt(data.firstMile.price, data.firstMile.currency)}
-                  </span>
-                </div>
-                <Separator className="my-2" />
-                <div className="flex justify-between font-semibold text-foreground">
-                  <span>Total</span>
-                  <span>
-                    {fmt(
-                      data.selectedService.price + firstMileChargeOf(data),
-                      data.selectedService.currency,
-                    )}
-                  </span>
-                </div>
-              </div>
+            {/* Charge breakdown — the amount payable is the combined total
+                (international service + door-pickup first mile). Always shown
+                for deferred payment so the customer knows what to pay at the
+                hub; shown for wallet only when there's a first-mile line. */}
+            {(skipPayment || (data.pickupIncluded && data.firstMile)) && (
+              <ChargeBreakdown data={data} />
             )}
-            <WalletPaymentSummary
-              requiredAmountRupees={data.selectedService.price + firstMileChargeOf(data)}
-              currency={data.selectedService.currency}
-              onSufficiencyChange={onWalletStatusChange}
-              onTopUpSuccess={onTopUpSuccess}
-            />
+
+            {skipPayment ? (
+              <DeferredPaymentPanel
+                amountRupees={data.selectedService.price + firstMileChargeOf(data)}
+                currency={data.selectedService.currency}
+              />
+            ) : (
+              <WalletPaymentSummary
+                requiredAmountRupees={data.selectedService.price + firstMileChargeOf(data)}
+                currency={data.selectedService.currency}
+                onSufficiencyChange={onWalletStatusChange}
+                onTopUpSuccess={onTopUpSuccess}
+              />
+            )}
           </div>
         ) : (
           <p className="text-sm text-destructive">No service selected.</p>
@@ -417,8 +561,9 @@ export default function ReviewStep({ data, onWalletStatusChange, onTopUpSuccess 
       <div className="flex items-start gap-3 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
         <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-green-600" />
         <p>
-          By clicking <strong>Pay &amp; Place Booking</strong> you confirm all details are
-          accurate and agree to the carrier's terms of service.
+          By clicking{" "}
+          <strong>{skipPayment ? "Place Booking" : "Pay & Place Booking"}</strong> you
+          confirm all details are accurate and agree to the carrier's terms of service.
         </p>
       </div>
     </div>
