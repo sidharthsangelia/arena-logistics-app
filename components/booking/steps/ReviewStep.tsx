@@ -2,7 +2,7 @@
 
 import {
   User, Building2, MapPinned, Shield, FileText,
-  Truck, CheckCircle2, FileCheck2, Clock3,
+  CheckCircle2, FileCheck2, Clock3,
   MapPin, ArrowRight, Scale, Wallet, Home, PackageCheck,
   Plane,
 } from "lucide-react";
@@ -16,12 +16,11 @@ import type {
 import { WalletPaymentSummary } from "../WalletPaymentSummary";
 import { KYC_DOC_CONFIGS, requiredKycKeys } from "@/lib/booking/kyc";
 import {
-  totalActualWeight,
+  totalChargeableWeight,
   totalBoxCount,
   totalDeclaredValue,
   boxDeclaredValue,
 } from "@/lib/booking/cargo";
- 
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -34,10 +33,6 @@ function fmt(amount: number, currency = "INR") {
     maximumFractionDigits: 0,
   }).format(amount);
 }
-
-// ---------------------------------------------------------------------------
-// Section wrapper
-// ---------------------------------------------------------------------------
 
 function Section({
   icon: Icon,
@@ -52,7 +47,7 @@ function Section({
 }) {
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
           <div className="flex h-6 w-6 items-center justify-center rounded-md bg-primary/10">
             <Icon className="h-3.5 w-3.5 text-primary" />
@@ -61,7 +56,7 @@ function Section({
         </div>
         {aside}
       </div>
-      <div className="pl-8 space-y-1.5">{children}</div>
+      <div className="space-y-1.5 pl-8">{children}</div>
     </div>
   );
 }
@@ -78,15 +73,15 @@ function Row({ label, value }: { label: string; value?: string | null }) {
 
 function AddressBlock({ data }: { data: BookingFormData["consignor"] }) {
   const addrLine = [data.addressLine1, data.addressLine2].filter(Boolean).join(", ");
-  const geoLine  = [data.city, data.state, data.postalCode].filter(Boolean).join(", ");
+  const geoLine = [data.city, data.state, data.postalCode].filter(Boolean).join(", ");
 
   return (
-    <div className="rounded-lg border bg-muted/30 px-4 py-3 space-y-1 text-sm">
+    <div className="space-y-1 rounded-lg border bg-muted/30 px-4 py-3 text-sm">
       {data.contactName && <p className="font-medium text-foreground">{data.contactName}</p>}
       {data.companyName && <p className="text-muted-foreground">{data.companyName}</p>}
       {data.email && <p className="text-muted-foreground">{data.email}</p>}
       {data.phone && <p className="text-muted-foreground">{data.phone}</p>}
-      {addrLine && <p className="pt-1 text-muted-foreground text-xs">{addrLine}</p>}
+      {addrLine && <p className="pt-1 text-xs text-muted-foreground">{addrLine}</p>}
       {geoLine && (
         <p className="text-xs text-muted-foreground">
           {geoLine}
@@ -125,16 +120,16 @@ function KycStatusBadge({ data }: { data: BookingFormData }) {
   const { required, missing } = kycStatusOf(data);
   if (missing.length === 0) {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full border border-green-200 bg-green-50 px-2 py-0.5 text-[11px] font-medium text-green-700">
+      <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-400">
         <PackageCheck className="h-3 w-3" />
-        {required.length}/{required.length} complete
+        {required.length}/{required.length} ready
       </span>
     );
   }
   return (
     <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">
       <Clock3 className="h-3 w-3" />
-      {missing.length} missing
+      {missing.length} still needed
     </span>
   );
 }
@@ -144,14 +139,14 @@ function KycBlock({ data }: { data: BookingFormData }) {
   const { missing } = kycStatusOf(data);
 
   if (uploaded.length === 0) {
-    return <p className="text-sm text-muted-foreground">No documents uploaded.</p>;
+    return <p className="text-sm text-muted-foreground">No documents added yet.</p>;
   }
   return (
     <div className="space-y-2">
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid gap-2 sm:grid-cols-2">
         {uploaded.map(([key, meta]) => (
           <div key={key} className="flex items-center gap-2 rounded-md border bg-muted/30 px-3 py-2 text-xs">
-            <FileCheck2 className="h-3.5 w-3.5 shrink-0 text-green-600" />
+            <FileCheck2 className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
             <div className="min-w-0">
               <p className="font-medium text-foreground">{KYC_LABELS[key] ?? key}</p>
               <p className="truncate text-muted-foreground">{meta.fileName}</p>
@@ -161,7 +156,7 @@ function KycBlock({ data }: { data: BookingFormData }) {
       </div>
       {missing.length > 0 && (
         <p className="text-xs text-amber-700">
-          Still required for {SHIPMENT_TYPE_LABELS[data.shipmentType]}:{" "}
+          Still needed for {SHIPMENT_TYPE_LABELS[data.shipmentType]}:{" "}
           {missing.map((k) => KYC_LABELS[k] ?? k).join(", ")}
         </p>
       )}
@@ -170,9 +165,8 @@ function KycBlock({ data }: { data: BookingFormData }) {
 }
 
 // ---------------------------------------------------------------------------
-// Shipment items block — replaces the separate Invoice + Packages blocks.
-// Currency lives once at `data.currency`, so a mixed-currency total is no
-// longer structurally possible.
+// Shipment items block. Currency lives once at `data.currency`, so a
+// mixed-currency total is not structurally possible.
 // ---------------------------------------------------------------------------
 
 function ShipmentItemsBlock({ data }: { data: BookingFormData }) {
@@ -182,26 +176,27 @@ function ShipmentItemsBlock({ data }: { data: BookingFormData }) {
     return <p className="text-sm text-muted-foreground">No boxes added.</p>;
   }
 
-  const totalWeight = totalActualWeight(boxes);
+  const chargeable = totalChargeableWeight(boxes);
   const boxCount = totalBoxCount(boxes);
   const totalValue = totalDeclaredValue(boxes);
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
+      <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
         <span className="flex items-center gap-1">
           <Scale className="h-3 w-3" />
-          {boxCount} box{boxCount !== 1 ? "es" : ""} · {totalWeight.toFixed(2)} kg total
+          {boxCount} box{boxCount !== 1 ? "es" : ""} ·{" "}
+          {chargeable.toLocaleString("en-IN", { maximumFractionDigits: 2 })} kg chargeable
         </span>
         {invoiceMode === "UPLOAD" && uploadedInvoice && (
-          <span className="flex items-center gap-1 text-green-600">
+          <span className="flex items-center gap-1 text-emerald-600">
             <FileCheck2 className="h-3 w-3" />
             {uploadedInvoice.fileName} attached
           </span>
         )}
       </div>
 
-      <div className="rounded-lg border overflow-hidden text-sm">
+      <div className="overflow-hidden rounded-lg border text-sm">
         <div className="divide-y">
           {boxes.map((box, bi) => {
             const boxValue = boxDeclaredValue(box);
@@ -216,14 +211,14 @@ function ShipmentItemsBlock({ data }: { data: BookingFormData }) {
                     </span>
                   </p>
                   <p className="shrink-0 text-xs font-medium">
-                    {currency}{" "}
-                    {(boxValue * box.quantity).toLocaleString("en-IN")}
+                    {currency} {(boxValue * box.quantity).toLocaleString("en-IN")}
                   </p>
                 </div>
                 <ul className="mt-1 space-y-0.5 text-xs text-muted-foreground">
                   {box.contents.map((it) => (
                     <li key={it.id}>
-                      {it.description || "—"} · HSN {it.hsCode || "—"} · {it.quantity} ×{" "}
+                      {it.description || "Item"}
+                      {it.hsCode ? ` · HSN ${it.hsCode}` : ""} · {it.quantity} ×{" "}
                       {currency} {it.unitValue.toLocaleString("en-IN")}
                     </li>
                   ))}
@@ -242,7 +237,7 @@ function ShipmentItemsBlock({ data }: { data: BookingFormData }) {
 }
 
 // ---------------------------------------------------------------------------
-// Service block
+// Service + first-mile blocks
 // ---------------------------------------------------------------------------
 
 function ServiceBlock({ service }: { service: BookingFormData["selectedService"] }) {
@@ -251,34 +246,25 @@ function ServiceBlock({ service }: { service: BookingFormData["selectedService"]
   }
 
   return (
-    <div className="rounded-lg border-2 border-primary bg-primary/5 px-5 py-4">
+    <div className="rounded-lg border border-primary/40 bg-primary/5 px-4 py-3">
       <div className="flex items-start justify-between gap-4">
-        <div className="space-y-1">
+        <div className="space-y-1.5">
           <p className="font-semibold text-foreground">{service.productName}</p>
-          <Badge variant="outline" className="text-xs">
-            {service.vendorName}
-          </Badge>
+          <Badge variant="outline" className="text-xs">{service.vendorName}</Badge>
           {service.transitDays > 0 && (
-            <p className="text-xs text-muted-foreground pt-1">
-              Estimated delivery in {service.transitDays} day{service.transitDays !== 1 ? "s" : ""}
+            <p className="pt-0.5 text-xs text-muted-foreground">
+              Delivers in about {service.transitDays} day{service.transitDays !== 1 ? "s" : ""}
             </p>
           )}
         </div>
-        <div className="text-right shrink-0">
-          <p className="text-2xl font-bold text-primary">
-            {fmt(service.price, service.currency)}
-          </p>
+        <div className="shrink-0 text-right">
+          <p className="text-xl font-bold text-foreground">{fmt(service.price, service.currency)}</p>
           <p className="text-xs text-muted-foreground">incl. GST</p>
         </div>
       </div>
     </div>
   );
 }
-
-// ---------------------------------------------------------------------------
-// First-mile (door → hub) block — only shown when door pickup was opted into
-// AND a courier was chosen. Its charge is added to the shipment total below.
-// ---------------------------------------------------------------------------
 
 /** The first-mile charge that actually applies to this booking (0 if none). */
 export function firstMileChargeOf(data: BookingFormData): number {
@@ -288,25 +274,21 @@ export function firstMileChargeOf(data: BookingFormData): number {
 function FirstMileBlock({ data }: { data: BookingFormData }) {
   const { firstMile, firstMileHubLabel } = data;
   if (!firstMile) {
-    return (
-      <p className="text-sm text-destructive">No pickup courier selected.</p>
-    );
+    return <p className="text-sm text-destructive">No pickup courier selected.</p>;
   }
   return (
-    <div className="rounded-lg border bg-muted/30 px-5 py-4">
+    <div className="rounded-lg border bg-muted/30 px-4 py-3">
       <div className="flex items-start justify-between gap-4">
-        <div className="space-y-1">
+        <div className="space-y-1.5">
           <p className="font-semibold text-foreground">{firstMile.productName}</p>
           <Badge variant="outline" className="text-xs">{firstMile.vendorName}</Badge>
-          <p className="text-xs text-muted-foreground pt-1">
-            Door pickup → {firstMileHubLabel || "carrier hub"}
-            {firstMile.transitDays > 0 && ` · ~${firstMile.transitDays} day${firstMile.transitDays !== 1 ? "s" : ""} to hub`}
+          <p className="pt-0.5 text-xs text-muted-foreground">
+            Door pickup to {firstMileHubLabel || "carrier hub"}
+            {firstMile.transitDays > 0 && `, about ${firstMile.transitDays} day${firstMile.transitDays !== 1 ? "s" : ""}`}
           </p>
         </div>
-        <div className="text-right shrink-0">
-          <p className="text-lg font-bold text-foreground">
-            {fmt(firstMile.price, firstMile.currency)}
-          </p>
+        <div className="shrink-0 text-right">
+          <p className="text-lg font-bold text-foreground">{fmt(firstMile.price, firstMile.currency)}</p>
           <p className="text-xs text-muted-foreground">incl. GST</p>
         </div>
       </div>
@@ -340,7 +322,6 @@ function RouteBar({ data }: { data: BookingFormData }) {
 
 // ---------------------------------------------------------------------------
 // Charge breakdown — international service + door-pickup first mile → total.
-// Shared by the wallet and deferred-payment paths.
 // ---------------------------------------------------------------------------
 
 function ChargeBreakdown({ data }: { data: BookingFormData }) {
@@ -362,8 +343,8 @@ function ChargeBreakdown({ data }: { data: BookingFormData }) {
         </div>
       )}
       <Separator className="my-2" />
-      <div className="flex justify-between font-semibold text-foreground">
-        <span>Total</span>
+      <div className="flex justify-between text-base font-semibold text-foreground">
+        <span>Total payable</span>
         <span>{fmt(total, service.currency)}</span>
       </div>
     </div>
@@ -447,35 +428,15 @@ export default function ReviewStep({
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-base font-semibold text-foreground">Review & Confirm</h2>
+        <h2 className="text-lg font-semibold text-foreground">Review and confirm</h2>
         <p className="mt-0.5 text-sm text-muted-foreground">
-          Verify every detail before submitting. Go back to any step to make changes.
+          A quick check before you book. Use Back to change anything.
         </p>
       </div>
 
       <RouteBar data={data} />
 
-      <Section icon={Plane} title="Shipping Service">
-        <ServiceBlock service={data.selectedService} />
-      </Section>
-
-      {data.pickupIncluded && (
-        <>
-          <Separator />
-          <Section icon={Home} title="Door Pickup (First Mile)">
-            <FirstMileBlock data={data} />
-          </Section>
-        </>
-      )}
-
-      <Separator />
-
-      <Section icon={User} title="Booking For">
-        <Row label="Shipping as" value={ownerLabel[data.shipmentOwnerMode]} />
-      </Section>
-
-      <Separator />
-
+      {/* Who + where */}
       <div className="grid gap-6 sm:grid-cols-2">
         <Section icon={Building2} title="Sender">
           <AddressBlock data={data.consignor} />
@@ -503,11 +464,16 @@ export default function ReviewStep({
         </Section>
       </div>
 
+      <Section icon={User} title="Booking for">
+        <Row label="Shipping as" value={ownerLabel[data.shipmentOwnerMode]} />
+      </Section>
+
       <Separator />
 
+      {/* What */}
       <Section
         icon={FileText}
-        title="Shipment Items & Invoice"
+        title="Items and invoice"
         aside={
           <span className="text-xs text-muted-foreground">
             {data.invoiceMode === "UPLOAD" ? "Invoice uploaded" : "Invoice generated"}
@@ -517,28 +483,31 @@ export default function ReviewStep({
         <ShipmentItemsBlock data={data} />
       </Section>
 
-      <Separator />
-
-      <Section
-        icon={Shield}
-        title="KYC Documents"
-        aside={<KycStatusBadge data={data} />}
-      >
+      <Section icon={Shield} title="Customs documents" aside={<KycStatusBadge data={data} />}>
         <KycBlock data={data} />
       </Section>
 
       <Separator />
 
+      {/* Service */}
+      <Section icon={Plane} title="Shipping service">
+        <ServiceBlock service={data.selectedService} />
+      </Section>
+
+      {data.pickupIncluded && (
+        <Section icon={Home} title="Door pickup (first mile)">
+          <FirstMileBlock data={data} />
+        </Section>
+      )}
+
+      <Separator />
+
+      {/* Pay */}
       <Section icon={Wallet} title="Payment">
         {data.selectedService ? (
           <div className="space-y-3">
-            {/* Charge breakdown — the amount payable is the combined total
-                (international service + door-pickup first mile). Always shown
-                for deferred payment so the customer knows what to pay at the
-                hub; shown for wallet only when there's a first-mile line. */}
-            {(skipPayment || (data.pickupIncluded && data.firstMile)) && (
-              <ChargeBreakdown data={data} />
-            )}
+            {/* Always show the breakdown so the total payable is unmistakable. */}
+            <ChargeBreakdown data={data} />
 
             {skipPayment ? (
               <DeferredPaymentPanel
@@ -559,12 +528,12 @@ export default function ReviewStep({
         )}
       </Section>
 
-      <div className="flex items-start gap-3 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
-        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-green-600" />
+      <div className="flex items-start gap-3 rounded-lg border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
         <p>
           By clicking{" "}
-          <strong>{skipPayment ? "Place Booking" : "Pay & Place Booking"}</strong> you
-          confirm all details are accurate and agree to the carrier's terms of service.
+          <strong className="text-foreground">{skipPayment ? "Place Booking" : "Pay & Place Booking"}</strong>{" "}
+          you confirm these details are correct and agree to the carrier&apos;s terms of service.
         </p>
       </div>
     </div>

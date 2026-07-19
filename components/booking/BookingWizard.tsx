@@ -91,16 +91,16 @@ function SuccessScreen({
           <div className="flex h-16 w-16 items-center justify-center rounded-full bg-muted">
             <CheckCircle2 className="h-8 w-8 text-foreground" />
           </div>
-          <h2 className="mt-6 text-xl font-semibold">Shipment booked</h2>
+          <h2 className="mt-6 text-xl font-semibold">Your shipment is booked</h2>
           <p className="mt-1 text-sm text-muted-foreground">
             {paymentDeferred
-              ? "Your booking is confirmed and now in the ops queue. Payment will be collected when your parcel reaches the hub."
-              : "Your booking is confirmed and now in the ops queue."}
+              ? "We've confirmed your booking and sent it to our operations team. You'll pay when your parcel reaches the hub."
+              : "We've confirmed your booking and sent it to our operations team."}
           </p>
           {paymentDeferred && (
             <div className="mt-4 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-xs font-medium text-amber-700">
               <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-              Payment pending — collected at hub
+              Payment due at the hub
             </div>
           )}
           <div className="mt-4 rounded-lg border bg-muted/40 px-6 py-3 text-center">
