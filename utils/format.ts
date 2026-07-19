@@ -31,6 +31,8 @@ export function formatDate(
     day: "numeric",
     month: "short",
     year: "numeric",
+    // Pinned so SSR (UTC) and browser (IST) render the same day; overridable.
+    timeZone: "Asia/Kolkata",
     ...options,
   });
 }
@@ -46,6 +48,8 @@ export function formatTime(
     hour: "2-digit",
     minute: "2-digit",
     hour12: true,
+    // Pinned so SSR (UTC) and browser (IST) render the same time; overridable.
+    timeZone: "Asia/Kolkata",
     ...options,
   });
 }
