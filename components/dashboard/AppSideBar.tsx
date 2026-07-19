@@ -18,6 +18,7 @@ import {
   Calculator,
   PackagePlus,
   MapPin,
+  BookMarked,
   Package,
   FileText,
   Settings,
@@ -91,6 +92,7 @@ const NAV_CONFIGS: Record<string, NavConfig> = {
         items: [
           { title: "Dashboard",      href: "/",               icon: LayoutDashboard },
           { title: "Clients",        href: "/clients",        icon: Building2 },
+          { title: "Address Book",   href: "/addressbook",    icon: BookMarked },
           { title: "Quotes",         href: "/quotes",         icon: FileUser },
           { title: "Document Vault", href: "/document-vault", icon: Shield },
         ],

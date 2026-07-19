@@ -95,3 +95,112 @@ export async function getAddress(addressId: string): Promise<ActionResult<Addres
     return fail(e instanceof Error ? e.message : "Could not load address.");
   }
 }
+
+export async function updateAddress(
+  addressId: string,
+  kind: AddressKind | null,
+  input: unknown,
+): Promise<ActionResult<AddressSummary>> {
+  const parsed = newAddressSchema.safeParse(input);
+  if (!parsed.success) {
+    return fail("Check the address fields and try again.", parsed.error.flatten().fieldErrors);
+  }
+
+  return Sentry.withScope(async () => {
+    try {
+      const org = await getCurrentOrg();
+      // Ownership check — throws if this address isn't the org's (or its client's).
+      const existing = await assertOrgOwnsAddress(org.id, addressId);
+      const data = parsed.data;
+
+      const address = await prisma.$transaction(async (tx) => {
+        // A newly-flagged default demotes the other entries of the same owner.
+        if (data.isDefault) {
+          await tx.address.updateMany({
+            where: {
+              orgId: existing.orgId,
+              clientId: existing.clientId,
+              deletedAt: null,
+              id: { not: addressId },
+            },
+            data: { isDefault: false },
+          });
+        }
+        return tx.address.update({
+          where: { id: addressId },
+          data: {
+            kind,
+            label: data.label || null,
+            contactName: data.contactName,
+            contactPhone: data.contactPhone,
+            contactEmail: data.contactEmail || null,
+            line1: data.line1,
+            line2: data.line2 || null,
+            city: data.city,
+            state: data.state || null,
+            country: data.country,
+            postalCode: data.postalCode,
+            isDefault: data.isDefault,
+          },
+        });
+      });
+
+      return ok(address);
+    } catch (e) {
+      Sentry.captureException(e, { tags: { action: "updateAddress" } });
+      console.error("updateAddress failed", e);
+      return fail(e instanceof Error ? e.message : "Could not update address.");
+    }
+  });
+}
+
+export async function deleteAddress(addressId: string): Promise<ActionResult<{ id: string }>> {
+  return Sentry.withScope(async () => {
+    try {
+      const org = await getCurrentOrg();
+      await assertOrgOwnsAddress(org.id, addressId);
+      // Soft delete — booked shipments keep pointing at the historical row.
+      await prisma.address.update({
+        where: { id: addressId },
+        data: { deletedAt: new Date(), isDefault: false },
+      });
+      return ok({ id: addressId });
+    } catch (e) {
+      Sentry.captureException(e, { tags: { action: "deleteAddress" } });
+      console.error("deleteAddress failed", e);
+      return fail(e instanceof Error ? e.message : "Could not delete address.");
+    }
+  });
+}
+
+export async function setDefaultAddress(
+  addressId: string,
+): Promise<ActionResult<{ id: string }>> {
+  return Sentry.withScope(async () => {
+    try {
+      const org = await getCurrentOrg();
+      const existing = await assertOrgOwnsAddress(org.id, addressId);
+
+      await prisma.$transaction(async (tx) => {
+        await tx.address.updateMany({
+          where: {
+            orgId: existing.orgId,
+            clientId: existing.clientId,
+            deletedAt: null,
+          },
+          data: { isDefault: false },
+        });
+        await tx.address.update({
+          where: { id: addressId },
+          data: { isDefault: true },
+        });
+      });
+
+      return ok({ id: addressId });
+    } catch (e) {
+      Sentry.captureException(e, { tags: { action: "setDefaultAddress" } });
+      console.error("setDefaultAddress failed", e);
+      return fail(e instanceof Error ? e.message : "Could not update the primary address.");
+    }
+  });
+}
