@@ -27,6 +27,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
+import { PackageBoxList } from "@/components/booking/PackageBoxList";
 import {
   Tooltip,
   TooltipContent,
@@ -129,6 +130,17 @@ async function getShipment(id: string) {
           declaredValue: true,
           declaredCurrency: true,
           hsCode: true,
+          contents: {
+            select: {
+              id: true,
+              description: true,
+              hsCode: true,
+              quantity: true,
+              unitValue: true,
+              currency: true,
+            },
+            orderBy: { createdAt: "asc" },
+          },
         },
         orderBy: { createdAt: "asc" },
       },
@@ -156,7 +168,8 @@ async function getShipment(id: string) {
           changedByType: true,
           createdAt: true,
         },
-        orderBy: { createdAt: "asc" },
+        // Newest first — the timeline shows the most recent event at the top.
+        orderBy: { createdAt: "desc" },
       },
       walletTransactions: {
         select: {
@@ -217,7 +230,7 @@ export const STATUS_CONFIG: Record<
   PROCESSING: {
     label: "Processing",
     description:
-      "Our operations team is actively preparing your shipment — labels, AWB, and carrier booking.",
+      "Our operations team is preparing your shipment: labels, AWB, and carrier booking.",
     className:
       "bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950/30 dark:text-indigo-400 dark:border-indigo-800",
     dotClassName: "bg-indigo-500",
@@ -349,7 +362,7 @@ function dec(v: unknown): number {
 
 function fmt(amount: unknown, currency = "INR"): string {
   const n = dec(amount);
-  if (!n && n !== 0) return "—";
+  if (!n && n !== 0) return "Not set";
   return new Intl.NumberFormat("en-IN", {
     style: "currency",
     currency,
@@ -359,7 +372,7 @@ function fmt(amount: unknown, currency = "INR"): string {
 
 function fmtKg(v: unknown): string {
   const n = dec(v);
-  return n ? `${n.toFixed(2)} kg` : "—";
+  return n ? `${n.toFixed(2)} kg` : "Not set";
 }
 
 function fmtDate(d: Date): string {
@@ -694,9 +707,16 @@ export default async function ShipmentDetailPage({
   const { id } = await params;
   const { shipment: s } = await getShipment(id);
 
-  const cfg = STATUS_CONFIG[s.status];
-  const charges = s.chargesSnapshot as Record<string, unknown> | null;
-  const totalPieces = s.packages.reduce((a, p) => a + p.quantity, 0);
+  const charges = s.chargesSnapshot as {
+    charges?: { name: string; amount: number; currency: string }[];
+  } | null;
+  // A box's `quantity` is how many identical boxes it stands for, so the box
+  // count is the sum of those. Item lines are the individual goods declared.
+  const totalBoxes = s.packages.reduce((a, p) => a + p.quantity, 0);
+  const totalItemLines = s.packages.reduce(
+    (a, p) => a + (p.contents?.length ?? 0),
+    0,
+  );
   const totalDeclared = s.packages.reduce(
     (sum, p) => sum + (p.declaredValue ? dec(p.declaredValue) : 0) * p.quantity,
     0,
@@ -800,34 +820,34 @@ export default async function ShipmentDetailPage({
               <div className="grid grid-cols-2 gap-0 sm:grid-cols-4 divide-x divide-y sm:divide-y-0 border-b">
                 {[
                   {
-                    label: "Packages",
-                    value: `${s.packages.length} item${s.packages.length !== 1 ? "s" : ""}`,
-                    sub: `${totalPieces} piece${totalPieces !== 1 ? "s" : ""}`,
+                    label: "Boxes",
+                    value: `${totalBoxes} box${totalBoxes !== 1 ? "es" : ""}`,
+                    sub: `${totalItemLines} item${totalItemLines !== 1 ? "s" : ""} inside`,
                     tooltip:
-                      "Number of distinct package types and total individual pieces.",
+                      "Total physical boxes in this shipment, and the number of goods declared across them.",
                   },
                   {
                     label: "Actual weight",
                     value: fmtKg(s.totalActualWeightKg),
                     sub: s.totalChargeableWeightKg
-                      ? `Chargeable: ${fmtKg(s.totalChargeableWeightKg)}`
+                      ? `Chargeable ${fmtKg(s.totalChargeableWeightKg)}`
                       : undefined,
                     tooltip:
-                      "Actual physical weight. Chargeable weight may differ if volumetric weight is higher.",
+                      "Actual physical weight. Chargeable weight can be higher when the box size (volumetric weight) is greater.",
                   },
                   {
                     label: "Carrier",
-                    value: s.selectedVendorName ?? "—",
+                    value: s.selectedVendorName ?? "Not assigned",
                     sub: s.selectedProductName ?? undefined,
                     tooltip:
-                      "The carrier and service product selected for this shipment at time of booking.",
+                      "The carrier and service selected for this shipment when it was booked.",
                   },
                   {
                     label: "Declared value",
-                    value: totalDeclared > 0 ? fmt(totalDeclared) : "—",
-                    sub: s.client ? `For ${s.client.companyName}` : "Own org",
+                    value: totalDeclared > 0 ? fmt(totalDeclared) : "Not declared",
+                    sub: s.client ? `For ${s.client.companyName}` : "Your own org",
                     tooltip:
-                      "Total declared value of goods across all packages. Used for customs and insurance purposes.",
+                      "Total declared value of the goods, used for customs and insurance.",
                   },
                 ].map(({ label, value, sub, tooltip }) => (
                   <Tooltip key={label}>
@@ -938,162 +958,18 @@ export default async function ShipmentDetailPage({
                 )}
               </Card>
 
-              {/* Packages */}
+              {/* Packages — one card per box, with the packing list inside */}
               <Card className="overflow-hidden">
                 <SectionHeader
                   icon={Package}
-                  title="Packages"
-                  meta={`${s.packages.length} items · ${totalPieces} pieces`}
-                  tooltip="Individual package details including dimensions, weight, and declared value for customs."
+                  title="What's inside"
+                  meta={`${totalBoxes} box${totalBoxes !== 1 ? "es" : ""} · ${totalItemLines} item${totalItemLines !== 1 ? "s" : ""}`}
+                  tooltip="Every box in this shipment with its size, weight, and the goods packed inside it."
                 />
-                {s.packages.length === 0 ? (
-                  <p className="px-5 py-8 text-sm text-center text-muted-foreground">
-                    No packages recorded.
-                  </p>
-                ) : (
-                  <>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-xs">
-                        <thead>
-                          <tr className="border-b bg-muted/20 text-left">
-                            {[
-                              { h: "#", tip: null },
-                              {
-                                h: "Description",
-                                tip: "Contents of the package.",
-                              },
-                              {
-                                h: "Qty",
-                                tip: "Number of identical pieces in this package type.",
-                              },
-                              {
-                                h: "Dimensions (cm)",
-                                tip: "Length × Width × Height in centimetres.",
-                              },
-                              {
-                                h: "Weight",
-                                tip: "Physical weight per piece. Chargeable weight is calculated by the carrier.",
-                              },
-                              {
-                                h: "Declared Value",
-                                tip: "Value declared for customs and insurance purposes.",
-                              },
-                              {
-                                h: "HS Code",
-                                tip: "Harmonized System commodity code for customs classification.",
-                              },
-                            ].map(({ h, tip }) => (
-                              <th
-                                key={h}
-                                className="px-4 py-2.5 font-semibold uppercase tracking-wider text-[10px] text-muted-foreground whitespace-nowrap"
-                              >
-                                {tip ? (
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <span className="inline-flex items-center gap-1 cursor-default">
-                                        {h}
-                                        <Info className="h-2.5 w-2.5 text-muted-foreground/40" />
-                                      </span>
-                                    </TooltipTrigger>
-                                    <TooltipContent className="max-w-44 text-xs">
-                                      {tip}
-                                    </TooltipContent>
-                                  </Tooltip>
-                                ) : (
-                                  h
-                                )}
-                              </th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-border/40">
-                          {s.packages.map((pkg, i) => (
-                            <tr
-                              key={pkg.id}
-                              className="hover:bg-muted/20 transition-colors"
-                            >
-                              <td className="px-4 py-3 font-mono text-muted-foreground/60">
-                                {i + 1}
-                              </td>
-                              <td className="px-4 py-3 font-medium text-foreground max-w-[180px] truncate">
-                                {pkg.description}
-                              </td>
-                              <td className="px-4 py-3 text-center tabular-nums">
-                                {pkg.quantity}
-                              </td>
-                              <td className="px-4 py-3 font-mono text-muted-foreground whitespace-nowrap">
-                                {dec(pkg.lengthCm).toFixed(0)}×
-                                {dec(pkg.widthCm).toFixed(0)}×
-                                {dec(pkg.heightCm).toFixed(0)}
-                              </td>
-                              <td className="px-4 py-3 tabular-nums">
-                                {fmtKg(pkg.weightKg)}
-                              </td>
-                              <td className="px-4 py-3 tabular-nums">
-                                {pkg.declaredValue ? (
-                                  fmt(
-                                    pkg.declaredValue,
-                                    pkg.declaredCurrency ?? "INR",
-                                  )
-                                ) : (
-                                  <span className="text-muted-foreground">
-                                    —
-                                  </span>
-                                )}
-                              </td>
-                              <td className="px-4 py-3 font-mono text-muted-foreground">
-                                {pkg.hsCode ?? (
-                                  <span className="text-muted-foreground/40">
-                                    —
-                                  </span>
-                                )}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                    <div className="flex flex-wrap gap-5 border-t bg-muted/10 px-4 py-2.5 text-xs text-muted-foreground">
-                      <span>
-                        <span className="font-semibold text-foreground">
-                          {totalPieces}
-                        </span>{" "}
-                        pieces
-                      </span>
-                      <span>
-                        <span className="font-semibold text-foreground">
-                          {fmtKg(s.totalActualWeightKg)}
-                        </span>{" "}
-                        actual
-                      </span>
-                      {s.totalChargeableWeightKg && (
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <span className="cursor-default inline-flex items-center gap-1">
-                              <span className="font-semibold text-foreground">
-                                {fmtKg(s.totalChargeableWeightKg)}
-                              </span>{" "}
-                              chargeable
-                              <Info className="h-2.5 w-2.5 text-muted-foreground/40" />
-                            </span>
-                          </TooltipTrigger>
-                          <TooltipContent className="text-xs max-w-52">
-                            Chargeable weight is the higher of actual weight and
-                            volumetric weight. Carriers bill based on this.
-                          </TooltipContent>
-                        </Tooltip>
-                      )}
-                      {totalDeclared > 0 && (
-                        <span>
-                          <span className="font-semibold text-foreground">
-                            {fmt(totalDeclared)}
-                          </span>{" "}
-                          declared
-                        </span>
-                      )}
-                    </div>
-                  </>
-                )}
+                <PackageBoxList
+                  packages={s.packages}
+                  fallbackCurrency={s.currency ?? "INR"}
+                />
               </Card>
 
               {/* Pricing */}
@@ -1108,22 +984,16 @@ export default async function ShipmentDetailPage({
                     label="Service"
                     value={[s.selectedVendorName, s.selectedProductName]
                       .filter(Boolean)
-                      .join(" — ")}
+                      .join(" · ")}
                     tooltip="Carrier and product selected for this shipment."
                   />
                 </div>
 
-                {charges && Array.isArray((charges as any).charges) && (
+                {charges?.charges && charges.charges.length > 0 && (
                   <>
                     <Separator />
                     <div className="divide-y divide-border/40">
-                      {(
-                        (charges as any).charges as {
-                          name: string;
-                          amount: number;
-                          currency: string;
-                        }[]
-                      ).map((c, i) => (
+                      {charges.charges.map((c, i) => (
                         <div
                           key={i}
                           className="flex items-center justify-between px-5 py-3 text-sm"
@@ -1146,7 +1016,7 @@ export default async function ShipmentDetailPage({
                   </>
                 )}
 
-                {(!charges || !Array.isArray((charges as any).charges)) && (
+                {!charges?.charges?.length && (
                   <div className="px-5 pb-4">
                     <KVRow
                       label="Total quoted"
@@ -1340,7 +1210,8 @@ export default async function ShipmentDetailPage({
                       <div className="absolute left-[3px] top-2 bottom-4 w-px bg-border" />
                       {s.statusHistory.map((evt, i) => {
                         const evtCfg = STATUS_CONFIG[evt.toStatus];
-                        const isLast = i === s.statusHistory.length - 1;
+                        // History is newest-first, so the top row is current.
+                        const isCurrent = i === 0;
                         return (
                           <li
                             key={evt.id}
@@ -1351,6 +1222,7 @@ export default async function ShipmentDetailPage({
                                 "absolute left-0 top-1.5 h-[7px] w-[7px] rounded-full ring-2 ring-background",
                                 evtCfg?.dotClassName ??
                                   "bg-muted-foreground/30",
+                                isCurrent && "ring-4 ring-foreground/10",
                               )}
                             />
                             <div className="space-y-1">
@@ -1364,9 +1236,9 @@ export default async function ShipmentDetailPage({
                                 >
                                   {evtCfg?.label ?? evt.toStatus}
                                 </Badge>
-                                {isLast && (
+                                {isCurrent && (
                                   <span className="rounded-full bg-foreground/5 border border-border px-1.5 py-0 text-[10px] font-medium text-muted-foreground">
-                                    Now
+                                    Current
                                   </span>
                                 )}
                               </div>
