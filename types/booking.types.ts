@@ -143,6 +143,16 @@ export interface BookingFormData {
   boxes: CargoBox[];
 
   selectedService: ServiceOption | null;
+
+  /**
+   * First-mile (door → carrier hub) courier, chosen on its own step AFTER the
+   * international service — but only when `pickupIncluded` is true. Same shape
+   * as the intl service (a domestic Shipmozo quote, org markup already applied).
+   * Null when door pickup wasn't opted into, or not yet selected.
+   */
+  firstMile: ServiceOption | null;
+  /** Which hub the first-mile leg routes to (label snapshot, e.g. "Dwarka, New Delhi"). */
+  firstMileHubLabel?: string | null;
 }
 
 export interface BookingStep {

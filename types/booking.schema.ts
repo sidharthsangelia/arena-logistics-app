@@ -178,21 +178,32 @@ export const kycSchema = z
 // Step 5 — Service selection
 // ---------------------------------------------------------------------------
 
+const serviceOptionShape = z.object({
+  vendorId: z.string(),
+  vendorName: z.string(),
+  productCode: z.string(),
+  productName: z.string(),
+  transitDays: z.number(),
+  price: z.number(),
+  currency: z.string(),
+});
+
 export const serviceSchema = z.object({
-  selectedService: z
-    .object({
-      vendorId: z.string(),
-      vendorName: z.string(),
-      productCode: z.string(),
-      productName: z.string(),
-      transitDays: z.number(),
-      price: z.number(),
-      currency: z.string(),
-    })
-    .nullable()
-    .refine((v) => v !== null, {
-      message: "Please select a shipping service to continue.",
-    }),
+  selectedService: serviceOptionShape.nullable().refine((v) => v !== null, {
+    message: "Please select a shipping service to continue.",
+  }),
+});
+
+// ---------------------------------------------------------------------------
+// First-mile (door → hub) — only reached when pickupIncluded is true, so the
+// wizard validates this schema only when the first-mile step is active. A
+// non-null selection is required to continue past it.
+// ---------------------------------------------------------------------------
+
+export const firstMileSchema = z.object({
+  firstMile: serviceOptionShape.nullable().refine((v) => v !== null, {
+    message: "Please select a pickup courier to continue.",
+  }),
 });
 
 // ---------------------------------------------------------------------------

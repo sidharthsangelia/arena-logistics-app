@@ -3,12 +3,13 @@
 import {
   User, Building2, MapPinned, Shield, FileText,
   Truck, CheckCircle2, FileCheck2,
-  MapPin, ArrowRight, Scale, Wallet,
+  MapPin, ArrowRight, Scale, Wallet, Home,
 } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import type { BookingFormData, FileMeta } from "@/types/booking.types";
 import { WalletPaymentSummary } from "../WalletPaymentSummary";
+import { KYC_DOC_CONFIGS } from "@/lib/booking/kyc";
 import {
   totalActualWeight,
   totalBoxCount,
@@ -91,12 +92,11 @@ function AddressBlock({ data }: { data: BookingFormData["consignor"] }) {
   );
 }
 
-const KYC_LABELS: Record<string, string> = {
-  pan: "PAN Card",
-  aadhaar: "Aadhaar Card",
-  gst: "GST Certificate",
-  iec: "IEC Certificate",
-};
+// Drive labels off the shared KYC matrix so a new doc key (e.g. companyPan,
+// lut) never silently renders as its raw key here.
+const KYC_LABELS: Record<string, string> = Object.fromEntries(
+  KYC_DOC_CONFIGS.map((c) => [c.key, c.label]),
+);
 
 function KycBlock({ docs }: { docs: BookingFormData["kycDocs"] }) {
   const uploaded = Object.entries(docs).filter(([, v]) => v !== null) as [string, FileMeta][];
@@ -224,6 +224,45 @@ function ServiceBlock({ service }: { service: BookingFormData["selectedService"]
   );
 }
 
+// ---------------------------------------------------------------------------
+// First-mile (door → hub) block — only shown when door pickup was opted into
+// AND a courier was chosen. Its charge is added to the shipment total below.
+// ---------------------------------------------------------------------------
+
+/** The first-mile charge that actually applies to this booking (0 if none). */
+export function firstMileChargeOf(data: BookingFormData): number {
+  return data.pickupIncluded && data.firstMile ? data.firstMile.price : 0;
+}
+
+function FirstMileBlock({ data }: { data: BookingFormData }) {
+  const { firstMile, firstMileHubLabel } = data;
+  if (!firstMile) {
+    return (
+      <p className="text-sm text-destructive">No pickup courier selected.</p>
+    );
+  }
+  return (
+    <div className="rounded-lg border bg-muted/30 px-5 py-4">
+      <div className="flex items-start justify-between gap-4">
+        <div className="space-y-1">
+          <p className="font-semibold text-foreground">{firstMile.productName}</p>
+          <Badge variant="outline" className="text-xs">{firstMile.vendorName}</Badge>
+          <p className="text-xs text-muted-foreground pt-1">
+            Door pickup → {firstMileHubLabel || "carrier hub"}
+            {firstMile.transitDays > 0 && ` · ~${firstMile.transitDays} day${firstMile.transitDays !== 1 ? "s" : ""} to hub`}
+          </p>
+        </div>
+        <div className="text-right shrink-0">
+          <p className="text-lg font-bold text-foreground">
+            {fmt(firstMile.price, firstMile.currency)}
+          </p>
+          <p className="text-xs text-muted-foreground">incl. GST</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function RouteBar({ data }: { data: BookingFormData }) {
   return (
     <div className="flex items-center gap-2 rounded-lg border bg-muted/30 px-4 py-3 text-sm">
@@ -284,6 +323,15 @@ export default function ReviewStep({ data, onWalletStatusChange, onTopUpSuccess 
         <ServiceBlock service={data.selectedService} />
       </Section>
 
+      {data.pickupIncluded && (
+        <>
+          <Separator />
+          <Section icon={Home} title="Door Pickup (First Mile)">
+            <FirstMileBlock data={data} />
+          </Section>
+        </>
+      )}
+
       <Separator />
 
       <Section icon={User} title="Booking For">
@@ -325,12 +373,42 @@ export default function ReviewStep({ data, onWalletStatusChange, onTopUpSuccess 
 
       <Section icon={Wallet} title="Payment">
         {data.selectedService ? (
-          <WalletPaymentSummary
-            requiredAmountRupees={data.selectedService.price}
-            currency={data.selectedService.currency}
-            onSufficiencyChange={onWalletStatusChange}
-            onTopUpSuccess={onTopUpSuccess}
-          />
+          <div className="space-y-3">
+            {/* Charge breakdown — the wallet is debited for the combined total
+                (international service + door-pickup first mile). */}
+            {data.pickupIncluded && data.firstMile && (
+              <div className="rounded-lg border bg-muted/30 px-4 py-3 text-sm">
+                <div className="flex justify-between text-muted-foreground">
+                  <span>International shipping</span>
+                  <span className="text-foreground">
+                    {fmt(data.selectedService.price, data.selectedService.currency)}
+                  </span>
+                </div>
+                <div className="mt-1 flex justify-between text-muted-foreground">
+                  <span>Door pickup (first mile)</span>
+                  <span className="text-foreground">
+                    {fmt(data.firstMile.price, data.firstMile.currency)}
+                  </span>
+                </div>
+                <Separator className="my-2" />
+                <div className="flex justify-between font-semibold text-foreground">
+                  <span>Total</span>
+                  <span>
+                    {fmt(
+                      data.selectedService.price + firstMileChargeOf(data),
+                      data.selectedService.currency,
+                    )}
+                  </span>
+                </div>
+              </div>
+            )}
+            <WalletPaymentSummary
+              requiredAmountRupees={data.selectedService.price + firstMileChargeOf(data)}
+              currency={data.selectedService.currency}
+              onSufficiencyChange={onWalletStatusChange}
+              onTopUpSuccess={onTopUpSuccess}
+            />
+          </div>
         ) : (
           <p className="text-sm text-destructive">No service selected.</p>
         )}

@@ -9,34 +9,58 @@ import {
   Truck,
   CheckCircle,
   Building,
+  Home,
 } from "lucide-react";
 import { BookingFormData, BookingStep } from "@/types/booking.types";
-import { stepSchemas } from "@/types/booking.schema";
 import type { BookingDraftPayload } from "@/actions/book/bookingDraft.action";
 
 // ---------------------------------------------------------------------------
-// Named step indices — avoids magic numbers scattered across BookingWizard.
-// MUST stay in sync with `bookingSteps` below and `stepSchemas` in
-// booking.schema.ts.
+// Step keys — the wizard is keyed by these STABLE string ids, never by raw
+// numeric indices, because the step list is DYNAMIC: the first-mile (door →
+// hub) step only exists when the customer opted into door pickup. Driving
+// everything (rendering, schema lookup, progress bar) off the key at the
+// current position keeps navigation correct whether the list has 6 or 7 steps.
 // ---------------------------------------------------------------------------
 
-export const STEP = {
-  SENDER: 0, // merged "who's shipping" + sender address + pickup address
-  CONSIGNEE: 1,
-  SHIPMENT_DETAILS: 2, // merged Invoice + Packages — self-managed, not RHF
-  KYC: 3,
-  SERVICE: 4,
-  REVIEW: 5,
+export const STEP_KEY = {
+  SENDER: "sender", // merged "who's shipping" + sender address + pickup address
+  CONSIGNEE: "consignee", // delivery + billing
+  SHIPMENT_DETAILS: "shipment-details", // merged Invoice + Packages — self-managed, not RHF
+  KYC: "kyc",
+  SERVICE: "service", // international carrier
+  FIRST_MILE: "first-mile", // door → hub domestic courier — CONDITIONAL
+  REVIEW: "review",
 } as const;
 
-export const bookingSteps: BookingStep[] = [
-  { id: "sender", name: "Sender", icon: Building },
-  { id: "consignee", name: "Receiver", icon: MapPinned },
-  { id: "shipment-details", name: "Items", icon: Package },
-  { id: "kyc", name: "KYC", icon: Shield },
-  { id: "service", name: "Rates", icon: Truck },
-  { id: "review", name: "Review", icon: CheckCircle },
+export type StepKey = (typeof STEP_KEY)[keyof typeof STEP_KEY];
+
+interface BookingStepDef extends BookingStep {
+  key: StepKey;
+}
+
+// The full ordered set. `first-mile` is filtered out unless pickup was opted
+// into (see getActiveSteps). Keep this array in the intended display order.
+const ALL_BOOKING_STEPS: BookingStepDef[] = [
+  { id: "sender", key: STEP_KEY.SENDER, name: "Sender", icon: Building },
+  { id: "consignee", key: STEP_KEY.CONSIGNEE, name: "Receiver", icon: MapPinned },
+  { id: "shipment-details", key: STEP_KEY.SHIPMENT_DETAILS, name: "Items", icon: Package },
+  { id: "kyc", key: STEP_KEY.KYC, name: "KYC", icon: Shield },
+  { id: "service", key: STEP_KEY.SERVICE, name: "Rates", icon: Truck },
+  { id: "first-mile", key: STEP_KEY.FIRST_MILE, name: "Pickup", icon: Home },
+  { id: "review", key: STEP_KEY.REVIEW, name: "Review", icon: CheckCircle },
 ];
+
+/**
+ * The steps that actually apply to this booking. The first-mile step is only
+ * present when door pickup was opted into on the Packages step — pickupIncluded
+ * is always settled before the wizard reaches any step after SERVICE, so the
+ * active list (and therefore the meaning of each index) is stable by then.
+ */
+export function getActiveSteps(pickupIncluded: boolean): BookingStepDef[] {
+  return ALL_BOOKING_STEPS.filter(
+    (s) => s.key !== STEP_KEY.FIRST_MILE || pickupIncluded,
+  );
+}
 
 const initialFormData: BookingFormData = {
   shipmentOwnerMode: "SELF",
@@ -118,6 +142,8 @@ const initialFormData: BookingFormData = {
   boxes: [],
 
   selectedService: null,
+  firstMile: null,
+  firstMileHubLabel: null,
 };
 
 export function useBookingWizard(initialDraft?: BookingDraftPayload | null) {
@@ -126,23 +152,31 @@ export function useBookingWizard(initialDraft?: BookingDraftPayload | null) {
   // newer fields) still hydrates cleanly instead of leaving fields undefined.
   const draftData = (initialDraft?.data ?? null) as Partial<BookingFormData> | null;
 
-  const [currentStep, setCurrentStep] = useState(initialDraft?.currentStep ?? 0);
+  const [rawStep, setCurrentStep] = useState(initialDraft?.currentStep ?? 0);
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [formData, setFormData] = useState<BookingFormData>(
     draftData ? { ...initialFormData, ...draftData } : initialFormData,
   );
 
-  const isFirstStep = currentStep === 0;
-  const isLastStep = currentStep === bookingSteps.length - 1;
+  // The active step list depends on whether door pickup was opted into. Derive
+  // it every render from the current form data so toggling pickup on the
+  // Packages step immediately reshapes the wizard (and its progress bar).
+  const steps = getActiveSteps(formData.pickupIncluded);
 
-  const getCurrentStepSchema = () => stepSchemas[currentStep];
+  // Clamp defensively: if the list ever shrinks under a stored index (e.g. a
+  // resumed draft, or pickup toggled off), never point past the end.
+  const currentStep = Math.min(Math.max(rawStep, 0), steps.length - 1);
+  const currentStepKey = steps[currentStep]?.key;
+
+  const isFirstStep = currentStep === 0;
+  const isLastStep = currentStep === steps.length - 1;
 
   const goToNextStep = () => {
-    if (!isLastStep) setCurrentStep((prev) => prev + 1);
+    setCurrentStep((prev) => Math.min(prev + 1, steps.length - 1));
   };
 
   const goToPreviousStep = () => {
-    if (!isFirstStep) setCurrentStep((prev) => prev - 1);
+    setCurrentStep((prev) => Math.max(prev - 1, 0));
   };
 
   const updateFormData = (newData: Partial<BookingFormData>) => {
@@ -162,16 +196,16 @@ export function useBookingWizard(initialDraft?: BookingDraftPayload | null) {
 
   return {
     currentStep,
+    currentStepKey,
+    steps,
     formData,
     isFirstStep,
     isLastStep,
     isSubmitted,
-    bookingSteps,
     goToNextStep,
     goToPreviousStep,
     updateFormData,
     submitBooking,
     resetBooking,
-    getCurrentStepSchema,
   };
 }

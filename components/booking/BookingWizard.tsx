@@ -18,7 +18,7 @@ import type {
   BookingFormData,
   BookingOrgContext,
 } from "@/types/booking.types";
-import { bookingSteps, useBookingWizard, STEP } from "@/hooks/useBookingWizard";
+import { useBookingWizard, STEP_KEY } from "@/hooks/useBookingWizard";
 import {
   saveBookingDraft,
   clearBookingDraft,
@@ -30,26 +30,30 @@ import {
   shipmentDetailsSchema,
   kycSchema,
   serviceSchema,
+  firstMileSchema,
 } from "@/types/booking.schema";
 
 import ProgressSteps from "./ProgessSteps";
 import ReviewStep from "./steps/ReviewStep";
 import KycStep from "./steps/KycStep";
 import ServiceSelectionStep from "./steps/ServiceStep";
+import FirstMileStep from "./steps/FirstMileStep";
 import { SenderPickupStep } from "./steps/SenderPickupStep";
 import { DeliveryBillingStep } from "./steps/DeliveryBillingStep";
 import { createShipmentAction } from "@/actions/book/createShipment.action";
 import ShipmentDetailsStep from "./steps/ShipmentDetailStep";
 import { TopUpModal } from "@/components/wallet/TopUpModal";
 
-// Steps validated against RHF-registered fields via getValues() + a zod schema.
+// Steps validated against RHF-registered fields via getValues() + a zod schema,
+// keyed by the step's stable key (the list is dynamic — see useBookingWizard).
 // SHIPMENT_DETAILS is intentionally excluded — it's self-managed (array of
 // items via updateFormData, not RHF register) and validated separately below.
-const RHF_STEP_SCHEMAS: Record<number, any> = {
-  [STEP.SENDER]: senderPickupSchema,
-  [STEP.CONSIGNEE]: deliveryBillingSchema,
-  [STEP.KYC]: kycSchema,
-  [STEP.SERVICE]: serviceSchema,
+const RHF_STEP_SCHEMAS: Record<string, any> = {
+  [STEP_KEY.SENDER]: senderPickupSchema,
+  [STEP_KEY.CONSIGNEE]: deliveryBillingSchema,
+  [STEP_KEY.KYC]: kycSchema,
+  [STEP_KEY.SERVICE]: serviceSchema,
+  [STEP_KEY.FIRST_MILE]: firstMileSchema,
 };
 
 // ---------------------------------------------------------------------------
@@ -127,6 +131,8 @@ export default function BookingWizard({
 }: BookingWizardProps) {
   const {
     currentStep,
+    currentStepKey,
+    steps,
     formData,
     isFirstStep,
     isLastStep,
@@ -177,10 +183,10 @@ export default function BookingWizard({
   // `sufficient: true` from a previous visit to this step can never enable
   // Pay before a fresh balance check completes.
   React.useEffect(() => {
-    if (currentStep === STEP.REVIEW) {
+    if (currentStepKey === STEP_KEY.REVIEW) {
       setWalletStatus(WALLET_STATUS_UNKNOWN);
     }
-  }, [currentStep]);
+  }, [currentStepKey]);
 
   const {
     register,
@@ -285,7 +291,7 @@ export default function BookingWizard({
     // Shipment Details is self-managed (array of items, not RHF fields) —
     // it previously skipped validation entirely, meaning a user could
     // advance with zero items. Validate it explicitly against the schema.
-    if (currentStep === STEP.SHIPMENT_DETAILS) {
+    if (currentStepKey === STEP_KEY.SHIPMENT_DETAILS) {
       const result = shipmentDetailsSchema.safeParse(formData);
       if (!result.success) {
         setSubmitError(result.error.issues[0]?.message ?? "Please complete the shipment details.");
@@ -308,7 +314,7 @@ export default function BookingWizard({
     // KYC requirements now branch by shipmentType (read straight off the
     // merged form via kycSchema) — no injected value needed.
 
-    const schema = RHF_STEP_SCHEMAS[currentStep];
+    const schema = RHF_STEP_SCHEMAS[currentStepKey ?? ""];
     const result = schema?.safeParse(merged);
 
     if (result && !result.success) {
@@ -364,7 +370,7 @@ export default function BookingWizard({
     <div className="mx-auto max-w-6xl py-8">
       <Card>
         <CardHeader>
-          <ProgressSteps currentStep={currentStep} steps={bookingSteps} />
+          <ProgressSteps currentStep={currentStep} steps={steps} />
         </CardHeader>
 
         <CardContent>
@@ -379,7 +385,7 @@ export default function BookingWizard({
           )}
 
           <div className="space-y-8">
-            {currentStep === STEP.SENDER && (
+            {currentStepKey === STEP_KEY.SENDER && (
               <SenderPickupStep
                 orgContext={orgContext}
                 register={register}
@@ -391,7 +397,7 @@ export default function BookingWizard({
               />
             )}
 
-            {currentStep === STEP.CONSIGNEE && (
+            {currentStepKey === STEP_KEY.CONSIGNEE && (
               <DeliveryBillingStep
                 orgContext={orgContext}
                 register={register}
@@ -402,7 +408,7 @@ export default function BookingWizard({
               />
             )}
 
-            {currentStep === STEP.SHIPMENT_DETAILS && (
+            {currentStepKey === STEP_KEY.SHIPMENT_DETAILS && (
               <ShipmentDetailsStep
                 data={formData}
                 onChange={(partial) => updateFormData(partial as Partial<BookingFormData>)}
@@ -410,7 +416,7 @@ export default function BookingWizard({
               />
             )}
 
-            {currentStep === STEP.KYC && (
+            {currentStepKey === STEP_KEY.KYC && (
               <KycStep
                 watch={watch}
                 setValue={setValue}
@@ -424,7 +430,7 @@ export default function BookingWizard({
               />
             )}
 
-            {currentStep === STEP.SERVICE && (
+            {currentStepKey === STEP_KEY.SERVICE && (
               <ServiceSelectionStep
                 watch={watch}
                 setValue={setValue}
@@ -433,7 +439,16 @@ export default function BookingWizard({
               />
             )}
 
-            {currentStep === STEP.REVIEW && (
+            {currentStepKey === STEP_KEY.FIRST_MILE && (
+              <FirstMileStep
+                watch={watch}
+                setValue={setValue}
+                errors={errors}
+                formData={formData}
+              />
+            )}
+
+            {currentStepKey === STEP_KEY.REVIEW && (
               <ReviewStep
                 data={formData}
                 onWalletStatusChange={(info) =>
@@ -450,7 +465,7 @@ export default function BookingWizard({
 
             {/* Submit error — not shown on the Shipment Details step, which renders
                 its own inline error via the `error` prop above. */}
-            {submitError && currentStep !== STEP.SHIPMENT_DETAILS && (
+            {submitError && currentStepKey !== STEP_KEY.SHIPMENT_DETAILS && (
               <div className="flex items-start gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm" aria-live="polite">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
                 <p className="text-destructive">{submitError}</p>

@@ -154,6 +154,8 @@ type PreflightOk = {
   totalWeightKg: number;
   declaredTotal: number;
   servicePrice: number;
+  /** Door → hub charge (0 unless door pickup was opted into AND a courier chosen). */
+  firstMileCharge: number;
 };
 
 type PreflightFail = {
@@ -218,6 +220,18 @@ function preflight(data: BookingFormData): PreflightResult {
     fieldErrors.selectedClient = "A client must be selected.";
   }
 
+  // First mile — when door pickup is opted into, a courier must have been
+  // chosen (the wizard's first-mile step enforces this, but the server is the
+  // source of truth: never persist pickupIncluded without a priced courier).
+  if (data.pickupIncluded) {
+    if (!data.firstMile) {
+      fieldErrors.firstMile = "A door-pickup courier must be selected.";
+    } else if (!Number.isFinite(Number(data.firstMile.price))) {
+      fieldErrors.firstMile =
+        "The selected pickup courier has an invalid price. Please re-select it.";
+    }
+  }
+
   if (Object.keys(fieldErrors).length > 0) {
     return {
       ok: false,
@@ -231,8 +245,10 @@ function preflight(data: BookingFormData): PreflightResult {
   const declaredTotal = cargoDeclaredValue(data.boxes);
 
   const servicePrice = Number(data.selectedService!.price);
+  const firstMileCharge =
+    data.pickupIncluded && data.firstMile ? Number(data.firstMile.price) : 0;
 
-  return { ok: true, totalWeightKg, declaredTotal, servicePrice };
+  return { ok: true, totalWeightKg, declaredTotal, servicePrice, firstMileCharge };
 }
 
 // ---------------------------------------------------------------------------
@@ -387,7 +403,13 @@ export async function createShipmentAction(
 
     // Narrowed to PreflightOk — all properties are safely accessible and
     // guaranteed to be real finite numbers from here on.
-    const { totalWeightKg, servicePrice } = check;
+    const { totalWeightKg, servicePrice, firstMileCharge } = check;
+
+    // The wallet is debited for the full booking total: the international
+    // service plus the door → hub first-mile leg (0 when pickup wasn't opted
+    // into). Both prices already have the org markup applied by their rate
+    // actions, so this is a straight sum.
+    const chargeTotal = servicePrice + firstMileCharge;
 
     // ── 3. KYC check ─────────────────────────────────────────────────────
     Sentry.addBreadcrumb({ message: "KYC document check", level: "info" });
@@ -516,6 +538,24 @@ export async function createShipmentAction(
             shipmentType: data.shipmentType,
             pickupIncluded: data.pickupIncluded,
 
+            // First-mile (door → hub) snapshot — only when opted in. Priced
+            // with the org markup already applied by getDomesticRatesAction and
+            // frozen here so later rate/markup changes don't rewrite history.
+            firstMileVendorId:
+              data.pickupIncluded && data.firstMile ? data.firstMile.vendorId : null,
+            firstMileVendorName:
+              data.pickupIncluded && data.firstMile ? data.firstMile.productName : null,
+            firstMileCharge:
+              data.pickupIncluded && firstMileCharge > 0
+                ? new Decimal(firstMileCharge.toFixed(2))
+                : null,
+            firstMileHubLabel:
+              data.pickupIncluded ? data.firstMileHubLabel ?? null : null,
+            firstMileChargeSnapshot:
+              data.pickupIncluded && data.firstMile
+                ? ({ ...data.firstMile, price: firstMileCharge } as unknown as object)
+                : undefined,
+
             pickupAddressId: pickupAddress.id,
             deliveryAddressId: deliveryAddress.id,
             billingAddressId,
@@ -585,11 +625,11 @@ export async function createShipmentAction(
         // everything created above (addresses, shipment, packages,
         // invoice doc, status event) automatically.
         Sentry.addBreadcrumb({
-          message: `Debiting wallet ₹${servicePrice} for shipment ${shipmentNumber}`,
+          message: `Debiting wallet ₹${chargeTotal} (service ₹${servicePrice} + first-mile ₹${firstMileCharge}) for shipment ${shipmentNumber}`,
           level: "info",
         });
 
-        await debitWalletForShipment(tx, dbOrgId, servicePrice, shipment.id);
+        await debitWalletForShipment(tx, dbOrgId, chargeTotal, shipment.id);
 
         // 4h. Debit succeeded — flip to BOOKED.
         await tx.shipment.update({
@@ -652,7 +692,7 @@ export async function createShipmentAction(
           insufficientFunds: {
             shortfallRupees: Math.ceil(err.shortfallRupees),
             availableRupees: err.availableRupees,
-            requiredRupees: servicePrice,
+            requiredRupees: chargeTotal,
           },
         };
       }
