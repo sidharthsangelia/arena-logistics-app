@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Path, UseFormSetValue, UseFormWatch } from "react-hook-form";
-import { BookMarked, Loader2, Plus, Check, ChevronsUpDown } from "lucide-react";
+import { BookMarked, Loader2, Plus, Check, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -28,6 +28,12 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
@@ -37,11 +43,14 @@ import type { AddressSummary, Party } from "@/types/booking";
 import { listAddresses, createAddress } from "@/actions/book/addresses";
 
 // One documented cast point — RHF's Path<T> can't infer the template-literal
-// prefix, but consignor/pickup/consignee all share the same address shape.
+// prefix, but consignor / pickup / consignee / billing share one address shape.
 type AddressPrefix = "consignor" | "pickup" | "consignee" | "billing";
 function fieldPath(prefix: AddressPrefix, key: string): Path<BookingFormData> {
   return `${prefix}.${key}` as Path<BookingFormData>;
 }
+
+// How many chips show inline before the rest fold into a searchable "More" menu.
+const MAX_INLINE_CHIPS = 4;
 
 interface Props {
   /** Whose address book to read from / save into (org or a BA's client). */
@@ -56,10 +65,11 @@ interface Props {
   noun?: string;
 }
 
-function addressOneLiner(a: AddressSummary): string {
+function addressChipLabel(a: AddressSummary): string {
   return (
     a.label ||
-    [a.line1, a.city, a.postalCode].filter(Boolean).join(", ") ||
+    [a.contactName, a.city].filter(Boolean).join(", ") ||
+    [a.line1, a.city].filter(Boolean).join(", ") ||
     "Saved address"
   );
 }
@@ -91,16 +101,18 @@ export function AddressBookControls({
   noun = "address",
 }: Props) {
   const [saved, setSaved] = useState<AddressSummary[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string>("");
-  const [pickerOpen, setPickerOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
 
   const [saveOpen, setSaveOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [addressName, setAddressName] = useState("");
 
-  // Key the party into the effect via its identifying id so re-fetches happen
-  // when the BA switches which client they're booking for.
+  const forClient = party.partyType === "CLIENT";
+
+  // Key the party into the effect via its id so re-fetches happen when a BA
+  // switches which client they're booking for.
   const partyKey = party.partyType === "ORG" ? party.orgId : party.clientId;
 
   const load = useCallback(async () => {
@@ -120,6 +132,7 @@ export function AddressBookControls({
   }, [load]);
 
   const applyAddress = (a: AddressSummary) => {
+    setSelectedId(a.id);
     setValue(fieldPath(prefix, "contactName"), a.contactName ?? "", { shouldValidate: true });
     // Address book carries no company field — leave whatever's typed intact.
     setValue(fieldPath(prefix, "email"), a.contactEmail ?? "", { shouldValidate: true });
@@ -132,16 +145,8 @@ export function AddressBookControls({
     setValue(fieldPath(prefix, "addressLine2"), a.line2 ?? "", { shouldValidate: true });
   };
 
-  const handlePick = (a: AddressSummary) => {
-    setSelectedId(a.id);
-    applyAddress(a);
-    setPickerOpen(false);
-  };
-
-  const selectedLabel = useMemo(
-    () => saved.find((x) => x.id === selectedId),
-    [saved, selectedId],
-  );
+  const inlineChips = useMemo(() => saved.slice(0, MAX_INLINE_CHIPS), [saved]);
+  const overflow = saved.length > MAX_INLINE_CHIPS;
 
   const handleSave = async () => {
     const v = (watch(prefix as Path<BookingFormData>) ?? {}) as BookingFormData["consignor"];
@@ -162,61 +167,79 @@ export function AddressBookControls({
       });
 
       if (res.ok) {
-        toast.success("Saved to your address book");
+        toast.success(
+          forClient
+            ? "Saved to this client's address book"
+            : "Saved to your address book",
+        );
         setSaveOpen(false);
         setAddressName("");
         await load();
       } else {
-        toast.error(res.error || "Couldn't save this address. Check the fields and try again.");
+        toast.error(res.error || "We couldn't save this address. Check the fields and try again.");
       }
     } finally {
       setSaving(false);
     }
   };
 
+  const bookLabel = forClient ? "this client's address book" : "your address book";
+
   return (
-    <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-      <div className="w-full sm:max-w-xs">
-        <Label className="mb-1 flex items-center gap-1.5 text-xs text-muted-foreground">
-          <BookMarked className="h-3.5 w-3.5" />
-          Use a saved {noun}
-        </Label>
-        <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
-          <PopoverTrigger asChild>
-            <Button
+    <div className="flex flex-wrap items-center gap-1.5">
+      <span className="mr-0.5 inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+        <BookMarked className="h-3.5 w-3.5" />
+        {loading ? "Loading saved…" : saved.length > 0 ? "Use a saved one" : "Address book"}
+      </span>
+
+      {/* Inline chips */}
+      {!loading &&
+        inlineChips.map((a) => {
+          const active = selectedId === a.id;
+          return (
+            <button
+              key={a.id}
               type="button"
-              variant="outline"
-              role="combobox"
-              aria-expanded={pickerOpen}
-              disabled={loading || saved.length === 0}
-              className="w-full justify-between font-normal"
+              onClick={() => applyAddress(a)}
+              className={cn(
+                "inline-flex max-w-56 items-center gap-1 rounded-full border px-3 py-1 text-xs transition-colors",
+                active
+                  ? "border-primary bg-primary/5 text-foreground"
+                  : "hover:bg-muted",
+              )}
             >
-              <span className="truncate">
-                {loading
-                  ? "Loading…"
-                  : saved.length === 0
-                    ? "No saved addresses yet"
-                    : selectedLabel
-                      ? addressOneLiner(selectedLabel)
-                      : "Select from address book"}
-              </span>
-              <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-            </Button>
+              {active && <Check className="h-3 w-3 shrink-0 text-primary" />}
+              <span className="truncate">{addressChipLabel(a)}</span>
+            </button>
+          );
+        })}
+
+      {/* Overflow → searchable menu */}
+      {!loading && overflow && (
+        <Popover open={moreOpen} onOpenChange={setMoreOpen}>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs text-muted-foreground hover:bg-muted"
+            >
+              {saved.length - MAX_INLINE_CHIPS} more
+              <ChevronDown className="h-3 w-3" />
+            </button>
           </PopoverTrigger>
-          <PopoverContent
-            className="w-[--radix-popover-trigger-width] p-0"
-            align="start"
-          >
+          <PopoverContent className="w-72 p-0" align="start">
             <Command>
-              <CommandInput placeholder={`Search saved ${noun}s…`} />
+              <CommandInput placeholder={`Search saved ${noun}s`} />
               <CommandList>
-                <CommandEmpty>No matching addresses.</CommandEmpty>
+                <CommandEmpty>No matches.</CommandEmpty>
                 <CommandGroup>
                   {saved.map((a) => (
                     <CommandItem
                       key={a.id}
                       value={`${addressSearchText(a)} ${a.id}`}
-                      onSelect={() => handlePick(a)}
+                      onSelect={() => {
+                        applyAddress(a);
+                        setMoreOpen(false);
+                      }}
                     >
                       <Check
                         className={cn(
@@ -225,12 +248,10 @@ export function AddressBookControls({
                         )}
                       />
                       <div className="flex min-w-0 flex-col">
-                        <span className="truncate">{addressOneLiner(a)}</span>
+                        <span className="truncate">{addressChipLabel(a)}</span>
                         {(a.contactName || a.city) && (
                           <span className="truncate text-xs text-muted-foreground">
-                            {[a.contactName, a.city, a.postalCode]
-                              .filter(Boolean)
-                              .join(" · ")}
+                            {[a.contactName, a.city, a.postalCode].filter(Boolean).join(" · ")}
                           </span>
                         )}
                       </div>
@@ -241,38 +262,52 @@ export function AddressBookControls({
             </Command>
           </PopoverContent>
         </Popover>
-      </div>
+      )}
 
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        onClick={() => {
-          const v = (watch(prefix as Path<BookingFormData>) ?? {}) as BookingFormData["consignor"];
-          setAddressName(v.contactName ?? "");
-          setSaveOpen(true);
-        }}
-      >
-        <Plus className="mr-1.5 h-3.5 w-3.5" />
-        Save to address book
-      </Button>
+      {/* Save current form values to the book */}
+      <TooltipProvider delayDuration={200}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 gap-1 px-2 text-xs text-muted-foreground hover:text-foreground"
+              onClick={() => {
+                const v = (watch(prefix as Path<BookingFormData>) ?? {}) as BookingFormData["consignor"];
+                setAddressName(v.contactName ?? "");
+                setSaveOpen(true);
+              }}
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Save this {noun}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent className="max-w-xs">
+            Save the details below to {bookLabel}. Next time you can fill this
+            whole section with one tap instead of typing it again. Saved
+            securely and ready across all your bookings.
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
 
       <Dialog open={saveOpen} onOpenChange={setSaveOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Save this {noun} to your address book</DialogTitle>
+            <DialogTitle>Save this {noun}</DialogTitle>
             <DialogDescription>
-              Give it a name so you can reuse it next time without re-typing.
+              Give it a short name so you can find and reuse it in one tap. It
+              goes to {bookLabel}.
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-1.5">
-            <Label htmlFor="address-name">Address name</Label>
+            <Label htmlFor="address-name">Nickname</Label>
             <Input
               id="address-name"
               value={addressName}
               onChange={(e) => setAddressName(e.target.value)}
-              placeholder="e.g. Head office, Warehouse 2"
+              placeholder="Head office, Warehouse 2, Mom's place"
             />
           </div>
 
@@ -284,7 +319,7 @@ export function AddressBookControls({
               {saving ? (
                 <>
                   <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                  Saving…
+                  Saving
                 </>
               ) : (
                 <>

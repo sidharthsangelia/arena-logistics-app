@@ -8,19 +8,17 @@ import {
   UseFormClearErrors,
   FieldErrors,
 } from "react-hook-form";
-import { AlertCircle, Info, Truck } from "lucide-react";
+import { AlertCircle, Info } from "lucide-react";
 
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Separator } from "@/components/ui/separator";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-
 import type {
   BookingFormData,
   BookingOrgContext,
@@ -80,6 +78,8 @@ const EMPTY_CONSIGNOR: ConsignorForm = {
 
 // ── Props ──────────────────────────────────────────────────────────────────
 
+type OwnerMode = "SELF" | "EXISTING_CLIENT" | "OTHER_PERSON";
+
 interface Props {
   orgContext: BookingOrgContext;
   register: UseFormRegister<BookingFormData>;
@@ -103,10 +103,10 @@ const ADDRESS_FIELD_KEYS = [
   "country",
 ] as const;
 
-// clearErrors("pickup") only clears an error set on the exact key "pickup" —
-// it does NOT clear nested errors like "pickup.city" that setError() creates
-// from a superRefine issue path. Left uncleared, those linger in formState
-// even after the section is hidden.
+// clearErrors("pickup") only clears an error set on the exact key "pickup" — it
+// does NOT clear nested errors like "pickup.city" that setError() creates from a
+// superRefine issue path. Left uncleared, those linger in formState even after
+// the section is hidden.
 function clearAddressErrors(
   clearErrors: UseFormClearErrors<BookingFormData>,
   prefix: "pickup" | "billing",
@@ -117,6 +117,12 @@ function clearAddressErrors(
   ]);
 }
 
+const MODE_HELP: Record<OwnerMode, string> = {
+  SELF: "We use your saved organisation profile as the sender.",
+  EXISTING_CLIENT: "Book for one of your saved clients. Their details fill the sender.",
+  OTHER_PERSON: "Sending for someone else, like a friend or family member. Enter their details below.",
+};
+
 export function SenderPickupStep({
   orgContext,
   register,
@@ -126,18 +132,16 @@ export function SenderPickupStep({
   errors,
   clientError,
 }: Props) {
-  const mode = watch("shipmentOwnerMode");
+  const mode = watch("shipmentOwnerMode") as OwnerMode;
   const selectedClient = watch("selectedClient");
   const pickupSameAsSender = watch("pickupSameAsSender");
 
   const isBA = orgContext.isBusinessAssociate;
 
   // "Has the org saved *any* usable profile detail?" — deliberately looser than
-  // the strict all-fields `profileAddressComplete` flag. A partially-filled
-  // profile (e.g. missing state) still has a sender worth pre-filling, so we key
-  // both the auto-prefill and the helper copy off this instead of the strict
-  // flag. Otherwise a single blank field silently disabled prefill and wrongly
-  // showed the "you haven't saved an address" message.
+  // the strict all-fields `profileAddressComplete` flag. A partially filled
+  // profile still has a sender worth pre-filling, so we key both the auto-prefill
+  // and the helper copy off this instead of the strict flag.
   const self = orgContext.self;
   const hasSavedProfile = !!(
     self.contactName ||
@@ -147,17 +151,23 @@ export function SenderPickupStep({
     self.phone
   );
 
-  // Which address book the sender/pickup pickers read + save to.
+  // Segmented modes — the client option only exists for Business Associates.
+  const modes: { value: OwnerMode; label: string }[] = [
+    { value: "SELF", label: "My Self" },
+    ...(isBA ? [{ value: "EXISTING_CLIENT" as const, label: "A client" }] : []),
+    { value: "OTHER_PERSON", label: "Someone else" },
+  ];
+
+  // Which address book the sender / pickup pickers read + save to.
   const party: Party =
     mode === "EXISTING_CLIENT" && selectedClient
       ? { partyType: "CLIENT", clientId: selectedClient.id }
       : { partyType: "ORG", orgId: orgContext.orgId };
 
-  // "Use my saved profile" is selected by default, so seed the sender from the
-  // org profile on mount without the user having to re-tap the radio. Guarded so
-  // a resumed draft (which already has sender data) is never overwritten, and
-  // keyed off `hasSavedProfile` so any saved detail — not only a fully complete
-  // address — triggers the prefill.
+  // "My organisation" is selected by default, so seed the sender from the org
+  // profile on mount without the user having to re-tap. Guarded so a resumed
+  // draft (which already has sender data) is never overwritten, and keyed off
+  // `hasSavedProfile` so any saved detail triggers the prefill.
   const prefilledRef = useRef(false);
   useEffect(() => {
     if (prefilledRef.current) return;
@@ -171,7 +181,7 @@ export function SenderPickupStep({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleModeChange = (v: "SELF" | "EXISTING_CLIENT" | "OTHER_PERSON") => {
+  const handleModeChange = (v: OwnerMode) => {
     setValue("shipmentOwnerMode", v);
     clearErrors();
 
@@ -195,14 +205,12 @@ export function SenderPickupStep({
   };
 
   // Sender fields show once we know whose details to collect: always for
-  // SELF/OTHER_PERSON, and for EXISTING_CLIENT only after a client is chosen.
+  // SELF / OTHER_PERSON, and for EXISTING_CLIENT only after a client is chosen.
   const showSender = mode !== "EXISTING_CLIENT" || !!selectedClient;
 
-  // Keep pickup.* mirrored to consignor.* for as long as "same as sender" is
-  // checked, so formData.pickup is always a real, submittable address — never
-  // the empty-string defaults — regardless of whether the Pickup section is
-  // currently rendered. Uses watch's callback form (not the `pickupSameAsSender`
-  // variable) so it reacts to every keystroke without re-subscribing per render.
+  // Keep pickup.* mirrored to consignor.* while "same as sender" is checked, so
+  // formData.pickup is always a real, submittable address. Uses watch's callback
+  // form so it reacts to every keystroke without re-subscribing per render.
   useEffect(() => {
     const subscription = watch((values, { name }) => {
       if (!values.pickupSameAsSender) return;
@@ -221,96 +229,46 @@ export function SenderPickupStep({
   }, [watch, setValue]);
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-7">
       <div>
-        <h2 className="text-xl font-semibold">Sender &amp; Pickup</h2>
+        <h2 className="text-lg font-semibold">Sender and pickup</h2>
         <p className="text-sm text-muted-foreground">
-          Who is sending this shipment, and where should we collect it from?
+          Who is sending this shipment, and where should we collect it?
         </p>
       </div>
 
-      {/* ── Who's shipping ── */}
-      <RadioGroup
-        value={mode}
-        onValueChange={(v) => handleModeChange(v as typeof mode)}
-        className="space-y-3"
-      >
-        <label
-          htmlFor="mode-self"
-          className="flex items-start gap-3 rounded-lg border p-4 cursor-pointer hover:bg-muted/40 has-[[data-state=checked]]:border-primary has-[[data-state=checked]]:bg-primary/5"
+      {/* ── Who's shipping (segmented) ── */}
+      <div className="space-y-2">
+        <RadioGroup
+          value={mode}
+          onValueChange={(v) => handleModeChange(v as OwnerMode)}
+          className="inline-flex flex-wrap gap-1 rounded-lg border bg-muted/50 p-1"
         >
-          <RadioGroupItem value="SELF" id="mode-self" className="mt-0.5" />
-          <div>
-            <p className="text-sm font-medium">Use my saved profile</p>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              {hasSavedProfile ? (
-                "Your organisation's registered details are used as the sender."
-              ) : (
-                <>
-                  You haven't saved an address yet —{" "}
-                  <a
-                    href="/settings/profile"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="underline"
-                  >
-                    add one in Settings
-                  </a>{" "}
-                  to prefill this automatically, or just fill it in below for
-                  this shipment.
-                </>
-              )}
-            </p>
-          </div>
-        </label>
-
-        {isBA && (
-          <label
-            htmlFor="mode-client"
-            className="flex items-start gap-3 rounded-lg border p-4 cursor-pointer hover:bg-muted/40 has-[[data-state=checked]]:border-primary has-[[data-state=checked]]:bg-primary/5"
-          >
-            <RadioGroupItem
-              value="EXISTING_CLIENT"
-              id="mode-client"
-              className="mt-0.5"
-            />
-            <div>
-              <p className="text-sm font-medium">Existing client</p>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                Book on behalf of one of your saved clients — their details
-                pre-fill the sender.
-              </p>
-            </div>
-          </label>
-        )}
-
-        <label
-          htmlFor="mode-other"
-          className="flex items-start gap-3 rounded-lg border p-4 cursor-pointer hover:bg-muted/40 has-[[data-state=checked]]:border-primary has-[[data-state=checked]]:bg-primary/5"
-        >
-          <RadioGroupItem
-            value="OTHER_PERSON"
-            id="mode-other"
-            className="mt-0.5"
-          />
-          <div>
-            <p className="text-sm font-medium">Someone else</p>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              Shipping for another person (e.g. a family member) — enter their
-              details below.
-            </p>
-          </div>
-        </label>
-      </RadioGroup>
+          {modes.map((m) => (
+            <Label
+              key={m.value}
+              htmlFor={`mode-${m.value}`}
+              className="cursor-pointer"
+            >
+              <RadioGroupItem
+                value={m.value}
+                id={`mode-${m.value}`}
+                className="peer sr-only"
+              />
+              <span className="block rounded-md px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-ring peer-data-[state=checked]:bg-background peer-data-[state=checked]:text-foreground peer-data-[state=checked]:shadow-sm">
+                {m.label}
+              </span>
+            </Label>
+          ))}
+        </RadioGroup>
+        <p className="text-xs text-muted-foreground">{MODE_HELP[mode]}</p>
+      </div>
 
       {/* ── Client picker (BA + existing client) ── */}
       {mode === "EXISTING_CLIENT" && (
-        <div className="space-y-2">
-          <Label>Select client</Label>
-          <ClientCombobox
-            value={selectedClient}
-            onChange={handleClientChange}
-          />
+        <div className="space-y-1.5">
+          <Label className="text-xs">Select client</Label>
+          <ClientCombobox value={selectedClient} onChange={handleClientChange} />
           {clientError && (
             <p className="flex items-center gap-1.5 text-sm text-destructive">
               <AlertCircle className="h-3.5 w-3.5" />
@@ -322,13 +280,11 @@ export function SenderPickupStep({
 
       {/* ── Sender details ── */}
       {showSender && (
-        <div className="space-y-5">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold">Sender details</h3>
-          </div>
+        <div className="space-y-3">
+          <h3 className="text-sm font-semibold">Sender</h3>
 
-          {/* Address-book picker is redundant under "Use my saved profile" — the
-              sender is already filled from the org profile. Only offer it when
+          {/* Address-book chips are redundant under "My organisation" — the
+              sender is already filled from the org profile. Only offer them when
               the sender is someone else (a saved client / one-off recipient). */}
           {mode !== "SELF" && (
             <AddressBookControls
@@ -347,19 +303,15 @@ export function SenderPickupStep({
             watch={watch}
             setValue={setValue}
             errors={errors}
-            addressLabel="Sender address"
           />
         </div>
       )}
 
       {/* ── Pickup details ── */}
       {showSender && (
-        <div className="space-y-5">
-          <Separator />
-
-          <div className="flex items-center gap-2">
-            <Truck className="h-4 w-4 text-muted-foreground" />
-            <h3 className="text-sm font-semibold">Pickup details</h3>
+        <div className="space-y-3 border-t pt-6">
+          <div className="flex items-center gap-1.5">
+            <h3 className="text-sm font-semibold">Pickup</h3>
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -372,52 +324,40 @@ export function SenderPickupStep({
                   </button>
                 </TooltipTrigger>
                 <TooltipContent className="max-w-xs">
-                  Where we physically collect the parcel. It&apos;s usually the
-                  same as the sender, but can differ — e.g. the goods ship from
-                  a warehouse while the sender is your office.
+                  Where we physically collect the parcel. Usually the same as the
+                  sender, but it can differ. For example the goods ship from a
+                  warehouse while the sender is your office.
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
           </div>
 
-          <label className="flex items-start gap-3 rounded-lg border p-4 cursor-pointer hover:bg-muted/40">
+          <label className="flex items-center gap-2.5 text-sm">
             <Checkbox
               checked={pickupSameAsSender}
               onCheckedChange={(checked) => {
                 const isSame = checked === true;
-                setValue("pickupSameAsSender", isSame, {
-                  shouldValidate: false,
-                });
+                setValue("pickupSameAsSender", isSame, { shouldValidate: false });
                 if (isSame) {
-                  setValue(
-                    "pickup",
-                    { ...watch("consignor") } as ConsignorForm,
-                    { shouldValidate: false },
-                  );
+                  setValue("pickup", { ...watch("consignor") } as ConsignorForm, {
+                    shouldValidate: false,
+                  });
                   clearAddressErrors(clearErrors, "pickup");
                 }
               }}
-              className="mt-0.5"
             />
-            <div>
-              <p className="text-sm font-medium">
-                Pickup address is the same as the sender
-              </p>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                Uncheck if the parcel is collected from a different address.
-              </p>
-            </div>
+            <span>Collect from the sender&apos;s address</span>
           </label>
 
           {!pickupSameAsSender && (
-            <div className="space-y-5">
+            <div className="space-y-3">
               <AddressBookControls
                 party={party}
                 kind="PICKUP"
                 prefix="pickup"
                 watch={watch}
                 setValue={setValue}
-                noun="pickup address"
+                noun="pickup"
               />
               <AddressFields
                 prefix="pickup"
@@ -425,7 +365,6 @@ export function SenderPickupStep({
                 watch={watch}
                 setValue={setValue}
                 errors={errors}
-                addressLabel="Pickup address"
               />
             </div>
           )}

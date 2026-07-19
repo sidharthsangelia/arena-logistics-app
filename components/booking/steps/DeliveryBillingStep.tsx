@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import {
   UseFormRegister,
   UseFormWatch,
@@ -7,11 +8,9 @@ import {
   UseFormClearErrors,
   FieldErrors,
 } from "react-hook-form";
-import { Info, Receipt } from "lucide-react";
+import { Info } from "lucide-react";
 
-import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Separator } from "@/components/ui/separator";
 import {
   Tooltip,
   TooltipContent,
@@ -28,7 +27,6 @@ import type { Party } from "@/types/booking";
 
 import { AddressFields } from "../AddressFields";
 import { AddressBookControls } from "../AddressBookControls";
-import { useEffect } from "react";
 
 interface Props {
   orgContext: BookingOrgContext;
@@ -52,10 +50,8 @@ const ADDRESS_FIELD_KEYS = [
   "country",
 ] as const;
 
-// clearErrors("pickup") only clears an error set on the exact key "pickup" —
-// it does NOT clear nested errors like "pickup.city" that setError() creates
-// from a superRefine issue path. Left uncleared, those linger in formState
-// even after the section is hidden.
+// clearErrors("billing") only clears an error on the exact key "billing", not
+// nested errors like "billing.city" that a superRefine issue path creates.
 function clearAddressErrors(
   clearErrors: UseFormClearErrors<BookingFormData>,
   prefix: "pickup" | "billing",
@@ -78,8 +74,8 @@ export function DeliveryBillingStep({
   const selectedClient = watch("selectedClient");
   const billingSameAsDelivery = watch("billingSameAsDelivery");
 
-  // Delivery/billing addresses reuse the same book as the sender: the org's,
-  // or the client's when a BA books on their behalf.
+  // Delivery / billing reuse the same book as the sender: the org's, or the
+  // client's when a BA books on their behalf.
   const party: Party =
     mode === "EXISTING_CLIENT" && selectedClient
       ? { partyType: "CLIENT", clientId: selectedClient.id }
@@ -103,18 +99,18 @@ export function DeliveryBillingStep({
   }, [watch, setValue]);
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-7">
       <div>
-        <h2 className="text-xl font-semibold">Delivery &amp; Billing</h2>
+        <h2 className="text-lg font-semibold">Delivery and billing</h2>
         <p className="text-sm text-muted-foreground">
           Where is this shipment going, and who should we invoice? Accurate
-          details here prevent customs delays.
+          details here keep it moving through customs.
         </p>
       </div>
 
       {/* ── Delivery ── */}
-      <div className="space-y-5">
-        <h3 className="text-sm font-semibold">Delivery details</h3>
+      <div className="space-y-3">
+        <h3 className="text-sm font-semibold">Delivery</h3>
 
         <AddressBookControls
           party={party}
@@ -131,18 +127,14 @@ export function DeliveryBillingStep({
           watch={watch}
           setValue={setValue}
           errors={errors}
-          countryLabel="Destination Country"
-          addressLabel="Delivery address"
+          countryLabel="Destination country"
         />
       </div>
 
       {/* ── Billing ── */}
-      <div className="space-y-5">
-        <Separator />
-
-        <div className="flex items-center gap-2">
-          <Receipt className="h-4 w-4 text-muted-foreground" />
-          <h3 className="text-sm font-semibold">Billing details</h3>
+      <div className="space-y-3 border-t pt-6">
+        <div className="flex items-center gap-1.5">
+          <h3 className="text-sm font-semibold">Billing</h3>
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -156,44 +148,32 @@ export function DeliveryBillingStep({
               </TooltipTrigger>
               <TooltipContent className="max-w-xs">
                 Who the invoice is addressed to. Often the same as the receiver,
-                but can differ — e.g. a corporate office is billed while the
+                but it can differ. For example a head office is billed while the
                 goods are delivered elsewhere.
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
         </div>
 
-        <label className="flex items-start gap-3 rounded-lg border p-4 cursor-pointer hover:bg-muted/40">
+        <label className="flex items-center gap-2.5 text-sm">
           <Checkbox
             checked={billingSameAsDelivery}
             onCheckedChange={(checked) => {
               const isSame = checked === true;
-              setValue("billingSameAsDelivery", isSame, {
-                shouldValidate: false,
-              });
+              setValue("billingSameAsDelivery", isSame, { shouldValidate: false });
               if (isSame) {
-                setValue(
-                  "billing",
-                  { ...watch("consignee") } as ConsignorForm,
-                  { shouldValidate: false },
-                );
+                setValue("billing", { ...watch("consignee") } as ConsignorForm, {
+                  shouldValidate: false,
+                });
                 clearAddressErrors(clearErrors, "billing");
               }
             }}
-            className="mt-0.5"
           />
-          <div>
-            <p className="text-sm font-medium">
-              Billing address is the same as delivery
-            </p>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              Uncheck to invoice a different address (e.g. a head office).
-            </p>
-          </div>
+          <span>Invoice the delivery address</span>
         </label>
 
         {!billingSameAsDelivery && (
-          <div className="space-y-5">
+          <div className="space-y-3">
             <AddressBookControls
               party={party}
               kind="BILLING"
@@ -208,8 +188,7 @@ export function DeliveryBillingStep({
               watch={watch}
               setValue={setValue}
               errors={errors}
-              countryLabel="Billing Country"
-              addressLabel="Billing address"
+              countryLabel="Billing country"
             />
           </div>
         )}
