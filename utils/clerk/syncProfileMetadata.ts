@@ -15,6 +15,12 @@ export async function syncOrgProfileMetadata(dbOrgId: string): Promise<void> {
       await prisma.org.update({ where: { id: org.id }, data: { profileCompletedAt: new Date() } });
     }
 
+    // METADATA POLICY: only non-sensitive *routing / UI-gating booleans* go to
+    // publicMetadata (it's readable on the client — see ProfileCompletionBanner).
+    // Never put profile/KYC DATA (addresses, doc numbers, phone/email, file URLs)
+    // here — anything sensitive belongs in privateMetadata (server-only) or stays
+    // in Postgres, which remains the source of truth. These three flags are just
+    // completion state, safe to expose.
     const client = await clerkClient();
     await client.organizations.updateOrganizationMetadata(org.clerkOrgId, {
       publicMetadata: {
