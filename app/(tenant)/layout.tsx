@@ -46,7 +46,11 @@ export default async function DashboardLayout({
   return (
     <main>
       <SidebarProvider>
-        <AppSidebar variant="tenant" basePath="/" />
+        <AppSidebar
+          variant="tenant"
+          basePath="/"
+          isBusinessAssociate={org.isBusinessAssociate}
+        />
 
         <SidebarInset>
           {/* Top header bar */}

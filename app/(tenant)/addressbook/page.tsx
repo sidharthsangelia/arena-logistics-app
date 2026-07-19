@@ -1,5 +1,7 @@
+import { notFound } from "next/navigation";
+
 import { getCurrentOrg } from "@/actions/book/getOrgs";
-import { AddressBookView } from "@/components/address/AddressBookView";
+import { AddressBookManager } from "@/components/address/AddressBookManager";
 
 export const metadata = {
   title: "Address book",
@@ -7,6 +9,10 @@ export const metadata = {
 
 export default async function AddressBookPage() {
   const org = await getCurrentOrg();
+
+  // Business Associates manage addresses per client, from the client's page.
+  // They have no org-wide address book, so this route isn't for them.
+  if (org.isBusinessAssociate) notFound();
 
   return (
     <div className="mx-auto w-full max-w-4xl px-4 py-6 sm:px-6">
@@ -18,7 +24,7 @@ export default async function AddressBookPage() {
         </p>
       </div>
 
-      <AddressBookView orgId={org.id} isBusinessAssociate={org.isBusinessAssociate} />
+      <AddressBookManager party={{ partyType: "ORG", orgId: org.id }} />
     </div>
   );
 }

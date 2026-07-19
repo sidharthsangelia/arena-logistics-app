@@ -54,8 +54,10 @@ export async function createAddress(
 
     const address = await prisma.$transaction(async (tx) => {
       if (data.isDefault) {
+        // One primary per address kind (per owner), not one primary overall — a
+        // booking needs a default pickup AND a default delivery AND billing.
         await tx.address.updateMany({
-          where: { orgId, clientId, deletedAt: null },
+          where: { orgId, clientId, kind, deletedAt: null },
           data: { isDefault: false },
         });
       }
@@ -114,12 +116,14 @@ export async function updateAddress(
       const data = parsed.data;
 
       const address = await prisma.$transaction(async (tx) => {
-        // A newly-flagged default demotes the other entries of the same owner.
+        // A newly-flagged default demotes the other entries of the same owner
+        // AND kind — the primary is per-kind, so it can't clash across types.
         if (data.isDefault) {
           await tx.address.updateMany({
             where: {
               orgId: existing.orgId,
               clientId: existing.clientId,
+              kind,
               deletedAt: null,
               id: { not: addressId },
             },
@@ -182,10 +186,12 @@ export async function setDefaultAddress(
       const existing = await assertOrgOwnsAddress(org.id, addressId);
 
       await prisma.$transaction(async (tx) => {
+        // Clear the current primary for THIS kind only, then promote this one.
         await tx.address.updateMany({
           where: {
             orgId: existing.orgId,
             clientId: existing.clientId,
+            kind: existing.kind,
             deletedAt: null,
           },
           data: { isDefault: false },

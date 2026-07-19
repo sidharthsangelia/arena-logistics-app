@@ -317,12 +317,20 @@ export function AddressFormSheet({
             />
           </div>
 
-          <label className="flex items-center gap-2.5 text-sm">
+          <label className="flex items-start gap-2.5 text-sm">
             <Checkbox
               checked={form.isDefault}
               onCheckedChange={(c) => set("isDefault", c === true)}
+              className="mt-0.5"
             />
-            <span>Make this the primary address</span>
+            <span>
+              Make this my primary{" "}
+              {KIND_OPTIONS.find((k) => k.value === form.kind)?.label.toLowerCase() ?? ""}{" "}
+              address
+              <span className="mt-0.5 block text-xs font-normal text-muted-foreground">
+                Pre-filled first when you book. Each type keeps its own primary.
+              </span>
+            </span>
           </label>
         </div>
 

@@ -45,12 +45,19 @@ const KIND_LABEL: Record<AddressKind, string> = {
   OTHER: "Other",
 };
 
+// Section order when showing everything, and the tab order.
+const KIND_ORDER: AddressKind[] = ["PICKUP", "DELIVERY", "BILLING", "OTHER"];
+
+const KIND_BLURB: Record<AddressKind, string> = {
+  PICKUP: "Where we collect parcels from",
+  DELIVERY: "Where parcels are sent to",
+  BILLING: "Where invoices are addressed",
+  OTHER: "Warehouses, offices and anything else",
+};
+
 const FILTERS: { value: AddressKind | "ALL"; label: string }[] = [
   { value: "ALL", label: "All" },
-  { value: "PICKUP", label: "Pickup" },
-  { value: "DELIVERY", label: "Delivery" },
-  { value: "BILLING", label: "Billing" },
-  { value: "OTHER", label: "Other" },
+  ...KIND_ORDER.map((k) => ({ value: k, label: KIND_LABEL[k] })),
 ];
 
 function addressLines(a: AddressSummary): string {
@@ -91,9 +98,18 @@ export function AddressBookManager({ party }: Props) {
     load();
   }, [load]);
 
-  const visible = useMemo(
-    () => (filter === "ALL" ? addresses : addresses.filter((a) => a.kind === filter)),
-    [addresses, filter],
+  // Group into the sections we render. Each kind's addresses arrive primary-first
+  // from the server, so the section's primary is naturally pinned to the top.
+  const sections = useMemo(() => {
+    const kinds = filter === "ALL" ? KIND_ORDER : [filter as AddressKind];
+    return kinds
+      .map((k) => ({ kind: k, items: addresses.filter((a) => a.kind === k) }))
+      .filter((s) => s.items.length > 0);
+  }, [addresses, filter]);
+
+  const totalVisible = useMemo(
+    () => sections.reduce((n, s) => n + s.items.length, 0),
+    [sections],
   );
 
   const openAdd = () => {
@@ -166,7 +182,7 @@ export function AddressBookManager({ party }: Props) {
             <div key={i} className="h-28 animate-pulse rounded-lg border bg-muted/30" />
           ))}
         </div>
-      ) : visible.length === 0 ? (
+      ) : totalVisible === 0 ? (
         <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed py-12 text-center">
           <MapPin className="h-6 w-6 text-muted-foreground" />
           <p className="text-sm font-medium">
@@ -182,77 +198,27 @@ export function AddressBookManager({ party }: Props) {
           </Button>
         </div>
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2">
-          {visible.map((a) => (
-            <div
-              key={a.id}
-              className={cn(
-                "group relative rounded-lg border bg-card p-4 transition-colors hover:border-foreground/20",
-                busyId === a.id && "opacity-60",
-              )}
-            >
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-medium">
-                    {a.label || a.contactName || "Saved address"}
-                  </p>
-                  <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                    {a.kind && (
-                      <Badge variant="secondary" className="text-[10px] font-normal">
-                        {KIND_LABEL[a.kind]}
-                      </Badge>
-                    )}
-                    {a.isDefault && (
-                      <Badge className="gap-1 text-[10px] font-normal">
-                        <Star className="h-2.5 w-2.5" />
-                        Primary
-                      </Badge>
-                    )}
-                  </div>
-                </div>
-
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7 shrink-0 text-muted-foreground"
-                    >
-                      {busyId === a.id ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <MoreHorizontal className="h-4 w-4" />
-                      )}
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-44">
-                    <DropdownMenuItem onClick={() => openEdit(a)}>
-                      <Pencil className="mr-2 h-3.5 w-3.5" />
-                      Edit
-                    </DropdownMenuItem>
-                    {!a.isDefault && (
-                      <DropdownMenuItem onClick={() => handleSetDefault(a)}>
-                        <Star className="mr-2 h-3.5 w-3.5" />
-                        Set as primary
-                      </DropdownMenuItem>
-                    )}
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem
-                      className="text-destructive focus:text-destructive"
-                      onClick={() => setToDelete(a)}
-                    >
-                      <Trash2 className="mr-2 h-3.5 w-3.5" />
-                      Delete
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
+        <div className="space-y-6">
+          {sections.map((section) => (
+            <div key={section.kind} className="space-y-2.5">
+              <div className="flex items-baseline gap-2">
+                <h3 className="text-sm font-semibold">{KIND_LABEL[section.kind]}</h3>
+                <span className="text-xs text-muted-foreground">
+                  {KIND_BLURB[section.kind]}
+                </span>
               </div>
-
-              <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-                {a.contactName && a.label ? `${a.contactName} · ` : ""}
-                {addressLines(a)}
-              </p>
-              <p className="text-xs text-muted-foreground">{a.country}</p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {section.items.map((a) => (
+                  <AddressCard
+                    key={a.id}
+                    address={a}
+                    busy={busyId === a.id}
+                    onEdit={() => openEdit(a)}
+                    onSetDefault={() => handleSetDefault(a)}
+                    onDelete={() => setToDelete(a)}
+                  />
+                ))}
+              </div>
             </div>
           ))}
         </div>
@@ -287,6 +253,82 @@ export function AddressBookManager({ party }: Props) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+    </div>
+  );
+}
+
+interface AddressCardProps {
+  address: AddressSummary;
+  busy: boolean;
+  onEdit: () => void;
+  onSetDefault: () => void;
+  onDelete: () => void;
+}
+
+function AddressCard({ address: a, busy, onEdit, onSetDefault, onDelete }: AddressCardProps) {
+  return (
+    <div
+      className={cn(
+        "group relative rounded-lg border bg-card p-4 transition-colors hover:border-foreground/20",
+        a.isDefault && "border-primary/40 bg-primary/3",
+        busy && "opacity-60",
+      )}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="truncate text-sm font-medium">
+            {a.label || a.contactName || "Saved address"}
+          </p>
+          {a.isDefault && (
+            <Badge className="mt-1 gap-1 text-[10px] font-normal">
+              <Star className="h-2.5 w-2.5" />
+              Primary
+            </Badge>
+          )}
+        </div>
+
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 shrink-0 text-muted-foreground"
+            >
+              {busy ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <MoreHorizontal className="h-4 w-4" />
+              )}
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-44">
+            <DropdownMenuItem onClick={onEdit}>
+              <Pencil className="mr-2 h-3.5 w-3.5" />
+              Edit
+            </DropdownMenuItem>
+            {!a.isDefault && (
+              <DropdownMenuItem onClick={onSetDefault}>
+                <Star className="mr-2 h-3.5 w-3.5" />
+                Set as primary
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              className="text-destructive focus:text-destructive"
+              onClick={onDelete}
+            >
+              <Trash2 className="mr-2 h-3.5 w-3.5" />
+              Delete
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+
+      <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+        {a.contactName && a.label ? `${a.contactName} · ` : ""}
+        {addressLines(a)}
+      </p>
+      <p className="text-xs text-muted-foreground">{a.country}</p>
     </div>
   );
 }

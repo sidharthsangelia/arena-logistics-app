@@ -48,7 +48,10 @@ interface ChecklistItem {
 export async function OnboardingChecklist({ org }: { org: Org }) {
   const [kyc, savedAddressCount, clientCount, wallet] = await Promise.all([
     getOrgKycBaselineStatus(org.id),
-    prisma.address.count({ where: { orgId: org.id, deletedAt: null } }),
+    // BAs keep addresses per client (no org-wide book), so count those instead.
+    org.isBusinessAssociate
+      ? prisma.address.count({ where: { deletedAt: null, client: { orgId: org.id } } })
+      : prisma.address.count({ where: { orgId: org.id, deletedAt: null } }),
     org.isBusinessAssociate
       ? prisma.client.count({ where: { orgId: org.id, deletedAt: null } })
       : Promise.resolve(0),
@@ -79,9 +82,13 @@ export async function OnboardingChecklist({ org }: { org: Org }) {
     },
     {
       key: "address-book",
-      label: "Save a delivery or pickup address",
-      description: "Optional. Keep frequent addresses handy for faster booking.",
-      href: "/book",
+      label: org.isBusinessAssociate
+        ? "Save an address for a client"
+        : "Save a delivery or pickup address",
+      description: org.isBusinessAssociate
+        ? "Optional. Keep each client's addresses handy for faster booking."
+        : "Optional. Keep frequent addresses handy for faster booking.",
+      href: org.isBusinessAssociate ? "/clients" : "/book",
       icon: BookMarked,
       done: savedAddressCount > 0,
     },

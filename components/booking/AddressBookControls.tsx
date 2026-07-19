@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Path, UseFormSetValue, UseFormWatch } from "react-hook-form";
 import { BookMarked, Loader2, Plus, Check, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
@@ -115,23 +115,7 @@ export function AddressBookControls({
   // switches which client they're booking for.
   const partyKey = party.partyType === "ORG" ? party.orgId : party.clientId;
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await listAddresses(party);
-      if (res.ok) setSaved(res.data);
-    } finally {
-      setLoading(false);
-    }
-    // party is reconstructed each render; partyKey captures the identity we care about
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [partyKey]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  const applyAddress = (a: AddressSummary) => {
+  const applyAddress = useCallback((a: AddressSummary) => {
     setSelectedId(a.id);
     setValue(fieldPath(prefix, "contactName"), a.contactName ?? "", { shouldValidate: true });
     // Address book carries no company field — leave whatever's typed intact.
@@ -143,10 +127,54 @@ export function AddressBookControls({
     setValue(fieldPath(prefix, "state"), a.state ?? "", { shouldValidate: true });
     setValue(fieldPath(prefix, "addressLine1"), a.line1, { shouldValidate: true });
     setValue(fieldPath(prefix, "addressLine2"), a.line2 ?? "", { shouldValidate: true });
-  };
+  }, [prefix, setValue]);
 
-  const inlineChips = useMemo(() => saved.slice(0, MAX_INLINE_CHIPS), [saved]);
-  const overflow = saved.length > MAX_INLINE_CHIPS;
+  // Once per party, pre-select the primary address for this block's kind — the
+  // way a returning customer expects their default filled in already — but only
+  // when the block is still empty, so we never clobber typed / prefilled details.
+  const autoAppliedRef = useRef<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await listAddresses(party);
+      if (res.ok) {
+        setSaved(res.data);
+
+        if (autoAppliedRef.current !== partyKey) {
+          autoAppliedRef.current = partyKey;
+          const current = (watch(prefix as Path<BookingFormData>) ?? {}) as BookingFormData["consignor"];
+          if (!current.contactName && !current.addressLine1) {
+            const primary = res.data.find((a) => a.kind === kind && a.isDefault);
+            if (primary) applyAddress(primary);
+          }
+        }
+      }
+    } finally {
+      setLoading(false);
+    }
+    // party is reconstructed each render; partyKey captures the identity we care about
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [partyKey]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  // Show the addresses that fit this block first: the primary of this kind, then
+  // the rest of the same kind, then everything else (each already ordered by the
+  // server as primary-first, newest-first).
+  const sorted = useMemo(() => {
+    const rank = (a: AddressSummary) => {
+      if (a.kind === kind && a.isDefault) return 0;
+      if (a.kind === kind) return 1;
+      return 2;
+    };
+    return [...saved].sort((a, b) => rank(a) - rank(b));
+  }, [saved, kind]);
+
+  const inlineChips = useMemo(() => sorted.slice(0, MAX_INLINE_CHIPS), [sorted]);
+  const overflow = sorted.length > MAX_INLINE_CHIPS;
 
   const handleSave = async () => {
     const v = (watch(prefix as Path<BookingFormData>) ?? {}) as BookingFormData["consignor"];
@@ -222,7 +250,7 @@ export function AddressBookControls({
               type="button"
               className="inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs text-muted-foreground hover:bg-muted"
             >
-              {saved.length - MAX_INLINE_CHIPS} more
+              {sorted.length - MAX_INLINE_CHIPS} more
               <ChevronDown className="h-3 w-3" />
             </button>
           </PopoverTrigger>
@@ -232,7 +260,7 @@ export function AddressBookControls({
               <CommandList>
                 <CommandEmpty>No matches.</CommandEmpty>
                 <CommandGroup>
-                  {saved.map((a) => (
+                  {sorted.map((a) => (
                     <CommandItem
                       key={a.id}
                       value={`${addressSearchText(a)} ${a.id}`}
