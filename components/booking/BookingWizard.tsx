@@ -39,17 +39,8 @@ import ServiceSelectionStep from "./steps/ServiceStep";
 import { SenderPickupStep } from "./steps/SenderPickupStep";
 import { DeliveryBillingStep } from "./steps/DeliveryBillingStep";
 import { createShipmentAction } from "@/actions/book/createShipment.action";
-import { totalDeclaredValue as cargoDeclaredValue } from "@/lib/booking/cargo";
 import ShipmentDetailsStep from "./steps/ShipmentDetailStep";
 import { TopUpModal } from "@/components/wallet/TopUpModal";
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function totalDeclaredValue(data: BookingFormData): number {
-  return cargoDeclaredValue(data.boxes);
-}
 
 // Steps validated against RHF-registered fields via getValues() + a zod schema.
 // SHIPMENT_DETAILS is intentionally excluded — it's self-managed (array of
@@ -314,12 +305,8 @@ export default function BookingWizard({
       ...currentValues,
     };
 
-    if (currentStep === STEP.KYC) {
-      // Computed from real item data now that Shipment Details (step 3)
-      // always runs before KYC (step 4) — fixes the bug where IEC
-      // requirement was evaluated before any item existed.
-      merged._totalDeclaredValue = totalDeclaredValue(formData);
-    }
+    // KYC requirements now branch by shipmentType (read straight off the
+    // merged form via kycSchema) — no injected value needed.
 
     const schema = RHF_STEP_SCHEMAS[currentStep];
     const result = schema?.safeParse(merged);
@@ -428,7 +415,12 @@ export default function BookingWizard({
                 watch={watch}
                 setValue={setValue}
                 errors={errors}
-                totalDeclaredValue={totalDeclaredValue(formData)}
+                shipmentType={formData.shipmentType}
+                party={
+                  formData.shipmentOwnerMode === "EXISTING_CLIENT" && formData.selectedClient
+                    ? { partyType: "CLIENT", clientId: formData.selectedClient.id }
+                    : { partyType: "ORG", orgId: orgContext.orgId }
+                }
               />
             )}
 

@@ -3,20 +3,22 @@
 /**
  * KycStep
  *
- * Upload flow for each document:
- *   1. User picks a file → useUploadThing("bookingDocument") sends it to UploadThing.
- *   2. onClientUploadComplete fires → calls saveOrgKycDocAction to persist
- *      the URL + metadata to KycDocument (partyType=ORG) in the DB.
- *   3. On success → updates RHF form state with the FileMeta so validation passes.
- *   4. assertKycComplete in create-shipment.action now finds the rows in the DB.
+ * Required documents branch by shipment type (CSB4 / CSB5 / COMMERCIAL) using
+ * the shared matrix in lib/booking/kyc.ts. Documents are read from and saved
+ * to the vault of the relevant PARTY — the org for its own shipments, or the
+ * client when a BA books on their behalf (per-client reuse).
+ *
+ * Upload flow:
+ *   1. User picks a file → UploadThing("bookingDocument") uploads it.
+ *   2. onClientUploadComplete → saveKycDocAction(party, …) persists it to the
+ *      party's KycDocument vault.
+ *   3. On success → RHF FileMeta is set so validation passes.
  *
  * "On file" flow (docs already in the vault):
- *   1. On mount → getOrgKycDocs() fetches existing rows into local state only.
+ *   1. On mount → getKycDocs(party) fetches existing rows into local state.
  *   2. Each existing doc shows a consent checkbox instead of an upload zone.
- *   3. Consent ticked  → RHF FileMeta is set from the existing DB row (NOW, and only now,
- *      does the field become valid — fixes a bug where docs were silently applied to the
- *      form on mount, before the user ever touched the consent checkbox).
- *   4. Consent unticked → RHF FileMeta is cleared (so validation blocks Next).
+ *   3. Consent ticked → RHF FileMeta is set from the DB row (only then does the
+ *      field become valid). Unticked → cleared, so validation blocks Next.
  */
 
 import { useState, useEffect, useTransition } from "react";
@@ -33,90 +35,44 @@ import { Checkbox }  from "@/components/ui/checkbox";
 import { Separator } from "@/components/ui/separator";
 import { cn }        from "@/lib/utils";
 
-import type { BookingFormData, FileMeta } from "@/types/booking.types";
-import { getOrgKycDocs, saveOrgKycDocAction, type OrgKycDoc }  from "@/actions/book/kyc";
-import { KycDocType }                     from "@/generated/prisma";
+import type { BookingFormData, FileMeta, ShipmentTypeValue } from "@/types/booking.types";
+import type { Party } from "@/types/booking";
+import { getKycDocs, saveKycDocAction, type PartyKycDoc } from "@/actions/book/kyc";
+import {
+  KYC_DOC_CONFIGS,
+  requiredKycKeys,
+  type KycDocConfig,
+  type KycDocKey,
+} from "@/lib/booking/kyc";
 
 // ---------------------------------------------------------------------------
-// Types
+// Props
 // ---------------------------------------------------------------------------
 
 interface KycStepProps {
-  watch:              UseFormWatch<BookingFormData>;
-  setValue:           UseFormSetValue<BookingFormData>;
-  errors:             FieldErrors<BookingFormData>;
-  totalDeclaredValue: number;
+  watch: UseFormWatch<BookingFormData>;
+  setValue: UseFormSetValue<BookingFormData>;
+  errors: FieldErrors<BookingFormData>;
+  shipmentType: ShipmentTypeValue;
+  /** Whose vault to read/save (org, or the client for BA-for-client bookings). */
+  party: Party;
 }
-
-type DocKey = keyof BookingFormData["kycDocs"];
-
-interface DocConfig {
-  key:                    DocKey;
-  label:                  string;
-  dbDocType:              KycDocType;
-  alwaysRequired:         boolean;
-  valueThresholdRequired: boolean;
-  hint:                   string;
-}
-
-// ---------------------------------------------------------------------------
-// Config
-// ---------------------------------------------------------------------------
-
-const DOC_CONFIGS: DocConfig[] = [
-  {
-    key:                    "pan",
-    label:                  "PAN Card",
-    dbDocType:              KycDocType.PAN_CARD,
-    alwaysRequired:         true,
-    valueThresholdRequired: false,
-    hint: "Permanent Account Number — required for all exporters.",
-  },
-  {
-    key:                    "aadhaar",
-    label:                  "Aadhaar Card",
-    dbDocType:              KycDocType.ADHAR_CARD,
-    alwaysRequired:         true,
-    valueThresholdRequired: false,
-    hint: "Required for all individual and proprietorship exporters.",
-  },
-  {
-    key:                    "iec",
-    label:                  "IEC Certificate",
-    dbDocType:              KycDocType.IEC_CODE,
-    alwaysRequired:         false,
-    valueThresholdRequired: true,
-    hint: "Import Export Code — mandatory when shipment value exceeds ₹25,000.",
-  },
-  {
-    key:                    "gst",
-    label:                  "GST Certificate",
-    dbDocType:              KycDocType.GST_CERTIFICATE,
-    alwaysRequired:         false,
-    valueThresholdRequired: false,
-    hint: "Upload if your business is GST registered.",
-  },
-];
-
-const IEC_THRESHOLD = 25_000;
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 function formatBytes(n: number): string {
-  if (n < 1024)       return `${n} B`;
+  if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function formatCurrency(n: number): string {
-  return new Intl.NumberFormat("en-IN", {
-    style:                 "currency",
-    currency:              "INR",
-    maximumFractionDigits: 0,
-  }).format(n);
-}
+const TYPE_LABEL: Record<ShipmentTypeValue, string> = {
+  CSB4: "CSB-IV",
+  CSB5: "CSB-V",
+  COMMERCIAL: "Commercial",
+};
 
 // ---------------------------------------------------------------------------
 // ExistingDocCard — shown when doc is already in the vault
@@ -129,11 +85,11 @@ function ExistingDocCard({
   onReplace,
   required,
 }: {
-  doc:             OrgKycDoc;
-  consentGiven:    boolean;
+  doc: PartyKycDoc;
+  consentGiven: boolean;
   onConsentChange: (v: boolean) => void;
-  onReplace:       () => void;
-  required:        boolean;
+  onReplace: () => void;
+  required: boolean;
 }) {
   const id = `consent-${doc.key}`;
   return (
@@ -141,7 +97,6 @@ function ExistingDocCard({
       "rounded-lg border-2 p-4 space-y-3 transition-colors",
       consentGiven ? "border-green-300 bg-green-50" : "border-border bg-card",
     )}>
-      {/* File row */}
       <div className="flex items-start gap-3">
         <div className="rounded-md bg-primary/10 p-2 mt-0.5">
           <FileCheck2 className="h-4 w-4 text-primary" />
@@ -170,7 +125,6 @@ function ExistingDocCard({
         </button>
       </div>
 
-      {/* Consent — this is what actually authorizes reuse of the document */}
       <label htmlFor={id} className="flex items-start gap-2.5 cursor-pointer">
         <Checkbox
           id={id}
@@ -179,12 +133,10 @@ function ExistingDocCard({
           className="mt-0.5"
         />
         <span className="text-xs text-muted-foreground leading-relaxed">
-          I consent to using this document for this shipment's customs and
+          I consent to using this document for this shipment&apos;s customs and
           compliance processing.
           {required && (
-            <span className="ml-1 text-destructive font-medium">
-              (Required to proceed)
-            </span>
+            <span className="ml-1 text-destructive font-medium">(Required to proceed)</span>
           )}
         </span>
       </label>
@@ -193,24 +145,26 @@ function ExistingDocCard({
 }
 
 // ---------------------------------------------------------------------------
-// UploadZone — real UploadThing upload + immediate DB persist
+// UploadZone — real UploadThing upload + immediate DB persist to the party vault
 // ---------------------------------------------------------------------------
 
 function UploadZone({
   config,
+  party,
   value,
   onDone,
   onClear,
   error,
 }: {
-  config:  DocConfig;
-  value:   FileMeta | null;
-  onDone:  (meta: FileMeta) => void;
+  config: KycDocConfig;
+  party: Party;
+  value: FileMeta | null;
+  onDone: (meta: FileMeta) => void;
   onClear: () => void;
-  error?:  string;
+  error?: string;
 }) {
-  const [uploading, setUploading]   = useState(false);
-  const [uploadErr, setUploadErr]   = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadErr, setUploadErr] = useState<string | null>(null);
   const inputId = `upload-${config.key}`;
 
   const { startUpload } = useUploadThing("bookingDocument", {
@@ -222,14 +176,18 @@ function UploadZone({
         return;
       }
 
-      const saveResult = await saveOrgKycDocAction({
-        docType:  config.dbDocType,
-        label:    config.label,
-        fileUrl:  file.ufsUrl ?? file.url,
-        fileKey:  file.key,
+      const meta: FileMeta = {
+        fileUrl: file.ufsUrl ?? file.url,
+        fileKey: file.key,
         fileName: file.name,
         fileSize: file.size,
         mimeType: file.type ?? "application/octet-stream",
+      };
+
+      const saveResult = await saveKycDocAction(party, {
+        key: config.key,
+        label: config.label,
+        ...meta,
       });
 
       if (!saveResult.success) {
@@ -238,13 +196,7 @@ function UploadZone({
         return;
       }
 
-      onDone({
-        fileUrl:  file.ufsUrl ?? file.url,
-        fileKey:  file.key,
-        fileName: file.name,
-        fileSize: file.size,
-        mimeType: file.type ?? "application/octet-stream",
-      });
+      onDone(meta);
       setUploading(false);
     },
     onUploadError: (err) => {
@@ -331,6 +283,7 @@ function UploadZone({
 
 function DocSection({
   config,
+  party,
   isRequired,
   existingDoc,
   formValue,
@@ -342,26 +295,27 @@ function DocSection({
   onClear,
   error,
 }: {
-  config:          DocConfig;
-  isRequired:      boolean;
-  existingDoc:     OrgKycDoc | null;
-  formValue:       FileMeta | null;
-  consentGiven:    boolean;
-  isReplacing:     boolean;
+  config: KycDocConfig;
+  party: Party;
+  isRequired: boolean;
+  existingDoc: PartyKycDoc | null;
+  formValue: FileMeta | null;
+  consentGiven: boolean;
+  isReplacing: boolean;
   onConsentChange: (v: boolean) => void;
-  onStartReplace:  () => void;
-  onDone:          (meta: FileMeta) => void;
-  onClear:         () => void;
-  error?:          string;
+  onStartReplace: () => void;
+  onDone: (meta: FileMeta) => void;
+  onClear: () => void;
+  error?: string;
 }) {
   const showExisting = !!existingDoc && !isReplacing;
 
   return (
     <div className={cn(
       "rounded-xl border bg-card p-5 space-y-4 transition-all",
-      error              && "border-destructive/40",
-      showExisting       && "border-primary/20",
-      formValue          && "border-green-300 bg-green-50/30",
+      error && "border-destructive/40",
+      showExisting && "border-primary/20",
+      formValue && "border-green-300 bg-green-50/30",
     )}>
       <div className="flex items-start justify-between gap-3">
         <div className="space-y-1">
@@ -371,7 +325,7 @@ function DocSection({
         <div className="flex flex-col items-end gap-1.5 shrink-0">
           {isRequired
             ? <Badge variant="secondary" className="text-xs">Required</Badge>
-            : <Badge variant="outline"   className="text-xs">Optional</Badge>
+            : <Badge variant="outline" className="text-xs">Optional</Badge>
           }
           {showExisting && (
             <Badge className="text-xs bg-primary/10 text-primary border-0">On file</Badge>
@@ -390,6 +344,7 @@ function DocSection({
       ) : (
         <UploadZone
           config={config}
+          party={party}
           value={formValue}
           onDone={onDone}
           onClear={onClear}
@@ -415,46 +370,46 @@ export default function KycStep({
   watch,
   setValue,
   errors,
-  totalDeclaredValue,
+  shipmentType,
+  party,
 }: KycStepProps) {
-  const kycDocs    = watch("kycDocs");
-  const iecRequired = totalDeclaredValue > IEC_THRESHOLD;
+  const kycDocs = watch("kycDocs");
 
-  const [existingDocs, setExistingDocs] = useState<OrgKycDoc[]>([]);
-  const [loadingDocs, startLoad]        = useTransition();
-  const [loadError, setLoadError]       = useState<string | null>(null);
-  const [consents,  setConsents]        = useState<Partial<Record<DocKey, boolean>>>({});
-  const [replacing, setReplacing]       = useState<Partial<Record<DocKey, boolean>>>({});
+  const [existingDocs, setExistingDocs] = useState<PartyKycDoc[]>([]);
+  const [loadingDocs, startLoad] = useTransition();
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [consents, setConsents] = useState<Partial<Record<KycDocKey, boolean>>>({});
+  const [replacing, setReplacing] = useState<Partial<Record<KycDocKey, boolean>>>({});
 
-  // Fetch existing vault docs on mount — does NOT touch RHF form state.
-  // Documents only become "valid" (and reusable) once the user explicitly
-  // ticks consent in handleConsent below.
+  const partyKey = party.partyType === "ORG" ? party.orgId : party.clientId;
+
+  // Fetch existing vault docs for this party — does NOT touch RHF form state.
+  // Refetches if the party changes (BA switching which client they book for).
   useEffect(() => {
     startLoad(async () => {
-      const result = await getOrgKycDocs();
+      const result = await getKycDocs(party);
       if (!result.success) {
         setLoadError(result.error);
         return;
       }
+      setLoadError(null);
       setExistingDocs(result.docs);
     });
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [partyKey]);
 
   const byKey = Object.fromEntries(
     existingDocs.map((d) => [d.key, d]),
-  ) as Partial<Record<DocKey, OrgKycDoc>>;
+  ) as Partial<Record<KycDocKey, PartyKycDoc>>;
 
   const kycErrors = errors.kycDocs as Record<string, { message?: string }> | undefined;
 
-  const requiredConfigs = DOC_CONFIGS.filter(
-    (c) => c.alwaysRequired || (c.valueThresholdRequired && iecRequired),
-  );
-  const optionalConfigs = DOC_CONFIGS.filter(
-    (c) => !c.alwaysRequired && !(c.valueThresholdRequired && iecRequired),
-  );
+  const requiredKeys = new Set(requiredKycKeys(shipmentType));
+  const requiredConfigs = KYC_DOC_CONFIGS.filter((c) => requiredKeys.has(c.key));
+  const optionalConfigs = KYC_DOC_CONFIGS.filter((c) => !requiredKeys.has(c.key));
   const completedCount = requiredConfigs.filter((c) => !!kycDocs?.[c.key]).length;
 
-  const handleConsent = (key: DocKey) => (given: boolean) => {
+  const handleConsent = (key: KycDocKey) => (given: boolean) => {
     setConsents((prev) => ({ ...prev, [key]: given }));
     if (!given) {
       setValue(`kycDocs.${key}`, null, { shouldValidate: true });
@@ -462,8 +417,8 @@ export default function KycStep({
       const doc = byKey[key];
       if (doc) {
         setValue(`kycDocs.${key}`, {
-          fileUrl:  doc.fileUrl,
-          fileKey:  doc.fileKey,
+          fileUrl: doc.fileUrl,
+          fileKey: doc.fileKey,
           fileName: doc.fileName,
           fileSize: doc.fileSize,
           mimeType: doc.mimeType,
@@ -472,49 +427,43 @@ export default function KycStep({
     }
   };
 
-  const handleReplace = (key: DocKey) => () => {
+  const handleReplace = (key: KycDocKey) => () => {
     setReplacing((prev) => ({ ...prev, [key]: true }));
     setConsents((prev) => ({ ...prev, [key]: false }));
     setValue(`kycDocs.${key}`, null, { shouldValidate: true });
   };
 
-  const handleDone = (key: DocKey) => (meta: FileMeta) => {
+  const handleDone = (key: KycDocKey) => (meta: FileMeta) => {
     setValue(`kycDocs.${key}`, meta, { shouldValidate: true });
   };
 
-  const handleClear = (key: DocKey) => () => {
+  const handleClear = (key: KycDocKey) => () => {
     setValue(`kycDocs.${key}`, null, { shouldValidate: true });
   };
+
+  const forClient = party.partyType === "CLIENT";
 
   return (
     <div className="space-y-6">
       <div>
         <h2 className="text-base font-semibold">KYC Documents</h2>
         <p className="mt-0.5 text-sm text-muted-foreground">
-          Customs requires verified identity and export compliance documents for
-          every international shipment from India.
+          Customs requires identity and export-compliance documents for every
+          international shipment from India.
         </p>
       </div>
 
-      <div className={cn(
-        "flex items-start gap-3 rounded-lg border px-4 py-3 text-sm",
-        iecRequired
-          ? "border-amber-200 bg-amber-50 text-amber-800"
-          : "border-blue-200 bg-blue-50 text-blue-800",
-      )}>
-        <Info className="h-4 w-4 mt-0.5 shrink-0" />
+      <div className="flex items-start gap-3 rounded-lg border bg-muted/30 px-4 py-3 text-sm">
+        <Info className="h-4 w-4 mt-0.5 shrink-0 text-muted-foreground" />
         <div>
           <p className="font-medium">
-            {iecRequired
-              ? `IEC required — value ${formatCurrency(totalDeclaredValue)} exceeds ₹25,000`
-              : `IEC optional — value ${formatCurrency(totalDeclaredValue)} is within ₹25,000`
-            }
+            {TYPE_LABEL[shipmentType]} shipment — {requiredConfigs.length} required document
+            {requiredConfigs.length !== 1 ? "s" : ""}
           </p>
-          <p className="mt-0.5 text-xs opacity-80">
-            {iecRequired
-              ? "Indian customs mandates an Import Export Code for commercial shipments above this threshold."
-              : "You may still upload it if available — it becomes mandatory above ₹25,000."
-            }
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            {forClient
+              ? "Reading from this client's document vault — anything you upload is saved to their vault for next time."
+              : "Reading from your document vault — anything you upload is saved for next time."}
           </p>
         </div>
       </div>
@@ -522,7 +471,7 @@ export default function KycStep({
       {loadingDocs && (
         <div className="flex items-center gap-2 text-sm text-muted-foreground" aria-live="polite">
           <Loader2 className="h-4 w-4 animate-spin" />
-          Checking your document vault…
+          Checking the document vault…
         </div>
       )}
 
@@ -536,8 +485,8 @@ export default function KycStep({
       {!loadingDocs && existingDocs.length > 0 && (
         <div className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-xs text-green-700">
           <ShieldCheck className="h-3.5 w-3.5 shrink-0" />
-          {existingDocs.length} document{existingDocs.length !== 1 ? "s" : ""} found
-          in your vault — tick consent on each to reuse them for this shipment.
+          {existingDocs.length} document{existingDocs.length !== 1 ? "s" : ""} found in the
+          vault — tick consent on each to reuse them for this shipment.
         </div>
       )}
 
@@ -569,6 +518,7 @@ export default function KycStep({
             <DocSection
               key={config.key}
               config={config}
+              party={party}
               isRequired
               existingDoc={byKey[config.key] ?? null}
               formValue={kycDocs?.[config.key] ?? null}
@@ -595,6 +545,7 @@ export default function KycStep({
               <DocSection
                 key={config.key}
                 config={config}
+                party={party}
                 isRequired={false}
                 existingDoc={byKey[config.key] ?? null}
                 formValue={kycDocs?.[config.key] ?? null}

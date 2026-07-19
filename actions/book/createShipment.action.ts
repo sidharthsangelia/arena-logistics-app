@@ -36,18 +36,22 @@ import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/utils/db";
 
 import {
-  KycDocType,
   ShipmentStatus,
   ShipmentDocType,
   PartyType,
 } from "@/generated/prisma";
-import type { BookingFormData, CargoBox } from "@/types/booking.types";
+import type {
+  BookingFormData,
+  CargoBox,
+  ShipmentTypeValue,
+} from "@/types/booking.types";
 import { Decimal } from "@/generated/prisma/runtime/client";
 import {
   totalActualWeight as cargoTotalWeight,
   totalDeclaredValue as cargoDeclaredValue,
   boxDeclaredValue,
 } from "@/lib/booking/cargo";
+import { requiredKycDocTypes, KYC_DOC_CONFIGS } from "@/lib/booking/kyc";
 import {
   debitWalletForShipment,
   InsufficientFundsError,
@@ -242,15 +246,23 @@ class KycIncompleteError extends Error {
   }
 }
 
-async function assertKycComplete(
-  orgId: string,
-  declaredTotal: number,
-): Promise<void> {
-  const required: KycDocType[] = [KycDocType.PAN_CARD, KycDocType.ADHAR_CARD];
-  if (declaredTotal > 25_000) required.push(KycDocType.IEC_CODE);
+async function assertKycComplete(params: {
+  orgId: string;
+  clientId: string | null;
+  shipmentType: ShipmentTypeValue;
+}): Promise<void> {
+  const { orgId, clientId, shipmentType } = params;
+
+  // Required docs branch by shipment type (shared matrix). When booking for a
+  // client (clientId set), the docs live in the CLIENT's vault, not the org's.
+  const required = requiredKycDocTypes(shipmentType);
+
+  const where = clientId
+    ? { clientId, partyType: PartyType.CLIENT, docType: { in: required } }
+    : { orgId, partyType: PartyType.ORG, docType: { in: required } };
 
   const found = await prisma.kycDocument.findMany({
-    where: { orgId, partyType: PartyType.ORG, docType: { in: required } },
+    where,
     select: { docType: true },
   });
 
@@ -258,11 +270,9 @@ async function assertKycComplete(
   const missing = required.filter((t) => !foundSet.has(t));
 
   if (missing.length > 0) {
-    const labels: Record<string, string> = {
-      [KycDocType.PAN_CARD]: "PAN Card",
-      [KycDocType.ADHAR_CARD]: "Aadhaar Card",
-      [KycDocType.IEC_CODE]: "IEC Certificate",
-    };
+    const labels = Object.fromEntries(
+      KYC_DOC_CONFIGS.map((c) => [c.docType, c.label]),
+    ) as Record<string, string>;
     throw new KycIncompleteError(missing.map((t) => labels[t] ?? t).join(", "));
   }
 }
@@ -377,13 +387,21 @@ export async function createShipmentAction(
 
     // Narrowed to PreflightOk — all properties are safely accessible and
     // guaranteed to be real finite numbers from here on.
-    const { totalWeightKg, declaredTotal, servicePrice } = check;
+    const { totalWeightKg, servicePrice } = check;
 
     // ── 3. KYC check ─────────────────────────────────────────────────────
     Sentry.addBreadcrumb({ message: "KYC document check", level: "info" });
 
     try {
-      await assertKycComplete(dbOrgId, declaredTotal);
+      const kycClientId =
+        data.shipmentOwnerMode === "EXISTING_CLIENT" && data.selectedClient
+          ? data.selectedClient.id
+          : null;
+      await assertKycComplete({
+        orgId: dbOrgId,
+        clientId: kycClientId,
+        shipmentType: data.shipmentType,
+      });
     } catch (err) {
       if (err instanceof KycIncompleteError) {
         return { success: false, message: err.message };

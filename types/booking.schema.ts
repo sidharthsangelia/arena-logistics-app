@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { KYC_DOC_CONFIGS } from "@/lib/booking/kyc";
 
 // ---------------------------------------------------------------------------
 // Shared
@@ -140,49 +141,36 @@ export const shipmentDetailsSchema = z
   });
 
 // ---------------------------------------------------------------------------
-// Step 4 — KYC
+// Step 3 — KYC
 //
-// Now runs AFTER shipment-details, so `_totalDeclaredValue` (injected by
-// the wizard before validating this step) reflects real item data instead
-// of always being 0 — this was the source of the IEC-threshold bug where
-// IEC always read as "not required" on a user's first pass through the
-// wizard.
+// Required documents branch by shipment type (CSB4 / CSB5 / COMMERCIAL) via
+// the shared matrix in lib/booking/kyc.ts, so the requirement rules stay in
+// lockstep with the packages step, the KYC UI and the server-side check.
+// `shipmentType` is read straight off the form (it's captured on the packages
+// step, which always runs before KYC).
 // ---------------------------------------------------------------------------
 
 export const kycSchema = z
   .object({
+    shipmentType: z.enum(["CSB4", "CSB5", "COMMERCIAL"]),
     kycDocs: z.object({
+      companyPan: fileMetaSchema.nullable(),
       pan: fileMetaSchema.nullable(),
       aadhaar: fileMetaSchema.nullable(),
       gst: fileMetaSchema.nullable(),
       iec: fileMetaSchema.nullable(),
+      lut: fileMetaSchema.nullable(),
     }),
-    // Injected by the wizard right before validating this step — does NOT
-    // live in BookingFormData itself.
-    _totalDeclaredValue: z.number().optional(),
   })
   .superRefine((data, ctx) => {
-    if (!data.kycDocs.pan) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["kycDocs", "pan"],
-        message: "PAN card is required for international shipments.",
-      });
-    }
-    if (!data.kycDocs.aadhaar) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["kycDocs", "aadhaar"],
-        message: "Aadhaar card is required for international shipments.",
-      });
-    }
-    const totalValue = data._totalDeclaredValue ?? 0;
-    if (totalValue > 25_000 && !data.kycDocs.iec) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["kycDocs", "iec"],
-        message: `IEC is required when shipment value exceeds ₹25,000 (yours: ₹${totalValue.toLocaleString("en-IN")}).`,
-      });
+    for (const cfg of KYC_DOC_CONFIGS) {
+      if (cfg.requiredFor.includes(data.shipmentType) && !data.kycDocs[cfg.key]) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["kycDocs", cfg.key],
+          message: `${cfg.label} is required for ${data.shipmentType} shipments.`,
+        });
+      }
     }
   });
 

@@ -46,10 +46,12 @@ const initialFormData: BookingFormData = {
   sameAsConsignor: false,
 
   kycDocs: {
+    companyPan: null,
     pan: null,
     aadhaar: null,
     gst: null,
     iec: null,
+    lut: null,
   },
 
   consignor: {

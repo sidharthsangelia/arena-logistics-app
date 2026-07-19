@@ -97,10 +97,12 @@ export interface BookingFormData {
   sameAsConsignor: boolean;
 
   kycDocs: {
+    companyPan: FileMeta | null;
     pan: FileMeta | null;
     aadhaar: FileMeta | null;
     gst: FileMeta | null;
     iec: FileMeta | null;
+    lut: FileMeta | null;
   };
 
   /** Sender — who the shipment is from (the consignor). */

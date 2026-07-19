@@ -27,7 +27,8 @@ enum QuoteStatus {
 }
 
 enum KycDocType {
-  PAN_CARD
+  PAN_CARD // individual / founder / proprietor PAN
+  COMPANY_PAN // company's PAN (commercial shipments) — distinct from the founder's PAN_CARD
   ADHAR_CARD
   GST_CERTIFICATE
   IEC_CODE

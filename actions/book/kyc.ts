@@ -1,111 +1,111 @@
 "use server";
 
 /**
- * kyc.actions.ts — Booking wizard: fetch org's own KYC docs from the vault.
+ * actions/book/kyc.ts — Booking wizard KYC vault fetch + save.
  *
- * Uses the same auth pattern as your existing clientDocument actions.
- * Reads from KycDocument (partyType=ORG), NOT ClientDocument (client-scoped).
+ * Party-aware: reads from / writes to the KycDocument table for either the
+ * ORG (shipping for itself) or a CLIENT (a BA booking on their behalf), via
+ * the polymorphic orgId / clientId FKs. This mirrors the address-book routing
+ * — a BA's client keeps their own reusable KYC vault, so the next booking for
+ * that client auto-fetches their docs.
  *
- * If you haven't built the org-level KYC upload flow yet, this will return
- * an empty array and the KYC step will show upload zones for everything.
- * That's safe — the step degrades gracefully.
+ * The document type set is driven by the shared matrix in lib/booking/kyc.ts,
+ * so what the vault stores/returns stays in lockstep with what the KYC step
+ * asks for.
  */
 
-import { auth } from "@clerk/nextjs/server";
-import { prisma } from "@/utils/db";         // same import as your existing action
+import * as Sentry from "@sentry/nextjs";
+
+import { prisma } from "@/utils/db";
+import { getCurrentOrg, assertOrgOwnsClient } from "@/actions/book/getOrgs";
 import { KycDocType, PartyType } from "@/generated/prisma";
+import type { Party } from "@/types/booking";
+import {
+  KYC_DOC_KEYS,
+  KYC_KEY_TO_DOC_TYPE,
+  KYC_DOC_TYPE_TO_KEY,
+  type KycDocKey,
+} from "@/lib/booking/kyc";
 
 // ---------------------------------------------------------------------------
-// Helpers — same pattern as your getDbOrgId()
+// Party → { orgId, clientId } resolver (asserts ownership)
 // ---------------------------------------------------------------------------
 
-async function getDbOrgId(): Promise<string> {
-  const { orgId: clerkOrgId } = await auth();
-  if (!clerkOrgId) throw new Error("No active organisation in session.");
-
-  const org = await prisma.org.findUnique({
-    where: { clerkOrgId },
-    select: { id: true },
-  });
-  if (!org) throw new Error(`Org not found for clerkOrgId: ${clerkOrgId}`);
-  return org.id;
+async function resolveParty(party: Party, currentOrgId: string) {
+  if (party.partyType === "ORG") {
+    if (party.orgId !== currentOrgId) throw new Error("Org mismatch.");
+    return { orgId: currentOrgId as string | null, clientId: null as string | null };
+  }
+  await assertOrgOwnsClient(currentOrgId, party.clientId);
+  return { orgId: null as string | null, clientId: party.clientId as string | null };
 }
-
-// Maps our form keys to the KycDocType enum values in your Prisma schema
-const DOC_TYPE_MAP = {
-  pan:     KycDocType.PAN_CARD,
-  aadhaar: KycDocType.ADHAR_CARD,
-  gst:     KycDocType.GST_CERTIFICATE,
-  iec:     KycDocType.IEC_CODE,
-} as const;
 
 // ---------------------------------------------------------------------------
 // Types — serialisable (no Dates, no class instances)
 // ---------------------------------------------------------------------------
 
-export type OrgKycDocKey = keyof typeof DOC_TYPE_MAP;
-
-export interface OrgKycDoc {
-  key: OrgKycDocKey;
+export interface PartyKycDoc {
+  key: KycDocKey;
   fileUrl: string;
   fileKey: string;
   fileName: string;
   fileSize: number;
   mimeType: string;
   verifiedAt: string | null; // ISO string
-  uploadedAt: string;        // ISO string
+  uploadedAt: string; // ISO string
 }
 
-export type GetOrgKycDocsResult =
-  | { success: true;  docs: OrgKycDoc[] }
+export type GetKycDocsResult =
+  | { success: true; docs: PartyKycDoc[] }
   | { success: false; error: string; docs: [] };
 
 // ---------------------------------------------------------------------------
-// getOrgKycDocs — called by KycStep on mount
+// getKycDocs — called by KycStep on mount, for the relevant party
 // ---------------------------------------------------------------------------
 
-export async function getOrgKycDocs(): Promise<GetOrgKycDocsResult> {
+export async function getKycDocs(party: Party): Promise<GetKycDocsResult> {
   try {
-    const orgId = await getDbOrgId();
+    const org = await getCurrentOrg();
+    const { orgId, clientId } = await resolveParty(party, org.id);
+
+    const wantedTypes = KYC_DOC_KEYS.map((k) => KYC_KEY_TO_DOC_TYPE[k]);
 
     const rows = await prisma.kycDocument.findMany({
       where: {
         orgId,
-        partyType: "ORG",
-        docType: { in: Object.values(DOC_TYPE_MAP) },
+        clientId,
+        partyType: party.partyType === "ORG" ? PartyType.ORG : PartyType.CLIENT,
+        docType: { in: wantedTypes },
       },
-      orderBy: { uploadedAt: "desc" },  // newest first so we take the latest per type
+      orderBy: { uploadedAt: "desc" }, // newest first → take the latest per type
       select: {
-        docType:    true,
-        fileUrl:    true,
-        fileKey:    true,
-        fileName:   true,
-        fileSize:   true,
-        mimeType:   true,
+        docType: true,
+        fileUrl: true,
+        fileKey: true,
+        fileName: true,
+        fileSize: true,
+        mimeType: true,
         verifiedAt: true,
         uploadedAt: true,
       },
     });
 
-    // One doc per type — take the first (newest) for each key
-    const seen = new Set<OrgKycDocKey>();
-    const docs: OrgKycDoc[] = [];
+    // One doc per key — take the first (newest) for each.
+    const seen = new Set<KycDocKey>();
+    const docs: PartyKycDoc[] = [];
 
     for (const row of rows) {
-      const key = (
-        Object.entries(DOC_TYPE_MAP) as [OrgKycDocKey, KycDocType][]
-      ).find(([, v]) => v === row.docType)?.[0];
-
+      const key = KYC_DOC_TYPE_TO_KEY[row.docType];
       if (!key || seen.has(key)) continue;
       seen.add(key);
 
       docs.push({
         key,
-        fileUrl:    row.fileUrl,
-        fileKey:    row.fileKey,
-        fileName:   row.fileName,
-        fileSize:   row.fileSize,
-        mimeType:   row.mimeType,
+        fileUrl: row.fileUrl,
+        fileKey: row.fileKey,
+        fileName: row.fileName,
+        fileSize: row.fileSize,
+        mimeType: row.mimeType,
         verifiedAt: row.verifiedAt?.toISOString() ?? null,
         uploadedAt: row.uploadedAt.toISOString(),
       });
@@ -113,7 +113,8 @@ export async function getOrgKycDocs(): Promise<GetOrgKycDocsResult> {
 
     return { success: true, docs };
   } catch (err) {
-    console.error("[getOrgKycDocs]", err);
+    console.error("[getKycDocs]", err);
+    Sentry.captureException(err, { tags: { action: "getKycDocs" } });
     return {
       success: false,
       error: err instanceof Error ? err.message : "Failed to fetch KYC documents.",
@@ -122,68 +123,58 @@ export async function getOrgKycDocs(): Promise<GetOrgKycDocsResult> {
   }
 }
 
+// ---------------------------------------------------------------------------
+// saveKycDoc — persist a freshly uploaded doc into the party's vault
+// ---------------------------------------------------------------------------
 
-export interface SaveOrgKycDocInput {
-  docType:  KycDocType;
-  label:    string;
-  fileUrl:  string;
-  fileKey:  string;
+export interface SaveKycDocInput {
+  key: KycDocKey;
+  label: string;
+  fileUrl: string;
+  fileKey: string;
   fileName: string;
   fileSize: number;
   mimeType: string;
 }
- 
-// ---------------------------------------------------------------------------
-// Return type
-// ---------------------------------------------------------------------------
- 
-export type SaveOrgKycDocResult =
-  | { success: true;  docId: string }
+
+export type SaveKycDocResult =
+  | { success: true; docId: string }
   | { success: false; message: string };
- 
-// ---------------------------------------------------------------------------
-// Action
-// ---------------------------------------------------------------------------
- 
-export async function saveOrgKycDocAction(
-  input: SaveOrgKycDocInput,
-): Promise<SaveOrgKycDocResult> {
+
+export async function saveKycDocAction(
+  party: Party,
+  input: SaveKycDocInput,
+): Promise<SaveKycDocResult> {
   try {
-    const { orgId: clerkOrgId } = await auth();
-    if (!clerkOrgId) {
-      return { success: false, message: "Not authenticated." };
-    }
- 
-    const org = await prisma.org.findUnique({
-      where:  { clerkOrgId },
-      select: { id: true },
-    });
-    if (!org) {
-      return { success: false, message: "Organisation not found." };
-    }
- 
+    const org = await getCurrentOrg();
+    const { orgId, clientId } = await resolveParty(party, org.id);
+
+    const docType: KycDocType = KYC_KEY_TO_DOC_TYPE[input.key];
+    if (!docType) return { success: false, message: "Unknown document type." };
+
     const doc = await prisma.kycDocument.create({
       data: {
-        partyType: PartyType.ORG,
-        orgId:     org.id,
-        docType:   input.docType,
-        label:     input.label,
-        fileUrl:   input.fileUrl,
-        fileKey:   input.fileKey,
-        fileName:  input.fileName,
-        fileSize:  input.fileSize,
-        mimeType:  input.mimeType,
+        partyType: party.partyType === "ORG" ? PartyType.ORG : PartyType.CLIENT,
+        orgId,
+        clientId,
+        docType,
+        label: input.label,
+        fileUrl: input.fileUrl,
+        fileKey: input.fileKey,
+        fileName: input.fileName,
+        fileSize: input.fileSize,
+        mimeType: input.mimeType,
       },
       select: { id: true },
     });
- 
+
     return { success: true, docId: doc.id };
   } catch (err) {
-    console.error("[saveOrgKycDocAction]", err);
+    console.error("[saveKycDocAction]", err);
+    Sentry.captureException(err, { tags: { action: "saveKycDoc" } });
     return {
       success: false,
       message: err instanceof Error ? err.message : "Failed to save document.",
     };
   }
 }
- 

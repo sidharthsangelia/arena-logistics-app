@@ -3,6 +3,7 @@ import { z } from "zod";
 // Mirror the Prisma enum — keep in sync with schema.prisma
 export const KYC_DOC_TYPES = [
   "PAN_CARD",
+  "COMPANY_PAN",
   "ADHAR_CARD",
   "GST_CERTIFICATE",
   "IEC_CODE",
@@ -21,6 +22,7 @@ export type KycDocType = (typeof KYC_DOC_TYPES)[number];
 // Human-readable labels shown in dropdowns and cards
 export const KYC_DOC_TYPE_LABELS: Record<KycDocType, string> = {
   PAN_CARD:            "PAN Card",
+  COMPANY_PAN:         "Company PAN",
   ADHAR_CARD:          "Aadhar Card",
   GST_CERTIFICATE:     "GST Certificate",
   IEC_CODE:            "IEC Code",
@@ -36,7 +38,8 @@ export const KYC_DOC_TYPE_LABELS: Record<KycDocType, string> = {
 
 // Short descriptions used as upload hints
 export const KYC_DOC_TYPE_HINTS: Record<KycDocType, string> = {
-  PAN_CARD:            "Company or proprietor PAN",
+  PAN_CARD:            "Individual / founder / proprietor PAN",
+  COMPANY_PAN:         "Company's PAN card",
   ADHAR_CARD:          "Proprietor / authorised signatory Aadhaar",
   GST_CERTIFICATE:     "GST registration certificate",
   IEC_CODE:            "Importer Exporter Code certificate",
