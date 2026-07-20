@@ -9,11 +9,20 @@ import {
 import { prisma } from "@/utils/db";
 import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
-import { LayoutDashboard, Building2, FileUser, Shield,
-         Calculator, PackagePlus, MapPin, Package,
-         FileText, Settings, SquareSigma } from "lucide-react";
-
-
+import {
+  LayoutDashboard,
+  Building2,
+  FileUser,
+  Shield,
+  Calculator,
+  PackagePlus,
+  MapPin,
+  Package,
+  FileText,
+  Settings,
+  SquareSigma,
+} from "lucide-react";
+import { ProfileCompletionBanner } from "@/components/profile/ProfileComplettionBanner";
 
 const ARENA_ORG_ID = process.env.ARENA_ORG_ID!;
 
@@ -22,8 +31,7 @@ export default async function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-
-    const { userId, orgId } = await auth();
+  const { userId, orgId } = await auth();
 
   if (!userId) redirect("/sign-in");
   if (!orgId) redirect("/onboarding");
@@ -35,25 +43,25 @@ export default async function DashboardLayout({
   const org = await prisma.org.findUnique({ where: { clerkOrgId: orgId } });
   if (!org) redirect("/onboarding");
 
-
- 
-
-
   return (
     <main>
       <SidebarProvider>
-     <AppSidebar variant="tenant" basePath="/" />
-
+        <AppSidebar
+          variant="tenant"
+          basePath="/"
+          isBusinessAssociate={org.isBusinessAssociate}
+        />
 
         <SidebarInset>
           {/* Top header bar */}
           <header className="flex h-14 shrink-0 items-center gap-2 border-b bg-white px-4">
             <SidebarTrigger className="-ml-1" />
             <Separator orientation="vertical" className="mr-2 h-4" />
-           <DashboardBreadcrumb variant="tenant" basePath="/" />
+            <DashboardBreadcrumb variant="tenant" basePath="/" />
           </header>
 
           {/* Page content */}
+          <ProfileCompletionBanner />
           <div className="flex-1 overflow-auto bg-slate-50">{children}</div>
         </SidebarInset>
       </SidebarProvider>

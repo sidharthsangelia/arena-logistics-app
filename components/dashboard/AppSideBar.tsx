@@ -18,6 +18,7 @@ import {
   Calculator,
   PackagePlus,
   MapPin,
+  BookMarked,
   Package,
   FileText,
   Settings,
@@ -91,6 +92,7 @@ const NAV_CONFIGS: Record<string, NavConfig> = {
         items: [
           { title: "Dashboard",      href: "/",               icon: LayoutDashboard },
           { title: "Clients",        href: "/clients",        icon: Building2 },
+          { title: "Address Book",   href: "/addressbook",    icon: BookMarked },
           { title: "Quotes",         href: "/quotes",         icon: FileUser },
           { title: "Document Vault", href: "/document-vault", icon: Shield },
         ],
@@ -110,7 +112,7 @@ const NAV_CONFIGS: Record<string, NavConfig> = {
         items: [
           {title: "Wallet", href: "/wallet", icon: Wallet},
           { title: "Invoices", href: "/invoices", icon: FileText },
-          { title: "Settings", href: "/settings", icon: Settings },
+          { title: "Settings", href: "/settings/profile", icon: Settings },
         ],
       },
     ],
@@ -158,7 +160,13 @@ export interface AppSidebarProps {
   /** Base path for href resolution and active detection
    *  e.g. "/dashboard" or "/arena-dashboard" */
   basePath: string;
+  /** Tenant only. BAs manage addresses per-client on the client page, so the
+   *  standalone Address Book nav is hidden for them. */
+  isBusinessAssociate?: boolean;
 }
+
+// Nav items that only make sense for non-BA (normal) tenant orgs.
+const BA_HIDDEN_HREFS = new Set(["/addressbook"]);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // OrgAvatar
@@ -271,8 +279,17 @@ function NavItemRow({
 // AppSidebar
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function AppSidebar({ variant, basePath }: AppSidebarProps) {
-  const { subtitle, sections } = NAV_CONFIGS[variant];
+export function AppSidebar({ variant, basePath, isBusinessAssociate }: AppSidebarProps) {
+  const { subtitle, sections: allSections } = NAV_CONFIGS[variant];
+
+  // BAs don't get the org-wide Address Book — they manage addresses per client.
+  const sections =
+    variant === "tenant" && isBusinessAssociate
+      ? allSections.map((s) => ({
+          ...s,
+          items: s.items.filter((i) => !BA_HIDDEN_HREFS.has(i.href)),
+        }))
+      : allSections;
 
   const pathname = usePathname();
   const { state } = useSidebar();

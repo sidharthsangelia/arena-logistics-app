@@ -36,13 +36,22 @@ import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/utils/db";
 
 import {
-  KycDocType,
   ShipmentStatus,
   ShipmentDocType,
   PartyType,
 } from "@/generated/prisma";
-import type { BookingFormData, ShipmentItem } from "@/types/booking.types";
+import type {
+  BookingFormData,
+  CargoBox,
+  ShipmentTypeValue,
+} from "@/types/booking.types";
 import { Decimal } from "@/generated/prisma/runtime/client";
+import {
+  totalActualWeight as cargoTotalWeight,
+  totalDeclaredValue as cargoDeclaredValue,
+  boxDeclaredValue,
+} from "@/lib/booking/cargo";
+import { requiredKycDocTypes, KYC_DOC_CONFIGS } from "@/lib/booking/kyc";
 import {
   debitWalletForShipment,
   InsufficientFundsError,
@@ -51,13 +60,25 @@ import {
   generateShipmentNumber,
   ShipmentNumberSequenceError,
 } from "@/utils/shipmentNumber";
+import { sendShipmentMilestoneEmail } from "@/lib/email/shipment/send";
 
 // ---------------------------------------------------------------------------
 // Public return type — fully JSON-serialisable
 // ---------------------------------------------------------------------------
 
 export type CreateShipmentResult =
-  | { success: true; shipmentId: string; shipmentNumber: string }
+  | {
+      success: true;
+      shipmentId: string;
+      shipmentNumber: string;
+      /**
+       * True when the org has payments turned off (Org.skipPayment): the
+       * shipment was booked WITHOUT a wallet debit and flagged so ops collect
+       * payment when the parcel reaches the hub. The success screen shows
+       * different copy in this case.
+       */
+      paymentDeferred: boolean;
+    }
   | {
       success: false;
       /** Safe to show to the user */
@@ -94,6 +115,7 @@ class AuthError extends Error {
 async function resolveOrg(): Promise<{
   dbOrgId: string;
   markupPercent: Decimal;
+  skipPayment: boolean;
   userId: string;
 }> {
   const { userId, orgId: clerkOrgId } = await auth();
@@ -101,11 +123,16 @@ async function resolveOrg(): Promise<{
 
   const org = await prisma.org.findUnique({
     where: { clerkOrgId },
-    select: { id: true, markupPercent: true },
+    select: { id: true, markupPercent: true, skipPayment: true },
   });
   if (!org) throw new AuthError("ORG_NOT_FOUND");
 
-  return { dbOrgId: org.id, markupPercent: org.markupPercent, userId };
+  return {
+    dbOrgId: org.id,
+    markupPercent: org.markupPercent,
+    skipPayment: org.skipPayment,
+    userId,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -145,6 +172,8 @@ type PreflightOk = {
   totalWeightKg: number;
   declaredTotal: number;
   servicePrice: number;
+  /** Door → hub charge (0 unless door pickup was opted into AND a courier chosen). */
+  firstMileCharge: number;
 };
 
 type PreflightFail = {
@@ -166,42 +195,59 @@ function preflight(data: BookingFormData): PreflightResult {
       "The selected service has an invalid price. Please re-select a rate.";
   }
 
-  // Packages
-  if (!data.items?.length) {
-    fieldErrors.items = "At least one shipment item is required.";
+  // Boxes
+  if (!data.boxes?.length) {
+    fieldErrors.boxes = "At least one box is required.";
   }
 
-  for (const [i, item] of (data.items ?? []).entries()) {
-    const w = Number(item.weightKg);
-    const l = Number(item.lengthCm);
-    const wd = Number(item.widthCm);
-    const h = Number(item.heightCm);
-    const uv = Number(item.unitValue);
-    const qty = Number(item.quantity);
+  for (const [bi, box] of (data.boxes ?? []).entries()) {
+    const w = Number(box.weightKg);
+    const l = Number(box.lengthCm);
+    const wd = Number(box.widthCm);
+    const h = Number(box.heightCm);
+    const qty = Number(box.quantity);
 
-    if (!w || w <= 0) {
-      fieldErrors[`items.${i}.weightKg`] = "Weight must be positive.";
-    }
-    if (!l || l <= 0) {
-      fieldErrors[`items.${i}.lengthCm`] = "Length must be positive.";
-    }
-    if (!wd || wd <= 0) {
-      fieldErrors[`items.${i}.widthCm`] = "Width must be positive.";
-    }
-    if (!h || h <= 0) {
-      fieldErrors[`items.${i}.heightCm`] = "Height must be positive.";
-    }
-    if (!Number.isFinite(uv) || uv < 0) {
-      fieldErrors[`items.${i}.unitValue`] = "Unit value is invalid.";
-    }
+    if (!w || w <= 0) fieldErrors[`boxes.${bi}.weightKg`] = "Weight must be positive.";
+    if (!l || l <= 0) fieldErrors[`boxes.${bi}.lengthCm`] = "Length must be positive.";
+    if (!wd || wd <= 0) fieldErrors[`boxes.${bi}.widthCm`] = "Width must be positive.";
+    if (!h || h <= 0) fieldErrors[`boxes.${bi}.heightCm`] = "Height must be positive.";
     if (!Number.isFinite(qty) || qty < 1) {
-      fieldErrors[`items.${i}.quantity`] = "Quantity is invalid.";
+      fieldErrors[`boxes.${bi}.quantity`] = "Number of boxes is invalid.";
+    }
+
+    if (!box.contents?.length) {
+      fieldErrors[`boxes.${bi}.contents`] = "Add at least one item to this box.";
+    }
+    for (const [ii, item] of (box.contents ?? []).entries()) {
+      const uv = Number(item.unitValue);
+      const iqty = Number(item.quantity);
+      if (!item.description?.trim()) {
+        fieldErrors[`boxes.${bi}.contents.${ii}.description`] = "Description is required.";
+      }
+      if (!Number.isFinite(uv) || uv < 0) {
+        fieldErrors[`boxes.${bi}.contents.${ii}.unitValue`] = "Value is invalid.";
+      }
+      if (!Number.isFinite(iqty) || iqty < 1) {
+        fieldErrors[`boxes.${bi}.contents.${ii}.quantity`] = "Quantity is invalid.";
+      }
     }
   }
 
   // Client selection
   if (data.shipmentOwnerMode === "EXISTING_CLIENT" && !data.selectedClient) {
     fieldErrors.selectedClient = "A client must be selected.";
+  }
+
+  // First mile — when door pickup is opted into, a courier must have been
+  // chosen (the wizard's first-mile step enforces this, but the server is the
+  // source of truth: never persist pickupIncluded without a priced courier).
+  if (data.pickupIncluded) {
+    if (!data.firstMile) {
+      fieldErrors.firstMile = "A door-pickup courier must be selected.";
+    } else if (!Number.isFinite(Number(data.firstMile.price))) {
+      fieldErrors.firstMile =
+        "The selected pickup courier has an invalid price. Please re-select it.";
+    }
   }
 
   if (Object.keys(fieldErrors).length > 0) {
@@ -212,20 +258,15 @@ function preflight(data: BookingFormData): PreflightResult {
     };
   }
 
-  // All coercions are safe here — we validated finiteness above
-  const totalWeightKg = data.items.reduce(
-    (sum, item) => sum + Number(item.weightKg) * Number(item.quantity),
-    0,
-  );
-
-  const declaredTotal = data.items.reduce(
-    (sum, item) => sum + Number(item.unitValue) * Number(item.quantity),
-    0,
-  );
+  // All coercions are safe here — we validated finiteness above.
+  const totalWeightKg = cargoTotalWeight(data.boxes);
+  const declaredTotal = cargoDeclaredValue(data.boxes);
 
   const servicePrice = Number(data.selectedService!.price);
+  const firstMileCharge =
+    data.pickupIncluded && data.firstMile ? Number(data.firstMile.price) : 0;
 
-  return { ok: true, totalWeightKg, declaredTotal, servicePrice };
+  return { ok: true, totalWeightKg, declaredTotal, servicePrice, firstMileCharge };
 }
 
 // ---------------------------------------------------------------------------
@@ -239,15 +280,23 @@ class KycIncompleteError extends Error {
   }
 }
 
-async function assertKycComplete(
-  orgId: string,
-  declaredTotal: number,
-): Promise<void> {
-  const required: KycDocType[] = [KycDocType.PAN_CARD, KycDocType.ADHAR_CARD];
-  if (declaredTotal > 25_000) required.push(KycDocType.IEC_CODE);
+async function assertKycComplete(params: {
+  orgId: string;
+  clientId: string | null;
+  shipmentType: ShipmentTypeValue;
+}): Promise<void> {
+  const { orgId, clientId, shipmentType } = params;
+
+  // Required docs branch by shipment type (shared matrix). When booking for a
+  // client (clientId set), the docs live in the CLIENT's vault, not the org's.
+  const required = requiredKycDocTypes(shipmentType);
+
+  const where = clientId
+    ? { clientId, partyType: PartyType.CLIENT, docType: { in: required } }
+    : { orgId, partyType: PartyType.ORG, docType: { in: required } };
 
   const found = await prisma.kycDocument.findMany({
-    where: { orgId, partyType: PartyType.ORG, docType: { in: required } },
+    where,
     select: { docType: true },
   });
 
@@ -255,31 +304,40 @@ async function assertKycComplete(
   const missing = required.filter((t) => !foundSet.has(t));
 
   if (missing.length > 0) {
-    const labels: Record<string, string> = {
-      [KycDocType.PAN_CARD]: "PAN Card",
-      [KycDocType.ADHAR_CARD]: "Aadhaar Card",
-      [KycDocType.IEC_CODE]: "IEC Certificate",
-    };
+    const labels = Object.fromEntries(
+      KYC_DOC_CONFIGS.map((c) => [c.docType, c.label]),
+    ) as Record<string, string>;
     throw new KycIncompleteError(missing.map((t) => labels[t] ?? t).join(", "));
   }
 }
 
 // ---------------------------------------------------------------------------
-// Package row builder — every field explicitly coerced with Number(...)
+// Package (box) row builder — one PackageItem per box, with its items nested
+// as PackageContentItem rows. Every numeric field is coerced with Number(...)
 // before .toFixed()/Decimal, since these values may have crossed a
 // client→server (JSON) boundary as strings.
 // ---------------------------------------------------------------------------
 
-function buildPackageRow(item: ShipmentItem) {
-  const weightKg = toFiniteNumber(item.weightKg, "item.weightKg");
-  const lengthCm = toFiniteNumber(item.lengthCm, "item.lengthCm");
-  const widthCm = toFiniteNumber(item.widthCm, "item.widthCm");
-  const heightCm = toFiniteNumber(item.heightCm, "item.heightCm");
-  const unitValue = toFiniteNumber(item.unitValue, "item.unitValue");
-  const quantity = Math.trunc(toFiniteNumber(item.quantity, "item.quantity"));
+function buildPackageRow(box: CargoBox, currency: string) {
+  const weightKg = toFiniteNumber(box.weightKg, "box.weightKg");
+  const lengthCm = toFiniteNumber(box.lengthCm, "box.lengthCm");
+  const widthCm = toFiniteNumber(box.widthCm, "box.widthCm");
+  const heightCm = toFiniteNumber(box.heightCm, "box.heightCm");
+  const quantity = Math.trunc(toFiniteNumber(box.quantity, "box.quantity"));
+
+  // Declared value of one box's contents (not multiplied by box quantity —
+  // that multiplication lives on the box's own `quantity`).
+  const boxValue = boxDeclaredValue(box);
+
+  const description =
+    box.contents
+      .map((c) => c.description)
+      .filter(Boolean)
+      .join(", ") || "Package";
+  const boxHsCode = box.contents.find((c) => c.hsCode)?.hsCode || null;
 
   return {
-    description: item.description,
+    description,
     quantity,
 
     lengthCm: new Decimal(lengthCm.toFixed(2)),
@@ -287,11 +345,21 @@ function buildPackageRow(item: ShipmentItem) {
     heightCm: new Decimal(heightCm.toFixed(2)),
     weightKg: new Decimal(weightKg.toFixed(2)),
 
-    declaredValue: unitValue > 0 ? new Decimal(unitValue.toFixed(2)) : null,
+    declaredValue: boxValue > 0 ? new Decimal(boxValue.toFixed(2)) : null,
+    declaredCurrency: currency,
+    hsCode: boxHsCode,
 
-    declaredCurrency: "INR",
-
-    hsCode: item.hsCode || null,
+    contents: {
+      create: box.contents.map((c) => ({
+        description: c.description,
+        hsCode: c.hsCode || null,
+        quantity: Math.trunc(toFiniteNumber(c.quantity, "item.quantity")),
+        unitValue: new Decimal(
+          toFiniteNumber(c.unitValue, "item.unitValue").toFixed(2),
+        ),
+        currency,
+      })),
+    },
   };
 }
 
@@ -308,15 +376,18 @@ export async function createShipmentAction(
     // ── 1. Auth ───────────────────────────────────────────────────────────
     let dbOrgId: string;
     let markupPercent: Decimal;
+    let skipPayment: boolean;
     let userId: string;
 
     try {
       const resolved = await resolveOrg();
       dbOrgId = resolved.dbOrgId;
       markupPercent = resolved.markupPercent;
+      skipPayment = resolved.skipPayment;
       userId = resolved.userId;
       scope.setUser({ id: userId });
       scope.setTag("orgId", dbOrgId);
+      scope.setTag("skipPayment", String(skipPayment));
     } catch (err) {
       if (err instanceof AuthError) {
         if (err.code === "UNAUTHENTICATED") {
@@ -353,13 +424,27 @@ export async function createShipmentAction(
 
     // Narrowed to PreflightOk — all properties are safely accessible and
     // guaranteed to be real finite numbers from here on.
-    const { totalWeightKg, declaredTotal, servicePrice } = check;
+    const { totalWeightKg, servicePrice, firstMileCharge } = check;
+
+    // The wallet is debited for the full booking total: the international
+    // service plus the door → hub first-mile leg (0 when pickup wasn't opted
+    // into). Both prices already have the org markup applied by their rate
+    // actions, so this is a straight sum.
+    const chargeTotal = servicePrice + firstMileCharge;
 
     // ── 3. KYC check ─────────────────────────────────────────────────────
     Sentry.addBreadcrumb({ message: "KYC document check", level: "info" });
 
     try {
-      await assertKycComplete(dbOrgId, declaredTotal);
+      const kycClientId =
+        data.shipmentOwnerMode === "EXISTING_CLIENT" && data.selectedClient
+          ? data.selectedClient.id
+          : null;
+      await assertKycComplete({
+        orgId: dbOrgId,
+        clientId: kycClientId,
+        shipmentType: data.shipmentType,
+      });
     } catch (err) {
       if (err instanceof KycIncompleteError) {
         return { success: false, message: err.message };
@@ -377,7 +462,24 @@ export async function createShipmentAction(
 
     // service is guaranteed non-null — preflight would have returned early
     const service = data.selectedService!;
- let shipmentNumber: string;
+
+    // Recipient snapshot for the customer-facing status emails. For a BA org
+    // booking on behalf of a client, the real sender is the CLIENT; otherwise
+    // it is the consignor entered in the wizard. Frozen onto the Shipment so
+    // later status emails need no re-derivation. (See Shipment.senderEmail.)
+    const bookingForClient =
+      data.shipmentOwnerMode === "EXISTING_CLIENT" && data.selectedClient
+        ? data.selectedClient
+        : null;
+    const senderEmail =
+      (bookingForClient?.email || data.consignor.email || "").trim() || null;
+    const senderName =
+      (bookingForClient?.contactName ||
+        bookingForClient?.companyName ||
+        data.consignor.contactName ||
+        "").trim() || null;
+
+    let shipmentNumber: string;
 
     try {
 
@@ -391,19 +493,27 @@ export async function createShipmentAction(
           level: "info",
         });
 
-        // 4b. Pickup address (consignor → sender)
+        // 4b. Pickup address — the sender's address unless the user entered a
+        // separate pickup location (pickupSameAsSender === false). Falls back
+        // to the sender if pickup data is somehow absent (e.g. an old draft).
+        const pickupSource =
+          !data.pickupSameAsSender && data.pickup
+            ? data.pickup
+            : data.consignor;
+
         const pickupAddress = await tx.address.create({
           data: {
             orgId: dbOrgId,
             kind: "PICKUP",
-            contactName: data.consignor.contactName,
-            contactPhone: data.consignor.phone || null,
-            line1: data.consignor.addressLine1,
-            line2: data.consignor.addressLine2 || null,
-            city: data.consignor.city,
-            state: data.consignor.state || null,
-            country: data.consignor.country,
-            postalCode: data.consignor.postalCode,
+            contactName: pickupSource.contactName,
+            contactPhone: pickupSource.phone || null,
+            contactEmail: pickupSource.email || null,
+            line1: pickupSource.addressLine1,
+            line2: pickupSource.addressLine2 || null,
+            city: pickupSource.city,
+            state: pickupSource.state || null,
+            country: pickupSource.country,
+            postalCode: pickupSource.postalCode,
             isDefault: false,
           },
           select: { id: true },
@@ -416,6 +526,7 @@ export async function createShipmentAction(
             kind: "DELIVERY",
             contactName: data.consignee.contactName,
             contactPhone: data.consignee.phone || null,
+            contactEmail: data.consignee.email || null,
             line1: data.consignee.addressLine1,
             line2: data.consignee.addressLine2 || null,
             city: data.consignee.city,
@@ -427,6 +538,31 @@ export async function createShipmentAction(
           select: { id: true },
         });
 
+        // 4c-ii. Billing address — only when it differs from delivery.
+        // Otherwise billingSameAsDelivery=true and billing is read from the
+        // delivery address at invoice/display time (no separate row needed).
+        let billingAddressId: string | null = null;
+        if (!data.billingSameAsDelivery && data.billing) {
+          const billingAddress = await tx.address.create({
+            data: {
+              orgId: dbOrgId,
+              kind: "BILLING",
+              contactName: data.billing.contactName,
+              contactPhone: data.billing.phone || null,
+              contactEmail: data.billing.email || null,
+              line1: data.billing.addressLine1,
+              line2: data.billing.addressLine2 || null,
+              city: data.billing.city,
+              state: data.billing.state || null,
+              country: data.billing.country,
+              postalCode: data.billing.postalCode,
+              isDefault: false,
+            },
+            select: { id: true },
+          });
+          billingAddressId = billingAddress.id;
+        }
+
         // 4d. Shipment + PackageItems — created PENDING_PAYMENT, not BOOKED.
         // It only becomes BOOKED once the wallet debit below succeeds. If
         // the debit throws, this whole transaction rolls back and this row
@@ -437,8 +573,33 @@ export async function createShipmentAction(
             shipmentNumber,
             clientId: data.selectedClient?.id ?? null,
 
+            senderEmail,
+            senderName,
+
+            shipmentType: data.shipmentType,
+            pickupIncluded: data.pickupIncluded,
+
+            // First-mile (door → hub) snapshot — only when opted in. Priced
+            // with the org markup already applied by getDomesticRatesAction and
+            // frozen here so later rate/markup changes don't rewrite history.
+            firstMileVendorId:
+              data.pickupIncluded && data.firstMile ? data.firstMile.vendorId : null,
+            firstMileVendorName:
+              data.pickupIncluded && data.firstMile ? data.firstMile.productName : null,
+            firstMileCharge:
+              data.pickupIncluded && firstMileCharge > 0
+                ? new Decimal(firstMileCharge.toFixed(2))
+                : null,
+            firstMileHubLabel:
+              data.pickupIncluded ? data.firstMileHubLabel ?? null : null,
+            firstMileChargeSnapshot:
+              data.pickupIncluded && data.firstMile
+                ? ({ ...data.firstMile, price: firstMileCharge } as unknown as object)
+                : undefined,
+
             pickupAddressId: pickupAddress.id,
             deliveryAddressId: deliveryAddress.id,
+            billingAddressId,
             billingSameAsDelivery: data.billingSameAsDelivery,
 
             totalActualWeightKg: new Decimal(totalWeightKg.toFixed(2)),
@@ -460,8 +621,13 @@ export async function createShipmentAction(
 
             status: ShipmentStatus.PENDING_PAYMENT,
 
+            // Orgs with payments turned off (Org.skipPayment) book without a
+            // wallet debit; ops collect the charge when the parcel reaches the
+            // hub. The flag lets ops filter these "payment pending" bookings.
+            paymentDeferred: skipPayment,
+
             packages: {
-              create: data.items.map(buildPackageRow),
+              create: data.boxes.map((box) => buildPackageRow(box, data.currency)),
             },
           },
           select: { id: true, shipmentNumber: true },
@@ -499,19 +665,32 @@ export async function createShipmentAction(
           },
         });
 
-        // 4g. Atomic, race-safe wallet debit. Throws InsufficientFundsError
-        // if the org's wallet can't cover servicePrice — that error
-        // propagates out of this callback, and Prisma rolls back
-        // everything created above (addresses, shipment, packages,
-        // invoice doc, status event) automatically.
-        Sentry.addBreadcrumb({
-          message: `Debiting wallet ₹${servicePrice} for shipment ${shipmentNumber}`,
-          level: "info",
-        });
+        // 4g. Payment. Two mutually exclusive paths:
+        //
+        //   • skipPayment orgs — NO wallet debit. The shipment is booked with
+        //     paymentDeferred=true (set above) and ops collect the charge at
+        //     the hub. This is the ONLY path that must never touch the wallet.
+        //
+        //   • everyone else — atomic, race-safe wallet debit. Throws
+        //     InsufficientFundsError if the wallet can't cover chargeTotal;
+        //     that error propagates out of this callback and Prisma rolls back
+        //     everything created above (addresses, shipment, packages, invoice
+        //     doc, status event) automatically. No orphaned PENDING_PAYMENT
+        //     row is ever left behind.
+        if (skipPayment) {
+          Sentry.addBreadcrumb({
+            message: `Payment deferred (skipPayment org) — booking ${shipmentNumber} without debit`,
+            level: "info",
+          });
+        } else {
+          Sentry.addBreadcrumb({
+            message: `Debiting wallet ₹${chargeTotal} (service ₹${servicePrice} + first-mile ₹${firstMileCharge}) for shipment ${shipmentNumber}`,
+            level: "info",
+          });
+          await debitWalletForShipment(tx, dbOrgId, chargeTotal, shipment.id);
+        }
 
-        await debitWalletForShipment(tx, dbOrgId, servicePrice, shipment.id);
-
-        // 4h. Debit succeeded — flip to BOOKED.
+        // 4h. Payment resolved — flip to BOOKED.
         await tx.shipment.update({
           where: { id: shipment.id },
           data: {
@@ -525,7 +704,9 @@ export async function createShipmentAction(
             shipmentId: shipment.id,
             fromStatus: ShipmentStatus.PENDING_PAYMENT,
             toStatus: ShipmentStatus.BOOKED,
-            note: "Wallet debit successful.",
+            note: skipPayment
+              ? "Booked with payment deferred — to be collected at hub."
+              : "Wallet debit successful.",
             changedByType: "SYSTEM",
           },
         });
@@ -543,10 +724,16 @@ export async function createShipmentAction(
         data: { shipmentId: txResult.shipmentId },
       });
 
+      // Booking confirmation email to the sender. Fired only after the booking
+      // is durably committed. sendShipmentMilestoneEmail never throws, so a
+      // failed send can never turn a successful booking into an error.
+      await sendShipmentMilestoneEmail(txResult.shipmentId, ShipmentStatus.BOOKED);
+
       return {
         success: true,
         shipmentId: txResult.shipmentId,
         shipmentNumber: txResult.shipmentNumber,
+        paymentDeferred: skipPayment,
       };
     } catch (err) {
       // Insufficient wallet balance — not a bug, not reported to Sentry.
@@ -572,7 +759,7 @@ export async function createShipmentAction(
           insufficientFunds: {
             shortfallRupees: Math.ceil(err.shortfallRupees),
             availableRupees: err.availableRupees,
-            requiredRupees: servicePrice,
+            requiredRupees: chargeTotal,
           },
         };
       }
@@ -589,7 +776,7 @@ export async function createShipmentAction(
         tags: { step: "dbTransaction", orgId: dbOrgId },
         extra: {
           shipmentOwnerMode: data.shipmentOwnerMode,
-          itemCount: data.items.length,
+          boxCount: data.boxes.length,
           selectedVendor: data.selectedService?.vendorId,
           servicePrice,
         },

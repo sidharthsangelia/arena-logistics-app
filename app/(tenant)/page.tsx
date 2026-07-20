@@ -56,6 +56,7 @@ import {
 } from "lucide-react";
 import { STATUS_CONFIG } from "@/utils/statusConfigColors";
 import { prisma } from "@/utils/db";
+import { OnboardingChecklist } from "@/components/onboarding/OnboardingChecklist";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Formatting helpers
@@ -74,6 +75,9 @@ const dateFormatter = new Intl.DateTimeFormat("en-IN", {
   day: "2-digit",
   month: "short",
   year: "numeric",
+  // Pin the zone so the server (UTC) and the browser (IST) format the same day.
+  // Without this, timestamps near midnight UTC hydrate as different dates.
+  timeZone: "Asia/Kolkata",
 });
 
 function formatDate(date: Date) {
@@ -87,6 +91,7 @@ function formatDateTime(date: Date) {
     year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
+    timeZone: "Asia/Kolkata",
   }).format(date);
 }
 
@@ -437,6 +442,9 @@ export default async function DashboardOverviewPage() {
             )}
           </div>
         )}
+
+        {/* ── Onboarding checklist (auto-hides once complete) ─────────── */}
+        <OnboardingChecklist org={org} />
 
         {/* ── Stat cards ──────────────────────────────────────────────── */}
         <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">

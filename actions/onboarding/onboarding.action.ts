@@ -3,9 +3,10 @@
 import { auth, clerkClient } from "@clerk/nextjs/server";
 import { prisma } from "@/utils/db";
 import { z } from "zod";
+import * as Sentry from "@sentry/nextjs";
 
 const onboardingSchema = z.object({
-  name: z.string().min(2, "Company name must be at least 2 characters"),
+  name: z.string().min(2, "Please enter a name (at least 2 characters)."),
   slug: z
     .string()
     .min(2)
@@ -50,49 +51,94 @@ export async function createOrgAction(
 
   const { name, slug } = parsed.data;
 
-  // Check if slug already exists in our DB
-  const existing = await prisma.org.findUnique({
-    where: { slug },
-    select: { id: true },
-  });
+  try {
+    const client = await clerkClient();
 
-  if (existing) {
+    // ── Resume path (idempotent retry) ──────────────────────────────────────
+    // If a workspace with this slug already exists, it's only a hard "taken"
+    // error when it belongs to *someone else*. If THIS user already created it
+    // (e.g. a previous attempt created the org but setActive never stuck and
+    // they landed back on onboarding), we resume it instead of locking them out
+    // of their own workspace.
+    const existing = await prisma.org.findUnique({
+      where: { slug },
+      select: { id: true, clerkOrgId: true },
+    });
+
+    if (existing) {
+      const memberships = await client.users.getOrganizationMembershipList({
+        userId,
+      });
+      const ownsIt = memberships.data.some(
+        (m) => m.organization.id === existing.clerkOrgId,
+      );
+
+      if (!ownsIt) {
+        return { success: false, message: "This workspace URL is already taken." };
+      }
+
+      // It's theirs — make sure the flag is set and hand the id back so the
+      // client can setActive and move on.
+      await markOnboardingComplete(client, userId);
+      return {
+        success: true,
+        redirectUrl: "/",
+        organizationId: existing.clerkOrgId,
+      };
+    }
+
+    // ── Create path ─────────────────────────────────────────────────────────
+    const clerkOrg = await client.organizations.createOrganization({
+      name,
+      slug,
+      createdBy: userId,
+    });
+
+    // Upsert (not create): the organization.created webhook may have raced us
+    // and already inserted the row keyed on clerkOrgId. Either way we converge
+    // on one row and never throw a unique-constraint error.
+    await prisma.org.upsert({
+      where: { clerkOrgId: clerkOrg.id },
+      update: { name, slug, deletedAt: null },
+      create: { clerkOrgId: clerkOrg.id, slug, name },
+    });
+
+    await markOnboardingComplete(client, userId);
+
+    return {
+      success: true,
+      redirectUrl: "/",
+      organizationId: clerkOrg.id,
+    };
+  } catch (err) {
+    Sentry.captureException(err, {
+      tags: { action: "createOrg" },
+      extra: { slug, userId },
+    });
+    console.error("[createOrgAction]", err);
     return {
       success: false,
-      message: "This slug is already taken.",
+      message:
+        "Something went wrong while creating your workspace. Please try again.",
     };
   }
+}
 
-  const client = await clerkClient();
-
-  // Create Clerk organization
-  const clerkOrg = await client.organizations.createOrganization({
-    name,
-    slug,
-    createdBy: userId,
-  });
-
-  // Create matching DB record
-  await prisma.org.create({
-    data: {
-      clerkOrgId: clerkOrg.id,
-      slug,
-      name,
-    },
-  });
-
-  // Mark onboarding complete
-  await client.users.updateUser(userId, {
-    publicMetadata: {
-      onboardingComplete: true,
-    },
-  });
-
-  return {
-    success: true,
-    redirectUrl: "/",
-    organizationId: clerkOrg.id,
-  };
+// Routing flag only (safe to keep public per the metadata policy). Best-effort:
+// routing actually keys off the active org in the session, so a failure here
+// must never block onboarding — log it and move on.
+async function markOnboardingComplete(
+  client: Awaited<ReturnType<typeof clerkClient>>,
+  userId: string,
+): Promise<void> {
+  try {
+    await client.users.updateUser(userId, {
+      publicMetadata: { onboardingComplete: true },
+    });
+  } catch (err) {
+    Sentry.captureException(err, { tags: { action: "markOnboardingComplete" } });
+    console.error("[markOnboardingComplete]", err);
+  }
 }
 
 export async function checkSlugAvailability(

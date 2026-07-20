@@ -4,6 +4,8 @@ import React from "react";
 import { ShipmentStatus } from "@/generated/prisma";
  
 
+import { toast } from "sonner";
+
 import { CheckCircle2, Loader2, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,6 +20,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { updateShipmentStatus } from "@/actions/book/companySideBookings.action";
+import { isEmailMilestone } from "@/lib/email/shipment/milestones";
 
 interface Props {
   shipmentId: string;
@@ -40,6 +43,9 @@ export function StatusUpdatePanel({ shipmentId, currentStatus, allStatuses }: Pr
     setError(null);
     setSaved(false);
 
+    const statusLabel =
+      allStatuses.find((s) => s.value === selectedStatus)?.label ?? "updated";
+
     const result = await updateShipmentStatus(shipmentId, selectedStatus, note);
 
     setSaving(false);
@@ -47,8 +53,26 @@ export function StatusUpdatePanel({ shipmentId, currentStatus, allStatuses }: Pr
       setSaved(true);
       setNote("");
       setTimeout(() => setSaved(false), 3000);
+
+      if (result.emailed) {
+        toast.success(`Status changed to ${statusLabel}`, {
+          description: "The client has been notified by email.",
+        });
+      } else if (isEmailMilestone(selectedStatus)) {
+        // Milestone status, but the notification did not go out (no email on
+        // file, or the send failed — captured in Sentry). Don't claim we told
+        // the client when we didn't.
+        toast.warning(`Status changed to ${statusLabel}`, {
+          description: "Saved, but the client could not be emailed. Check their email on file.",
+        });
+      } else {
+        toast.success(`Status changed to ${statusLabel}`, {
+          description: "This status does not send a client email.",
+        });
+      }
     } else {
       setError(result.message);
+      toast.error("Couldn't update status", { description: result.message });
     }
   }
 

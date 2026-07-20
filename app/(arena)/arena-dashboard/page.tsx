@@ -341,11 +341,17 @@ export default async function ArenaDashboardPage() {
                   </TableHeader>
                   <TableBody>
                     {recentShipments.map((s) => (
-                      <TableRow key={s.id} className="cursor-pointer">
+                      <TableRow
+                        key={s.id}
+                        className="relative cursor-pointer hover:bg-muted/50"
+                      >
                         <TableCell className="pl-6">
-                          <p className="text-sm font-medium leading-tight">
-                            {s.orgName}
-                          </p>
+                          <Link
+                            href={`/arena-dashboard/bookings/${s.id}`}
+                            className="font-medium leading-tight after:absolute after:inset-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
+                          >
+                            <span className="text-sm">{s.orgName}</span>
+                          </Link>
                           <p className="text-xs text-muted-foreground mt-0.5">
                             {s.clientName ?? "Own shipment"}
                           </p>

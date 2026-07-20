@@ -4,6 +4,7 @@ import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/utils/db";
 import { revalidatePath } from "next/cache";
 import { ShipmentStatus } from "@/generated/prisma";
+import { sendShipmentMilestoneEmail } from "@/lib/email/shipment/send";
 
 const ARENA_ORG_ID = process.env.ARENA_ORG_ID!;
 
@@ -24,7 +25,7 @@ async function assertArenaStaff(): Promise<{ userId: string }> {
 // ---------------------------------------------------------------------------
 
 export type UpdateStatusResult =
-  | { success: true }
+  | { success: true; emailed: boolean }
   | { success: false; message: string };
 
 export async function updateShipmentStatus(
@@ -64,7 +65,19 @@ export async function updateShipmentStatus(
 
     revalidatePath(`/arena-dashboard/bookings/${shipmentId}`);
     revalidatePath("/arena-dashboard/bookings");
-    return { success: true };
+
+    // Notify the sender when the shipment reaches a customer milestone. Only
+    // fires on a real transition (skips re-saving the same status) and is
+    // strictly non-blocking — sendShipmentMilestoneEmail never throws, so a
+    // send failure can never fail the status update the ops user just made.
+    // `emailed` reflects whether Resend actually accepted the message, so the
+    // UI toast can be honest about whether the client was notified.
+    let emailed = false;
+    if (newStatus !== current.status) {
+      ({ sent: emailed } = await sendShipmentMilestoneEmail(shipmentId, newStatus));
+    }
+
+    return { success: true, emailed };
   } catch (err) {
     console.error("[updateShipmentStatus]", err);
     return { success: false, message: "Failed to update status. Please try again." };

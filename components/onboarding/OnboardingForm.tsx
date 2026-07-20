@@ -96,17 +96,20 @@ function handleSubmit(e: React.FormEvent) {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
-      {/* Company name */}
+      {/* Workspace / company name */}
       <div className="space-y-1.5">
-        <Label htmlFor="name">Company name</Label>
+        <Label htmlFor="name">Company or your name</Label>
         <Input
           id="name"
-          placeholder="Acme Logistics Pvt Ltd"
+          placeholder="Acme Logistics, or your full name"
           value={name}
           onChange={(e) => handleNameChange(e.target.value)}
           disabled={isPending}
           required
         />
+        <p className="text-xs text-muted-foreground">
+          Not a company? Just use your own name. You can change this anytime.
+        </p>
       </div>
 
       {/* Workspace slug */}

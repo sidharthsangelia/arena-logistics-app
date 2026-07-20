@@ -76,6 +76,7 @@ export const newAddressSchema = z.object({
   label: z.string().trim().max(80).optional().or(z.literal("")),
   contactName: z.string().trim().min(2, "Contact name is required"),
   contactPhone: z.string().trim().min(7, "Enter a valid phone number"),
+  contactEmail: z.string().trim().email("Enter a valid email").optional().or(z.literal("")),
   line1: z.string().trim().min(5, "Address must be at least 5 characters"),
   line2: z.string().trim().max(160).optional().or(z.literal("")),
   city: z.string().trim().min(2, "City must be at least 2 characters"),

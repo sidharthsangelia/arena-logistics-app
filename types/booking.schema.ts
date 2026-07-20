@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { KYC_DOC_CONFIGS } from "@/lib/booking/kyc";
 
 // ---------------------------------------------------------------------------
 // Shared
@@ -13,18 +14,7 @@ const fileMetaSchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
-// Step 0 — Shipment Owner
-// ---------------------------------------------------------------------------
-
-export const shipmentOwnerSchema = z.object({
-  shipmentOwnerMode: z.enum(["SELF", "EXISTING_CLIENT", "OTHER_PERSON"]),
-  selectedClient: z.any().nullable(),
-});
-
-// ---------------------------------------------------------------------------
-// Step 1 — Consignor / Step 2 — Consignee
-// (identical shape — kept as two exports since they validate different
-// paths on the same form)
+// Shared address-form shape (sender / pickup / receiver all use it)
 // ---------------------------------------------------------------------------
 
 const addressFormSchema = z.object({
@@ -40,13 +30,74 @@ const addressFormSchema = z.object({
   country: z.string().min(2, "Country is required"),
 });
 
-export const consignorSchema = z.object({
-  consignor: addressFormSchema,
-});
+// ---------------------------------------------------------------------------
+// Step 0 — Sender + Pickup (merged "who's shipping" + sender address +
+// pickup address). One step: mode selector, sender fields, and a pickup
+// section gated by the "pickup same as sender" checkbox.
+// ---------------------------------------------------------------------------
 
-export const consigneeSchema = z.object({
-  consignee: addressFormSchema,
-});
+export const senderPickupSchema = z
+  .object({
+    shipmentOwnerMode: z.enum(["SELF", "EXISTING_CLIENT", "OTHER_PERSON"]),
+    selectedClient: z.any().nullable(),
+    consignor: addressFormSchema,
+    pickupSameAsSender: z.boolean(),
+    // Intentionally untyped/unvalidated here — when pickupSameAsSender is
+    // true this can legitimately be empty strings (mirrored later, or just
+    // not filled yet). Real validation only happens below, and only when
+    // it's actually required. A partial() schema would still run each
+    // field's validator against "" (empty string is a defined value, not
+    // undefined), which is what caused the checkbox to have no effect.
+    pickup: z.unknown().optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.shipmentOwnerMode === "EXISTING_CLIENT" && !data.selectedClient) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["selectedClient"],
+        message: "Please select a client to continue.",
+      });
+    }
+    if (!data.pickupSameAsSender) {
+      const result = addressFormSchema.safeParse(data.pickup ?? {});
+      if (!result.success) {
+        result.error.issues.forEach((issue) => {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["pickup", ...issue.path],
+            message: issue.message,
+          });
+        });
+      }
+    }
+  });
+
+// ---------------------------------------------------------------------------
+// Step 1 — Delivery + Billing (receiver address + optional separate billing).
+// Billing defaults to the delivery address; validated separately only when
+// billingSameAsDelivery is false.
+// ---------------------------------------------------------------------------
+
+export const deliveryBillingSchema = z
+  .object({
+    consignee: addressFormSchema,
+    billingSameAsDelivery: z.boolean(),
+    billing: z.unknown().optional(), // see note on `pickup` above
+  })
+  .superRefine((data, ctx) => {
+    if (!data.billingSameAsDelivery) {
+      const result = addressFormSchema.safeParse(data.billing ?? {});
+      if (!result.success) {
+        result.error.issues.forEach((issue) => {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["billing", ...issue.path],
+            message: issue.message,
+          });
+        });
+      }
+    }
+  });
 
 // ---------------------------------------------------------------------------
 // Step 3 — Shipment Details (merged Invoice + Packages)
@@ -57,26 +108,32 @@ export const consigneeSchema = z.object({
 // invoice PDF instead of generating one.
 // ---------------------------------------------------------------------------
 
-const shipmentItemSchema = z.object({
+const boxContentItemSchema = z.object({
   id: z.string(),
   description: z.string().min(2, "Description is required"),
   hsCode: z.string().min(4, "HSN code must be at least 4 digits"),
-  countryOfOrigin: z.string().min(2, "Country of origin is required"),
   quantity: z.number().min(1, "Quantity must be at least 1"),
-  weightKg: z.number().positive("Weight must be greater than 0"),
+  unitValue: z.number().min(0, "Value cannot be negative"),
+});
+
+const cargoBoxSchema = z.object({
+  id: z.string(),
   lengthCm: z.number().positive("Length must be greater than 0"),
   widthCm: z.number().positive("Width must be greater than 0"),
   heightCm: z.number().positive("Height must be greater than 0"),
-  unitValue: z.number().min(0, "Unit value cannot be negative"),
+  weightKg: z.number().positive("Weight must be greater than 0"),
+  quantity: z.number().min(1, "Number of boxes must be at least 1"),
+  contents: z.array(boxContentItemSchema).min(1, "Add at least one item to this box."),
 });
 
 export const shipmentDetailsSchema = z
   .object({
+    shipmentType: z.enum(["CSB4", "CSB5", "COMMERCIAL"]),
     invoiceMode: z.enum(["UPLOAD", "GENERATE"]),
     uploadedInvoice: fileMetaSchema.nullable(),
     invoiceNumber: z.string().optional(),
     currency: z.string().min(1, "Currency is required"),
-    items: z.array(shipmentItemSchema).min(1, "Add at least one item."),
+    boxes: z.array(cargoBoxSchema).min(1, "Add at least one box."),
   })
   .superRefine((data, ctx) => {
     if (data.invoiceMode === "UPLOAD" && !data.uploadedInvoice) {
@@ -89,49 +146,36 @@ export const shipmentDetailsSchema = z
   });
 
 // ---------------------------------------------------------------------------
-// Step 4 — KYC
+// Step 3 — KYC
 //
-// Now runs AFTER shipment-details, so `_totalDeclaredValue` (injected by
-// the wizard before validating this step) reflects real item data instead
-// of always being 0 — this was the source of the IEC-threshold bug where
-// IEC always read as "not required" on a user's first pass through the
-// wizard.
+// Required documents branch by shipment type (CSB4 / CSB5 / COMMERCIAL) via
+// the shared matrix in lib/booking/kyc.ts, so the requirement rules stay in
+// lockstep with the packages step, the KYC UI and the server-side check.
+// `shipmentType` is read straight off the form (it's captured on the packages
+// step, which always runs before KYC).
 // ---------------------------------------------------------------------------
 
 export const kycSchema = z
   .object({
+    shipmentType: z.enum(["CSB4", "CSB5", "COMMERCIAL"]),
     kycDocs: z.object({
+      companyPan: fileMetaSchema.nullable(),
       pan: fileMetaSchema.nullable(),
       aadhaar: fileMetaSchema.nullable(),
       gst: fileMetaSchema.nullable(),
       iec: fileMetaSchema.nullable(),
+      lut: fileMetaSchema.nullable(),
     }),
-    // Injected by the wizard right before validating this step — does NOT
-    // live in BookingFormData itself.
-    _totalDeclaredValue: z.number().optional(),
   })
   .superRefine((data, ctx) => {
-    if (!data.kycDocs.pan) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["kycDocs", "pan"],
-        message: "PAN card is required for international shipments.",
-      });
-    }
-    if (!data.kycDocs.aadhaar) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["kycDocs", "aadhaar"],
-        message: "Aadhaar card is required for international shipments.",
-      });
-    }
-    const totalValue = data._totalDeclaredValue ?? 0;
-    if (totalValue > 25_000 && !data.kycDocs.iec) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["kycDocs", "iec"],
-        message: `IEC is required when shipment value exceeds ₹25,000 (yours: ₹${totalValue.toLocaleString("en-IN")}).`,
-      });
+    for (const cfg of KYC_DOC_CONFIGS) {
+      if (cfg.requiredFor.includes(data.shipmentType) && !data.kycDocs[cfg.key]) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["kycDocs", cfg.key],
+          message: `${cfg.label} is required for ${data.shipmentType} shipments.`,
+        });
+      }
     }
   });
 
@@ -139,21 +183,32 @@ export const kycSchema = z
 // Step 5 — Service selection
 // ---------------------------------------------------------------------------
 
+const serviceOptionShape = z.object({
+  vendorId: z.string(),
+  vendorName: z.string(),
+  productCode: z.string(),
+  productName: z.string(),
+  transitDays: z.number(),
+  price: z.number(),
+  currency: z.string(),
+});
+
 export const serviceSchema = z.object({
-  selectedService: z
-    .object({
-      vendorId: z.string(),
-      vendorName: z.string(),
-      productCode: z.string(),
-      productName: z.string(),
-      transitDays: z.number(),
-      price: z.number(),
-      currency: z.string(),
-    })
-    .nullable()
-    .refine((v) => v !== null, {
-      message: "Please select a shipping service to continue.",
-    }),
+  selectedService: serviceOptionShape.nullable().refine((v) => v !== null, {
+    message: "Please select a shipping service to continue.",
+  }),
+});
+
+// ---------------------------------------------------------------------------
+// First-mile (door → hub) — only reached when pickupIncluded is true, so the
+// wizard validates this schema only when the first-mile step is active. A
+// non-null selection is required to continue past it.
+// ---------------------------------------------------------------------------
+
+export const firstMileSchema = z.object({
+  firstMile: serviceOptionShape.nullable().refine((v) => v !== null, {
+    message: "Please select a pickup courier to continue.",
+  }),
 });
 
 // ---------------------------------------------------------------------------
@@ -165,21 +220,19 @@ export const reviewSchema = z.object({});
 // ---------------------------------------------------------------------------
 // stepSchemas — index MUST match `bookingSteps` / `STEP` in useBookingWizard.ts
 //
-//  0  shipment-owner    → shipmentOwnerSchema
-//  1  consignor         → consignorSchema
-//  2  consignee         → consigneeSchema
-//  3  shipment-details  → shipmentDetailsSchema  (self-managed, not via RHF)
-//  4  kyc               → kycSchema
-//  5  service            → serviceSchema
-//  6  review            → reviewSchema
+//  0  sender            → senderPickupSchema  (merged owner + sender + pickup)
+//  1  delivery-billing  → deliveryBillingSchema (receiver + optional billing)
+//  2  shipment-details  → shipmentDetailsSchema  (self-managed, not via RHF)
+//  3  kyc               → kycSchema
+//  4  service           → serviceSchema
+//  5  review            → reviewSchema
 // ---------------------------------------------------------------------------
 
 export const stepSchemas = [
-  shipmentOwnerSchema,   // 0
-  consignorSchema,       // 1
-  consigneeSchema,       // 2
-  shipmentDetailsSchema, // 3
-  kycSchema,              // 4
-  serviceSchema,          // 5
-  reviewSchema,            // 6
+  senderPickupSchema,    // 0
+  deliveryBillingSchema, // 1
+  shipmentDetailsSchema, // 2
+  kycSchema,             // 3
+  serviceSchema,         // 4
+  reviewSchema,          // 5
 ];

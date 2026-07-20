@@ -16,6 +16,9 @@ export function formatDate(date: Date | string): string {
     year: "numeric",
     month: "short",
     day: "numeric",
+    // Pin the zone so SSR (UTC) and the browser (IST) agree on the day and
+    // don't trigger a hydration mismatch for timestamps near midnight UTC.
+    timeZone: "Asia/Kolkata",
   }).format(d);
 }
 

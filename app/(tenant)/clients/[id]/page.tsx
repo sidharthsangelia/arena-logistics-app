@@ -8,6 +8,7 @@ import ClientEditSheet from "@/components/clients/clientDetailPage/ClientEditShe
 import ClientDetailStats from "@/components/clients/clientDetailPage/ClientDetailStats";
 import ClientQuoteHistory from "@/components/clients/clientDetailPage/ClientQuoteHistory";
 import KycVault from "@/components/clients/clientDetailPage/KycVault";
+import { AddressBookManager } from "@/components/address/AddressBookManager";
 import {
   HeaderSkeleton,
   StatsSkeleton,
@@ -334,6 +335,22 @@ export default async function ClientDetailPage({ params }: Props) {
           <Suspense fallback={<QuoteHistorySkeleton />}>
             <ClientQuotes clientPromise={clientPromise} />
           </Suspense>
+
+          {/* Address book for this client — pickup / delivery / billing they reuse */}
+          <div className="rounded-lg border">
+            <div className="border-b px-4 py-3">
+              <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
+                Addresses
+              </p>
+              <p className="mt-0.5 text-xs text-muted-foreground/80">
+                Save this client&apos;s pickup, delivery and billing addresses to
+                book for them in one tap.
+              </p>
+            </div>
+            <div className="p-4">
+              <AddressBookManager party={{ partyType: "CLIENT", clientId: id }} />
+            </div>
+          </div>
 
           <Suspense fallback={<KycVaultSkeleton />}>
             <ClientDocuments clientPromise={clientPromise} />
