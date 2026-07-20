@@ -25,7 +25,7 @@ async function assertArenaStaff(): Promise<{ userId: string }> {
 // ---------------------------------------------------------------------------
 
 export type UpdateStatusResult =
-  | { success: true }
+  | { success: true; emailed: boolean }
   | { success: false; message: string };
 
 export async function updateShipmentStatus(
@@ -70,11 +70,14 @@ export async function updateShipmentStatus(
     // fires on a real transition (skips re-saving the same status) and is
     // strictly non-blocking — sendShipmentMilestoneEmail never throws, so a
     // send failure can never fail the status update the ops user just made.
+    // `emailed` reflects whether Resend actually accepted the message, so the
+    // UI toast can be honest about whether the client was notified.
+    let emailed = false;
     if (newStatus !== current.status) {
-      await sendShipmentMilestoneEmail(shipmentId, newStatus);
+      ({ sent: emailed } = await sendShipmentMilestoneEmail(shipmentId, newStatus));
     }
 
-    return { success: true };
+    return { success: true, emailed };
   } catch (err) {
     console.error("[updateShipmentStatus]", err);
     return { success: false, message: "Failed to update status. Please try again." };

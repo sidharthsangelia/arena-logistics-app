@@ -17,6 +17,13 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 
 const EMAIL_RX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+/**
+ * Outcome of an email attempt. `sent` is the only thing callers need: it is
+ * true only when Resend accepted the message, so UI can honestly say "the
+ * client has been notified" without ever overclaiming on a skip or failure.
+ */
+export type ShipmentEmailResult = { sent: boolean };
+
 function locationLabel(
   city: string | null | undefined,
   country: string | null | undefined,
@@ -37,9 +44,9 @@ function locationLabel(
 export async function sendShipmentMilestoneEmail(
   shipmentId: string,
   status: ShipmentStatus,
-): Promise<void> {
+): Promise<ShipmentEmailResult> {
   try {
-    if (!isEmailMilestone(status)) return;
+    if (!isEmailMilestone(status)) return { sent: false };
 
     if (!process.env.RESEND_API_KEY) {
       Sentry.addBreadcrumb({
@@ -47,7 +54,7 @@ export async function sendShipmentMilestoneEmail(
         message: `Skipping shipment email (${status}) — RESEND_API_KEY not set`,
         data: { shipmentId },
       });
-      return;
+      return { sent: false };
     }
 
     const shipment = await prisma.shipment.findUnique({
@@ -78,7 +85,7 @@ export async function sendShipmentMilestoneEmail(
         tags: { location: "sendShipmentMilestoneEmail" },
         extra: { shipmentId, status },
       });
-      return;
+      return { sent: false };
     }
 
     // Recipient resolution. Prefer the frozen sender snapshot; fall back to the
@@ -96,7 +103,7 @@ export async function sendShipmentMilestoneEmail(
         message: `No valid recipient for shipment email (${status})`,
         data: { shipmentId, shipmentNumber: shipment.shipmentNumber },
       });
-      return;
+      return { sent: false };
     }
 
     const senderName =
@@ -131,7 +138,7 @@ export async function sendShipmentMilestoneEmail(
     };
 
     const copy = getMilestoneCopy(status, ctx);
-    if (!copy) return; // defensive — isEmailMilestone already guarded this
+    if (!copy) return { sent: false }; // defensive — isEmailMilestone already guarded this
 
     const { error } = await resend.emails.send({
       from: shipmentFromHeader(),
@@ -152,7 +159,7 @@ export async function sendShipmentMilestoneEmail(
         tags: { location: "sendShipmentMilestoneEmail" },
         extra: { shipmentId, status, to },
       });
-      return;
+      return { sent: false };
     }
 
     Sentry.addBreadcrumb({
@@ -160,11 +167,13 @@ export async function sendShipmentMilestoneEmail(
       message: `Shipment ${status} email sent for ${shipment.shipmentNumber}`,
       data: { shipmentId, to },
     });
+    return { sent: true };
   } catch (err) {
     // Absolute guarantee: never let an email failure bubble into the caller.
     Sentry.captureException(err, {
       tags: { location: "sendShipmentMilestoneEmail" },
       extra: { shipmentId, status },
     });
+    return { sent: false };
   }
 }

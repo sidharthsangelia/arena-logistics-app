@@ -1,6 +1,10 @@
 import "server-only";
 
 import { ShipmentStatus } from "@/generated/prisma";
+import { EMAIL_MILESTONES, isEmailMilestone } from "./milestones";
+
+// Re-exported so existing importers (send.ts) keep a single import site.
+export { EMAIL_MILESTONES, isEmailMilestone };
 
 /**
  * Everything the template needs to render a status email. Assembled from the
@@ -34,23 +38,6 @@ export interface MilestoneCopy {
   showTracking: boolean;
   /** Small reassurance line under the header badge. */
   statusLabel: string;
-}
-
-/**
- * The only statuses that email the customer. Anything not here (DRAFT,
- * PENDING_PAYMENT, DOCUMENTS_PENDING, CUSTOMS_HOLD, ON_HOLD, CANCELLED)
- * returns null and sends nothing.
- */
-export const EMAIL_MILESTONES: ReadonlySet<ShipmentStatus> = new Set([
-  ShipmentStatus.BOOKED,
-  ShipmentStatus.PROCESSING,
-  ShipmentStatus.IN_TRANSIT,
-  ShipmentStatus.OUT_FOR_DELIVERY,
-  ShipmentStatus.DELIVERED,
-]);
-
-export function isEmailMilestone(status: ShipmentStatus): boolean {
-  return EMAIL_MILESTONES.has(status);
 }
 
 /**

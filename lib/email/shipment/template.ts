@@ -186,7 +186,7 @@ export function renderShipmentEmailHtml(
           <tr>
             <td style="padding:28px 40px;border-top:1px solid ${C.border};background:${C.subtleBg};">
               <p style="margin:0;color:${C.muted};font-size:12px;line-height:1.7;">
-                Questions about this shipment? Just reply to this email and a real person on our team will help you. You can also reach us at
+                Questions about this shipment? Just reply to this email and our team will help you. You can also reach us at
                 <a href="mailto:${esc(brand.supportEmail)}" style="color:${C.ink};text-decoration:underline;">${esc(brand.supportEmail)}</a>.
               </p>
               <p style="margin:12px 0 0;color:${C.faint};font-size:11px;">${esc(brand.companyName)} &bull; Shipment ${esc(ctx.shipmentNumber)}</p>
