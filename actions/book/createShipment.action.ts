@@ -60,6 +60,7 @@ import {
   generateShipmentNumber,
   ShipmentNumberSequenceError,
 } from "@/utils/shipmentNumber";
+import { sendShipmentMilestoneEmail } from "@/lib/email/shipment/send";
 
 // ---------------------------------------------------------------------------
 // Public return type — fully JSON-serialisable
@@ -461,7 +462,24 @@ export async function createShipmentAction(
 
     // service is guaranteed non-null — preflight would have returned early
     const service = data.selectedService!;
- let shipmentNumber: string;
+
+    // Recipient snapshot for the customer-facing status emails. For a BA org
+    // booking on behalf of a client, the real sender is the CLIENT; otherwise
+    // it is the consignor entered in the wizard. Frozen onto the Shipment so
+    // later status emails need no re-derivation. (See Shipment.senderEmail.)
+    const bookingForClient =
+      data.shipmentOwnerMode === "EXISTING_CLIENT" && data.selectedClient
+        ? data.selectedClient
+        : null;
+    const senderEmail =
+      (bookingForClient?.email || data.consignor.email || "").trim() || null;
+    const senderName =
+      (bookingForClient?.contactName ||
+        bookingForClient?.companyName ||
+        data.consignor.contactName ||
+        "").trim() || null;
+
+    let shipmentNumber: string;
 
     try {
 
@@ -554,6 +572,9 @@ export async function createShipmentAction(
             orgId: dbOrgId,
             shipmentNumber,
             clientId: data.selectedClient?.id ?? null,
+
+            senderEmail,
+            senderName,
 
             shipmentType: data.shipmentType,
             pickupIncluded: data.pickupIncluded,
@@ -702,6 +723,11 @@ export async function createShipmentAction(
         level: "info",
         data: { shipmentId: txResult.shipmentId },
       });
+
+      // Booking confirmation email to the sender. Fired only after the booking
+      // is durably committed. sendShipmentMilestoneEmail never throws, so a
+      // failed send can never turn a successful booking into an error.
+      await sendShipmentMilestoneEmail(txResult.shipmentId, ShipmentStatus.BOOKED);
 
       return {
         success: true,

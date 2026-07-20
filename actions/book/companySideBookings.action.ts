@@ -4,6 +4,7 @@ import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/utils/db";
 import { revalidatePath } from "next/cache";
 import { ShipmentStatus } from "@/generated/prisma";
+import { sendShipmentMilestoneEmail } from "@/lib/email/shipment/send";
 
 const ARENA_ORG_ID = process.env.ARENA_ORG_ID!;
 
@@ -64,6 +65,15 @@ export async function updateShipmentStatus(
 
     revalidatePath(`/arena-dashboard/bookings/${shipmentId}`);
     revalidatePath("/arena-dashboard/bookings");
+
+    // Notify the sender when the shipment reaches a customer milestone. Only
+    // fires on a real transition (skips re-saving the same status) and is
+    // strictly non-blocking — sendShipmentMilestoneEmail never throws, so a
+    // send failure can never fail the status update the ops user just made.
+    if (newStatus !== current.status) {
+      await sendShipmentMilestoneEmail(shipmentId, newStatus);
+    }
+
     return { success: true };
   } catch (err) {
     console.error("[updateShipmentStatus]", err);

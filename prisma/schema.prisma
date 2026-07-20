@@ -749,6 +749,16 @@ model Shipment {
   clientId String?
   client   Client? @relation(fields: [clientId], references: [id], onDelete: SetNull)
 
+  // ── customer-facing contact snapshot ──
+  // Who receives the shipment status emails (booking confirmation + each
+  // milestone). Resolved and frozen at booking time: for a BA org booking on
+  // behalf of a client this is the CLIENT (the real sender); otherwise it's the
+  // consignor entered in the wizard. Snapshotted here because the consignor's
+  // email is not otherwise reliably persisted (the pickup address may be a
+  // different location), and so later status emails need no re-derivation.
+  senderEmail String? // recipient for status emails; null = no email on file
+  senderName  String? // greeting name, e.g. "Hi Adnan,"
+
   // ── addresses ──
   pickupAddressId String
   pickupAddress   Address @relation("PickupAddress", fields: [pickupAddressId], references: [id])
