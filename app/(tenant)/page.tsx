@@ -736,7 +736,7 @@ export default async function DashboardOverviewPage() {
                                 )}
                               </p>
                               <p className="text-xs text-muted-foreground mt-0.5 truncate">
-                                {q.vendorName} · {q.client?.companyName ?? "Unassigned"}
+                                {q.client?.companyName ?? "Unassigned"}
                               </p>
                               <Tooltip>
                                 <TooltipTrigger asChild>

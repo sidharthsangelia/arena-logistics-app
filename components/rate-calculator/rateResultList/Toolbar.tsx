@@ -12,6 +12,7 @@ import { GitCompare, LayoutGrid, List, X, ArrowUpDown } from "lucide-react";
 
 import { useAppStore } from "@/store";
 import type { SortOption } from "@/store";
+import { useIsArenaOrg } from "@/hooks/useIsArenaOrg";
 
 export default function Toolbar({
   carriers,
@@ -34,28 +35,33 @@ export default function Toolbar({
   const enableCompareMode = useAppStore((s) => s.enableCompareMode);
   const disableCompareMode = useAppStore((s) => s.disableCompareMode);
 
+  // Carrier chips are keyed on the sourcing vendor's name, so they only render
+  // for Arena staff. Customers never see the vendor axis.
+  const isArena = useIsArenaOrg();
+
   return (
     <div className="flex flex-wrap items-center gap-2">
       {/* Carrier filter chips */}
       <div className="flex flex-wrap items-center gap-1.5 flex-1 min-w-0">
-        {carriers.map((c) => {
-          const active = activeCarriers.includes(c.id);
-          return (
-            <button
-              key={c.id}
-              onClick={() => toggleCarrierFilter(c.id)}
-              className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-                active
-                  ? "border-blue-600 bg-blue-600 text-white"
-                  : "border-slate-200 bg-white text-slate-600 hover:border-blue-400 hover:text-blue-600"
-              }`}
-            >
-              {active && <X className="h-2.5 w-2.5" />}
-              {c.name}
-            </button>
-          );
-        })}
-        {activeCarriers.length > 0 && (
+        {isArena &&
+          carriers.map((c) => {
+            const active = activeCarriers.includes(c.id);
+            return (
+              <button
+                key={c.id}
+                onClick={() => toggleCarrierFilter(c.id)}
+                className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                  active
+                    ? "border-blue-600 bg-blue-600 text-white"
+                    : "border-slate-200 bg-white text-slate-600 hover:border-blue-400 hover:text-blue-600"
+                }`}
+              >
+                {active && <X className="h-2.5 w-2.5" />}
+                {c.name}
+              </button>
+            );
+          })}
+        {isArena && activeCarriers.length > 0 && (
           <button
             onClick={clearCarrierFilters}
             className="text-xs text-slate-400 hover:text-slate-600 underline underline-offset-2"

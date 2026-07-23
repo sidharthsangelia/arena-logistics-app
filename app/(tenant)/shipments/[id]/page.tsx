@@ -836,11 +836,10 @@ export default async function ShipmentDetailPage({
                       "Actual physical weight. Chargeable weight can be higher when the box size (volumetric weight) is greater.",
                   },
                   {
-                    label: "Carrier",
-                    value: s.selectedVendorName ?? "Not assigned",
-                    sub: s.selectedProductName ?? undefined,
+                    label: "Service",
+                    value: s.selectedProductName ?? "Not assigned",
                     tooltip:
-                      "The carrier and service selected for this shipment when it was booked.",
+                      "The service selected for this shipment when it was booked.",
                   },
                   {
                     label: "Declared value",
@@ -982,10 +981,8 @@ export default async function ShipmentDetailPage({
                 <div className="px-5 py-1">
                   <KVRow
                     label="Service"
-                    value={[s.selectedVendorName, s.selectedProductName]
-                      .filter(Boolean)
-                      .join(" · ")}
-                    tooltip="Carrier and product selected for this shipment."
+                    value={s.selectedProductName ?? "—"}
+                    tooltip="The service selected for this shipment."
                   />
                 </div>
 

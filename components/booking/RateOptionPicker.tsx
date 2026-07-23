@@ -43,6 +43,7 @@ import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import type { RateQuote } from "@/lib/types";
 import type { ServiceOption } from "@/types/booking.types";
+import { useIsArenaOrg } from "@/hooks/useIsArenaOrg";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -118,6 +119,7 @@ function RateOptionCard({
 }) {
   const tax = quote.totalWithTax - quote.totalWithoutTax;
   const hasCharges = quote.charges.length > 0;
+  const isArena = useIsArenaOrg();
 
   return (
     <div
@@ -155,12 +157,14 @@ function RateOptionCard({
             <h3 className="truncate text-sm font-semibold leading-tight text-foreground">
               {quote.productName}
             </h3>
-            <Badge
-              variant="outline"
-              className={cn("w-fit text-[10px] font-medium", vendorBadgeClass(quote.vendorId))}
-            >
-              {quote.vendorName}
-            </Badge>
+            {isArena && (
+              <Badge
+                variant="outline"
+                className={cn("w-fit text-[10px] font-medium", vendorBadgeClass(quote.vendorId))}
+              >
+                {quote.vendorName}
+              </Badge>
+            )}
           </div>
 
           {/* Radio-style select indicator */}
@@ -262,6 +266,10 @@ export function RateOptionPicker({ quotes, selectedKey, onSelect, tatSuffix }: P
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
 
+  // Carrier filter chips are labelled by the sourcing vendor, so they only
+  // render for Arena staff. Customers never see the vendor axis.
+  const isArena = useIsArenaOrg();
+
   // Unique carriers for the filter chips (stable across sort).
   const carriers = useMemo(
     () => [...new Map(quotes.map((q) => [q.vendorId, q.vendorName])).entries()],
@@ -311,7 +319,8 @@ export function RateOptionPicker({ quotes, selectedKey, onSelect, tatSuffix }: P
       {/* Toolbar */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
-          {carriers.length > 1 &&
+          {isArena &&
+            carriers.length > 1 &&
             carriers.map(([id, name]) => {
               const on = !hidden.has(id);
               return (

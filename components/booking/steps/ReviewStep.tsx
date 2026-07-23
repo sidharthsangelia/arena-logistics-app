@@ -14,6 +14,7 @@ import type {
   ShipmentTypeValue,
 } from "@/types/booking.types";
 import { WalletPaymentSummary } from "../WalletPaymentSummary";
+import { useIsArenaOrg } from "@/hooks/useIsArenaOrg";
 import { KYC_DOC_CONFIGS, requiredKycKeys } from "@/lib/booking/kyc";
 import {
   totalChargeableWeight,
@@ -241,6 +242,7 @@ function ShipmentItemsBlock({ data }: { data: BookingFormData }) {
 // ---------------------------------------------------------------------------
 
 function ServiceBlock({ service }: { service: BookingFormData["selectedService"] }) {
+  const isArena = useIsArenaOrg();
   if (!service) {
     return <p className="text-sm text-destructive">No service selected.</p>;
   }
@@ -250,7 +252,9 @@ function ServiceBlock({ service }: { service: BookingFormData["selectedService"]
       <div className="flex items-start justify-between gap-4">
         <div className="space-y-1.5">
           <p className="font-semibold text-foreground">{service.productName}</p>
-          <Badge variant="outline" className="text-xs">{service.vendorName}</Badge>
+          {isArena && (
+            <Badge variant="outline" className="text-xs">{service.vendorName}</Badge>
+          )}
           {service.transitDays > 0 && (
             <p className="pt-0.5 text-xs text-muted-foreground">
               Delivers in about {service.transitDays} day{service.transitDays !== 1 ? "s" : ""}
@@ -272,6 +276,7 @@ export function firstMileChargeOf(data: BookingFormData): number {
 }
 
 function FirstMileBlock({ data }: { data: BookingFormData }) {
+  const isArena = useIsArenaOrg();
   const { firstMile, firstMileHubLabel } = data;
   if (!firstMile) {
     return <p className="text-sm text-destructive">No pickup courier selected.</p>;
@@ -281,7 +286,9 @@ function FirstMileBlock({ data }: { data: BookingFormData }) {
       <div className="flex items-start justify-between gap-4">
         <div className="space-y-1.5">
           <p className="font-semibold text-foreground">{firstMile.productName}</p>
-          <Badge variant="outline" className="text-xs">{firstMile.vendorName}</Badge>
+          {isArena && (
+            <Badge variant="outline" className="text-xs">{firstMile.vendorName}</Badge>
+          )}
           <p className="pt-0.5 text-xs text-muted-foreground">
             Door pickup to {firstMileHubLabel || "carrier hub"}
             {firstMile.transitDays > 0 && `, about ${firstMile.transitDays} day${firstMile.transitDays !== 1 ? "s" : ""}`}

@@ -48,6 +48,7 @@ import QuoteActionsMenu from "./QuoteActionsMenu";
 import { toast } from "sonner";
 import { bulkDeleteQuotesAction } from "@/actions/quote/quotes.action";
 import { QuotesExportButton } from "./QuotesExportButton";
+import { useIsArenaOrg } from "@/hooks/useIsArenaOrg";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -188,6 +189,8 @@ export default function QuotesTable({
   const router       = useRouter();
   const searchParams = useSearchParams();
   const totalPages   = Math.max(1, Math.ceil(total / pageSize));
+  // Vendor column is Arena-internal; masked for tenants and BAs.
+  const isArena      = useIsArenaOrg();
 
   const [selected, setSelected]   = useState<Set<string>>(new Set());
   const [isPending, startTransition] = useTransition();
@@ -349,7 +352,9 @@ export default function QuotesTable({
               <TableHead className="text-xs uppercase tracking-wide">Status</TableHead>
               <TableHead className="text-xs uppercase tracking-wide">Email</TableHead>
               <TableHead className="text-xs uppercase tracking-wide">Client</TableHead>
-              <TableHead className="text-xs uppercase tracking-wide">Vendor</TableHead>
+              {isArena && (
+                <TableHead className="text-xs uppercase tracking-wide">Vendor</TableHead>
+              )}
               <TableHead className="text-xs uppercase tracking-wide">Product</TableHead>
               <TableHead className="text-right text-xs uppercase tracking-wide">Total</TableHead>
               <TableHead className="text-xs uppercase tracking-wide">Valid until</TableHead>
@@ -362,7 +367,7 @@ export default function QuotesTable({
             {quotes.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={11}
+                  colSpan={isArena ? 11 : 10}
                   className="h-32 text-center text-sm text-muted-foreground"
                 >
                   No quotes match your filters.
@@ -427,9 +432,11 @@ export default function QuotesTable({
                   </TableCell>
 
                   {/* Vendor */}
-                  <TableCell className="truncate text-sm text-muted-foreground">
-                    {quote.vendorName}
-                  </TableCell>
+                  {isArena && (
+                    <TableCell className="truncate text-sm text-muted-foreground">
+                      {quote.vendorName}
+                    </TableCell>
+                  )}
 
                   {/* Product */}
                   <TableCell className="max-w-[130px] truncate text-sm">

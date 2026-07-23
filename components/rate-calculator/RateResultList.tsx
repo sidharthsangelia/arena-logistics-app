@@ -47,6 +47,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { AlertTriangle } from "lucide-react";
 
 import { useAppStore } from "@/store";
+import { useIsArenaOrg } from "@/hooks/useIsArenaOrg";
 import type { RateQuote } from "@/lib/types";
 import RateResultCard from "./RateResultCard";
 import ComparePanel from "./ComparePanel";
@@ -65,6 +66,9 @@ export default function RateResultsList() {
   // -- Store reads -----------------------------------------------------------
   const quotes = useAppStore((s) => s.quotes);
   const vendorErrors = useAppStore((s) => s.vendorErrors);
+
+  // Vendor identity is masked from every customer-facing surface.
+  const isArena = useIsArenaOrg();
 
   const sortBy = useAppStore((s) => s.sortBy);
   const activeCarriers = useAppStore((s) => s.activeCarriers);
@@ -174,12 +178,19 @@ export default function RateResultsList() {
             Some carriers could not be reached
           </AlertTitle>
           <AlertDescription className="text-amber-700 space-y-1 mt-1">
-            {vendorErrors.map((err) => (
-              <p key={err.vendorId} className="text-sm">
-                <span className="font-medium">{err.vendorName}</span>:{" "}
-                {err.message}
+            {isArena ? (
+              vendorErrors.map((err) => (
+                <p key={err.vendorId} className="text-sm">
+                  <span className="font-medium">{err.vendorName}</span>:{" "}
+                  {err.message}
+                </p>
+              ))
+            ) : (
+              <p className="text-sm">
+                A few carriers didn&apos;t return a rate this time. The options
+                below are still complete and ready to book.
               </p>
-            ))}
+            )}
           </AlertDescription>
         </Alert>
       )}

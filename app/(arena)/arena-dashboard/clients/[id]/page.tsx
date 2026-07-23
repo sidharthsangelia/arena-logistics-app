@@ -250,6 +250,7 @@ async function ClientQuotes({
   return (
     <ClientQuoteHistory
       quotes={client.quotes}
+      showVendor
       client={{
         companyName: client.companyName,
         contactName: client.contactName,

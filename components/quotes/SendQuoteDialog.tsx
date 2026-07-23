@@ -32,6 +32,7 @@ import {
 import Link from "next/link";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
+import { useIsArenaOrg } from "@/hooks/useIsArenaOrg";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -80,7 +81,11 @@ function fmtDate(date: Date | null) {
   }).format(new Date(date));
 }
 
-function buildBody(quote: SendQuoteDialogProps["quote"], client: ClientInfo) {
+function buildBody(
+  quote: SendQuoteDialogProps["quote"],
+  client: ClientInfo,
+  showVendor: boolean,
+) {
   const contact = client.contactName ?? client.companyName;
   const total = fmt(quote.quotedTotal, quote.currency);
   const validUntil = fmtDate(quote.validUntil);
@@ -91,7 +96,8 @@ function buildBody(quote: SendQuoteDialogProps["quote"], client: ClientInfo) {
     `Thank you for the opportunity to submit our quotation. Please find the details of Quote #${quote.quoteNumber} below.`,
     "",
     `Product / Service: ${quote.productName}`,
-    `Vendor: ${quote.vendorName}`,
+    // Vendor identity is Arena-internal — it never goes into the customer email.
+    showVendor ? `Vendor: ${quote.vendorName}` : null,
     `Total Amount: ${total}`,
     validUntil ? `Valid Until: ${validUntil}` : null,
     "",
@@ -118,6 +124,7 @@ export default function SendQuoteDialog({
   quote,
   client: clientProp,
 }: SendQuoteDialogProps) {
+  const isArena = useIsArenaOrg();
   const [client, setClient] = useState<ClientInfo>(clientProp);
   const [fetchingEmail, setFetchingEmail] = useState(false);
 
@@ -125,7 +132,7 @@ export default function SendQuoteDialog({
   const [subject, setSubject] = useState(
     `Quotation #${quote.quoteNumber} – ${quote.productName} | Arena Logistics`,
   );
-  const [body, setBody] = useState(() => buildBody(quote, clientProp));
+  const [body, setBody] = useState(() => buildBody(quote, clientProp, isArena));
   const [markAsSent, setMarkAsSent] = useState(true);
 
   const [banner, setBanner] = useState<{
@@ -154,7 +161,7 @@ export default function SendQuoteDialog({
           };
           setClient(fresh);
           setTo(result.email ?? "");
-          setBody(buildBody(quote, fresh));
+          setBody(buildBody(quote, fresh, isArena));
         }
       })
       .finally(() => setFetchingEmail(false));
@@ -168,7 +175,7 @@ export default function SendQuoteDialog({
     setSubject(
       `Quotation #${quote.quoteNumber} – ${quote.productName} | Arena Logistics`,
     );
-    setBody(buildBody(quote, clientProp));
+    setBody(buildBody(quote, clientProp, isArena));
     setMarkAsSent(true);
   }
 

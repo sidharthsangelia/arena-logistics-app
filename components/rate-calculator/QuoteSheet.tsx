@@ -76,6 +76,7 @@ import { useAppStore } from "@/store";
 import { ClientSearchResult } from "@/actions/clientSrearch.action";
 import { saveQuoteAction } from "@/actions/quote/quotes.action";
 import { useUploadQuotePdf } from "@/hooks/useUploadPdfQuote";
+import { useIsArenaOrg } from "@/hooks/useIsArenaOrg";
 
 
 // ---------------------------------------------------------------------------
@@ -197,6 +198,9 @@ useEffect(() => {
 }, [pdfUrl]);
 
   // ── Derived values ────────────────────────────────────────────────────────
+  // Vendor identity stays out of the customer-facing badge and the PDF that
+  // lands in the client's inbox. Arena staff keep the full sourcing detail.
+  const isArena = useIsArenaOrg();
   const markupFactor = 1 + markup / 100;
   const finalTotal = quote.totalWithTax * markupFactor;
   const markupAmount = quote.totalWithTax * (markup / 100);
@@ -240,6 +244,7 @@ useEffect(() => {
           client={clientInfo}
           markupPercent={markup}
           quoteNumber={quoteNumber}
+          showVendor={isArena}
         />,
       ).toBlob();
 
@@ -363,9 +368,11 @@ const handleDownload = async () => {
                 <p className="truncate text-sm font-semibold">
                   {quote.productName}
                 </p>
-                <Badge variant="outline" className="mt-1.5 text-[10px]">
-                  {quote.vendorName}
-                </Badge>
+                {isArena && (
+                  <Badge variant="outline" className="mt-1.5 text-[10px]">
+                    {quote.vendorName}
+                  </Badge>
+                )}
               </div>
               <div className="shrink-0 text-right">
                 <p className="text-base font-bold">

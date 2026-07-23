@@ -73,9 +73,12 @@ function fmtDate(d: Date) {
 export default function ClientQuoteHistory({
   quotes,
   client,
+  showVendor = false,
 }: {
   quotes: QuoteRow[];
   client: ClientInfo;
+  /** Arena staff only. Tenants and BAs never see the sourcing vendor. */
+  showVendor?: boolean;
 }) {
   return (
     <div className="rounded-lg border p-4">
@@ -98,7 +101,9 @@ export default function ClientQuoteHistory({
             <TableRow className="bg-muted/30 hover:bg-muted/30">
               <TableHead className="text-xs uppercase tracking-wide">Quote</TableHead>
               <TableHead className="text-xs uppercase tracking-wide">Status</TableHead>
-              <TableHead className="text-xs uppercase tracking-wide">Vendor</TableHead>
+              {showVendor && (
+                <TableHead className="text-xs uppercase tracking-wide">Vendor</TableHead>
+              )}
               <TableHead className="text-xs uppercase tracking-wide">Product</TableHead>
               <TableHead className="text-right text-xs uppercase tracking-wide">Total</TableHead>
               <TableHead className="text-xs uppercase tracking-wide">Date</TableHead>
@@ -129,9 +134,11 @@ export default function ClientQuoteHistory({
     {STATUS_LABEL[q.status]}
   </span>
 </TableCell>
-                <TableCell className="text-sm text-muted-foreground">
-                  {q.vendorName}
-                </TableCell>
+                {showVendor && (
+                  <TableCell className="text-sm text-muted-foreground">
+                    {q.vendorName}
+                  </TableCell>
+                )}
                 <TableCell className="max-w-[120px] truncate text-sm">
                   {q.productName}
                 </TableCell>

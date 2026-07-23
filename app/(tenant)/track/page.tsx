@@ -219,7 +219,7 @@ function StatusBadge({ eventType }: { eventType: TrackingEventType }) {
 // ─── ShipmentHeroCard ────────────────────────────────────────────────────────
 
 function ShipmentHeroCard({ result }: { result: CanonicalTrackResult }) {
-  const { shipmentInfo, latestEvent, vendorName } = result;
+  const { shipmentInfo, latestEvent } = result;
 
   const metaItems = [
     shipmentInfo.weight !== undefined && {
@@ -253,7 +253,7 @@ function ShipmentHeroCard({ result }: { result: CanonicalTrackResult }) {
               {shipmentInfo.awb}
             </p>
             <p className="text-sm text-muted-foreground">
-              {shipmentInfo.service ?? vendorName}
+              {shipmentInfo.service ?? "—"}
             </p>
           </div>
           {latestEvent && (
@@ -407,10 +407,8 @@ interface EventGroup {
 
 function TrackingTimeline({
   events,
-  vendorName,
 }: {
   events:     CanonicalTrackResult["events"];
-  vendorName: string;
 }) {
   if (events.length === 0) {
     return (
@@ -466,7 +464,7 @@ function TrackingTimeline({
 
       {/* Footer attribution */}
       <p className="text-xs text-muted-foreground text-center pt-1">
-        Data via {vendorName}
+        Data via Arena Logistics
       </p>
     </div>
   );
@@ -690,7 +688,6 @@ export default function TrackPage() {
             <CardContent className="pt-5 px-6 pb-6">
               <TrackingTimeline
                 events={result.events}
-                vendorName={result.vendorName}
               />
             </CardContent>
           </Card>

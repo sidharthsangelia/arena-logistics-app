@@ -16,6 +16,8 @@ interface Props {
   client: ClientInfo;
   markupPercent: number;
   quoteNumber: string;
+  /** Arena staff only. Never true for a customer-facing quote. */
+  showVendor?: boolean;
 }
 
 const C = {
@@ -446,6 +448,7 @@ export default function QuoteDocument({
   client,
   markupPercent,
   quoteNumber,
+  showVendor = false,
 }: Props) {
   if (!request) {
     throw new Error("QuoteDocument: request prop is missing");
@@ -569,8 +572,12 @@ export default function QuoteDocument({
 
             <Text style={s.infoValue}>{quote.productName}</Text>
 
-            <Text style={s.infoLabel}>Carrier</Text>
-            <Text style={s.infoValue}>{quote.vendorName}</Text>
+            {showVendor && (
+              <>
+                <Text style={s.infoLabel}>Carrier</Text>
+                <Text style={s.infoValue}>{quote.vendorName}</Text>
+              </>
+            )}
           </View>
 
           <View style={s.infoRow}>

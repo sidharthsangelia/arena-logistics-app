@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button";
 
 import type { RateQuote } from "@/lib/types";
 import { useAppStore } from "@/store";
+import { useIsArenaOrg } from "@/hooks/useIsArenaOrg";
 import { fmt } from "@/utils/helpers";
 
 // ---------------------------------------------------------------------------
@@ -41,6 +42,7 @@ export default function ComparePanel() {
   const allQuotes = useAppStore((s) => s.quotes);
   const toggleCompareId = useAppStore((s) => s.toggleCompareId);
   const disableCompareMode = useAppStore((s) => s.disableCompareMode);
+  const isArena = useIsArenaOrg();
 
   const selected = compareIds
     .map((id) => allQuotes.find((q) => quoteKey(q) === id))
@@ -86,9 +88,11 @@ export default function ComparePanel() {
                   <X className="h-3.5 w-3.5" />
                 </button>
 
-                <p className="text-[10px] font-medium uppercase tracking-wide text-slate-400 mb-1">
-                  {q.vendorName}
-                </p>
+                {isArena && (
+                  <p className="text-[10px] font-medium uppercase tracking-wide text-slate-400 mb-1">
+                    {q.vendorName}
+                  </p>
+                )}
                 <p className="text-sm font-semibold text-slate-800 pr-5 leading-snug mb-2">
                   {q.productName}
                 </p>

@@ -27,6 +27,7 @@ import {
   totalDeclaredValue,
 } from "@/lib/booking/cargo";
 import { RateOptionPicker, quoteToServiceOption } from "../RateOptionPicker";
+import { useIsArenaOrg } from "@/hooks/useIsArenaOrg";
 
 function toISO(country: string): string {
   if (!country) return "";
@@ -164,6 +165,7 @@ export default function ServiceSelectionStep({
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const [hasFetched, setHasFetched] = useState(false);
+  const isArena = useIsArenaOrg();
 
   const selectedService = watch("selectedService");
   const serviceError = errors.selectedService?.message as string | undefined;
@@ -244,13 +246,20 @@ export default function ServiceSelectionStep({
       {!isPending && vendorErrors.length > 0 && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
           <p className="mb-1 font-medium">Some carriers didn&apos;t respond:</p>
-          <ul className="space-y-0.5 text-amber-700">
-            {vendorErrors.map((e) => (
-              <li key={e.vendorId}>
-                <span className="font-medium">{e.vendorId}</span>: {e.message}
-              </li>
-            ))}
-          </ul>
+          {isArena ? (
+            <ul className="space-y-0.5 text-amber-700">
+              {vendorErrors.map((e) => (
+                <li key={e.vendorId}>
+                  <span className="font-medium">{e.vendorId}</span>: {e.message}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-amber-700">
+              A few carriers didn&apos;t return a rate this time. The options
+              below are still complete and ready to book.
+            </p>
+          )}
         </div>
       )}
 

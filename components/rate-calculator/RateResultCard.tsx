@@ -19,6 +19,7 @@ import {
   Zap,
 } from "lucide-react";
 import { RateQuote } from "@/lib/types";
+import { useIsArenaOrg } from "@/hooks/useIsArenaOrg";
 
 interface Props {
   quote: RateQuote;
@@ -84,6 +85,8 @@ export default function RateResultCard({
     ? "opacity-50 cursor-not-allowed"
     : "cursor-pointer";
 
+  const isArena = useIsArenaOrg();
+
   return (
     <Card
       className={cn(
@@ -135,15 +138,17 @@ export default function RateResultCard({
                 {quote.productName}
               </h3>
 
-              <Badge
-                variant="outline"
-                className={cn(
-                  "w-fit text-[10px] font-medium",
-                  vendorBadgeClass(quote.vendorId),
-                )}
-              >
-                {quote.vendorName}
-              </Badge>
+              {isArena ? (
+                <Badge
+                  variant="outline"
+                  className={cn(
+                    "w-fit text-[10px] font-medium",
+                    vendorBadgeClass(quote.vendorId),
+                  )}
+                >
+                  {quote.vendorName}
+                </Badge>
+              ) : null}
             </div>
 
             {/* ── right: price OR compare checkbox ── */}
