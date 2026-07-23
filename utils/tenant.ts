@@ -94,6 +94,27 @@ export const getCurrentOrg = cache(async () => {
 });
 
 // ---------------------------------------------------------------------------
+// requireBusinessAssociateOrg
+//
+// Route guard for Business-Associate-only areas (/clients, /quotes). Standard
+// orgs are redirected to the dashboard; unonboarded users to onboarding.
+//
+// Authoritative AND free: it reuses getCurrentOrg's per-request cache, which the
+// tenant layout has already populated in the same render pass, so gating adds
+// no extra DB query. The DB is the source of truth here (not the Clerk metadata
+// mirror) so a stale mirror can never wrongly allow or block access.
+//
+// Returns the org so callers can use it without a second lookup.
+// ---------------------------------------------------------------------------
+
+export async function requireBusinessAssociateOrg() {
+  const org = await getCurrentOrg();
+  if (!org) redirect("/onboarding");
+  if (!org.isBusinessAssociate) redirect("/");
+  return org;
+}
+
+// ---------------------------------------------------------------------------
 // invalidateOrgCache
 //
 // Call this if an org's clerkOrgId ever changes (extremely rare),
