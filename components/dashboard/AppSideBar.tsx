@@ -132,6 +132,16 @@ const NAV_CONFIGS: Record<string, NavConfig> = {
           { title: "Document Vault", href: "/document-vault", icon: Shield },
         ],
       },
+
+          {
+        label: "Shipping",
+        items: [
+          { title: "International Rates", href: "/rates",          icon: Calculator },
+          { title: "Domestic Rates",      href: "/domestic-rates", icon: SquareSigma },
+          { title: "Track Shipment",      href: "/track",          icon: MapPin },
+          
+        ],
+      },
       {
         label: "Rate Management",
         items: [
