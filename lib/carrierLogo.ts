@@ -30,7 +30,7 @@ const CARRIER_RULES: { pattern: RegExp; logo: CarrierLogo }[] = [
   { pattern: /\bUPS\b/, logo: { src: "/ups.png", alt: "UPS", width: 300, height: 355 } },
 ];
 
-const ARENA_LOGO: CarrierLogo = {
+export const ARENA_LOGO: CarrierLogo = {
   src: "/arena_logo.png",
   alt: "Arena",
   width: 1600,
@@ -51,4 +51,32 @@ export function carrierLogo(productName: string | null | undefined): CarrierLogo
 export function isBigFourCarrier(productName: string | null | undefined): boolean {
   const name = productName ?? "";
   return CARRIER_RULES.some((r) => r.pattern.test(name));
+}
+
+// ---------------------------------------------------------------------------
+// Brand grouping — used by the international results brand filter so customers
+// can narrow to "all DHL services", "all Aramex services", etc. Shares the
+// exact same detection rules as the logo above, so the filter and the logo can
+// never disagree about what a service is.
+// ---------------------------------------------------------------------------
+
+export type CarrierBrand = "Aramex" | "DHL" | "FedEx" | "UPS";
+
+/** Sentinel brand key for everything that is not a big-4 carrier. */
+export const OTHER_BRAND = "OTHER" as const;
+
+/** Big-4 brand names in detection order, each with its logo for chips. */
+export const CARRIER_BRANDS: { brand: CarrierBrand; logo: CarrierLogo }[] =
+  CARRIER_RULES.map((r) => ({ brand: r.logo.alt as CarrierBrand, logo: r.logo }));
+
+/**
+ * Resolve a product name to its big-4 brand, or `OTHER_BRAND` when it is one of
+ * Arena's own-brand / third-party services.
+ */
+export function carrierBrand(
+  productName: string | null | undefined,
+): CarrierBrand | typeof OTHER_BRAND {
+  const name = productName ?? "";
+  const rule = CARRIER_RULES.find((r) => r.pattern.test(name));
+  return rule ? (rule.logo.alt as CarrierBrand) : OTHER_BRAND;
 }

@@ -57,6 +57,8 @@ import { quoteKey } from "./ComparePanel";
 import { fmt } from "@/utils/helpers";
 import Toolbar from "./rateResultList/Toolbar";
 import Stats from "./rateResultList/Stats";
+import BrandFilter from "./rateResultList/BrandFilter";
+import { carrierBrand } from "@/lib/carrierLogo";
 import type { RateVariant } from "./rateVariants";
 
 // ---------------------------------------------------------------------------
@@ -81,6 +83,7 @@ export default function RateResultsList({
 
   const sortBy = useAppStore((s) => s.sortBy);
   const activeCarriers = useAppStore((s) => s.activeCarriers);
+  const activeBrands = useAppStore((s) => s.activeBrands);
   const viewMode = useAppStore((s) => s.viewMode);
 
   const compareMode = useAppStore((s) => s.compareMode);
@@ -117,6 +120,14 @@ export default function RateResultsList({
       result = result.filter((q) => activeCarriers.includes(q.vendorId));
     }
 
+    // Big-4 brand filter (international, customer-facing). Independent of the
+    // vendor filter above; both narrow the set when active.
+    if (activeBrands.length > 0) {
+      result = result.filter((q) =>
+        activeBrands.includes(carrierBrand(q.productName)),
+      );
+    }
+
     result.sort((a, b) => {
       switch (sortBy) {
         case "price-asc":
@@ -133,7 +144,7 @@ export default function RateResultsList({
     });
 
     return result;
-  }, [quotes, activeCarriers, sortBy]);
+  }, [quotes, activeCarriers, activeBrands, sortBy]);
 
   // Badge IDs are derived from the FULL quotes array — not the processed slice.
   // This ensures "Best price" and "Fastest" badges are stable even when the
@@ -204,12 +215,17 @@ export default function RateResultsList({
         </Alert>
       )}
 
-      {processed.length > 0 || activeCarriers.length > 0 ? (
+      {processed.length > 0 ||
+      activeCarriers.length > 0 ||
+      activeBrands.length > 0 ? (
         <>
           {/* ── Stats bar -─-*/}
           {stats && (
            <Stats stats={stats} />
           )}
+
+          {/* ── Carrier-brand filter (international only, shown to everyone) -─-*/}
+          {variant === "international" && <BrandFilter />}
 
           {/* ── Toolbar -───-*/}
           <Toolbar carriers={carriers} />

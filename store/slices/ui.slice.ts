@@ -22,6 +22,7 @@ export const createUiSlice: StateCreator<
   // -- State -----------------------------------------------------------------
   sortBy: "price-asc",
   activeCarriers: [],
+  activeBrands: [],
   viewMode: "grid",
 
   // -- Actions ---------------------------------------------------------------
@@ -46,6 +47,23 @@ export const createUiSlice: StateCreator<
   clearCarrierFilters: () =>
     set((state) => { state.activeCarriers = []; }, false, "ui/clearCarrierFilters"),
 
+  toggleBrandFilter: (brand) =>
+    set(
+      (state) => {
+        const idx = state.activeBrands.indexOf(brand);
+        if (idx === -1) {
+          state.activeBrands.push(brand);
+        } else {
+          state.activeBrands.splice(idx, 1);
+        }
+      },
+      false,
+      "ui/toggleBrandFilter"
+    ),
+
+  clearBrandFilters: () =>
+    set((state) => { state.activeBrands = []; }, false, "ui/clearBrandFilters"),
+
   setViewMode: (mode) =>
     set((state) => { state.viewMode = mode; }, false, "ui/setViewMode"),
 
@@ -54,6 +72,7 @@ export const createUiSlice: StateCreator<
       (state) => {
         state.sortBy = "price-asc";
         state.activeCarriers = [];
+        state.activeBrands = [];
         // Intentionally do NOT reset viewMode — users usually want to keep
         // their display preference across searches.
       },

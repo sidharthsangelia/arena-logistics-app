@@ -89,11 +89,20 @@ export type ViewMode = "grid" | "list";
 export interface UiSlice {
   sortBy: SortOption;
   activeCarriers: string[];
+  /**
+   * Active big-4 brand filters (DHL/FedEx/UPS/Aramex/OTHER) for the
+   * international results. Customer-facing and derived from the product name,
+   * distinct from `activeCarriers` which is the Arena-only sourcing-vendor axis.
+   * Empty = show all brands.
+   */
+  activeBrands: string[];
   viewMode: ViewMode;
 
   setSortBy: (sort: SortOption) => void;
   toggleCarrierFilter: (vendorId: string) => void;
   clearCarrierFilters: () => void;
+  toggleBrandFilter: (brand: string) => void;
+  clearBrandFilters: () => void;
   setViewMode: (mode: ViewMode) => void;
 
   /** Resets all UI state to defaults (call after a new search) */

@@ -46,6 +46,7 @@ export const createRatesSlice: StateCreator<
         // filters/sort from the previous query don't confuse the user.
         state.sortBy = "price-asc";
         state.activeCarriers = [];
+        state.activeBrands = [];
         // Exit compare mode on a new search
         state.compareMode = false;
         state.compareIds = [];
@@ -118,9 +119,10 @@ export const createRatesSlice: StateCreator<
         state.loading = false;
         state.error = null;
         state.activeScope = null;
-        // ui (sort + carrier filters)
+        // ui (sort + carrier/brand filters)
         state.sortBy = "price-asc";
         state.activeCarriers = [];
+        state.activeBrands = [];
         // compare
         state.compareMode = false;
         state.compareIds = [];

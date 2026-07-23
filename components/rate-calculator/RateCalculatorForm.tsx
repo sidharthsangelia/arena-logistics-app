@@ -87,6 +87,7 @@ import {
 import { COUNTRY_TO_ISO } from "@/utils/data";
 import { computeShipmentWeights } from "@/lib/pricing/chargeableWeight";
 import { useAppStore } from "@/store";
+import { useIsArenaOrg } from "@/hooks/useIsArenaOrg";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -723,19 +724,29 @@ function BottomBar({
   loading: boolean;
   vendors: readonly VendorOption[];
 }) {
+  // Carrier selection is an internal-ops control: only Arena staff pick which
+  // vendors to query. Customers always query every carrier (the form defaults
+  // to all vendors), so the picker is hidden for them and the rail collapses to
+  // charged weight plus the action.
+  const isArena = useIsArenaOrg();
+
   return (
     <Card>
       <CardContent className="flex flex-col gap-4 p-4 lg:flex-row lg:items-center lg:gap-6">
-        <div className="lg:w-60 lg:shrink-0">
-          <CarrierPicker
-            control={control}
-            setValue={setValue}
-            error={errors.vendors?.message}
-            vendors={vendors}
-          />
-        </div>
+        {isArena && (
+          <>
+            <div className="lg:w-60 lg:shrink-0">
+              <CarrierPicker
+                control={control}
+                setValue={setValue}
+                error={errors.vendors?.message}
+                vendors={vendors}
+              />
+            </div>
 
-        <div className="hidden h-11 w-px shrink-0 bg-border lg:block" />
+            <div className="hidden h-11 w-px shrink-0 bg-border lg:block" />
+          </>
+        )}
 
         <div className="flex-1">
           <ChargedWeightInline control={control} />
