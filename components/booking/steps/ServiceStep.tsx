@@ -268,6 +268,7 @@ export default function ServiceSelectionStep({
           quotes={quotes}
           selectedKey={selectedService?.productCode ?? null}
           onSelect={(q) => setValue("selectedService", quoteToServiceOption(q), { shouldValidate: true })}
+          showCarrierLogo
         />
       )}
 

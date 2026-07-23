@@ -44,6 +44,7 @@ import { cn } from "@/lib/utils";
 import type { RateQuote } from "@/lib/types";
 import type { ServiceOption } from "@/types/booking.types";
 import { useIsArenaOrg } from "@/hooks/useIsArenaOrg";
+import { carrierLogo } from "@/lib/carrierLogo";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -108,6 +109,7 @@ function RateOptionCard({
   isCheapest,
   isFastest,
   tatSuffix,
+  showCarrierLogo,
   onSelect,
 }: {
   quote: RateQuote;
@@ -115,11 +117,13 @@ function RateOptionCard({
   isCheapest: boolean;
   isFastest: boolean;
   tatSuffix?: string;
+  showCarrierLogo?: boolean;
   onSelect: () => void;
 }) {
   const tax = quote.totalWithTax - quote.totalWithoutTax;
   const hasCharges = quote.charges.length > 0;
   const isArena = useIsArenaOrg();
+  const logo = carrierLogo(quote.productName);
 
   return (
     <div
@@ -154,9 +158,19 @@ function RateOptionCard({
                 )}
               </div>
             )}
-            <h3 className="truncate text-sm font-semibold leading-tight text-foreground">
-              {quote.productName}
-            </h3>
+            <div className="flex items-center gap-1.5">
+              {showCarrierLogo && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={logo.src}
+                  alt={logo.alt}
+                  className="h-4 w-auto max-w-10 shrink-0 object-contain"
+                />
+              )}
+              <h3 className="truncate text-sm font-semibold leading-tight text-foreground">
+                {quote.productName}
+              </h3>
+            </div>
             {isArena && (
               <Badge
                 variant="outline"
@@ -259,9 +273,17 @@ interface Props {
   onSelect: (quote: RateQuote) => void;
   /** Words appended after the transit-day count, e.g. "to hub". */
   tatSuffix?: string;
+  /** International only. The domestic first-mile step shows no carrier logo. */
+  showCarrierLogo?: boolean;
 }
 
-export function RateOptionPicker({ quotes, selectedKey, onSelect, tatSuffix }: Props) {
+export function RateOptionPicker({
+  quotes,
+  selectedKey,
+  onSelect,
+  tatSuffix,
+  showCarrierLogo,
+}: Props) {
   const [sortBy, setSortBy] = useState<SortKey>("price-asc");
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
@@ -401,6 +423,7 @@ export function RateOptionPicker({ quotes, selectedKey, onSelect, tatSuffix }: P
                 isCheapest={key === cheapestKey}
                 isFastest={key === fastestKey}
                 tatSuffix={tatSuffix}
+                showCarrierLogo={showCarrierLogo}
                 onSelect={() => onSelect(quote)}
               />
             );

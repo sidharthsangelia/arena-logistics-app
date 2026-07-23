@@ -254,6 +254,7 @@ export default function RateResultsList() {
                     }
                     viewMode={viewMode}
                     onClick={() => handleCardClick(quote)}
+                    showCarrierLogo
                   />
                 );
               })}

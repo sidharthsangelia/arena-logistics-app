@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { RateQuote } from "@/lib/types";
 import { useIsArenaOrg } from "@/hooks/useIsArenaOrg";
+import { carrierLogo } from "@/lib/carrierLogo";
 
 interface Props {
   quote: RateQuote;
@@ -31,6 +32,8 @@ interface Props {
   isCompareDisabled: boolean;
   viewMode: "grid" | "list";
   onClick: () => void;
+  /** International only. Domestic cards pass nothing and show no carrier logo. */
+  showCarrierLogo?: boolean;
 }
 
 // ─── vendor badge colours (visual cue per carrier) ──────────────────────────
@@ -70,7 +73,9 @@ export default function RateResultCard({
   isCompareDisabled,
   viewMode,
   onClick,
+  showCarrierLogo = false,
 }: Props) {
+  const logo = carrierLogo(quote.productName);
   const tax = quote.totalWithTax - quote.totalWithoutTax;
 
   // Ring / border highlight logic. Emerald cue = best price (savings);
@@ -134,9 +139,19 @@ export default function RateResultCard({
                 </div>
               )}
 
-              <h3 className="truncate text-sm font-semibold leading-tight text-foreground">
-                {quote.productName}
-              </h3>
+              <div className="flex items-center gap-1.5">
+                {showCarrierLogo && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={logo.src}
+                    alt={logo.alt}
+                    className="h-4 w-auto max-w-10 shrink-0 object-contain"
+                  />
+                )}
+                <h3 className="truncate text-sm font-semibold leading-tight text-foreground">
+                  {quote.productName}
+                </h3>
+              </div>
 
               {isArena ? (
                 <Badge
