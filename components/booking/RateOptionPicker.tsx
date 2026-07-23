@@ -14,6 +14,7 @@
  */
 
 import { useMemo, useState } from "react";
+import Image from "next/image";
 import {
   Clock,
   TrendingDown,
@@ -160,10 +161,11 @@ function RateOptionCard({
             )}
             <div className="flex items-center gap-1.5">
               {showCarrierLogo && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
+                <Image
                   src={logo.src}
                   alt={logo.alt}
+                  width={logo.width}
+                  height={logo.height}
                   className="h-4 w-auto max-w-10 shrink-0 object-contain"
                 />
               )}

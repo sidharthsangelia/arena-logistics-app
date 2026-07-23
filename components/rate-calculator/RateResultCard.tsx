@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -76,7 +77,6 @@ export default function RateResultCard({
   showCarrierLogo = false,
 }: Props) {
   const logo = carrierLogo(quote.productName);
-  const tax = quote.totalWithTax - quote.totalWithoutTax;
 
   // Ring / border highlight logic. Emerald cue = best price (savings);
   // primary ring = selected for compare.
@@ -141,10 +141,11 @@ export default function RateResultCard({
 
               <div className="flex items-center gap-1.5">
                 {showCarrierLogo && (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
+                  <Image
                     src={logo.src}
                     alt={logo.alt}
+                    width={logo.width}
+                    height={logo.height}
                     className="h-4 w-auto max-w-10 shrink-0 object-contain"
                   />
                 )}

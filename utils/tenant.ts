@@ -1,8 +1,9 @@
 import * as Sentry from "@sentry/nextjs";
+import { cache } from "react";
 import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 import { prisma } from "@/utils/db";
-import { unstable_cache } from "next/cache";
+import { unstable_cache, revalidateTag } from "next/cache";
 
 // ---------------------------------------------------------------------------
 // resolveOrgByClerkId
@@ -66,6 +67,33 @@ export async function getDbOrgId(): Promise<string> {
 }
 
 // ---------------------------------------------------------------------------
+// getCurrentOrg
+//
+// Returns the FULL org row (plus wallet) for the signed-in user, or null.
+//
+// Deliberately uses React's `cache` (per-request memoisation) and NOT
+// `unstable_cache` (cross-request store): this row carries MUTABLE, sensitive
+// fields — `wallet.balance`, `markupPercent`, `skipPayment` — that must never
+// be served stale. React `cache` only dedups within a single render pass, so
+// when the layout and the page both need the org they share ONE query at a
+// single point in time, with zero staleness. (Contrast getDbOrgId above, which
+// safely cross-request caches only the immutable `org.id`.)
+//
+// Callers handle a null return themselves (redirect to onboarding, etc.) so
+// this stays a pure, side-effect-free data accessor.
+// ---------------------------------------------------------------------------
+
+export const getCurrentOrg = cache(async () => {
+  const { orgId: clerkOrgId } = await auth();
+  if (!clerkOrgId) return null;
+
+  return prisma.org.findUnique({
+    where: { clerkOrgId },
+    include: { wallet: true },
+  });
+});
+
+// ---------------------------------------------------------------------------
 // invalidateOrgCache
 //
 // Call this if an org's clerkOrgId ever changes (extremely rare),
@@ -73,6 +101,6 @@ export async function getDbOrgId(): Promise<string> {
 // ---------------------------------------------------------------------------
 
 export function invalidateOrgCache(clerkOrgId: string) {
-  const { revalidateTag } = require("next/cache");
-  revalidateTag(`org:${clerkOrgId}`);
+  // Next 16 requires the two-arg form; "max" gives stale-while-revalidate.
+  revalidateTag(`org:${clerkOrgId}`, "max");
 }

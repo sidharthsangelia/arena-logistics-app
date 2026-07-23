@@ -1,6 +1,7 @@
 "use server";
 
 import { activateRateVersion, submitRateJob, getActiveRateVersionId } from "@/lib/services/domesticRate.service";
+import { getAirportByCode } from "@/lib/data/airports";
 import { auth } from "@clerk/nextjs/server";
 
 
@@ -77,7 +78,6 @@ import {
   type DomesticRateQuote,
   type DomesticRateResult,
   type DomesticVendorError,
-  type DomesticCargoType,
 } from "@/lib/domestic/domestic.types";
 import { CargoType, Prisma, RateVendor } from "@/generated/prisma";
 import { prisma } from "@/utils/db";
@@ -241,7 +241,7 @@ async function buildQuoteForVendor(
       });
     } else {
       const perKgTotal = (ratePerKg ?? 0) * chargeableWeight;
-      let candidates = [perKgTotal];
+      const candidates = [perKgTotal];
       let label = `Freight @ ₹${ratePerKg ?? 0}/kg`;
 
       if (rate100kg !== null && rate100kg > 0) {
@@ -401,10 +401,12 @@ export async function getDomesticRates(
 
   const input = parsed.data;
 
-  // Validate origin/destination airports exist & are active
+  // Validate origin/destination airports exist & are active. Airports are
+  // immutable reference data, so these lookups are served from a cross-request
+  // cache (see lib/data/airports) instead of hitting the DB every calc.
   const [originAirport, destAirport] = await Promise.all([
-    prisma.airport.findUnique({ where: { iataCode: input.origin } }),
-    prisma.airport.findUnique({ where: { iataCode: input.destination } }),
+    getAirportByCode(input.origin),
+    getAirportByCode(input.destination),
   ]);
 
   const fieldErrors: Partial<Record<"origin" | "destination" | "form", string>> = {};

@@ -6,22 +6,9 @@ import {
   SidebarProvider,
   SidebarTrigger,
 } from "@/components/ui/sidebar";
-import { prisma } from "@/utils/db";
+import { getCurrentOrg } from "@/utils/tenant";
 import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
-import {
-  LayoutDashboard,
-  Building2,
-  FileUser,
-  Shield,
-  Calculator,
-  PackagePlus,
-  MapPin,
-  Package,
-  FileText,
-  Settings,
-  SquareSigma,
-} from "lucide-react";
 import { ProfileCompletionBanner } from "@/components/profile/ProfileComplettionBanner";
 
 const ARENA_ORG_ID = process.env.ARENA_ORG_ID!;
@@ -39,8 +26,9 @@ export default async function DashboardLayout({
   // Arena staff should never be here
   if (orgId === ARENA_ORG_ID) redirect("/arena-dashboard");
 
-  // Verify their org exists in your DB
-  const org = await prisma.org.findUnique({ where: { clerkOrgId: orgId } });
+  // Verify their org exists in your DB. Shared (per-request memoised) with the
+  // page below, so the layout + page don't each fire their own org query.
+  const org = await getCurrentOrg();
   if (!org) redirect("/onboarding");
 
   return (
