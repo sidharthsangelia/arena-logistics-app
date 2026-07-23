@@ -55,15 +55,18 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   ArrowLeft,
+  Check,
   Clock,
   Download,
   FileText,
   Loader2,
+  Pencil,
   Percent,
   Building2,
   Mail,
   Phone,
   MapPin,
+  Save,
 } from "lucide-react";
 import { pdf } from "@react-pdf/renderer";
 import { toast } from "sonner";
@@ -74,10 +77,11 @@ import ClientSelector from "./ClientSelector";
 import AddClientForm from "./AddClientForm";
 import { useAppStore } from "@/store";
 import { ClientSearchResult } from "@/actions/clientSrearch.action";
-import { saveQuoteAction } from "@/actions/quote/quotes.action";
+import { saveQuoteAction, updateQuoteAction } from "@/actions/quote/quotes.action";
 import { useUploadQuotePdf } from "@/hooks/useUploadPdfQuote";
 import { useIsArenaOrg } from "@/hooks/useIsArenaOrg";
 import { displayServiceName } from "@/lib/branding/serviceName";
+import { cn } from "@/lib/utils";
 
 
 // ---------------------------------------------------------------------------
@@ -149,6 +153,8 @@ export default function QuoteSheet({ open, onOpenChange, quote }: Props) {
   const [selectedClient, setSelectedClient] =
     useState<ClientSearchResult | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
+  // Prefilled company name for the inline add-client form (from the search box)
+  const [addFormInitialName, setAddFormInitialName] = useState("");
 
   // Markup
   const [markup, setMarkup] = useState<number>(0);
@@ -159,10 +165,14 @@ export default function QuoteSheet({ open, onOpenChange, quote }: Props) {
 
   const [generating, setGenerating] = useState(false);
   const [genError, setGenError] = useState<string | null>(null);
-  const [uploadedPdf, setUploadedPdf] = useState(false);
 
-  // Saved quote DB id (used later by UploadThing integration)
+  // Persistence state. `savedQuoteId` is the DB row id once the quote has been
+  // saved; re-saving after an edit updates that same row. `isSaved` reflects
+  // whether the CURRENT preview is persisted — regenerating clears it so the
+  // Save button re-arms for the new content.
   const [savedQuoteId, setSavedQuoteId] = useState<string | null>(null);
+  const [isSaved, setIsSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   // Stable quote number for the lifetime of this sheet instance
   const [quoteNumber] = useState(
@@ -180,10 +190,13 @@ export default function QuoteSheet({ open, onOpenChange, quote }: Props) {
         setPdfBlob(null);
         setSelectedClient(null);
         setShowAddForm(false);
+        setAddFormInitialName("");
         setMarkup(0);
         setPdfUrl(null);
         setGenError(null);
         setSavedQuoteId(null);
+        setIsSaved(false);
+        setSaving(false);
       }, 300);
       return () => clearTimeout(t);
     }
@@ -216,7 +229,7 @@ useEffect(() => {
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
-  const { uploadPdf, isUploading, uploadError } = useUploadQuotePdf();
+  const { uploadPdf, uploadError } = useUploadQuotePdf();
 
   const handleClientSelect = (client: ClientSearchResult) => {
     setSelectedClient(client);
@@ -226,6 +239,12 @@ useEffect(() => {
   const handleClientAdded = (client: ClientSearchResult) => {
     setSelectedClient(client);
     setShowAddForm(false);
+    setAddFormInitialName("");
+  };
+
+  const handleAddNew = (query?: string) => {
+    setAddFormInitialName(query ?? "");
+    setShowAddForm(true);
   };
 
   const handleGenerate = async () => {
@@ -236,6 +255,8 @@ useEffect(() => {
 
     setGenerating(true);
     setGenError(null);
+    // A freshly generated preview is not yet persisted — re-arm Save.
+    setIsSaved(false);
 
     try {
       const blob = await pdf(
@@ -263,26 +284,34 @@ useEffect(() => {
     }
   };
 
-// In QuoteSheet.tsx — handleDownload
-const handleDownload = async () => {
-  if (!pdfUrl || !pdfBlob || !request || !clientInfo) return;
+  // Stable file name for both the local download and the cloud upload.
+  const buildFileName = () => {
+    const safeName = (clientInfo?.company || "quote")
+      .replace(/[^a-z0-9]/gi, "_")
+      .toLowerCase();
+    return `${quoteNumber}_${safeName}.pdf`;
+  };
 
-  const safeName = (clientInfo.company || "quote")
-    .replace(/[^a-z0-9]/gi, "_")
-    .toLowerCase();
-  const fileName = `${quoteNumber}_${safeName}.pdf`;
+  // ── Download: purely a local file download. No DB write, no upload. ─────────
+  const handleDownload = () => {
+    if (!pdfUrl) return;
+    const a = document.createElement("a");
+    a.href = pdfUrl;
+    a.download = buildFileName();
+    a.click();
+  };
 
-  // 1. Trigger local download immediately — don't wait for upload
-  const a = document.createElement("a");
-  a.href = pdfUrl;
-  a.download = fileName;
-  a.click();
+  // ── Save: persist the quote to the DB and upload the PDF to the cloud. ──────
+  // Creating on first save, updating the same row thereafter. Independent of
+  // the local download entirely.
+  const handleSave = async () => {
+    if (!pdfBlob || !request || !clientInfo) return;
 
-  try {
-    // 2. Save DB record
-    let quoteId = savedQuoteId;
-    if (!quoteId) {
-      const result = await saveQuoteAction({
+    const isUpdate = Boolean(savedQuoteId);
+    setSaving(true);
+
+    try {
+      const payload = {
         quoteNumber,
         quote,
         request,
@@ -290,42 +319,56 @@ const handleDownload = async () => {
         markupPercent: markup,
         pdfUrl: null,
         pdfKey: null,
-      });
+      };
+
+      // 1. DB record — create on first save, update the same row after edits.
+      let quoteId = savedQuoteId;
+      const result = isUpdate
+        ? await updateQuoteAction(quoteId as string, payload)
+        : await saveQuoteAction(payload);
 
       if (!result.success) {
-        toast.error("Quote downloaded but could not be saved to database.");
+        toast.error(result.message || "Could not save the quote.");
         return;
       }
 
       quoteId = result.quoteId;
       setSavedQuoteId(quoteId);
-    }
 
-    // 3. Upload with retry
-    if (!uploadedPdf) {
-      const uploadResult = await uploadPdf({ blob: pdfBlob, quoteId, fileName });
+      // 2. Upload the PDF. The quotePdf uploader attaches the CDN url to the
+      //    quote row (via updateQuotePdfAction) on completion, so the /quotes
+      //    page gets a working download link.
+      const uploadResult = await uploadPdf({
+        blob: pdfBlob,
+        quoteId,
+        fileName: buildFileName(),
+      });
 
       if (uploadResult.success) {
-        setUploadedPdf(true);
-        toast.success("Quote saved and PDF uploaded.");
-      } else {
-        // Upload failed after all retries
-        toast.error(
-          "PDF downloaded locally but could not be saved to cloud. " +
-          "You can re-upload it from the Quotes page.",
-          { duration: 8000 }
+        setIsSaved(true);
+        toast.success(
+          isUpdate ? "Quote updated." : "Quote saved to your Quotes.",
         );
-        // Don't throw — the quote DB record exists, just without a pdfUrl.
-        // Fix 1 above means the /quotes page handles this gracefully.
+      } else {
+        // The DB record exists; only the cloud PDF failed. Treat as saved so
+        // the user isn't stuck, but tell them the PDF needs a retry.
+        setIsSaved(true);
+        toast.warning(
+          "Quote saved, but the PDF couldn't be uploaded to the cloud. " +
+            "You can retry it from the Quotes page.",
+          { duration: 8000 },
+        );
       }
-    }
 
-    saveQuote({ request, quote, markupPercent: markup, quoteNumber });
-  } catch (error) {
-    console.error(error);
-    toast.error("Something went wrong saving the quote.");
-  }
-};
+      // In-memory breadcrumb for the current tab session.
+      saveQuote({ request, quote, markupPercent: markup, quoteNumber });
+    } catch (error) {
+      console.error(error);
+      toast.error("Something went wrong saving the quote.");
+    } finally {
+      setSaving(false);
+    }
+  };
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -355,7 +398,9 @@ const handleDownload = async () => {
               <SheetDescription className="mt-0.5 text-xs">
                 {step === "form"
                   ? "Select a client and set markup to create a professional PDF quote"
-                  : `${quoteNumber} — ready to download`}
+                  : isSaved
+                    ? `${quoteNumber} · saved to your Quotes`
+                    : `${quoteNumber} · review, then save or download`}
               </SheetDescription>
             </div>
           </div>
@@ -416,7 +461,7 @@ const handleDownload = async () => {
                     <ClientSelector
                       value={selectedClient}
                       onSelect={handleClientSelect}
-                      onAddNew={() => setShowAddForm(true)}
+                      onAddNew={handleAddNew}
                     />
 
                     {/* Selected client summary */}
@@ -462,7 +507,11 @@ const handleDownload = async () => {
                 ) : (
                   <AddClientForm
                     onSaved={handleClientAdded}
-                    onCancel={() => setShowAddForm(false)}
+                    onCancel={() => {
+                      setShowAddForm(false);
+                      setAddFormInitialName("");
+                    }}
+                    initialCompanyName={addFormInitialName}
                   />
                 )}
               </section>
@@ -599,36 +648,59 @@ const handleDownload = async () => {
   </p>
 )}
 
-              <div className="flex gap-2.5">
+              {/* Primary action: Save (persist to DB + cloud PDF). */}
+              <Button
+                className={cn(
+                  "w-full",
+                  isSaved &&
+                    "border border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-400 dark:hover:bg-emerald-950/60",
+                )}
+                variant={isSaved ? "outline" : "default"}
+                onClick={handleSave}
+                disabled={!pdfUrl || saving || isSaved}
+              >
+                {saving ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Saving…
+                  </>
+                ) : isSaved ? (
+                  <>
+                    <Check className="mr-2 h-4 w-4" />
+                    Saved to Quotes
+                  </>
+                ) : (
+                  <>
+                    <Save className="mr-2 h-4 w-4" />
+                    Save quote
+                  </>
+                )}
+              </Button>
+
+              {/* Secondary actions: Edit + Download (both always available). */}
+              <div className="grid grid-cols-2 gap-2.5">
                 <Button
                   variant="outline"
-                  className="flex-1"
                   onClick={() => setStep("form")}
+                  disabled={saving}
                 >
-                  <ArrowLeft className="mr-2 h-4 w-4" />
+                  <Pencil className="mr-2 h-4 w-4" />
                   Edit details
                 </Button>
                 <Button
-                  className="flex-1"
+                  variant="outline"
                   onClick={handleDownload}
-                  disabled={!pdfUrl || isUploading}
+                  disabled={!pdfUrl}
                 >
-                  {isUploading ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Uploading...
-                    </>
-                  ) : (
-                    <>
-                      <Download className="mr-2 h-4 w-4" />
-                      Download PDF
-                    </>
-                  )}
+                  <Download className="mr-2 h-4 w-4" />
+                  Download
                 </Button>
               </div>
 
               <p className="text-center text-[10px] text-muted-foreground">
-                {quoteNumber} · Valid 7 days · Markup not disclosed
+                {isSaved
+                  ? "Saved. Edit and re-save anytime to update this quote."
+                  : "Valid 7 days · Markup not disclosed on the PDF"}
               </p>
             </div>
           )}

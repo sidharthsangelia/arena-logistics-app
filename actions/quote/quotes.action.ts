@@ -33,6 +33,21 @@ async function getDbOrgId(): Promise<string> {
   return (await getTenantOrg()).id;
 }
 
+// Derived monetary fields are computed identically on create and update so a
+// re-saved quote can never drift from a freshly-created one.
+function computeQuoteTotals(quote: RateQuote, markupPercent: number) {
+  const factor = 1 + markupPercent / 100;
+  const subtotal = quote.totalWithoutTax;
+  const total = quote.totalWithTax;
+  const tax = total - subtotal;
+  const quotedTotal = total * factor;
+
+  const validUntil = new Date();
+  validUntil.setDate(validUntil.getDate() + 7);
+
+  return { subtotal, total, tax, quotedTotal, validUntil };
+}
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -79,14 +94,10 @@ export async function saveQuoteAction(
 
     const { quoteNumber, quote, request, client, markupPercent, pdfUrl, pdfKey } = input;
 
-    const factor     = 1 + markupPercent / 100;
-    const subtotal   = quote.totalWithoutTax;
-    const total      = quote.totalWithTax;
-    const tax        = total - subtotal;
-    const quotedTotal = total * factor;
-
-    const validUntil = new Date();
-    validUntil.setDate(validUntil.getDate() + 7);
+    const { subtotal, total, tax, quotedTotal, validUntil } = computeQuoteTotals(
+      quote,
+      markupPercent,
+    );
 
     const saved = await prisma.quote.create({
       data: {
@@ -118,6 +129,66 @@ export async function saveQuoteAction(
   } catch (error) {
     console.error("saveQuoteAction", error);
     return { success: false, message: "Failed to save quote." };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// updateQuoteAction
+// ---------------------------------------------------------------------------
+// Re-saving a quote after an edit (markup / client / shipment) updates the
+// existing row rather than creating a duplicate. The quote number is stable
+// for the lifetime of the sheet, so it is not touched here. The PDF is
+// re-uploaded separately (via the quotePdf uploader), which refreshes
+// pdfUrl/pdfKey through updateQuotePdfAction — so those are left untouched too.
+
+export async function updateQuoteAction(
+  quoteId: string,
+  input: SaveQuoteInput,
+): Promise<SaveQuoteResult> {
+  try {
+    const org = await getTenantOrg();
+
+    if (!org.isArena && !org.isBusinessAssociate) {
+      return {
+        success: false,
+        message: "Only Business Associates can generate quotes.",
+      };
+    }
+
+    const { quote, request, client, markupPercent } = input;
+
+    const { subtotal, total, tax, quotedTotal, validUntil } = computeQuoteTotals(
+      quote,
+      markupPercent,
+    );
+
+    const updated = await prisma.quote.update({
+      // orgId in the filter guarantees a tenant can only update its own quote.
+      where: { id: quoteId, orgId: org.id },
+      data: {
+        vendorId:        quote.vendorId,
+        vendorName:      quote.vendorName,
+        productName:     quote.productName,
+        currency:        quote.currency,
+        subtotal,
+        tax,
+        total,
+        markupPercent,
+        quotedTotal,
+        tatDays:         quote.tatDays > 0 ? quote.tatDays : null,
+        chargesSnapshot: quote.charges as object[],
+        requestSnapshot: request as object,
+        validUntil,
+        clientId:        client.clientId ?? null,
+      },
+      select: { id: true },
+    });
+
+    revalidatePath("/quotes");
+    return { success: true, quoteId: updated.id };
+  } catch (error) {
+    console.error("updateQuoteAction", error);
+    return { success: false, message: "Failed to update quote." };
   }
 }
 
