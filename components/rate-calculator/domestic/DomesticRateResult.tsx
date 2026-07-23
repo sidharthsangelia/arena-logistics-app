@@ -371,6 +371,7 @@ export default function DomesticRateResultsList({
                     }
                     viewMode={viewMode}
                     onClick={() => handleCardClick(quote)}
+                    variant="domestic"
                   />
                 );
               })}

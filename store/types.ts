@@ -41,6 +41,15 @@ export interface RatesSlice {
    */
   error: string | null;
 
+  /**
+   * The scope ("international" | "domestic") that produced the current result
+   * set, or null when there is none. The store is a single shared singleton
+   * across both calculator routes; consumers gate their result rendering on
+   * `activeScope === theirScope` so one calculator never shows the other's
+   * stale results after a client-side navigation.
+   */
+  activeScope: RateScope | null;
+
   // -- Actions ---------------------------------------------------------------
 
   /**
@@ -53,8 +62,16 @@ export interface RatesSlice {
     scope?: RateScope,
   ) => Promise<void>;
 
-  /** Resets all rate state (useful before a new search) */
+  /** Resets the rate result fields (useful before a new search). */
   clearRates: () => void;
+
+  /**
+   * Full reset of every ephemeral calculator slice (rates + sort/filter +
+   * compare + quote sheet), so a calculator mounts with a clean slate and
+   * never inherits the other calculator's state. viewMode is intentionally
+   * preserved as a display preference.
+   */
+  resetCalculator: () => void;
 }
 
 // ---------------------------------------------------------------------------

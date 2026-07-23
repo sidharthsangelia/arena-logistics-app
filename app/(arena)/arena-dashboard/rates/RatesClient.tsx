@@ -44,22 +44,25 @@ export default function RatesClient({
     (s) => s.quotes.length > 0 || s.vendorErrors.length > 0
   );
   const hasRequest = useAppStore((s) => s.request !== null);
-  const clearRates = useAppStore((s) => s.clearRates);
+  // Only this calculator's own results should show. Because the store is a
+  // single shared singleton across both routes, a client-side navigation can
+  // leave the other calculator's results in the store; the scope gate below
+  // hides them until a fresh search for THIS scope runs.
+  const isThisScope = useAppStore((s) => s.activeScope === scope);
+  const resetCalculator = useAppStore((s) => s.resetCalculator);
 
-  // The rate store is shared between the international and domestic calculators
-  // (separate routes, one in-memory store). Clear any prior result when this
-  // calculator mounts so a fresh visit starts empty — results appear only after
-  // the user fills the form and clicks Get rates, never carried over from the
-  // other calculator.
+  // Full ephemeral reset when this calculator mounts (or the scope changes), so
+  // a fresh visit starts empty — no results, filters, sort, compare, or open
+  // quote sheet carried over from the other calculator.
   useEffect(() => {
-    clearRates();
-  }, [scope, clearRates]);
+    resetCalculator();
+  }, [scope, resetCalculator]);
 
   return (
     <div className="space-y-6">
       <RateCalculatorForm scope={scope} />
 
-      {error && (
+      {error && isThisScope && (
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
           <AlertTitle>Error</AlertTitle>
@@ -67,7 +70,9 @@ export default function RatesClient({
         </Alert>
       )}
 
-      {hasResults && hasRequest && <RateResultsList />}
+      {hasResults && hasRequest && isThisScope && (
+        <RateResultsList variant={scope} />
+      )}
     </div>
   );
 }

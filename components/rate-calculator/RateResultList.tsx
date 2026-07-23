@@ -57,12 +57,21 @@ import { quoteKey } from "./ComparePanel";
 import { fmt } from "@/utils/helpers";
 import Toolbar from "./rateResultList/Toolbar";
 import Stats from "./rateResultList/Stats";
+import type { RateVariant } from "./rateVariants";
 
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
-export default function RateResultsList() {
+export default function RateResultsList({
+  variant = "international",
+}: {
+  /**
+   * Which calculator this list renders for. Selects the variant preset
+   * (logo, branding) applied to every card. Defaults to "international".
+   */
+  variant?: RateVariant;
+}) {
   // -- Store reads -----------------------------------------------------------
   const quotes = useAppStore((s) => s.quotes);
   const vendorErrors = useAppStore((s) => s.vendorErrors);
@@ -254,7 +263,7 @@ export default function RateResultsList() {
                     }
                     viewMode={viewMode}
                     onClick={() => handleCardClick(quote)}
-                    showCarrierLogo
+                    variant={variant}
                   />
                 );
               })}

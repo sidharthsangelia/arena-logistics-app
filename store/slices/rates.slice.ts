@@ -26,6 +26,7 @@ export const createRatesSlice: StateCreator<
   vendorErrors: [],
   loading: false,
   error: null,
+  activeScope: null,
 
   // -- Actions ---------------------------------------------------------------
 
@@ -67,6 +68,9 @@ export const createRatesSlice: StateCreator<
           state.quotes = result.quotes;
           state.vendorErrors = result.vendorErrors;
           state.loading = false;
+          // Tag the result with the scope that produced it so each calculator
+          // only renders its own results (see RatesClient's scope gate).
+          state.activeScope = scope;
         },
         false,
         "rates/fetchRates/fulfilled"
@@ -78,6 +82,7 @@ export const createRatesSlice: StateCreator<
           state.vendorErrors = result.vendorErrors;
           state.error = result.error;
           state.loading = false;
+          state.activeScope = scope;
         },
         false,
         "rates/fetchRates/rejected"
@@ -93,8 +98,37 @@ export const createRatesSlice: StateCreator<
         state.vendorErrors = [];
         state.loading = false;
         state.error = null;
+        state.activeScope = null;
       },
       false,
       "rates/clear"
+    ),
+
+  // Full ephemeral reset. One store instance is shared across the international
+  // and domestic calculator routes, so a mounting calculator calls this to wipe
+  // the other one's leftover sort/filter/compare/sheet state and start clean.
+  // viewMode is deliberately left untouched (display preference).
+  resetCalculator: () =>
+    set(
+      (state) => {
+        // rates
+        state.request = null;
+        state.quotes = [];
+        state.vendorErrors = [];
+        state.loading = false;
+        state.error = null;
+        state.activeScope = null;
+        // ui (sort + carrier filters)
+        state.sortBy = "price-asc";
+        state.activeCarriers = [];
+        // compare
+        state.compareMode = false;
+        state.compareIds = [];
+        // quote sheet
+        state.sheetOpen = false;
+        state.selectedQuote = null;
+      },
+      false,
+      "rates/resetCalculator"
     ),
 });

@@ -23,6 +23,7 @@ import { RateQuote } from "@/lib/types";
 import { useIsArenaOrg } from "@/hooks/useIsArenaOrg";
 import { carrierLogo } from "@/lib/carrierLogo";
 import { brandServiceName } from "@/lib/branding/serviceName";
+import { RATE_VARIANTS, type RateVariant } from "./rateVariants";
 
 interface Props {
   quote: RateQuote;
@@ -34,8 +35,12 @@ interface Props {
   isCompareDisabled: boolean;
   viewMode: "grid" | "list";
   onClick: () => void;
-  /** International only. Domestic cards pass nothing and show no carrier logo. */
-  showCarrierLogo?: boolean;
+  /**
+   * Which calculator this card belongs to. Selects the variant preset
+   * (logo, service-name branding) from RATE_VARIANTS. Defaults to
+   * "international" so existing callers keep the international look.
+   */
+  variant?: RateVariant;
 }
 
 // ─── vendor badge colours (visual cue per carrier) ──────────────────────────
@@ -75,8 +80,9 @@ export default function RateResultCard({
   isCompareDisabled,
   viewMode,
   onClick,
-  showCarrierLogo = false,
+  variant = "international",
 }: Props) {
+  const { showCarrierLogo, brandServiceNames } = RATE_VARIANTS[variant];
   const logo = carrierLogo(quote.productName);
 
   // Ring / border highlight logic. Emerald cue = best price (savings);
@@ -93,11 +99,11 @@ export default function RateResultCard({
 
   const isArena = useIsArenaOrg();
 
-  // White-label Shipmozo's own-brand services as "Arena" for customers on the
-  // international calculator. Arena staff and non-international cards keep the
-  // raw name. Display-only — never affects the persisted quote.
+  // White-label Shipmozo's own-brand services as "Arena" for customers on
+  // variants that opt in (international). Arena staff keep the raw name.
+  // Display-only — never affects the persisted quote.
   const displayName =
-    showCarrierLogo && !isArena
+    brandServiceNames && !isArena
       ? brandServiceName(quote.productName)
       : quote.productName;
 
