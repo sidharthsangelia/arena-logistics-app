@@ -33,6 +33,7 @@ import Link from "next/link";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import { useIsArenaOrg } from "@/hooks/useIsArenaOrg";
+import { displayServiceName } from "@/lib/branding/serviceName";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -95,7 +96,7 @@ function buildBody(
     "",
     `Thank you for the opportunity to submit our quotation. Please find the details of Quote #${quote.quoteNumber} below.`,
     "",
-    `Product / Service: ${quote.productName}`,
+    `Product / Service: ${displayServiceName(quote.productName, showVendor)}`,
     // Vendor identity is Arena-internal — it never goes into the customer email.
     showVendor ? `Vendor: ${quote.vendorName}` : null,
     `Total Amount: ${total}`,
@@ -130,7 +131,7 @@ export default function SendQuoteDialog({
 
   const [to, setTo] = useState(clientProp.email ?? "");
   const [subject, setSubject] = useState(
-    `Quotation #${quote.quoteNumber} – ${quote.productName} | Arena Logistics`,
+    `Quotation #${quote.quoteNumber} – ${displayServiceName(quote.productName, isArena)} | Arena Logistics`,
   );
   const [body, setBody] = useState(() => buildBody(quote, clientProp, isArena));
   const [markAsSent, setMarkAsSent] = useState(true);
@@ -173,7 +174,7 @@ export default function SendQuoteDialog({
     setSent(false);
     setTo(clientProp.email ?? "");
     setSubject(
-      `Quotation #${quote.quoteNumber} – ${quote.productName} | Arena Logistics`,
+      `Quotation #${quote.quoteNumber} – ${displayServiceName(quote.productName, isArena)} | Arena Logistics`,
     );
     setBody(buildBody(quote, clientProp, isArena));
     setMarkAsSent(true);

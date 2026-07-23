@@ -32,7 +32,7 @@ export class AdapterRegistry {
   register(adapter: AnyAdapter): void {
     const isReRegister = this.adapters.has(adapter.vendorId);
     this.adapters.set(adapter.vendorId, adapter);
-    if (!isReRegister) {
+    if (!isReRegister && process.env.NODE_ENV !== "production") {
       console.log(`[AdapterRegistry] Registered vendor: ${adapter.vendorId}`);
     }
   }

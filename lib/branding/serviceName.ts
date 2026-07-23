@@ -39,3 +39,25 @@ export function brandServiceName(productName: string | null | undefined): string
     .replace(/\s{2,}/g, " ")
     .trim();
 }
+
+/**
+ * displayServiceName
+ * -----------------------------------------------------------------------------
+ * The single decision point for "which service name does THIS viewer see":
+ *   - Arena staff (isArenaOrg) keep the raw vendor productName — they need the
+ *     real sourcing detail.
+ *   - Customers (every other org) get the white-labelled name via
+ *     brandServiceName ("Shipmozo Drift" -> "Arena Drift"; everything else is
+ *     returned untouched, so it's safe on domestic/big-4/third-party names).
+ *
+ * Use this on every customer-facing surface that renders a productName — the
+ * calculator, the compare panel, the quote sheet, the quote PDF, and the
+ * persisted quote lists — so the branding is applied consistently in one place.
+ */
+export function displayServiceName(
+  productName: string | null | undefined,
+  isArenaOrg: boolean,
+): string {
+  const raw = (productName ?? "").trim();
+  return isArenaOrg ? raw : brandServiceName(raw);
+}

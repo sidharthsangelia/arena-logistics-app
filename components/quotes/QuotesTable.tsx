@@ -49,6 +49,7 @@ import { toast } from "sonner";
 import { bulkDeleteQuotesAction } from "@/actions/quote/quotes.action";
 import { QuotesExportButton } from "./QuotesExportButton";
 import { useIsArenaOrg } from "@/hooks/useIsArenaOrg";
+import { displayServiceName } from "@/lib/branding/serviceName";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -440,7 +441,7 @@ export default function QuotesTable({
 
                   {/* Product */}
                   <TableCell className="max-w-[130px] truncate text-sm">
-                    {quote.productName}
+                    {displayServiceName(quote.productName, isArena)}
                   </TableCell>
 
                   {/* Total */}

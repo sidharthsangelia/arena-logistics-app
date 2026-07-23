@@ -4,9 +4,12 @@
 import * as XLSX from "xlsx";
 import { prisma } from "@/utils/db";
 import { getDbOrgId } from "@/utils/tenant";
+import { isArenaOrg } from "@/lib/branding/isArenaOrg.server";
+import { displayServiceName } from "@/lib/branding/serviceName";
 
 export async function exportQuotesAction() {
   const orgId = await getDbOrgId();
+  const showVendor = await isArenaOrg();
 
   const quotes = await prisma.quote.findMany({
     where:   { orgId },
@@ -49,7 +52,7 @@ export async function exportQuotesAction() {
     "Client Contact": q.client?.contactName  ?? "",
     "Client Email":   q.client?.email        ?? "",
     "Vendor":         q.vendorName,
-    "Product":        q.productName,
+    "Product":        displayServiceName(q.productName, showVendor),
     "Currency":       q.currency,
     "Subtotal":       Number(q.subtotal),
     "Tax":            Number(q.tax),

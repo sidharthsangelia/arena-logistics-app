@@ -58,6 +58,7 @@ import {
 import { STATUS_CONFIG } from "@/utils/statusConfigColors";
 import { prisma } from "@/utils/db";
 import { getCurrentOrg } from "@/utils/tenant";
+import { resolveLowBalanceThreshold } from "@/utils/wallet/config";
 import { OnboardingChecklist } from "@/components/onboarding/OnboardingChecklist";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -304,7 +305,7 @@ async function DashboardAlerts({
     }),
   ]);
 
-  const lowBalance = hasWallet && walletBalance < 5000;
+  const lowBalance = hasWallet && walletBalance < resolveLowBalanceThreshold();
 
   if (
     latestBaApplication?.status !== "PENDING" &&

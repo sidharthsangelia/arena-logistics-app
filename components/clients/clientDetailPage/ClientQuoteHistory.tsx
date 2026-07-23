@@ -11,6 +11,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { FileText } from "lucide-react";
 import QuoteActionsMenu from "@/components/quotes/QuoteActionsMenu";
+import { displayServiceName } from "@/lib/branding/serviceName";
 
 type QuoteRow = {
   id: string;
@@ -140,7 +141,7 @@ export default function ClientQuoteHistory({
                   </TableCell>
                 )}
                 <TableCell className="max-w-[120px] truncate text-sm">
-                  {q.productName}
+                  {displayServiceName(q.productName, showVendor)}
                 </TableCell>
                 <TableCell className="text-right text-sm tabular-nums">
                   {fmt(Number(q.quotedTotal), q.currency)}

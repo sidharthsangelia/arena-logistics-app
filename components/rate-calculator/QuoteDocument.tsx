@@ -9,6 +9,7 @@ import {
 
 import { RateQuote, RateRequest } from "@/lib/types";
 import { ClientInfo } from "./QuoteSheet";
+import { displayServiceName } from "@/lib/branding/serviceName";
 
 interface Props {
   quote: RateQuote;
@@ -570,7 +571,9 @@ export default function QuoteDocument({
           <View style={s.infoRow}>
             <Text style={s.infoLabel}>Service Type</Text>
 
-            <Text style={s.infoValue}>{quote.productName}</Text>
+            <Text style={s.infoValue}>
+              {displayServiceName(quote.productName, showVendor)}
+            </Text>
 
             {showVendor && (
               <>

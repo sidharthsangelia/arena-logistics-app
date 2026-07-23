@@ -27,7 +27,7 @@ class TrackingAdapterRegistry {
   register(adapter: AnyTrackingAdapter): void {
     const isReRegister = this.adapters.has(adapter.vendorId);
     this.adapters.set(adapter.vendorId, adapter);
-    if (!isReRegister) {
+    if (!isReRegister && process.env.NODE_ENV !== "production") {
       console.log(
         `[TrackingAdapterRegistry] Registered tracking vendor: ${adapter.vendorId}`
       );

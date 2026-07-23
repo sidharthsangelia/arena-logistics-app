@@ -161,15 +161,6 @@ export class ShipmozoAdapter extends BaseVendorAdapter<
       throw new Error(`Failed to parse Shipmozo response: ${rawBody}`);
     }
 
-    // TODO once verified against a live payload: remove this log and tighten
-    // ShipmozoRateProduct in shipmozo.types.ts to match exactly.
-    if (process.env.NODE_ENV !== "production") {
-      console.debug(
-        "[shipmozo] raw international-rate-calculator response:",
-        rawBody,
-      );
-    }
-
     if (String(json.result) !== "1") {
       throw new Error(`Shipmozo API error: ${json.message || "Unknown error"}`);
     }

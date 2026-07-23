@@ -77,6 +77,7 @@ import { ClientSearchResult } from "@/actions/clientSrearch.action";
 import { saveQuoteAction } from "@/actions/quote/quotes.action";
 import { useUploadQuotePdf } from "@/hooks/useUploadPdfQuote";
 import { useIsArenaOrg } from "@/hooks/useIsArenaOrg";
+import { displayServiceName } from "@/lib/branding/serviceName";
 
 
 // ---------------------------------------------------------------------------
@@ -366,7 +367,7 @@ const handleDownload = async () => {
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <p className="truncate text-sm font-semibold">
-                  {quote.productName}
+                  {displayServiceName(quote.productName, isArena)}
                 </p>
                 {isArena && (
                   <Badge variant="outline" className="mt-1.5 text-[10px]">

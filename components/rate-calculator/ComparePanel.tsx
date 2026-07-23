@@ -22,6 +22,7 @@ import { Button } from "@/components/ui/button";
 import type { RateQuote } from "@/lib/types";
 import { useAppStore } from "@/store";
 import { useIsArenaOrg } from "@/hooks/useIsArenaOrg";
+import { displayServiceName } from "@/lib/branding/serviceName";
 import { fmt } from "@/utils/helpers";
 
 // ---------------------------------------------------------------------------
@@ -94,7 +95,7 @@ export default function ComparePanel() {
                   </p>
                 )}
                 <p className="text-sm font-semibold text-slate-800 pr-5 leading-snug mb-2">
-                  {q.productName}
+                  {displayServiceName(q.productName, isArena)}
                 </p>
 
                 <div className="space-y-1 text-xs text-slate-500">

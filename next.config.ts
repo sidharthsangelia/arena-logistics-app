@@ -4,9 +4,10 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   /* config options here */
 
-  // clerk img domain hostname "img.clerk.com" 
+  // Next 16 deprecated `images.domains` in favour of `images.remotePatterns`
+  // (see node_modules/next/.../upgrading/version-16.md). Clerk avatar host.
   images: {
-    domains: ["img.clerk.com"],
+    remotePatterns: [{ protocol: "https", hostname: "img.clerk.com" }],
   },
 };
 
