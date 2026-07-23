@@ -1006,7 +1006,7 @@ export default async function DashboardOverviewPage() {
             <RecentShipments orgId={org.id} />
           </Suspense>
 
-          {/* Right column — Wallet + Quotes */}
+          {/* Right column — Wallet + Quotes (Quotes is BA-only) */}
           <div className="space-y-6">
             <Suspense
               fallback={
@@ -1021,18 +1021,23 @@ export default async function DashboardOverviewPage() {
               <WalletActivity walletId={org.wallet?.id ?? null} />
             </Suspense>
 
-            <Suspense
-              fallback={
-                <Card>
-                  <CardHeader className="pb-3">
-                    <Skeleton className="h-4 w-20" />
-                  </CardHeader>
-                  <ListCardSkeleton rows={3} />
-                </Card>
-              }
-            >
-              <QuotesCard orgId={org.id} />
-            </Suspense>
+            {/* Quotes are generated for Business Associates booking on behalf
+                of their clients. Standard orgs don't have quotes, so this card
+                is hidden for them — matching the hidden /quotes route. */}
+            {org.isBusinessAssociate && (
+              <Suspense
+                fallback={
+                  <Card>
+                    <CardHeader className="pb-3">
+                      <Skeleton className="h-4 w-20" />
+                    </CardHeader>
+                    <ListCardSkeleton rows={3} />
+                  </Card>
+                }
+              >
+                <QuotesCard orgId={org.id} />
+              </Suspense>
+            )}
           </div>
         </div>
 
