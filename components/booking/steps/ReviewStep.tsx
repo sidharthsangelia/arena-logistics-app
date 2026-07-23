@@ -15,6 +15,7 @@ import type {
 } from "@/types/booking.types";
 import { WalletPaymentSummary } from "../WalletPaymentSummary";
 import { useIsArenaOrg } from "@/hooks/useIsArenaOrg";
+import { brandServiceName } from "@/lib/branding/serviceName";
 import { KYC_DOC_CONFIGS, requiredKycKeys } from "@/lib/booking/kyc";
 import {
   totalChargeableWeight,
@@ -247,11 +248,19 @@ function ServiceBlock({ service }: { service: BookingFormData["selectedService"]
     return <p className="text-sm text-destructive">No service selected.</p>;
   }
 
+  // `selectedService` is always the international leg (this wizard only books
+  // CSB4/CSB5/COMMERCIAL exports; the domestic first-mile lives in its own
+  // block). White-label Shipmozo own-brand names as "Arena" for customers so
+  // the review screen matches the service card they just picked. Display-only.
+  const displayName = isArena
+    ? service.productName
+    : brandServiceName(service.productName);
+
   return (
     <div className="rounded-lg border border-primary/40 bg-primary/5 px-4 py-3">
       <div className="flex items-start justify-between gap-4">
         <div className="space-y-1.5">
-          <p className="font-semibold text-foreground">{service.productName}</p>
+          <p className="font-semibold text-foreground">{displayName}</p>
           {isArena && (
             <Badge variant="outline" className="text-xs">{service.vendorName}</Badge>
           )}

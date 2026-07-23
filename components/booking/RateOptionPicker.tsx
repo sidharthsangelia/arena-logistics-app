@@ -46,6 +46,7 @@ import type { RateQuote } from "@/lib/types";
 import type { ServiceOption } from "@/types/booking.types";
 import { useIsArenaOrg } from "@/hooks/useIsArenaOrg";
 import { carrierLogo } from "@/lib/carrierLogo";
+import { brandServiceName } from "@/lib/branding/serviceName";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -126,6 +127,15 @@ function RateOptionCard({
   const isArena = useIsArenaOrg();
   const logo = carrierLogo(quote.productName);
 
+  // White-label Shipmozo's own-brand services as "Arena" for customers on the
+  // international service step. Arena staff and the domestic first-mile step
+  // (no carrier logo) keep the raw name. Display-only — the persisted
+  // ServiceOption still carries the raw productName.
+  const displayName =
+    showCarrierLogo && !isArena
+      ? brandServiceName(quote.productName)
+      : quote.productName;
+
   return (
     <div
       className={cn(
@@ -170,7 +180,7 @@ function RateOptionCard({
                 />
               )}
               <h3 className="truncate text-sm font-semibold leading-tight text-foreground">
-                {quote.productName}
+                {displayName}
               </h3>
             </div>
             {isArena && (

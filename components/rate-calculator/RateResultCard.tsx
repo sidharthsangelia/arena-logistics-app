@@ -22,6 +22,7 @@ import {
 import { RateQuote } from "@/lib/types";
 import { useIsArenaOrg } from "@/hooks/useIsArenaOrg";
 import { carrierLogo } from "@/lib/carrierLogo";
+import { brandServiceName } from "@/lib/branding/serviceName";
 
 interface Props {
   quote: RateQuote;
@@ -92,6 +93,14 @@ export default function RateResultCard({
 
   const isArena = useIsArenaOrg();
 
+  // White-label Shipmozo's own-brand services as "Arena" for customers on the
+  // international calculator. Arena staff and non-international cards keep the
+  // raw name. Display-only — never affects the persisted quote.
+  const displayName =
+    showCarrierLogo && !isArena
+      ? brandServiceName(quote.productName)
+      : quote.productName;
+
   return (
     <Card
       className={cn(
@@ -150,7 +159,7 @@ export default function RateResultCard({
                   />
                 )}
                 <h3 className="truncate text-sm font-semibold leading-tight text-foreground">
-                  {quote.productName}
+                  {displayName}
                 </h3>
               </div>
 
