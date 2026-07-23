@@ -44,6 +44,7 @@ import type { DomesticRateResult, DomesticRateQuote } from "@/lib/domestic/domes
 import RateResultCard from "../RateResultCard";
 import ComparePanel, { quoteKey } from "../ComparePanel";
 import QuoteSheet from "../QuoteSheet";
+import { useCanGenerateQuote } from "@/hooks/useCanGenerateQuote";
 
 type SortBy = "price-asc" | "price-desc" | "tat-asc" | "tat-desc";
 type ViewMode = "grid" | "list";
@@ -57,6 +58,9 @@ export default function DomesticRateResultsList({
 }: DomesticRateResultsListProps) {
   const quotes = result?.quotes ?? [];
   const vendorErrors = result?.vendorErrors ?? [];
+
+  // Only Business Associates (and Arena staff) can turn a rate into a quote.
+  const canGenerateQuote = useCanGenerateQuote();
 
   // -- Local state (replaces ui / compare / quoteSheet store slices) --------
   const [sortBy, setSortBy] = useState<SortBy>("price-asc");
@@ -164,7 +168,7 @@ export default function DomesticRateResultsList({
   const handleCardClick = (quote: DomesticRateQuote) => {
     if (compareMode) {
       toggleCompareId(quoteKey(quote));
-    } else {
+    } else if (canGenerateQuote) {
       openSheet(quote);
     }
   };
@@ -372,6 +376,7 @@ export default function DomesticRateResultsList({
                     viewMode={viewMode}
                     onClick={() => handleCardClick(quote)}
                     variant="domestic"
+                    canGenerateQuote={canGenerateQuote}
                   />
                 );
               })}

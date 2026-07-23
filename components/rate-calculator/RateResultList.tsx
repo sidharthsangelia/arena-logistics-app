@@ -48,6 +48,7 @@ import { AlertTriangle } from "lucide-react";
 
 import { useAppStore } from "@/store";
 import { useIsArenaOrg } from "@/hooks/useIsArenaOrg";
+import { useCanGenerateQuote } from "@/hooks/useCanGenerateQuote";
 import type { RateQuote } from "@/lib/types";
 import RateResultCard from "./RateResultCard";
 import ComparePanel from "./ComparePanel";
@@ -80,6 +81,9 @@ export default function RateResultsList({
 
   // Vendor identity is masked from every customer-facing surface.
   const isArena = useIsArenaOrg();
+
+  // Only Business Associates (and Arena staff) can turn a rate into a quote.
+  const canGenerateQuote = useCanGenerateQuote();
 
   const sortBy = useAppStore((s) => s.sortBy);
   const activeCarriers = useAppStore((s) => s.activeCarriers);
@@ -180,7 +184,7 @@ export default function RateResultsList({
   const handleCardClick = (quote: RateQuote) => {
     if (compareMode) {
       toggleCompareId(quoteKey(quote));
-    } else {
+    } else if (canGenerateQuote) {
       openSheet(quote);
     }
   };
@@ -280,6 +284,7 @@ export default function RateResultsList({
                     viewMode={viewMode}
                     onClick={() => handleCardClick(quote)}
                     variant={variant}
+                    canGenerateQuote={canGenerateQuote}
                   />
                 );
               })}

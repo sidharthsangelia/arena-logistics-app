@@ -10,16 +10,27 @@ import type { ClientInfo } from "@/components/rate-calculator/QuoteSheet";
 // Tenant context
 // ---------------------------------------------------------------------------
 
-async function getDbOrgId(): Promise<string> {
+async function getTenantOrg(): Promise<{
+  id: string;
+  isBusinessAssociate: boolean;
+  isArena: boolean;
+}> {
   const { orgId: clerkOrgId } = await auth();
   if (!clerkOrgId) throw new Error("No active organisation in session.");
 
   const org = await prisma.org.findUnique({
     where: { clerkOrgId },
-    select: { id: true },
+    select: { id: true, isBusinessAssociate: true },
   });
   if (!org) throw new Error(`Org not found for clerkOrgId: ${clerkOrgId}`);
-  return org.id;
+  return {
+    ...org,
+    isArena: clerkOrgId === process.env.ARENA_ORG_ID,
+  };
+}
+
+async function getDbOrgId(): Promise<string> {
+  return (await getTenantOrg()).id;
 }
 
 // ---------------------------------------------------------------------------
@@ -52,7 +63,19 @@ export async function saveQuoteAction(
   input: SaveQuoteInput,
 ): Promise<SaveQuoteResult> {
   try {
-    const orgId = await getDbOrgId();
+    const org = await getTenantOrg();
+
+    // Quoting is a Business-Associate feature (Arena staff excepted). Standard
+    // orgs only view rates — mirror the UI gate authoritatively so a crafted
+    // request can't create a quote the org shouldn't have.
+    if (!org.isArena && !org.isBusinessAssociate) {
+      return {
+        success: false,
+        message: "Only Business Associates can generate quotes.",
+      };
+    }
+
+    const orgId = org.id;
 
     const { quoteNumber, quote, request, client, markupPercent, pdfUrl, pdfKey } = input;
 

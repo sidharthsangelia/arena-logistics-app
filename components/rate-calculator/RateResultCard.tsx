@@ -41,6 +41,13 @@ interface Props {
    * "international" so existing callers keep the international look.
    */
   variant?: RateVariant;
+  /**
+   * Whether this org may generate a quote from the card. Only Business
+   * Associates and Arena staff can; standard orgs just view rates. When false,
+   * the card isn't click-to-quote and the "Get quote" hint is hidden. Compare
+   * selection is unaffected. Defaults to true so existing callers are unchanged.
+   */
+  canGenerateQuote?: boolean;
 }
 
 // ─── vendor badge colours (visual cue per carrier) ──────────────────────────
@@ -81,6 +88,7 @@ export default function RateResultCard({
   viewMode,
   onClick,
   variant = "international",
+  canGenerateQuote = true,
 }: Props) {
   const { showCarrierLogo, brandServiceNames } = RATE_VARIANTS[variant];
   const logo = carrierLogo(quote.productName);
@@ -93,9 +101,17 @@ export default function RateResultCard({
       ? "ring-2 ring-emerald-400 dark:ring-emerald-500"
       : "hover:ring-1 hover:ring-border";
 
-  const disabledClass = isCompareDisabled
-    ? "opacity-50 cursor-not-allowed"
-    : "cursor-pointer";
+  // In compare mode a card is actionable (selectable) unless the 3-pick cap
+  // disables it. Outside compare mode, only quote-capable orgs can act — for
+  // everyone else the card is a read-only rate view.
+  const isActionable = compareMode ? !isCompareDisabled : canGenerateQuote;
+
+  const stateClass =
+    compareMode && isCompareDisabled
+      ? "opacity-50 cursor-not-allowed"
+      : isActionable
+        ? "cursor-pointer"
+        : "cursor-default";
 
   const isArena = useIsArenaOrg();
 
@@ -112,11 +128,11 @@ export default function RateResultCard({
       className={cn(
         "transition-all select-none",
         ringClass,
-        disabledClass,
+        stateClass,
         compareMode ? "hover:ring-2 hover:ring-primary/40" : "hover:shadow-md",
         viewMode === "list" && "flex flex-row items-stretch",
       )}
-      onClick={isCompareDisabled ? undefined : onClick}
+      onClick={isActionable ? onClick : undefined}
     >
       {/* list-mode: left accent strip */}
       {viewMode === "list" && (
@@ -222,7 +238,7 @@ export default function RateResultCard({
               {quote.charges.length} charge
               {quote.charges.length !== 1 ? "s" : ""}
             </span>
-            {!compareMode && (
+            {!compareMode && canGenerateQuote && (
               <span className="ml-auto flex items-center gap-1 text-primary">
                 <FileText className="h-3 w-3" />
                 <span className="text-[10px]">Get quote</span>
