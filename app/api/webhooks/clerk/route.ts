@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Webhook } from "svix";
 import { prisma } from "@/utils/db";
+import { syncOrgTypeMetadata } from "@/lib/org-type.server";
 
 type ClerkOrgEvent = {
   type: string;
@@ -56,7 +57,7 @@ export async function POST(req: NextRequest) {
     switch (type) {
       // ── Org created ──────────────────────────────────────────────────────
       case "organization.created": {
-        await prisma.org.upsert({
+        const org = await prisma.org.upsert({
           where: { clerkOrgId: data.id },
           update: {
             name: data.name,
@@ -69,7 +70,14 @@ export async function POST(req: NextRequest) {
             name: data.name,
             logoUrl: data.logo_url ?? null,
           },
+          select: { isBusinessAssociate: true },
         });
+
+        // Seed the Clerk metadata mirror so tenant-side checks never need the
+        // DB just to learn the org's classification. Best-effort: failures are
+        // logged inside the helper and reconciled later by the lazy backfill,
+        // so they must not fail the webhook (which would trigger Clerk retries).
+        await syncOrgTypeMetadata(data.id, org.isBusinessAssociate);
         break;
       }
 

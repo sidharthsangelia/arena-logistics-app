@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
@@ -9,6 +10,9 @@ import {
   OrganizationSwitcher,
   useClerk,
 } from "@clerk/nextjs";
+
+import { coerceOrgType, isBusinessAssociateType } from "@/lib/org-type";
+import { ensureOrgTypeMetadata } from "@/actions/org/orgType.action";
 
 import {
   LayoutDashboard,
@@ -175,8 +179,12 @@ export interface AppSidebarProps {
   isBusinessAssociate?: boolean;
 }
 
-// Nav items that only make sense for non-BA (normal) tenant orgs.
+// Tenant nav visibility by org classification.
+//   - BAs manage addresses per-client, so the org-wide Address Book is hidden.
+//   - Standard (non-BA) orgs don't manage their own clients or receive quotes,
+//     so those routes are hidden for them.
 const BA_HIDDEN_HREFS = new Set(["/addressbook"]);
+const STANDARD_HIDDEN_HREFS = new Set(["/clients", "/quotes"]);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // OrgAvatar
@@ -292,20 +300,49 @@ function NavItemRow({
 export function AppSidebar({ variant, basePath, isBusinessAssociate }: AppSidebarProps) {
   const { subtitle, sections: allSections } = NAV_CONFIGS[variant];
 
-  // BAs don't get the org-wide Address Book — they manage addresses per client.
-  const sections =
-    variant === "tenant" && isBusinessAssociate
-      ? allSections.map((s) => ({
-          ...s,
-          items: s.items.filter((i) => !BA_HIDDEN_HREFS.has(i.href)),
-        }))
-      : allSections;
-
   const pathname = usePathname();
   const { state } = useSidebar();
   const collapsed = state === "collapsed";
   const { organization } = useOrganization();
   const { user } = useUser();
+
+  // Org classification drives which tenant routes are visible. The server prop
+  // (derived from the DB, the source of truth) is authoritative; the public
+  // metadata mirror is a fallback for the rare case the prop is unavailable, so
+  // stale metadata can never hide/show the wrong routes.
+  const metadataOrgType = coerceOrgType(organization?.publicMetadata?.orgType);
+  const isBA =
+    isBusinessAssociate ?? isBusinessAssociateType(metadataOrgType);
+
+  // Backfill the Clerk metadata mirror once for orgs created before it existed.
+  // Guarded by a ref so it fires at most once per mount: the Clerk client won't
+  // reflect the freshly written metadata until it refetches the org, so without
+  // the guard this could re-fire on every render until then. Best-effort — the
+  // server action swallows failures, and a missed backfill self-heals on the
+  // next server-side resolveOrgType.
+  const backfilledRef = useRef(false);
+  useEffect(() => {
+    if (variant !== "tenant") return;
+    if (!organization) return; // wait until Clerk has loaded the active org
+    if (metadataOrgType) return; // already populated — nothing to do
+    if (backfilledRef.current) return;
+    backfilledRef.current = true;
+    void ensureOrgTypeMetadata();
+  }, [variant, organization, metadataOrgType]);
+
+  // Filter tenant nav to the org's classification. Arena keeps every item.
+  const sections =
+    variant === "tenant"
+      ? allSections.map((s) => ({
+          ...s,
+          items: s.items.filter((i) =>
+            isBA
+              ? !BA_HIDDEN_HREFS.has(i.href)
+              : !STANDARD_HIDDEN_HREFS.has(i.href),
+          ),
+        }))
+      : allSections;
+
   // openUserProfile / openOrganizationProfile mount Clerk's own modal UI —
   // that's what makes the "Clerk popup" actually appear, as opposed to
   // router.push-ing to an app route that may not exist.

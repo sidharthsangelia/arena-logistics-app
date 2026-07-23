@@ -4,6 +4,7 @@
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/utils/db";
+import { syncOrgTypeMetadata } from "@/lib/org-type.server";
 
 // No auth check needed here — /arena-dashboard, and the server actions
 // invoked from pages under it, are already gated to ARENA_ORG_ID staff
@@ -39,15 +40,19 @@ export async function updateOrgSettings(
   const { orgId, markupPercent, isBusinessAssociate, skipPayment } =
     parsed.data;
 
+  let clerkOrgId: string;
+
   try {
     const org = await prisma.org.findFirst({
       where: { id: orgId, deletedAt: null },
-      select: { id: true },
+      select: { id: true, clerkOrgId: true },
     });
 
     if (!org) {
       return { success: false, error: "Organisation not found." };
     }
+
+    clerkOrgId = org.clerkOrgId;
 
     await prisma.org.update({
       where: { id: orgId },
@@ -60,6 +65,13 @@ export async function updateOrgSettings(
       error: "Could not save changes. Please try again.",
     };
   }
+
+  // Mirror the new classification into Clerk metadata so tenant-side checks
+  // (sidebar, route resolution) stay in sync without re-querying the DB. The DB
+  // write above is the source of truth and has already committed, so a metadata
+  // failure here is logged (inside syncOrgTypeMetadata) but does NOT fail the
+  // save — the value self-heals on the next backfill/read.
+  await syncOrgTypeMetadata(clerkOrgId, isBusinessAssociate);
 
   revalidatePath(`/arena-dashboard/business-associates/${orgId}`);
   revalidatePath("/arena-dashboard/business-associates");

@@ -99,27 +99,27 @@ all are fixable in days, not weeks.
 
 ## 🟡 MEDIUM — should fix soon
 
-- [ ] **M1 — Leftover debug logging in a rate adapter.**
+- [x] **M1 — Leftover debug logging in a rate adapter.**
   [shipmozo.adapter.ts:164](lib/rate-adapters/vendors/shipmozo/shipmozo.adapter.ts#L164) has a
   `TODO … remove this log` on the live-payload path. Vendor payloads can contain cost data —
   don't ship raw vendor logging to production.
 
-- [ ] **M2 — `console.log` in registries runs on every server boot.**
+- [x] **M2 — `console.log` in registries runs on every server boot.**
   [rate-adapters/core/registry.ts:36](lib/rate-adapters/core/registry.ts#L36) and
   [tracking-adapters/core/tracking.registry.ts:31](lib/tracking-adapters/core/tracking.registry.ts#L31).
   Noise; gate behind a debug flag.
 
-- [ ] **M3 — `next.config.ts` uses the deprecated `images.domains`.**
+- [x] **M3 — `next.config.ts` uses the deprecated `images.domains`.**
   [next.config.ts](next.config.ts#L8) — on Next 16 this is deprecated in favour of
   `images.remotePatterns`. Per `AGENTS.md`, verify against the bundled Next 16 docs before it
   starts warning/breaking on build.
 
-- [ ] **M4 — No org-level rate limiting on `getRatesAction`.**
+- [x] **M4 — No org-level rate limiting on `getRatesAction`.**
   Every call fans out to live vendor APIs (Shipmozo/sKart/Aramex). A tenant hammering the
   calculator drives real upstream cost/quota. Add throttling/debounce server-side (the form
   likely debounces client-side, but that's not a control).
 
-- [ ] **M5 — Wallet "low balance" threshold is a magic number.**
+- [x] **M5 — Wallet "low balance" threshold is a magic number.**
   [app/(tenant)/page.tsx:358](app/(tenant)/page.tsx#L358) hardcodes `< 5000`. Fine for launch,
   but make it configurable per org before BAs with large float balances complain.
 
