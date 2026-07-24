@@ -36,6 +36,7 @@ import {
   LogOut,
   Handshake,
   Wallet,
+  Megaphone,
 } from "lucide-react";
 
 import {
@@ -157,6 +158,7 @@ const NAV_CONFIGS: Record<string, NavConfig> = {
         label: "Admin",
         items: [
            { title: "Invoices", href: "/invoices", icon: FileText },
+          { title: "Notices", href: "/notices", icon: Megaphone },
           { title: "Settings", href: "/settings", icon: Settings },
         ],
       },

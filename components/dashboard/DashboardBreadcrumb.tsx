@@ -40,6 +40,8 @@ const ARENA_LABELS: Record<string, string> = {
   upload: "Upload Rates",
   settings: "Settings",
   orgs: "Organisations",
+  notices: "Dashboard Notices",
+  "business-associates": "Business Associates",
 };
 
 const LABEL_MAPS: Record<string, Record<string, string>> = {
