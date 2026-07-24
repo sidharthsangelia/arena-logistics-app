@@ -3,6 +3,7 @@ import crypto from "crypto";
 import { paiseToRupees } from "@/utils/wallet/money";
 import { prisma } from "@/utils/db";
 import { invalidateWalletBalance } from "@/lib/wallet/queries";
+import { notifyTopUpFailed } from "@/lib/notifications/emit";
  
 
 // Needs Node's `crypto` module — do not run this on the edge runtime.
@@ -150,7 +151,20 @@ async function handlePaymentFailed(event: any) {
   const payment = event.payload?.payment?.entity;
   if (!payment?.order_id) return;
 
-  await prisma.walletTransaction.updateMany({
+  // Read before the write, so the notification can name the org and the amount.
+  // Scoped to PENDING for the same reason as the update: a redelivered webhook
+  // finds nothing, which is what stops it notifying twice. The dedupeKey on the
+  // notification is the belt to this braces.
+  const txn = await prisma.walletTransaction.findFirst({
+    where: { razorpayOrderId: payment.order_id, status: "PENDING" },
+    select: {
+      id: true,
+      amount: true,
+      wallet: { select: { org: { select: { name: true, companyName: true } } } },
+    },
+  });
+
+  const { count } = await prisma.walletTransaction.updateMany({
     where: { razorpayOrderId: payment.order_id, status: "PENDING" },
     data: {
       status: "FAILED",
@@ -158,4 +172,22 @@ async function handlePaymentFailed(event: any) {
       notes: payment.error_description ? `Failed: ${payment.error_description}` : "Payment failed",
     },
   });
+
+  // A rejected top-up is one of the few things in this system that silently stops
+  // a customer being able to book. Somebody needs to know, and the customer's own
+  // failed checkout screen is not evidence that anybody at Arena did.
+  //
+  // There is deliberately no counterpart for a successful top-up: those are the
+  // normal case several times a day, and a notification each would bury this one.
+  if (count > 0 && txn) {
+    await notifyTopUpFailed({
+      walletTransactionId: txn.id,
+      orgName:
+        txn.wallet.org.companyName?.trim() ||
+        txn.wallet.org.name?.trim() ||
+        "A customer",
+      amount: Number(txn.amount),
+      reason: payment.error_description ?? null,
+    });
+  }
 }

@@ -16,6 +16,8 @@ import {
   WalletBalanceIndicator,
   WalletBalanceIndicatorSkeleton,
 } from "@/components/wallet/WalletBalanceIndicator";
+import { HeaderBell } from "@/components/notifications/HeaderBell";
+import { NotificationBellSkeleton } from "@/components/notifications/NotificationBell";
 
 const ARENA_ORG_ID = process.env.ARENA_ORG_ID!;
 
@@ -57,11 +59,15 @@ export default async function DashboardLayout({
               <DashboardBreadcrumb variant="tenant" basePath="/" />
             </div>
 
-            {/* Wallet balance, pinned to the right of the breadcrumb. Suspended
-                so a cache miss on the balance never holds up the header. */}
-            <div className="flex shrink-0 items-center">
+            {/* Wallet balance and the notification bell, pinned to the right of
+                the breadcrumb. Each is suspended on its own so a slow query on one
+                never holds up the other or the header itself. */}
+            <div className="flex shrink-0 items-center gap-1">
               <Suspense fallback={<WalletBalanceIndicatorSkeleton />}>
                 <WalletBalanceIndicator orgId={org.id} />
+              </Suspense>
+              <Suspense fallback={<NotificationBellSkeleton />}>
+                <HeaderBell />
               </Suspense>
             </div>
           </header>

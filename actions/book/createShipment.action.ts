@@ -62,6 +62,8 @@ import {
   ShipmentNumberSequenceError,
 } from "@/utils/shipmentNumber";
 import { sendShipmentMilestoneEmail } from "@/lib/email/shipment/send";
+import { after } from "next/server";
+import { notifyBookingPlaced } from "@/lib/notifications/emit";
 
 // ---------------------------------------------------------------------------
 // Public return type — fully JSON-serialisable
@@ -735,6 +737,11 @@ export async function createShipmentAction(
       // is durably committed. sendShipmentMilestoneEmail never throws, so a
       // failed send can never turn a successful booking into an error.
       await sendShipmentMilestoneEmail(txResult.shipmentId, ShipmentStatus.BOOKED);
+
+      // Ops needs to know work has arrived. Scheduled with `after` rather than
+      // awaited, because the customer waiting on their booking confirmation should
+      // not also be waiting on a row being written for somebody else to read.
+      after(() => notifyBookingPlaced(txResult.shipmentId));
 
       return {
         success: true,

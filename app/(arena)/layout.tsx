@@ -8,7 +8,10 @@ import {
 } from "@/components/ui/sidebar";
 import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
+import { Suspense } from "react";
 import { getArenaAuth } from "@/utils/arena-auth";
+import { HeaderBell } from "@/components/notifications/HeaderBell";
+import { NotificationBellSkeleton } from "@/components/notifications/NotificationBell";
 
 const ARENA_ORG_ID = process.env.ARENA_ORG_ID!;
 
@@ -47,7 +50,18 @@ export default async function ArenaDashboardLayout({
           <header className="flex h-14 shrink-0 items-center gap-2 border-b bg-white px-4">
             <SidebarTrigger className="-ml-1" />
             <Separator orientation="vertical" className="mr-2 h-4" />
-          <DashboardBreadcrumb variant="arena" basePath="/arena-dashboard" />
+            {/* min-w-0 lets a deep breadcrumb trail shrink rather than push the
+                bell off the right edge of the header. */}
+            <div className="min-w-0 flex-1 overflow-hidden">
+              <DashboardBreadcrumb variant="arena" basePath="/arena-dashboard" />
+            </div>
+
+            {/* Suspended so the inbox query never holds up the dashboard shell. */}
+            <div className="flex shrink-0 items-center">
+              <Suspense fallback={<NotificationBellSkeleton />}>
+                <HeaderBell />
+              </Suspense>
+            </div>
           </header>
 
           {/* Page content */}
