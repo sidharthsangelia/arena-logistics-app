@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
@@ -157,6 +157,7 @@ const NAV_CONFIGS: Record<string, NavConfig> = {
       {
         label: "Admin",
         items: [
+          { title: "Wallets", href: "/wallets", icon: Wallet },
            { title: "Invoices", href: "/invoices", icon: FileText },
           { title: "Notices", href: "/notices", icon: Megaphone },
           { title: "Settings", href: "/settings", icon: Settings },
@@ -179,6 +180,10 @@ export interface AppSidebarProps {
   /** Tenant only. BAs manage addresses per-client on the client page, so the
    *  standalone Address Book nav is hidden for them. */
   isBusinessAssociate?: boolean;
+  /** Arena only. Money routes are admin-only, so members never see the link.
+   *  Hiding the nav item is presentation; the route itself is gated in
+   *  proxy.ts and re-checked on the page. See utils/arena-auth.ts. */
+  isArenaAdmin?: boolean;
 }
 
 // Tenant nav visibility by org classification.
@@ -187,6 +192,10 @@ export interface AppSidebarProps {
 //     so those routes are hidden for them.
 const BA_HIDDEN_HREFS = new Set(["/addressbook"]);
 const STANDARD_HIDDEN_HREFS = new Set(["/clients", "/quotes"]);
+
+// Arena nav visibility by role. Anything to do with Arena's own money is for
+// admins only, so ops members do not see the link at all.
+const ARENA_ADMIN_ONLY_HREFS = new Set(["/wallets"]);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // OrgAvatar
@@ -299,7 +308,12 @@ function NavItemRow({
 // AppSidebar
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function AppSidebar({ variant, basePath, isBusinessAssociate }: AppSidebarProps) {
+export function AppSidebar({
+  variant,
+  basePath,
+  isBusinessAssociate,
+  isArenaAdmin = false,
+}: AppSidebarProps) {
   const { subtitle, sections: allSections } = NAV_CONFIGS[variant];
 
   const pathname = usePathname();
@@ -332,18 +346,29 @@ export function AppSidebar({ variant, basePath, isBusinessAssociate }: AppSideba
     void ensureOrgTypeMetadata();
   }, [variant, organization, metadataOrgType]);
 
-  // Filter tenant nav to the org's classification. Arena keeps every item.
-  const sections =
-    variant === "tenant"
-      ? allSections.map((s) => ({
-          ...s,
-          items: s.items.filter((i) =>
-            isBA
-              ? !BA_HIDDEN_HREFS.has(i.href)
-              : !STANDARD_HIDDEN_HREFS.has(i.href),
-          ),
-        }))
-      : allSections;
+  // Filter nav down to what this viewer is allowed: tenant items by org
+  // classification, arena items by role. Sections that end up empty are dropped
+  // so no stray heading is left behind with nothing under it.
+  const sections = useMemo(() => {
+    const filtered =
+      variant === "tenant"
+        ? allSections.map((s) => ({
+            ...s,
+            items: s.items.filter((i) =>
+              isBA
+                ? !BA_HIDDEN_HREFS.has(i.href)
+                : !STANDARD_HIDDEN_HREFS.has(i.href),
+            ),
+          }))
+        : allSections.map((s) => ({
+            ...s,
+            items: s.items.filter(
+              (i) => isArenaAdmin || !ARENA_ADMIN_ONLY_HREFS.has(i.href),
+            ),
+          }));
+
+    return filtered.filter((s) => s.items.length > 0);
+  }, [variant, allSections, isBA, isArenaAdmin]);
 
   // openUserProfile / openOrganizationProfile mount Clerk's own modal UI —
   // that's what makes the "Clerk popup" actually appear, as opposed to

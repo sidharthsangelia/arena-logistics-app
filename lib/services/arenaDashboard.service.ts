@@ -22,6 +22,7 @@
 import { unstable_cache } from "next/cache";
 import { prisma } from "@/utils/db";
 import type { ShipmentStatus, OrgPlan } from "@/generated/prisma";
+import { resolveLowBalanceThreshold } from "@/utils/wallet/config";
 
 const ARENA_DASHBOARD_TTL_SECONDS = 30;
 
@@ -147,7 +148,16 @@ async function computeArenaDashboardStats(): Promise<ArenaDashboardStats> {
       include: { org: { select: { name: true, companyName: true } } },
     }),
     prisma.baApplication.count({ where: { status: "PENDING" } }),
-    prisma.wallet.count({ where: { balance: { lt: 5000 } } }),
+    // Must match the "Running low" filter on /arena-dashboard/wallets exactly, or
+    // the overview promises a count the wallets screen then contradicts. Two
+    // rules to keep in step: the shared threshold, and skipping orgs that book
+    // without paying up front, for whom a low balance is not a problem.
+    prisma.wallet.count({
+      where: {
+        balance: { lte: resolveLowBalanceThreshold() },
+        org: { deletedAt: null, skipPayment: false },
+      },
+    }),
     prisma.shipment.count({ where: { status: { in: ["CUSTOMS_HOLD", "ON_HOLD"] } } }),
     prisma.kycDocument.count({ where: { verifiedAt: null } }),
     prisma.shipment.count({

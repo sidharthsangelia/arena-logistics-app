@@ -8,6 +8,7 @@ import {
 } from "@/components/ui/sidebar";
 import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
+import { getArenaAuth } from "@/utils/arena-auth";
 
 const ARENA_ORG_ID = process.env.ARENA_ORG_ID!;
 
@@ -23,6 +24,10 @@ export default async function ArenaDashboardLayout({
   if (!userId) redirect("/sign-in");
   if (orgId !== ARENA_ORG_ID) redirect("/dashboard");
 
+  // Drives which nav items render. Money routes are admin-only, and the check is
+  // repeated on the pages and actions themselves rather than trusted from here.
+  const { isArenaAdmin } = await getArenaAuth();
+
   // console.log("ARENA LAYOUT CHECK:", {
   //   userId,
   //   orgId,
@@ -31,7 +36,11 @@ export default async function ArenaDashboardLayout({
   return (
     <main>
       <SidebarProvider>
-       <AppSidebar variant="arena" basePath="/arena-dashboard" />
+       <AppSidebar
+          variant="arena"
+          basePath="/arena-dashboard"
+          isArenaAdmin={isArenaAdmin}
+        />
 
         <SidebarInset>
           {/* Top header bar */}

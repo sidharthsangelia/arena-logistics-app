@@ -51,6 +51,7 @@ import {
 import { STATUS_CONFIG } from "@/utils/statusConfigColors";
 import { getArenaDashboardStats } from "@/lib/services/arenaDashboard.service";
 import StatCard from "@/components/StatCard";
+import { getArenaAuth } from "@/utils/arena-auth";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Formatting helpers
@@ -139,7 +140,13 @@ export default async function ArenaDashboardPage() {
   const { orgId } = await auth();
   if (orgId !== process.env.ARENA_ORG_ID) redirect("/");
 
-  const stats = await getArenaDashboardStats();
+  // Arena's own commercial position (revenue, markup, wallet balances) is for
+  // admins. A shipment's quoted total is not gated: ops needs the declared value
+  // for customs paperwork and vendor calls. See utils/arena-auth.ts.
+  const [stats, { isArenaAdmin }] = await Promise.all([
+    getArenaDashboardStats(),
+    getArenaAuth(),
+  ]);
 
   const {
     totalShipments,
@@ -245,7 +252,15 @@ export default async function ArenaDashboardPage() {
         )}
 
         {/* ── Stat cards ──────────────────────────────────────────────── */}
-        <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
+        {/* Four tiles for members, five for admins. The column count follows so
+            members get an even row rather than a gap where revenue would be. */}
+        <div
+          className={
+            isArenaAdmin
+              ? "grid grid-cols-2 gap-4 lg:grid-cols-5"
+              : "grid grid-cols-2 gap-4 lg:grid-cols-4"
+          }
+        >
           <StatCard
             label="Total Shipments"
             value={totalShipments}
@@ -271,13 +286,15 @@ export default async function ArenaDashboardPage() {
             icon={Building2}
              tooltip="Number of business associates and clients that have had at least one shipment booked in the last 30 days."
           />
-          <StatCard
-            label="Est. Revenue (MTD)"
-            value={revenueDisplay}
-            sub={`From ${revenueEligibleCount} bookings`}
-            icon={BadgeIndianRupee}
-            tooltip="Estimated markup earned this month, backed out from each shipment's quoted total using the markup % applied at booking."
-          />
+          {isArenaAdmin && (
+            <StatCard
+              label="Est. Revenue (MTD)"
+              value={revenueDisplay}
+              sub={`From ${revenueEligibleCount} bookings`}
+              icon={BadgeIndianRupee}
+              tooltip="Estimated markup earned this month, backed out from each shipment's quoted total using the markup % applied at booking."
+            />
+          )}
         </div>
 
         {/* ── Quick actions ───────────────────────────────────────────── */}
@@ -413,13 +430,17 @@ export default async function ArenaDashboardPage() {
                   count={stagedRateVersionsCount}
                   href="/arena-dashboard/rate-cards"
                 />
-                <Separator />
-                <ReviewRow
-                  icon={AlertTriangle}
-                  label="Orgs low on wallet balance"
-                  count={lowWalletOrgsCount}
-                  href="/arena-dashboard/business-associates?filter=low-balance"
-                />
+                {isArenaAdmin && (
+                  <>
+                    <Separator />
+                    <ReviewRow
+                      icon={AlertTriangle}
+                      label="Orgs low on wallet balance"
+                      count={lowWalletOrgsCount}
+                      href="/arena-dashboard/wallets?tab=organisations&balance=low"
+                    />
+                  </>
+                )}
               </CardContent>
             </Card>
 
@@ -490,8 +511,11 @@ export default async function ArenaDashboardPage() {
                   <TableRow>
                     <TableHead className="pl-6">Organisation</TableHead>
                     <TableHead>Plan</TableHead>
-                    <TableHead>Bookings (30d)</TableHead>
-                    <TableHead className="pr-6">Markup</TableHead>
+                    <TableHead className={isArenaAdmin ? undefined : "pr-6"}>
+                      Bookings (30d)
+                    </TableHead>
+                    {/* Markup is what Arena makes on this org, so admins only. */}
+                    {isArenaAdmin && <TableHead className="pr-6">Markup</TableHead>}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -517,10 +541,20 @@ export default async function ArenaDashboardPage() {
                       <TableCell>
                         <Badge variant={PLAN_VARIANTS[org.plan]}>{org.plan}</Badge>
                       </TableCell>
-                      <TableCell className="text-sm tabular-nums">{org.bookings30d}</TableCell>
-                      <TableCell className="pr-6 text-sm tabular-nums">
-                        {org.markupPercent.toFixed(1)}%
+                      <TableCell
+                        className={
+                          isArenaAdmin
+                            ? "text-sm tabular-nums"
+                            : "pr-6 text-sm tabular-nums"
+                        }
+                      >
+                        {org.bookings30d}
                       </TableCell>
+                      {isArenaAdmin && (
+                        <TableCell className="pr-6 text-sm tabular-nums">
+                          {org.markupPercent.toFixed(1)}%
+                        </TableCell>
+                      )}
                     </TableRow>
                   ))}
                 </TableBody>
