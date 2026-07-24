@@ -9,7 +9,13 @@ import {
 import { getCurrentOrg } from "@/utils/tenant";
 import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
+import { Suspense } from "react";
 import { ProfileCompletionBanner } from "@/components/profile/ProfileComplettionBanner";
+import { SystemNoticeBar } from "@/components/notices/SystemNoticeBar";
+import {
+  WalletBalanceIndicator,
+  WalletBalanceIndicatorSkeleton,
+} from "@/components/wallet/WalletBalanceIndicator";
 
 const ARENA_ORG_ID = process.env.ARENA_ORG_ID!;
 
@@ -45,8 +51,27 @@ export default async function DashboardLayout({
           <header className="flex h-14 shrink-0 items-center gap-2 border-b bg-white px-4">
             <SidebarTrigger className="-ml-1" />
             <Separator orientation="vertical" className="mr-2 h-4" />
-            <DashboardBreadcrumb variant="tenant" basePath="/" />
+            {/* min-w-0 lets a deep breadcrumb trail shrink rather than push the
+                wallet chip off the right edge of the header. */}
+            <div className="min-w-0 flex-1 overflow-hidden">
+              <DashboardBreadcrumb variant="tenant" basePath="/" />
+            </div>
+
+            {/* Wallet balance, pinned to the right of the breadcrumb. Suspended
+                so a cache miss on the balance never holds up the header. */}
+            <div className="flex shrink-0 items-center">
+              <Suspense fallback={<WalletBalanceIndicatorSkeleton />}>
+                <WalletBalanceIndicator orgId={org.id} />
+              </Suspense>
+            </div>
           </header>
+
+          {/* Ops-authored notices. Suspended so the notice query never delays
+              the dashboard shell — the banner streams in when it resolves, and
+              the layout is byte-identical when there is nothing to show. */}
+          <Suspense fallback={null}>
+            <SystemNoticeBar isBusinessAssociate={org.isBusinessAssociate} />
+          </Suspense>
 
           {/* Page content */}
           <ProfileCompletionBanner />
