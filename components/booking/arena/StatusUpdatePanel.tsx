@@ -54,7 +54,15 @@ export function StatusUpdatePanel({ shipmentId, currentStatus, allStatuses }: Pr
       setNote("");
       setTimeout(() => setSaved(false), 3000);
 
-      if (result.emailed) {
+      if (result.emailed && result.emailAudience === "associate") {
+        // A business associate chose to keep their clients out of our mail, so
+        // the update went to the associate instead. Nothing to fix here, and
+        // saying "the client has been notified" would be untrue.
+        toast.success(`Status changed to ${statusLabel}`, {
+          description:
+            "The business associate has been emailed. They pass updates to their client themselves.",
+        });
+      } else if (result.emailed) {
         toast.success(`Status changed to ${statusLabel}`, {
           description: "The client has been notified by email.",
         });

@@ -1,10 +1,15 @@
 "use server";
 
 import { auth } from "@clerk/nextjs/server";
+import { after } from "next/server";
 import { prisma } from "@/utils/db";
 import { revalidatePath } from "next/cache";
 import { ShipmentStatus } from "@/generated/prisma";
-import { sendShipmentMilestoneEmail } from "@/lib/email/shipment/send";
+import {
+  sendShipmentMilestoneEmail,
+  type ShipmentEmailResult,
+} from "@/lib/email/shipment/send";
+import { notifyShipmentStatusChanged } from "@/lib/notifications/emit";
 
 const ARENA_ORG_ID = process.env.ARENA_ORG_ID!;
 
@@ -25,7 +30,17 @@ async function assertArenaStaff(): Promise<{ userId: string }> {
 // ---------------------------------------------------------------------------
 
 export type UpdateStatusResult =
-  | { success: true; emailed: boolean }
+  | {
+      success: true;
+      emailed: boolean;
+      /**
+       * Who the email actually reached. "associate" means a business associate
+       * received it instead of their client, which is a setting they chose and
+       * not a failure, so the toast must not report it as either a success for
+       * the client or a problem to fix.
+       */
+      emailAudience: ShipmentEmailResult["audience"];
+    }
   | { success: false; message: string };
 
 export async function updateShipmentStatus(
@@ -73,11 +88,20 @@ export async function updateShipmentStatus(
     // `emailed` reflects whether Resend actually accepted the message, so the
     // UI toast can be honest about whether the client was notified.
     let emailed = false;
+    let emailAudience: ShipmentEmailResult["audience"] = "none";
     if (newStatus !== current.status) {
-      ({ sent: emailed } = await sendShipmentMilestoneEmail(shipmentId, newStatus));
+      ({ sent: emailed, audience: emailAudience } =
+        await sendShipmentMilestoneEmail(shipmentId, newStatus));
     }
 
-    return { success: true, emailed };
+    // Tell the tenant's own inbox about the move. Scheduled with `after` so the
+    // notification write happens once the ops user already has their response
+    // back; it is a record for somebody else, and nobody should wait on it.
+    if (newStatus !== current.status) {
+      after(() => notifyShipmentStatusChanged(shipmentId, newStatus));
+    }
+
+    return { success: true, emailed, emailAudience };
   } catch (err) {
     console.error("[updateShipmentStatus]", err);
     return { success: false, message: "Failed to update status. Please try again." };
