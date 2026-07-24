@@ -94,8 +94,29 @@ model Org {
   notes        String?
 
   skipPayment Boolean @default(false)
-  profileCompletedAt DateTime? 
+  profileCompletedAt DateTime?
   emailEvents QuoteEmailEvent[]
+
+  // ── client-facing shipment emails (business associates only) ──
+  //
+  // A BA books on behalf of its own clients, and milestone emails already reached
+  // those clients before this existed. That was never something the BA agreed to,
+  // so it is now opt-in: with clientEmailsEnabled false, milestone mail goes to
+  // the BA's own address instead of the client's. Nobody goes dark either way.
+  //
+  // clientEmailMilestones is the subset of statuses the client hears about. Only
+  // the five EMAIL_MILESTONE_STATUSES are ever stored here; the rest of the enum
+  // has no customer-facing email at all. An empty list with the toggle on would
+  // send nothing, which the settings form refuses to save.
+  //
+  // Ignored entirely for standard orgs, who ship for themselves and have no
+  // clients to shield.
+  clientEmailsEnabled   Boolean          @default(false)
+  clientEmailMilestones ShipmentStatus[] @default([BOOKED, PROCESSING, IN_TRANSIT, OUT_FOR_DELIVERY, DELIVERED])
+  /// Where a client's reply lands. Falls back to Org.email when unset.
+  clientEmailReplyTo    String?
+
+  notifications Notification[]
 
   @@index([slug])
   @@index([deletedAt])
@@ -151,6 +172,13 @@ model Client {
   deletedAt DateTime?
 
   companyKind CompanyKind @default(INDIVIDUAL)
+
+  // Per-client override of the BA's org-wide clientEmailsEnabled setting.
+  // Deliberately three-state rather than a boolean: INHERIT means "whatever the
+  // org setting says", so flipping the org toggle still moves every client the BA
+  // never made an explicit decision about. A boolean would have had to be
+  // backfilled to a concrete value, freezing today's default in place forever.
+  emailPreference ClientEmailPreference @default(INHERIT)
 
   kycDocuments KycDocument[]
   addresses    Address[]
@@ -1182,4 +1210,116 @@ model PaymentCollection {
 
   @@index([shipmentId])
   @@index([reversedAt, collectedAt])
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CLIENT-FACING EMAIL PREFERENCE
+//
+// See Org.clientEmailsEnabled for the full reasoning. INHERIT is the default so
+// the org-wide toggle stays meaningful: only clients a BA has explicitly pinned
+// stop following it.
+// ═══════════════════════════════════════════════════════════════════════════
+
+enum ClientEmailPreference {
+  INHERIT // follow the org setting, whatever it is now or later
+  ALWAYS // email this client even when the org setting is off
+  NEVER // never email this client even when the org setting is on
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// NOTIFICATION INBOX
+//
+// A durable record of things that happened, alongside (not instead of) email.
+// Email reaches people who are not logged in; the inbox is the scrollable
+// history that survives a deleted mail.
+//
+// Addressed to a SCOPE rather than to individual users. An ARENA notification is
+// for whoever is on shift, and an ORG one is for whoever from that org logs in.
+// Two consequences that were the point of the design:
+//
+//   - Somebody added to the org next month still sees everything that came
+//     before, because nothing was ever fanned out to a fixed list of users.
+//   - Read state is per user (NotificationReceipt), so one person opening the
+//     bell does not clear the badge for their colleagues.
+// ═══════════════════════════════════════════════════════════════════════════
+
+enum NotificationScope {
+  ARENA // internal ops and admin
+  ORG // one tenant organisation
+}
+
+enum NotificationKind {
+  // ── Arena side ──
+  BOOKING_PLACED // a tenant just booked
+  PAYMENT_FAILED // a top-up the bank rejected; money kind, so admin only
+  COLLECTION_OVERDUE // a deferred payment nobody has collected
+  SHIPMENT_STUCK // sat in the same status past the tolerance
+  QUOTE_EXPIRING // a sent quote about to lapse
+
+  // ── Tenant side ──
+  SHIPMENT_STATUS // their shipment moved
+  ARENA_MESSAGE // ops wrote to them directly
+}
+
+model Notification {
+  id String @id @default(cuid())
+
+  scope NotificationScope
+  /// Required for ORG scope, always null for ARENA. Enforced in lib/notifications/emit.ts.
+  orgId String?
+  org   Org?   @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  kind NotificationKind
+  /// Reuses the notice palette so a warning looks the same everywhere in the app.
+  severity NoticeSeverity @default(INFO)
+
+  title String
+  body  String?
+
+  /// Where the row takes you. In-app path only, validated before it is written.
+  linkHref String?
+
+  // ARENA scope only. Money figures are hidden from non-admin arena members
+  // everywhere else, so a notification carrying an amount must not turn up in an
+  // ops member's inbox and reintroduce the leak by the back door.
+  adminOnly Boolean @default(false)
+
+  // Natural key for anything a scheduled job re-evaluates on every run. The job
+  // computes the same key for the same real-world fact, so the unique constraint
+  // turns a repeat run into a no-op instead of a duplicate row. Null for events
+  // that fire exactly once by nature, like a booking being placed.
+  dedupeKey String? @unique
+
+  /// Set when the notification is about one shipment, for the link and for cleanup.
+  shipmentId String?
+  /// Clerk userId when a human authored this, null when the system did.
+  createdBy String?
+
+  createdAt DateTime @default(now())
+
+  receipts NotificationReceipt[]
+
+  // Covers the two inbox reads: the arena feed and one org's feed. createdAt is
+  // in the index because every read is "newest first".
+  @@index([scope, createdAt(sort: Desc)])
+  @@index([orgId, createdAt(sort: Desc)])
+  @@index([kind, createdAt])
+}
+
+model NotificationReceipt {
+  notificationId String
+  notification   Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+
+  /// Clerk userId. Not a relation: users live in Clerk, not here.
+  userId String
+
+  // A row existing IS the read mark. Written when someone opens the bell or hits
+  // "mark all as read", never in advance, so the table only grows with actual
+  // reads rather than with (notifications x members).
+  readAt DateTime @default(now())
+
+  // The pair is the identity, so the upsert needs no surrogate key and the
+  // "have I read this" lookup is served by the primary key index alone.
+  @@id([notificationId, userId])
+  @@index([userId])
 }
