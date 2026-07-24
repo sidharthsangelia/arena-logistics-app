@@ -9,6 +9,8 @@ import ClientDetailStats from "@/components/clients/clientDetailPage/ClientDetai
 import ClientQuoteHistory from "@/components/clients/clientDetailPage/ClientQuoteHistory";
 import KycVault from "@/components/clients/clientDetailPage/KycVault";
 import { AddressBookManager } from "@/components/address/AddressBookManager";
+import { ClientEmailPreferenceCard } from "@/components/clients/clientDetailPage/ClientEmailPreferenceCard";
+import { getCurrentOrg } from "@/utils/tenant";
 import {
   HeaderSkeleton,
   StatsSkeleton,
@@ -192,6 +194,11 @@ async function ClientSidebar({
 }) {
   const client = await clientPromise;
 
+  // The account-wide setting, so the card can say what "Default" actually means
+  // rather than making the reader go and look. getCurrentOrg is memoised per
+  // request and the tenant layout has already populated it, so this is free.
+  const org = await getCurrentOrg();
+
   return (
     <>
       {/* Contact */}
@@ -207,6 +214,16 @@ async function ClientSidebar({
           <InfoRow label="Phone" value={client.phone} />
         </div>
       </div>
+
+      {/* Who hears about this client's shipments. Rendered right under the email
+          address it would be sent to, which is the context the decision needs. */}
+      <ClientEmailPreferenceCard
+        clientId={client.id}
+        clientName={client.companyName}
+        clientEmail={client.email}
+        preference={client.emailPreference}
+        orgEnabled={org?.clientEmailsEnabled ?? false}
+      />
 
       {/* Address */}
       <div className="rounded-lg border">

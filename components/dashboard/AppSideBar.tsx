@@ -37,6 +37,7 @@ import {
   Handshake,
   Wallet,
   Megaphone,
+  MailCheck,
 } from "lucide-react";
 
 import {
@@ -117,6 +118,7 @@ const NAV_CONFIGS: Record<string, NavConfig> = {
         items: [
           {title: "Wallet", href: "/wallet", icon: Wallet},
           { title: "Invoices", href: "/invoices", icon: FileText },
+          { title: "Client Emails", href: "/settings/client-emails", icon: MailCheck },
           { title: "Settings", href: "/settings/profile", icon: Settings },
         ],
       },
@@ -189,9 +191,15 @@ export interface AppSidebarProps {
 // Tenant nav visibility by org classification.
 //   - BAs manage addresses per-client, so the org-wide Address Book is hidden.
 //   - Standard (non-BA) orgs don't manage their own clients or receive quotes,
-//     so those routes are hidden for them.
+//     so those routes are hidden for them. Client Emails is in the same category:
+//     they ship for themselves, so there is no third party to decide about, and
+//     the route itself redirects them away.
 const BA_HIDDEN_HREFS = new Set(["/addressbook"]);
-const STANDARD_HIDDEN_HREFS = new Set(["/clients", "/quotes"]);
+const STANDARD_HIDDEN_HREFS = new Set([
+  "/clients",
+  "/quotes",
+  "/settings/client-emails",
+]);
 
 // Arena nav visibility by role. Anything to do with Arena's own money is for
 // admins only, so ops members do not see the link at all.
