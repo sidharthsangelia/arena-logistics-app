@@ -1,6 +1,6 @@
 import "server-only";
 
-import { SHIPMENT_EMAIL_BRAND } from "./brand";
+import type { EmailIdentity } from "./identity";
 import type { MilestoneCopy, ShipmentEmailContext } from "./copy";
 
 // ── HTML escaping ──────────────────────────────────────────────────────────
@@ -93,14 +93,72 @@ function trackingBlock(ctx: ShipmentEmailContext, copy: MilestoneCopy): string {
 }
 
 /**
+ * Explains, at the top of the email, why this landed with a business associate
+ * rather than with their client. Only ever rendered on the associate's copy, and
+ * styled as a quiet aside rather than a warning: nothing has gone wrong, it is
+ * simply the setting they chose doing its job.
+ */
+function noticeBlock(notice: EmailNotice | null): string {
+  if (!notice) return "";
+
+  const action = notice.actionUrl && notice.actionLabel
+    ? ` <a href="${esc(notice.actionUrl)}" style="color:${C.ink};text-decoration:underline;">${esc(notice.actionLabel)}</a>`
+    : "";
+
+  return `
+    <tr>
+      <td style="padding:24px 40px 0;">
+        <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="background:${C.subtleBg};border:1px solid ${C.border};border-radius:10px;">
+          <tr><td style="padding:14px 18px;color:${C.muted};font-size:13px;line-height:1.6;">
+            ${esc(notice.text)}${action}
+          </td></tr>
+        </table>
+      </td>
+    </tr>`;
+}
+
+/** A short aside above the greeting. See noticeBlock. */
+export interface EmailNotice {
+  text: string;
+  actionLabel?: string;
+  actionUrl?: string;
+}
+
+/**
+ * Sign-off. A named person when we have one, the team alone when we do not.
+ *
+ * Arena's own mail is signed by the founder, because a real name is what stops it
+ * reading as automated. A business associate's mail cannot be: their client has
+ * never heard of Arena's founder, and putting a made-up name there would be a
+ * small lie in every email. So the associate's mail is signed by their team.
+ */
+function signatureBlock(identity: EmailIdentity): string {
+  if (identity.signerName) {
+    return `
+              <p style="margin:0;color:${C.ink};font-size:15px;font-weight:600;">${esc(identity.signerName)}</p>
+              <p style="margin:2px 0 0;color:${C.muted};font-size:13px;">${esc([identity.signerRole, identity.displayName].filter(Boolean).join(", "))}</p>
+              <p style="margin:14px 0 0;color:${C.muted};font-size:13px;line-height:1.6;">On behalf of ${esc(identity.teamName)}</p>`;
+  }
+
+  return `
+              <p style="margin:0;color:${C.ink};font-size:15px;font-weight:600;">${esc(identity.teamName)}</p>`;
+}
+
+/**
  * Renders the full HTML email for a shipment milestone. Table-based and
  * inline-styled so it survives Gmail, Outlook and Apple Mail.
+ *
+ * `identity` decides whose name is on the header, the signature and the footer.
+ * It is a parameter rather than a module import because a business associate's
+ * clients are emailed under the associate's name. See identity.ts.
  */
 export function renderShipmentEmailHtml(
   copy: MilestoneCopy,
   ctx: ShipmentEmailContext,
+  identity: EmailIdentity,
+  notice: EmailNotice | null = null,
 ): string {
-  const brand = SHIPMENT_EMAIL_BRAND;
+  const brand = identity;
   const name = greetingName(ctx.senderName);
 
   const paragraphs = copy.paragraphs
@@ -138,7 +196,7 @@ export function renderShipmentEmailHtml(
             <td style="background:${C.ink};padding:28px 40px;">
               <table width="100%" cellpadding="0" cellspacing="0" role="presentation">
                 <tr>
-                  <td style="color:#ffffff;font-size:17px;font-weight:600;letter-spacing:-0.2px;">${esc(brand.companyName)}</td>
+                  <td style="color:#ffffff;font-size:17px;font-weight:600;letter-spacing:-0.2px;">${esc(brand.displayName)}</td>
                   <td align="right">
                     <span style="display:inline-block;background:rgba(255,255,255,0.14);color:#ffffff;font-size:12px;font-weight:600;padding:5px 12px;border-radius:999px;letter-spacing:0.02em;">${esc(copy.statusLabel)}</span>
                   </td>
@@ -147,9 +205,11 @@ export function renderShipmentEmailHtml(
             </td>
           </tr>
 
+          ${noticeBlock(notice)}
+
           <!-- greeting + headline -->
           <tr>
-            <td style="padding:40px 40px 8px;">
+            <td style="padding:${notice ? "24px" : "40px"} 40px 8px;">
               <p style="margin:0 0 6px;color:${C.muted};font-size:15px;">Hi ${esc(name)},</p>
               <h1 style="margin:0 0 20px;color:${C.ink};font-size:24px;line-height:1.25;font-weight:700;letter-spacing:-0.4px;">${esc(copy.headline)}</h1>
               ${paragraphs}
@@ -176,9 +236,7 @@ export function renderShipmentEmailHtml(
           <tr>
             <td style="padding:32px 40px 8px;">
               <p style="margin:0 0 4px;color:${C.body};font-size:15px;line-height:1.6;">Warm regards,</p>
-              <p style="margin:0;color:${C.ink};font-size:15px;font-weight:600;">${esc(brand.signerName)}</p>
-              <p style="margin:2px 0 0;color:${C.muted};font-size:13px;">${esc(brand.signerRole)}, ${esc(brand.companyName)}</p>
-              <p style="margin:14px 0 0;color:${C.muted};font-size:13px;line-height:1.6;">On behalf of ${esc(brand.teamName)}</p>
+              ${signatureBlock(brand)}
             </td>
           </tr>
 
@@ -186,10 +244,13 @@ export function renderShipmentEmailHtml(
           <tr>
             <td style="padding:28px 40px;border-top:1px solid ${C.border};background:${C.subtleBg};">
               <p style="margin:0;color:${C.muted};font-size:12px;line-height:1.7;">
-                Questions about this shipment? Just reply to this email and our team will help you. You can also reach us at
-                <a href="mailto:${esc(brand.supportEmail)}" style="color:${C.ink};text-decoration:underline;">${esc(brand.supportEmail)}</a>.
+                Questions about this shipment? Just reply to this email and our team will help you.${
+                  brand.supportEmail
+                    ? ` You can also reach us at <a href="mailto:${esc(brand.supportEmail)}" style="color:${C.ink};text-decoration:underline;">${esc(brand.supportEmail)}</a>.`
+                    : ""
+                }
               </p>
-              <p style="margin:12px 0 0;color:${C.faint};font-size:11px;">${esc(brand.companyName)} &bull; Shipment ${esc(ctx.shipmentNumber)}</p>
+              <p style="margin:12px 0 0;color:${C.faint};font-size:11px;">${esc(brand.displayName)} &bull; Shipment ${esc(ctx.shipmentNumber)}</p>
             </td>
           </tr>
 
@@ -209,10 +270,20 @@ export function renderShipmentEmailHtml(
 export function renderShipmentEmailText(
   copy: MilestoneCopy,
   ctx: ShipmentEmailContext,
+  identity: EmailIdentity,
+  notice: EmailNotice | null = null,
 ): string {
-  const brand = SHIPMENT_EMAIL_BRAND;
+  const brand = identity;
   const name = greetingName(ctx.senderName);
   const lines: string[] = [];
+
+  if (notice) {
+    lines.push(notice.text);
+    if (notice.actionLabel && notice.actionUrl) {
+      lines.push(`${notice.actionLabel}: ${notice.actionUrl}`);
+    }
+    lines.push("");
+  }
 
   lines.push(`Hi ${name},`, "");
   lines.push(copy.headline, "");
@@ -241,12 +312,18 @@ export function renderShipmentEmailText(
   }
 
   lines.push("Warm regards,");
-  lines.push(`${brand.signerName}`);
-  lines.push(`${brand.signerRole}, ${brand.companyName}`);
-  lines.push(`On behalf of ${brand.teamName}`);
+  if (brand.signerName) {
+    lines.push(brand.signerName);
+    lines.push([brand.signerRole, brand.displayName].filter(Boolean).join(", "));
+    lines.push(`On behalf of ${brand.teamName}`);
+  } else {
+    lines.push(brand.teamName);
+  }
   lines.push("");
   lines.push(
-    `Questions? Reply to this email or reach us at ${brand.supportEmail}.`,
+    brand.supportEmail
+      ? `Questions? Reply to this email or reach us at ${brand.supportEmail}.`
+      : "Questions? Just reply to this email.",
   );
 
   return lines.join("\n");

@@ -18,6 +18,40 @@ export const SHIPMENT_EMAIL_BRAND = {
   supportEmail: process.env.RESEND_FROM_EMAIL ?? "shipments@arenalogistics.co.in",
 } as const;
 
+/**
+ * Absolute base for links inside emails. A relative path is useless in a mail
+ * client, so anything linked from an email has to be resolved against this.
+ *
+ * Resolution order, first hit wins:
+ *   1. NEXT_PUBLIC_APP_URL, if you set it. This is the one to use for a custom
+ *      domain, and the only one that needs setting by hand.
+ *   2. VERCEL_PROJECT_PRODUCTION_URL, which Vercel injects on every build. This is
+ *      why leaving NEXT_PUBLIC_APP_URL unset is fine on Vercel: links still point at
+ *      the real deployment rather than at a guess.
+ *   3. A production-host fallback, so a stray misconfigured build never mails a
+ *      partner a link to localhost, which is a worse failure than a dev seeing a
+ *      production link.
+ *
+ * Note only links that travel INSIDE an email use this. Inbox notifications store a
+ * relative path and are opened through the app, so they never touch it.
+ */
+function resolveAppBaseUrl(): string {
+  const explicit = process.env.NEXT_PUBLIC_APP_URL?.trim();
+  if (explicit) return explicit;
+
+  const vercel = process.env.VERCEL_PROJECT_PRODUCTION_URL?.trim();
+  if (vercel) return vercel.startsWith("http") ? vercel : `https://${vercel}`;
+
+  return "https://app.arenalogistics.co.in";
+}
+
+export const APP_BASE_URL = resolveAppBaseUrl().replace(/\/+$/, "");
+
+/** Turns an in-app path into a link an email client can follow. */
+export function absoluteUrl(path: string): string {
+  return `${APP_BASE_URL}${path.startsWith("/") ? path : `/${path}`}`;
+}
+
 /** `"Arena Cargo Logistics <shipments@…>"` — the header Resend expects. */
 export function shipmentFromHeader(): string {
   return `${SHIPMENT_EMAIL_BRAND.fromName} <${SHIPMENT_EMAIL_BRAND.fromEmail}>`;
