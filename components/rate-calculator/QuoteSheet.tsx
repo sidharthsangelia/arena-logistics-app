@@ -40,7 +40,7 @@
  *                   future UploadThing integration to call updateQuotePdfAction
  */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   Sheet,
   SheetContent,
@@ -174,6 +174,10 @@ export default function QuoteSheet({ open, onOpenChange, quote }: Props) {
   const [isSaved, setIsSaved] = useState(false);
   const [saving, setSaving] = useState(false);
 
+  // Pending auto-close timer after a successful save. Held in a ref so it can
+  // be cancelled if the user closes the sheet (or it unmounts) first.
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // Stable quote number for the lifetime of this sheet instance
   const [quoteNumber] = useState(
     () =>
@@ -182,9 +186,23 @@ export default function QuoteSheet({ open, onOpenChange, quote }: Props) {
       )}`,
   );
 
+  // ── Cancel a pending auto-close on unmount ────────────────────────────────
+  useEffect(() => {
+    return () => {
+      if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+    };
+  }, []);
+
   // ── Reset on close ────────────────────────────────────────────────────────
   useEffect(() => {
     if (!open) {
+      // The sheet is closing — drop any queued auto-close so it can't fire
+      // against a later, reopened instance.
+      if (closeTimerRef.current) {
+        clearTimeout(closeTimerRef.current);
+        closeTimerRef.current = null;
+      }
+
       const t = setTimeout(() => {
         setStep("form");
         setPdfBlob(null);
@@ -362,6 +380,11 @@ useEffect(() => {
 
       // In-memory breadcrumb for the current tab session.
       saveQuote({ request, quote, markupPercent: markup, quoteNumber });
+
+      // Let the "Saved" state register for a beat, then close. The toast
+      // persists after the sheet is gone, so the confirmation isn't lost.
+      // (The PDF is downloadable later from the Quotes page.)
+      closeTimerRef.current = setTimeout(() => onOpenChange(false), 1200);
     } catch (error) {
       console.error(error);
       toast.error("Something went wrong saving the quote.");
@@ -699,7 +722,7 @@ useEffect(() => {
 
               <p className="text-center text-[10px] text-muted-foreground">
                 {isSaved
-                  ? "Saved. Edit and re-save anytime to update this quote."
+                  ? "Saved. The PDF is available on the Quotes page."
                   : "Valid 7 days · Markup not disclosed on the PDF"}
               </p>
             </div>
