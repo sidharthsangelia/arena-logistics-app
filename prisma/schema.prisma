@@ -1024,3 +1024,76 @@ model BookingDraft {
   @@index([orgId])
   @@index([orgId, userId])
 }
+
+// ─────────────────────────────────────────────
+// SystemNotice — the info banner Arena ops show
+// across the tenant dashboard. Freight moves on
+// events outside the app (carrier strikes, port
+// congestion, rate revisions, holiday closures),
+// so ops needs a way to say so without a deploy.
+//
+// Not org-owned: a notice is authored by Arena
+// staff and targeted at an audience segment, so
+// there is no orgId FK here.
+// ─────────────────────────────────────────────
+
+enum NoticeSeverity {
+  INFO // neutral update — new feature, general information
+  SUCCESS // resolved / good news — backlog cleared, service restored
+  WARNING // heads-up that needs planning — rate revision, cut-off change
+  CRITICAL // acting now matters — carrier hold, payments down
+}
+
+enum NoticeAudience {
+  ALL
+  BUSINESS_ASSOCIATES // orgs with isBusinessAssociate = true
+  STANDARD // orgs shipping for themselves
+}
+
+enum NoticeDisplayMode {
+  ALWAYS // visible from the moment it is switched on until switched off
+  SCHEDULED // visible only inside the startsAt/endsAt window
+}
+
+model SystemNotice {
+  id String @id @default(cuid())
+
+  title   String? // optional short headline, e.g. "Air freight delay"
+  message String // the notice body — plain text, no markup
+
+  severity    NoticeSeverity    @default(INFO)
+  audience    NoticeAudience    @default(ALL)
+  displayMode NoticeDisplayMode @default(ALWAYS)
+
+  // Kill switch, independent of the schedule. A SCHEDULED notice can be drafted
+  // with isActive = false and armed later without touching its window.
+  isActive Boolean @default(false)
+
+  // false pins the notice open — used for CRITICAL notices a tenant must not be
+  // able to hide (customs hold, wallet debits paused).
+  dismissible Boolean @default(true)
+
+  // Tiebreak when several notices are live at once. Higher wins.
+  priority Int @default(0)
+
+  startsAt DateTime? // SCHEDULED only; null means "from now"
+  endsAt   DateTime? // SCHEDULED only; null means "until switched off"
+
+  linkLabel String? // CTA text, e.g. "View revised rates"
+  linkHref  String? // internal path ("/domestic-rates") or absolute URL
+
+  // Bumped whenever the visible content changes. Tenant-side dismissals are
+  // keyed by id + revision, so editing a live notice re-surfaces it to people
+  // who already dismissed the previous wording.
+  revision Int @default(1)
+
+  createdBy String? // Clerk userId of the Arena staffer who authored it
+  updatedBy String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([deletedAt, isActive])
+  @@index([deletedAt, createdAt])
+}
