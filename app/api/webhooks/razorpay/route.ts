@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { paiseToRupees } from "@/utils/wallet/money";
 import { prisma } from "@/utils/db";
+import { invalidateWalletBalance } from "@/lib/wallet/queries";
  
 
 // Needs Node's `crypto` module — do not run this on the edge runtime.
@@ -89,6 +90,11 @@ async function handlePaymentCaptured(event: any) {
   const razorpayPaymentId: string = payment.id;
   const amountRupees = paiseToRupees(payment.amount);
 
+  // Set once the credit commits, so the cache invalidation below happens
+  // outside the transaction and only when a balance actually moved. The
+  // idempotency guard makes this null on a duplicate delivery.
+  let creditedOrgId: string | null = null;
+
   await prisma.$transaction(async (tx) => {
     const txn = await tx.walletTransaction.findFirst({
       where: { razorpayOrderId },
@@ -131,7 +137,13 @@ async function handlePaymentCaptured(event: any) {
         balanceAfter: rows[0].balance as any,
       },
     });
+
+    creditedOrgId = txn.wallet.orgId;
   });
+
+  // The header wallet chip caches the balance with no expiry, so a top-up is
+  // only reflected once this runs. See the CONTRACT note in lib/wallet/queries.ts.
+  if (creditedOrgId) invalidateWalletBalance(creditedOrgId);
 }
 
 async function handlePaymentFailed(event: any) {

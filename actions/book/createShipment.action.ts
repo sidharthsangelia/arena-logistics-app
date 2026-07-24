@@ -56,6 +56,7 @@ import {
   debitWalletForShipment,
   InsufficientFundsError,
 } from "@/utils/wallet/service";
+import { invalidateWalletBalance } from "@/lib/wallet/queries";
 import {
   generateShipmentNumber,
   ShipmentNumberSequenceError,
@@ -723,6 +724,12 @@ export async function createShipmentAction(
         level: "info",
         data: { shipmentId: txResult.shipmentId },
       });
+
+      // The header wallet chip caches the balance with no expiry, so the debit
+      // above is only reflected if this runs. See the CONTRACT note in
+      // lib/wallet/queries.ts. Safe when skipPayment left the balance untouched
+      // — an invalidation with nothing to change simply re-reads the same value.
+      invalidateWalletBalance(dbOrgId);
 
       // Booking confirmation email to the sender. Fired only after the booking
       // is durably committed. sendShipmentMilestoneEmail never throws, so a
