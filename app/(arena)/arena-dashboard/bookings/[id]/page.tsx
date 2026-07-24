@@ -50,6 +50,9 @@ import { DocumentManager } from "@/components/booking/arena/DocumentManager";
 import { CopyButton } from "@/components/booking/arena/CopyButton";
 import { PackageBoxList } from "@/components/booking/PackageBoxList";
 import { KycDocsCard } from "@/components/booking/arena/KycDocsCard";
+import { PaymentCollectionCard } from "@/components/booking/arena/PaymentCollectionCard";
+import { toCollectionRow } from "@/lib/wallet/adminLedger";
+import { getArenaAuth } from "@/utils/arena-auth";
 import { KYC_DOC_CONFIGS, requiredKycDocTypes } from "@/lib/booking/kyc";
 import { CSB4_MAX_VALUE } from "@/lib/booking/cargo";
 import { PartyType } from "@/generated/prisma";
@@ -97,6 +100,10 @@ async function getShipment(id: string) {
       },
       documents: {
         orderBy: { uploadedAt: "desc" },
+      },
+      // Feeds the payment card for bookings that shipped before paying.
+      paymentCollections: {
+        orderBy: { collectedAt: "desc" },
       },
       statusHistory: {
         orderBy: { createdAt: "desc" },
@@ -374,6 +381,7 @@ const TONE_TEXT: Record<AttnTone, string> = {
 function NeedsAttention({
   status,
   paymentDeferred,
+  paymentSettled,
   shipmentType,
   totalDeclared,
   currency,
@@ -385,6 +393,8 @@ function NeedsAttention({
 }: {
   status: ShipmentStatus;
   paymentDeferred: boolean;
+  /** True once the money is fully in, or the balance was written off. */
+  paymentSettled: boolean;
   shipmentType: string | null;
   totalDeclared: number;
   currency: string;
@@ -422,11 +432,13 @@ function NeedsAttention({
       text: "This shipment is on hold.",
     });
 
-  if (paymentDeferred && !closed)
+  // Drops off once the money is in. Nagging about a payment that has already
+  // been recorded trains ops to ignore this panel.
+  if (paymentDeferred && !paymentSettled && !closed)
     items.push({
       tone: "warn",
       icon: Banknote,
-      text: "Pay on arrival. Collect payment when the parcel reaches the hub.",
+      text: "Pay on arrival. Collect payment when the parcel reaches the hub, then record it below.",
     });
 
   if (!shipmentType)
@@ -652,6 +664,12 @@ export default async function BookingDetailPage({
   const s = await getShipment(id);
   const kycDocs = await getPartyKycDocs(s.orgId, s.clientId);
 
+  // Only admins may reverse a recorded payment. Any member may record one, which
+  // is why the payment card lives here rather than only on the admin-only wallets
+  // screen. See components/booking/arena/PaymentCollectionCard.tsx.
+  const { isArenaAdmin } = await getArenaAuth();
+  const collection = s.paymentDeferred ? toCollectionRow(s) : null;
+
   const cfg = STATUS_CONFIG[s.status] ?? {
     label: s.status,
     className: "bg-secondary text-secondary-foreground border-border",
@@ -749,6 +767,7 @@ export default async function BookingDetailPage({
           <NeedsAttention
             status={s.status}
             paymentDeferred={s.paymentDeferred}
+            paymentSettled={collection ? collection.owed <= 0 : false}
             shipmentType={s.shipmentType}
             totalDeclared={totalDeclared}
             currency={s.currency}
@@ -758,6 +777,14 @@ export default async function BookingDetailPage({
             missingKycCount={missingKycCount}
             hasAwb={hasAwb}
           />
+
+          {/* Money owed on this booking, if it shipped before paying */}
+          {collection && (
+            <PaymentCollectionCard
+              collection={collection}
+              isArenaAdmin={isArenaAdmin}
+            />
+          )}
 
           {/* Compliance */}
           <ComplianceCheck
