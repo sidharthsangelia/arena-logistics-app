@@ -21,6 +21,8 @@ const TYPE_META: Record<string, { icon: React.ComponentType<{ className?: string
   TOP_UP: { icon: ArrowDownLeft, label: "Top-up", sign: "+" },
   SHIPMENT_DEBIT: { icon: ArrowUpRight, label: "Shipment", sign: "−" },
   REFUND: { icon: RotateCcw, label: "Refund", sign: "+" },
+  MANUAL_CREDIT: { icon: ArrowDownLeft, label: "Added by Arena", sign: "+" },
+  MANUAL_DEBIT: { icon: ArrowUpRight, label: "Corrected by Arena", sign: "−" },
   ADJUSTMENT: { icon: RefreshCw, label: "Adjustment", sign: "±" },
 };
 

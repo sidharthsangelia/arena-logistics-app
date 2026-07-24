@@ -124,12 +124,20 @@ const QUOTE_STATUS_CONFIG: Record<QuoteStatus, { label: string; className: strin
   CANCELLED: { label: "Cancelled", className: "bg-secondary text-muted-foreground border-border" },
 };
 
-const CREDIT_TXN_TYPES: WalletTxnType[] = ["TOP_UP", "REFUND"];
+const CREDIT_TXN_TYPES: WalletTxnType[] = ["TOP_UP", "REFUND", "MANUAL_CREDIT"];
 
 const WALLET_TXN_LABELS: Record<WalletTxnType, { label: string; tooltip: string }> = {
   TOP_UP: { label: "Wallet top-up", tooltip: "Funds added to your wallet" },
   SHIPMENT_DEBIT: { label: "Shipment charge", tooltip: "Amount debited to pay for a shipment" },
   REFUND: { label: "Refund", tooltip: "Amount credited back to your wallet" },
+  MANUAL_CREDIT: {
+    label: "Added by Arena",
+    tooltip: "Money our team added to your wallet, usually a payment you made outside the app",
+  },
+  MANUAL_DEBIT: {
+    label: "Corrected by Arena",
+    tooltip: "Money our team took out of your wallet to correct an earlier entry",
+  },
   ADJUSTMENT: { label: "Adjustment", tooltip: "A manual correction made by our operations team" },
 };
 

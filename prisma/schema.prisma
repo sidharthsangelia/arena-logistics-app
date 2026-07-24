@@ -564,7 +564,9 @@ enum WalletTxnType {
   TOP_UP
   SHIPMENT_DEBIT
   REFUND
-  ADJUSTMENT
+  ADJUSTMENT // legacy, direction ambiguous — use MANUAL_CREDIT / MANUAL_DEBIT instead
+  MANUAL_CREDIT // ops added money by hand, e.g. a NEFT or cheque received offline
+  MANUAL_DEBIT // ops took money out by hand, e.g. correcting an over-credit
 }
 
 enum WalletTxnStatus {
@@ -721,6 +723,13 @@ model WalletTransaction {
 
   notes String?
 
+  // Who moved this money, when a human did. Null for anything the system wrote
+  // (shipment debits, webhook credits). The display name is snapshotted so the
+  // ledger renders without a Clerk lookup per row, and still reads correctly if
+  // the person later leaves the team.
+  createdByUserId String?
+  createdByName   String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -800,6 +809,16 @@ model Shipment {
   // "payment pending" bookings and follow up.
   paymentDeferred Boolean @default(false)
 
+  // ── deferred payment collection ──
+  // Only meaningful when paymentDeferred is true. Both fields are DERIVED from
+  // the paymentCollections rows below and maintained in the same transaction as
+  // every collection write, so the collections queue can filter and sort in SQL
+  // without aggregating a join on every request. paymentCollections stays the
+  // source of truth; if these two ever disagree with it, trust the rows.
+  paymentCollectionStatus PaymentCollectionStatus @default(NOT_REQUIRED)
+  paymentCollectedAmount  Decimal                 @default(0) @db.Decimal(14, 4)
+  paymentCollections      PaymentCollection[]
+
   // ── selected service / rate snapshot ──
   // mirrors Quote's snapshot philosophy: price/service locked at booking time.
   // markupPercentApplied records what was actually used for THIS shipment,
@@ -842,6 +861,8 @@ model Shipment {
   @@index([createdAt])
   @@index([mawbNumber])
   @@index([hawbNumber])
+  // Drives the arena collections queue: "which deferred bookings still owe us?"
+  @@index([paymentDeferred, paymentCollectionStatus])
 }
 
 // ─────────────────────────────────────────────
@@ -1096,4 +1117,69 @@ model SystemNotice {
 
   @@index([deletedAt, isActive])
   @@index([deletedAt, createdAt])
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// DEFERRED PAYMENT COLLECTION
+//
+// Orgs with Org.skipPayment book without paying up front; the money is taken
+// later, typically in cash or by UPI when the parcel reaches the hub. Before
+// this, Shipment.paymentDeferred recorded that it happened but nothing recorded
+// whether we were ever paid.
+//
+// One row per time money changes hands, rather than a single boolean, so part
+// payments work and there is a permanent record of who took what. A mistaken
+// entry is reversed (admin only), never deleted, so the mistake stays visible.
+// ═══════════════════════════════════════════════════════════════════════════
+
+enum PaymentCollectionStatus {
+  NOT_REQUIRED // paid from the wallet at booking time, nothing is owed
+  PENDING // booked without paying, nothing collected yet
+  PART_PAID // some money in, a balance still owed
+  COLLECTED // fully settled
+  WRITTEN_OFF // ops accepted this will never be collected
+}
+
+enum PaymentCollectionMethod {
+  CASH
+  UPI
+  BANK_TRANSFER
+  CHEQUE
+  CARD
+  OTHER
+}
+
+model PaymentCollection {
+  id         String   @id @default(cuid())
+  shipmentId String
+  shipment   Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+
+  amount   Decimal                 @db.Decimal(14, 4) // always positive
+  currency String                  @default("INR")
+  method   PaymentCollectionMethod
+
+  /// UPI reference, cheque number, bank UTR — whatever proves this payment.
+  reference String?
+  note      String?
+
+  /// When the money actually changed hands, which is not always when it was
+  /// recorded. Ops may enter Friday's cash on Monday, and the reports should
+  /// count it on Friday.
+  collectedAt DateTime
+
+  recordedByUserId String?
+  recordedByName   String?
+
+  /// Reversal is a state, not a delete. Any arena member can record a
+  /// collection; only an admin can reverse one. A reversed row is excluded from
+  /// every total but stays in the history with its reason attached.
+  reversedAt     DateTime?
+  reversedByUserId String?
+  reversedByName String?
+  reversalReason String?
+
+  createdAt DateTime @default(now())
+
+  @@index([shipmentId])
+  @@index([reversedAt, collectedAt])
 }
