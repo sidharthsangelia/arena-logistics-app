@@ -62,11 +62,12 @@ export async function readWalletBalance(
 // ─── CONTRACT ──────────────────────────────────────────────────────────────
 // Because there is no expiry ceiling, EVERY code path that changes
 // Wallet.balance must call invalidateWalletBalance(orgId) after its transaction
-// commits, or the chip will serve a stale number indefinitely. The three current
+// commits, or the chip will serve a stale number indefinitely. The current
 // writers all do:
 //
 //   - actions/book/createShipment.action.ts   (shipment debit)
 //   - app/api/webhooks/razorpay/route.ts      (top-up credit)
+//   - actions/wallet/adminWallet.action.ts    (manual credit / debit by an admin)
 //   - utils/wallet/service.ts refundWalletForShipment — not yet wired to a
 //     caller; whoever wires it up owns the invalidation.
 //
