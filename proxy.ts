@@ -14,10 +14,16 @@ const isPublicRoute = createRouteMatcher([
 const isArenaRoute = createRouteMatcher(["/arena-dashboard(.*)"]);
 const isTenantRoute = createRouteMatcher(["/((?!api).*)"]); // excludes all /api/* paths
 
+// Money lives behind the Arena admin role, not just Arena membership. This
+// redirect is a courtesy so a member never lands on a page that would only tell
+// them off — the real check runs in the page and in every action, because a
+// direct server-action POST never passes through here. See utils/arena-auth.ts.
+const isArenaMoneyRoute = createRouteMatcher(["/arena-dashboard/wallets(.*)"]);
+
 const ARENA_ORG_ID = process.env.ARENA_ORG_ID!;
 
 export default clerkMiddleware(async (auth, req) => {
-  const { userId, orgId } = await auth();
+  const { userId, orgId, has } = await auth();
 
   // ── 1. Not logged in ──────────────────────────────────────────
   if (!userId) {
@@ -36,6 +42,11 @@ export default clerkMiddleware(async (auth, req) => {
 
     if (orgId !== ARENA_ORG_ID) {
       return NextResponse.redirect(new URL("/", req.url));
+    }
+
+    // Arena staff, but money pages need the admin role on top.
+    if (isArenaMoneyRoute(req) && !has({ role: "org:admin" })) {
+      return NextResponse.redirect(new URL("/arena-dashboard", req.url));
     }
 
     return; // ✅ Arena staff with active org — let through
