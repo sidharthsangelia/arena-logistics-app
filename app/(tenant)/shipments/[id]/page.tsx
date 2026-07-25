@@ -419,9 +419,7 @@ function fmtBytes(n: number): string {
 
 function MicroLabel({ children }: { children: React.ReactNode }) {
   return (
-    <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-      {children}
-    </p>
+    <p className="text-xs font-medium text-muted-foreground">{children}</p>
   );
 }
 

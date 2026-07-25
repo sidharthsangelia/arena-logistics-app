@@ -177,7 +177,7 @@ export function PackageBoxList({
                 {kg(chargeable)}
                 {isVolumetric &&
                   (ops ? (
-                    <span className="ml-1 inline-flex items-center rounded border border-amber-300 bg-amber-100 px-1 py-px text-[9px] font-semibold uppercase tracking-wide text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-300">
+                    <span className="ml-1 inline-flex items-center rounded border border-amber-300 bg-amber-100 px-1 py-px text-[10px] font-medium text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-300">
                       billed by size
                     </span>
                   ) : (
@@ -208,7 +208,7 @@ export function PackageBoxList({
               <div className="overflow-x-auto">
                 <table className="w-full text-xs">
                   <thead>
-                    <tr className="border-b text-left text-[10px] uppercase tracking-wider text-muted-foreground">
+                    <tr className="border-b text-left text-xs text-muted-foreground">
                       <th className="px-4 py-2 font-semibold">Item</th>
                       <th className="px-3 py-2 font-semibold">HSN</th>
                       <th className="px-3 py-2 text-right font-semibold">Qty</th>
@@ -294,9 +294,7 @@ function Meta({
 }) {
   return (
     <div>
-      <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-        {label}
-      </p>
+      <p className="text-xs font-medium text-muted-foreground">{label}</p>
       <p className="mt-0.5 text-xs text-foreground tabular-nums">{children}</p>
     </div>
   );

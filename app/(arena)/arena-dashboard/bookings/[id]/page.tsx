@@ -250,9 +250,7 @@ function fmtNum(v: unknown, suffix = "") {
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <p className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-      {children}
-    </p>
+    <p className="mb-3 text-xs font-medium text-muted-foreground">{children}</p>
   );
 }
 
@@ -291,7 +289,7 @@ function HeroStat({
 }) {
   return (
     <div className="min-w-0 space-y-1">
-      <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+      <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
         <Icon className="h-3 w-3 shrink-0" />
         {label}
       </p>
@@ -654,7 +652,7 @@ function NeedsAttention({
         <div className="flex items-center gap-2">
           <Bell className={cn("h-4 w-4", TONE_TEXT[topTone])} />
           <CardTitle className="text-sm">Needs attention</CardTitle>
-          <Badge variant="secondary" className="ml-auto text-[11px]">
+          <Badge variant="secondary" className="ml-auto text-xs">
             {items.length} item{items.length > 1 ? "s" : ""}
           </Badge>
         </div>
@@ -733,11 +731,11 @@ function ComplianceCheck({
         title="Customs & compliance"
         right={
           info ? (
-            <Badge variant="outline" className="text-[11px] font-medium">
+            <Badge variant="outline" className="text-xs font-medium">
               {info.label}
             </Badge>
           ) : (
-            <Badge variant="outline" className="text-[11px] text-amber-600">
+            <Badge variant="outline" className="text-xs text-amber-600">
               Type not set
             </Badge>
           )
@@ -900,7 +898,7 @@ export default async function BookingDetailPage({
               {s.paymentDeferred && (
                 <Badge
                   variant="outline"
-                  className="border-amber-200 bg-amber-50 text-[11px] font-medium text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-400"
+                  className="border-amber-200 bg-amber-50 text-xs font-medium text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-400"
                 >
                   <Banknote className="mr-1 h-3 w-3" />
                   Payment on arrival
@@ -909,7 +907,7 @@ export default async function BookingDetailPage({
               {isMultipiece && (
                 <Badge
                   variant="outline"
-                  className="border-amber-300 bg-amber-100 text-[11px] font-semibold text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-300"
+                  className="border-amber-300 bg-amber-100 text-xs font-semibold text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-300"
                 >
                   <Layers className="mr-1 h-3 w-3" />
                   Multipiece · {totalBoxes} boxes
@@ -1132,18 +1130,10 @@ export default async function BookingDetailPage({
               icon={Package}
               title="Boxes & packing list"
               right={
-                <div className="flex items-center gap-2">
-                  {isMultipiece && (
-                    <span className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-300">
-                      <Layers className="h-3 w-3" />
-                      Multipiece
-                    </span>
-                  )}
-                  <span className="text-xs text-muted-foreground">
-                    {totalBoxes} box{totalBoxes !== 1 ? "es" : ""} ·{" "}
-                    {totalItemLines} item{totalItemLines !== 1 ? "s" : ""}
-                  </span>
-                </div>
+                <span className="text-xs text-muted-foreground">
+                  {totalBoxes} box{totalBoxes !== 1 ? "es" : ""} ·{" "}
+                  {totalItemLines} item{totalItemLines !== 1 ? "s" : ""}
+                </span>
               }
             />
             <PackageBoxList
@@ -1378,7 +1368,7 @@ export default async function BookingDetailPage({
                 right={
                   <Badge
                     variant="outline"
-                    className={cn("text-[11px] font-medium", cfg.className)}
+                    className={cn("text-xs font-medium", cfg.className)}
                   >
                     {cfg.label}
                   </Badge>
@@ -1482,9 +1472,7 @@ function Field({
 }) {
   return (
     <div>
-      <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-        {label}
-      </p>
+      <p className="mb-1 text-xs font-medium text-muted-foreground">{label}</p>
       <p
         className={cn(
           "text-sm text-foreground tabular-nums",

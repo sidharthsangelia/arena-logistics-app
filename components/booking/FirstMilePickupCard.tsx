@@ -63,9 +63,7 @@ function Detail({ label, value }: { label: string; value: React.ReactNode }) {
   if (value == null || value === "") return null;
   return (
     <div className="min-w-0">
-      <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-        {label}
-      </p>
+      <p className="text-xs font-medium text-muted-foreground">{label}</p>
       <div className="mt-1 truncate text-sm font-medium text-foreground">
         {value}
       </div>
