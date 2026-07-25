@@ -1,36 +1,32 @@
-import { FileText } from "lucide-react";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { redirect } from "next/navigation";
 
-export default function InvoicesPage() {
+import { getArenaAuth } from "@/utils/arena-auth";
+import { AdminInvoicesTable } from "@/components/invoices/AdminInvoicesTable";
+
+export const metadata = {
+  title: "Invoices",
+};
+
+/**
+ * Every invoice Arena has issued, across all orgs. This is money (it shows what
+ * each customer owes), so it is admin-only. The check here is not redundant with
+ * proxy.ts: proxy is an optimistic redirect, and every action re-checks besides.
+ */
+export default async function ArenaInvoicesPage() {
+  const { isArenaAdmin } = await getArenaAuth();
+  if (!isArenaAdmin) redirect("/arena-dashboard");
+
   return (
-    <div className="max-w-5xl mx-auto px-6 py-8">
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
-          Invoices
-        </h1>
-        <p className="text-sm text-slate-500 mt-1">
-          View and download your shipment invoices.
+    <div className="mx-auto max-w-7xl px-6 py-8">
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold tracking-tight">Invoices</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Bills issued to customer organisations. Issue new invoices, track what
+          is owed, and mark them paid.
         </p>
       </div>
 
-      <Card className="shadow-sm">
-        <CardHeader className="text-center py-16">
-          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-slate-100">
-            <FileText className="h-8 w-8 text-slate-500" />
-          </div>
-          <CardTitle className="text-xl">Invoices Coming Soon</CardTitle>
-          <CardDescription className="max-w-sm mx-auto mt-2">
-            Invoice generation and download will be available once shipment
-            booking is live.
-          </CardDescription>
-        </CardHeader>
-      </Card>
+      <AdminInvoicesTable />
     </div>
   );
 }

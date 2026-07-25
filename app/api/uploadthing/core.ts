@@ -294,6 +294,41 @@ export const ourFileRouter = {
         );
       }
     }),
+
+  // ── Org invoice (Arena admin issues a bill to a customer org) ──────────────
+  //
+  // Distinct from `shipmentDocument`, which stores the CUSTOMER's own commercial
+  // invoice for customs. This holds Arena's OWN bill to an org, so it is gated
+  // to Arena admins (money). The route only stores the file and hands the URL
+  // back; the row is created afterwards by createInvoiceAction with the rest of
+  // the billing fields, which re-checks the admin gate.
+  orgInvoice: f({ pdf: { maxFileSize: "16MB", maxFileCount: 1 } })
+    .middleware(async () => {
+      const { userId, orgId, has } = await auth();
+      if (!userId) throw new UploadThingError("Unauthorized");
+
+      if (orgId !== process.env.ARENA_ORG_ID) {
+        throw new UploadThingError(
+          "Only Arena staff can upload invoices.",
+        );
+      }
+      if (!has({ role: "org:admin" })) {
+        throw new UploadThingError(
+          "Only Arena admins can upload invoices.",
+        );
+      }
+
+      return { uploadedBy: userId };
+    })
+    .onUploadComplete(async ({ file }) => {
+      return {
+        url: file.ufsUrl,
+        key: file.key,
+        fileName: file.name,
+        fileSize: file.size,
+        mimeType: file.type,
+      };
+    }),
 } satisfies FileRouter;
 
 export type OurFileRouter = typeof ourFileRouter;

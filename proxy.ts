@@ -18,7 +18,10 @@ const isTenantRoute = createRouteMatcher(["/((?!api).*)"]); // excludes all /api
 // redirect is a courtesy so a member never lands on a page that would only tell
 // them off — the real check runs in the page and in every action, because a
 // direct server-action POST never passes through here. See utils/arena-auth.ts.
-const isArenaMoneyRoute = createRouteMatcher(["/arena-dashboard/wallets(.*)"]);
+const isArenaMoneyRoute = createRouteMatcher([
+  "/arena-dashboard/wallets(.*)",
+  "/arena-dashboard/invoices(.*)",
+]);
 
 const ARENA_ORG_ID = process.env.ARENA_ORG_ID!;
 
