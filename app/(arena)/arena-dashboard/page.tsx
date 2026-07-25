@@ -1,8 +1,9 @@
+import { Suspense } from "react";
 import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 
- 
+
 import type { ShipmentStatus, OrgPlan } from "@/generated/prisma";
 
 import {
@@ -14,6 +15,7 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
   TableBody,
@@ -23,24 +25,17 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Separator } from "@/components/ui/separator";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 
 import {
   Package,
-  Truck,
   CheckCircle2,
   Clock,
   Building2,
   Upload,
   ClipboardCheck,
   ArrowRight,
-  Info,
   AlertTriangle,
   ShieldCheck,
   FileWarning,
@@ -52,6 +47,17 @@ import { STATUS_CONFIG } from "@/utils/statusConfigColors";
 import { getArenaDashboardStats } from "@/lib/services/arenaDashboard.service";
 import StatCard from "@/components/StatCard";
 import { getArenaAuth } from "@/utils/arena-auth";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Streaming model
+// ─────────────────────────────────────────────────────────────────────────────
+// The page shell (the "Overview" header) renders instantly. Everything below it
+// depends on getArenaDashboardStats() — a single 30s-cached aggregate of ~15
+// queries — so it lives inside one <Suspense> boundary and streams in: instantly
+// on a cache hit, behind a layout-matched skeleton on a miss. One boundary, not
+// one-per-card, because the data arrives as a single cached round trip; splitting
+// it would multiply cache keys for no perceptible gain.
+// ─────────────────────────────────────────────────────────────────────────────
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Formatting helpers
@@ -133,13 +139,170 @@ function QuickAction({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Page
+// Skeletons — one composite fallback for the streamed body, sized to match the
+// real layout so nothing jumps when the stats land.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function StatCardSkeleton() {
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between pb-2">
+        <Skeleton className="h-4 w-24" />
+        <Skeleton className="h-4 w-4 rounded" />
+      </CardHeader>
+      <CardContent>
+        <Skeleton className="h-7 w-16" />
+        <Skeleton className="mt-2 h-3 w-28" />
+      </CardContent>
+    </Card>
+  );
+}
+
+function QuickActionSkeleton() {
+  return (
+    <Card>
+      <CardContent className="p-4 flex items-center gap-3">
+        <Skeleton className="h-10 w-10 rounded-md shrink-0" />
+        <div className="min-w-0 flex-1 space-y-1.5">
+          <Skeleton className="h-4 w-28" />
+          <Skeleton className="h-3 w-40" />
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function TableCardSkeleton({ rows = 6 }: { rows?: number }) {
+  return (
+    <Card className="lg:col-span-2">
+      <CardHeader className="pb-3">
+        <Skeleton className="h-4 w-36" />
+        <Skeleton className="mt-1 h-3 w-56" />
+      </CardHeader>
+      <CardContent className="space-y-3 pt-0">
+        {Array.from({ length: rows }).map((_, i) => (
+          <div key={i} className="flex items-center justify-between gap-4">
+            <div className="space-y-1.5">
+              <Skeleton className="h-4 w-32" />
+              <Skeleton className="h-3 w-24" />
+            </div>
+            <Skeleton className="h-4 w-28" />
+            <Skeleton className="h-5 w-16 rounded-full" />
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
+
+function ReviewCardSkeleton({ rows = 4 }: { rows?: number }) {
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <Skeleton className="h-4 w-28" />
+        <Skeleton className="mt-1 h-3 w-40" />
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {Array.from({ length: rows }).map((_, i) => (
+          <div key={i} className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <Skeleton className="h-4 w-4 rounded" />
+              <Skeleton className="h-4 w-32" />
+            </div>
+            <Skeleton className="h-5 w-6 rounded-full" />
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
+
+function ArenaOverviewSkeleton() {
+  return (
+    <div className="space-y-6" aria-hidden="true">
+      {/* Stat cards — five, matching the admin layout this screen is built for. */}
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
+        {Array.from({ length: 5 }).map((_, i) => (
+          <StatCardSkeleton key={i} />
+        ))}
+      </div>
+
+      {/* Quick actions */}
+      <div className="grid gap-3 sm:grid-cols-3">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <QuickActionSkeleton key={i} />
+        ))}
+      </div>
+
+      {/* Middle row: recent bookings + review/rate-card column */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <TableCardSkeleton rows={6} />
+        <div className="space-y-6">
+          <ReviewCardSkeleton rows={5} />
+          <ReviewCardSkeleton rows={2} />
+        </div>
+      </div>
+
+      {/* Bottom row: top organisations */}
+      <Card>
+        <CardHeader className="pb-3">
+          <Skeleton className="h-4 w-40" />
+          <Skeleton className="mt-1 h-3 w-56" />
+        </CardHeader>
+        <CardContent className="space-y-3 pt-0">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="flex items-center justify-between gap-4">
+              <div className="flex items-center gap-2">
+                <Skeleton className="h-7 w-7 rounded-md" />
+                <Skeleton className="h-4 w-40" />
+              </div>
+              <Skeleton className="h-5 w-16 rounded-full" />
+              <Skeleton className="h-4 w-10" />
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Page — renders the header instantly and streams the data-backed body.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default async function ArenaDashboardPage() {
   const { orgId } = await auth();
   if (orgId !== process.env.ARENA_ORG_ID) redirect("/");
 
+  const todayLabel = new Intl.DateTimeFormat("en-IN", {
+    weekday: "long",
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+  }).format(new Date());
+
+  return (
+    <TooltipProvider delayDuration={200}>
+      <div className="p-6 space-y-6">
+        {/* ── Page header (renders instantly; the data below streams) ──── */}
+        <div>
+          <h1 className="text-xl font-semibold tracking-tight">Overview</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">{todayLabel}</p>
+        </div>
+
+        <Suspense fallback={<ArenaOverviewSkeleton />}>
+          <ArenaOverviewBody />
+        </Suspense>
+      </div>
+    </TooltipProvider>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Streamed body — the one cached aggregate plus everything it feeds.
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function ArenaOverviewBody() {
   // Arena's own commercial position (revenue, markup, wallet balances) is for
   // admins. A shipment's quoted total is not gated: ops needs the declared value
   // for customs paperwork and vendor calls. See utils/arena-auth.ts.
@@ -178,321 +341,146 @@ export default async function ArenaDashboardPage() {
           .map(([currency, amount]) => formatMoney(amount, currency))
           .join(" + ");
 
-  const now = new Date();
-  const todayLabel = new Intl.DateTimeFormat("en-IN", {
-    weekday: "long",
-    day: "2-digit",
-    month: "long",
-    year: "numeric",
-  }).format(now);
-
   return (
-    <TooltipProvider delayDuration={200}>
-      <div className="p-6 space-y-6">
-        {/* ── Page header ─────────────────────────────────────────────── */}
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight">Overview</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">{todayLabel}</p>
-        </div>
+    <>
+      {/* ── Alerts ──────────────────────────────────────────────────── */}
+      {(pendingBaCount > 0 || stuckShipmentsCount > 0 || stagedRateVersionsCount > 0) && (
+        <div className="space-y-3">
+          {stuckShipmentsCount > 0 && (
+            <Alert variant="destructive">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertTitle>
+                {stuckShipmentsCount} shipment{stuckShipmentsCount === 1 ? "" : "s"} on hold
+              </AlertTitle>
+              <AlertDescription className="flex flex-wrap items-center justify-between gap-3">
+                <span>Customs holds and manual holds need ops attention.</span>
+                <Button size="sm" variant="outline" asChild>
+                  <Link href="/arena-dashboard/bookings">Review</Link>
+                </Button>
+              </AlertDescription>
+            </Alert>
+          )}
 
-        {/* ── Alerts ──────────────────────────────────────────────────── */}
-        {(pendingBaCount > 0 || stuckShipmentsCount > 0 || stagedRateVersionsCount > 0) && (
-          <div className="space-y-3">
-            {stuckShipmentsCount > 0 && (
-              <Alert variant="destructive">
-                <AlertTriangle className="h-4 w-4" />
-                <AlertTitle>
-                  {stuckShipmentsCount} shipment{stuckShipmentsCount === 1 ? "" : "s"} on hold
-                </AlertTitle>
-                <AlertDescription className="flex flex-wrap items-center justify-between gap-3">
-                  <span>Customs holds and manual holds need ops attention.</span>
-                  <Button size="sm" variant="outline" asChild>
-                    <Link href="/arena-dashboard/bookings">Review</Link>
-                  </Button>
-                </AlertDescription>
-              </Alert>
-            )}
+          {pendingBaCount > 0 && (
+            <Alert>
+              <ShieldCheck className="h-4 w-4" />
+              <AlertTitle>
+                {pendingBaCount} Business Associate application{pendingBaCount === 1 ? "" : "s"}{" "}
+                awaiting review
+              </AlertTitle>
+              <AlertDescription>
+                {pendingBaNames.join(", ")}
+                {pendingBaCount > 3 ? ` and ${pendingBaCount - 3} more` : ""}.{" "}
+                <Link
+                  href="/arena-dashboard/business-associates"
+                  className="underline underline-offset-2"
+                >
+                  Review applications
+                </Link>
+              </AlertDescription>
+            </Alert>
+          )}
 
-            {pendingBaCount > 0 && (
-              <Alert>
-                <ShieldCheck className="h-4 w-4" />
-                <AlertTitle>
-                  {pendingBaCount} Business Associate application{pendingBaCount === 1 ? "" : "s"}{" "}
-                  awaiting review
-                </AlertTitle>
-                <AlertDescription>
-                  {pendingBaNames.join(", ")}
-                  {pendingBaCount > 3 ? ` and ${pendingBaCount - 3} more` : ""}.{" "}
-                  <Link
-                    href="/arena-dashboard/business-associates"
-                    className="underline underline-offset-2"
-                  >
-                    Review applications
-                  </Link>
-                </AlertDescription>
-              </Alert>
-            )}
-
-            {stagedRateVersionsCount > 0 && (
-              <Alert>
-                <FileWarning className="h-4 w-4" />
-                <AlertTitle>
-                  {stagedRateVersionsCount} rate card{stagedRateVersionsCount === 1 ? "" : "s"}{" "}
-                  staged, not yet active
-                </AlertTitle>
-                <AlertDescription>
-                  {stagedRateVersionsLabel}.{" "}
-                  <Link href="/arena-dashboard/rate-cards" className="underline underline-offset-2">
-                    Review and activate
-                  </Link>
-                </AlertDescription>
-              </Alert>
-            )}
-          </div>
-        )}
-
-        {/* ── Stat cards ──────────────────────────────────────────────── */}
-        {/* Four tiles for members, five for admins. The column count follows so
-            members get an even row rather than a gap where revenue would be. */}
-        <div
-          className={
-            isArenaAdmin
-              ? "grid grid-cols-2 gap-4 lg:grid-cols-5"
-              : "grid grid-cols-2 gap-4 lg:grid-cols-4"
-          }
-        >
-          <StatCard
-            label="Total Shipments"
-            value={totalShipments}
-            sub={`${activeShipmentsCount} active`}
-            icon={Package}
-          />
-          <StatCard
-            label="Delivered (MTD)"
-            value={deliveredThisMonth}
-            sub={`${successRate.toFixed(1)}% overall success rate`}
-            icon={CheckCircle2}
-          />
-          <StatCard
-            label="Avg. Transit Time"
-            value={avgTransitDays != null ? `${avgTransitDays.toFixed(1)}d` : "—"}
-            sub="Booked → delivered, 90d"
-            icon={Clock}
-          />
-          <StatCard
-            label="Active Companies"
-            value={activeOrgCount}
-            sub={`of ${totalOrgsCount} total`}
-            icon={Building2}
-             tooltip="Number of business associates and clients that have had at least one shipment booked in the last 30 days."
-          />
-          {isArenaAdmin && (
-            <StatCard
-              label="Est. Revenue (MTD)"
-              value={revenueDisplay}
-              sub={`From ${revenueEligibleCount} bookings`}
-              icon={BadgeIndianRupee}
-              tooltip="Estimated markup earned this month, backed out from each shipment's quoted total using the markup % applied at booking."
-            />
+          {stagedRateVersionsCount > 0 && (
+            <Alert>
+              <FileWarning className="h-4 w-4" />
+              <AlertTitle>
+                {stagedRateVersionsCount} rate card{stagedRateVersionsCount === 1 ? "" : "s"}{" "}
+                staged, not yet active
+              </AlertTitle>
+              <AlertDescription>
+                {stagedRateVersionsLabel}.{" "}
+                <Link href="/arena-dashboard/rate-cards" className="underline underline-offset-2">
+                  Review and activate
+                </Link>
+              </AlertDescription>
+            </Alert>
           )}
         </div>
+      )}
 
-        {/* ── Quick actions ───────────────────────────────────────────── */}
-        <div className="grid gap-3 sm:grid-cols-3">
-          <QuickAction
-            href="/arena-dashboard/rate-cards/upload"
-            label="Upload Rates"
-            description="Add or stage a new rate card"
-            icon={Upload}
+      {/* ── Stat cards ──────────────────────────────────────────────── */}
+      {/* Four tiles for members, five for admins. The column count follows so
+          members get an even row rather than a gap where revenue would be. */}
+      <div
+        className={
+          isArenaAdmin
+            ? "grid grid-cols-2 gap-4 lg:grid-cols-5"
+            : "grid grid-cols-2 gap-4 lg:grid-cols-4"
+        }
+      >
+        <StatCard
+          label="Total Shipments"
+          value={totalShipments}
+          sub={`${activeShipmentsCount} active`}
+          icon={Package}
+        />
+        <StatCard
+          label="Delivered (MTD)"
+          value={deliveredThisMonth}
+          sub={`${successRate.toFixed(1)}% overall success rate`}
+          icon={CheckCircle2}
+        />
+        <StatCard
+          label="Avg. Transit Time"
+          value={avgTransitDays != null ? `${avgTransitDays.toFixed(1)}d` : "—"}
+          sub="Booked → delivered, 90d"
+          icon={Clock}
+        />
+        <StatCard
+          label="Active Companies"
+          value={activeOrgCount}
+          sub={`of ${totalOrgsCount} total`}
+          icon={Building2}
+           tooltip="Number of business associates and clients that have had at least one shipment booked in the last 30 days."
+        />
+        {isArenaAdmin && (
+          <StatCard
+            label="Est. Revenue (MTD)"
+            value={revenueDisplay}
+            sub={`From ${revenueEligibleCount} bookings`}
+            icon={BadgeIndianRupee}
+            tooltip="Estimated markup earned this month, backed out from each shipment's quoted total using the markup % applied at booking."
           />
-          <QuickAction
-            href="/arena-dashboard/business-associates"
-            label="Review Applications"
-            description="Business Associate requests"
-            icon={ClipboardCheck}
-            badge={pendingBaCount}
-          />
-          <QuickAction
-            href="/arena-dashboard/orgs"
-            label="Manage Organisations"
-            description="All tenant accounts"
-            icon={Building2}
-          />
-        </div>
+        )}
+      </div>
 
-        {/* ── Middle row: Recent shipments + Needs review / Rate cards ──── */}
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-          {/* Recent shipments across all orgs — 2/3 width */}
-          <Card className="lg:col-span-2">
-            <CardHeader className="flex flex-row items-center justify-between pb-3">
-              <div>
-                <CardTitle className="text-sm font-semibold">Recent Bookings</CardTitle>
-                <CardDescription className="text-xs mt-0.5">
-                  Latest shipments across all organisations
-                </CardDescription>
-              </div>
-              <Button variant="ghost" size="sm" className="gap-1 text-xs h-7" asChild>
-                <Link href="/arena-dashboard/bookings">
-                  View all
-                  <ArrowRight className="h-3 w-3" />
-                </Link>
-              </Button>
-            </CardHeader>
+      {/* ── Quick actions ───────────────────────────────────────────── */}
+      <div className="grid gap-3 sm:grid-cols-3">
+        <QuickAction
+          href="/arena-dashboard/rate-cards/upload"
+          label="Upload Rates"
+          description="Add or stage a new rate card"
+          icon={Upload}
+        />
+        <QuickAction
+          href="/arena-dashboard/business-associates"
+          label="Review Applications"
+          description="Business Associate requests"
+          icon={ClipboardCheck}
+          badge={pendingBaCount}
+        />
+        <QuickAction
+          href="/arena-dashboard/orgs"
+          label="Manage Organisations"
+          description="All tenant accounts"
+          icon={Building2}
+        />
+      </div>
 
-            <CardContent className="p-0">
-              {recentShipments.length === 0 ? (
-                <div className="flex flex-col items-center justify-center gap-2 py-12 text-center">
-                  <Inbox className="h-8 w-8 text-muted-foreground" />
-                  <p className="text-sm text-muted-foreground">No bookings yet.</p>
-                </div>
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="pl-6">Org / Client</TableHead>
-                      <TableHead>Route</TableHead>
-                      <TableHead>Vendor</TableHead>
-                      <TableHead>Amount</TableHead>
-                      <TableHead className="pr-6">Status</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {recentShipments.map((s) => (
-                      <TableRow
-                        key={s.id}
-                        className="relative cursor-pointer hover:bg-muted/50"
-                      >
-                        <TableCell className="pl-6">
-                          <Link
-                            href={`/arena-dashboard/bookings/${s.id}`}
-                            className="font-medium leading-tight after:absolute after:inset-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
-                          >
-                            <span className="text-sm">{s.orgName}</span>
-                          </Link>
-                          <p className="text-xs text-muted-foreground mt-0.5">
-                            {s.clientName ?? "Own shipment"}
-                          </p>
-                        </TableCell>
-                        <TableCell className="font-mono text-xs">
-                          {s.pickupCity} → {s.deliveryCity}
-                        </TableCell>
-                        <TableCell className="text-xs text-muted-foreground">
-                          {s.selectedVendorName ?? "—"}
-                        </TableCell>
-                        <TableCell className="text-sm tabular-nums font-medium">
-                          {s.quotedTotal != null ? formatMoney(s.quotedTotal, s.currency) : "—"}
-                        </TableCell>
-                        <TableCell className="pr-6">
-                          <ShipmentStatusBadge status={s.status} />
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Right column — Needs review + Rate versions */}
-          <div className="space-y-6">
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-semibold">Needs Review</CardTitle>
-                <CardDescription className="text-xs mt-0.5">
-                  {needsReviewCount} item{needsReviewCount === 1 ? "" : "s"} across the platform
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <ReviewRow
-                  icon={ShieldCheck}
-                  label="BA applications pending"
-                  count={pendingBaCount}
-                  href="/arena-dashboard/business-associates"
-                />
-                <Separator />
-                <ReviewRow
-                  icon={PauseCircle}
-                  label="Shipments on hold"
-                  count={stuckShipmentsCount}
-                  href="/arena-dashboard/bookings?status=ON_HOLD"
-                />
-                <Separator />
-                <ReviewRow
-                  icon={FileWarning}
-                  label="KYC docs unverified"
-                  count={unverifiedKycCount}
-                  href="/arena-dashboard/kyc"
-                />
-                <Separator />
-                <ReviewRow
-                  icon={Upload}
-                  label="Rate cards staged"
-                  count={stagedRateVersionsCount}
-                  href="/arena-dashboard/rate-cards"
-                />
-                {isArenaAdmin && (
-                  <>
-                    <Separator />
-                    <ReviewRow
-                      icon={AlertTriangle}
-                      label="Orgs low on wallet balance"
-                      count={lowWalletOrgsCount}
-                      href="/arena-dashboard/wallets?tab=organisations&balance=low"
-                    />
-                  </>
-                )}
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="pb-3">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-sm font-semibold">Active Rate Cards</CardTitle>
-                  <Button variant="ghost" size="sm" className="gap-1 text-xs h-7" asChild>
-                    <Link href="/arena-dashboard/rate-cards">Manage</Link>
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {activeRateVersions.length === 0 ? (
-                  <p className="text-xs text-muted-foreground">No active rate cards yet.</p>
-                ) : (
-                  activeRateVersions.map((rv, i) => (
-                    <div key={rv.id}>
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="text-sm font-medium">{rv.vendor}</p>
-                          <p className="text-xs text-muted-foreground mt-0.5">
-                            Effective {formatDate(new Date(rv.effectiveFromIso))}
-                          </p>
-                        </div>
-                        <Badge
-                          variant="outline"
-                          className="bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-800"
-                        >
-                          Active
-                        </Badge>
-                      </div>
-                      {i < activeRateVersions.length - 1 && <Separator className="mt-3" />}
-                    </div>
-                  ))
-                )}
-              </CardContent>
-            </Card>
-          </div>
-        </div>
-
-        {/* ── Bottom row: Top organisations ───────────────────────────── */}
-        <Card>
+      {/* ── Middle row: Recent shipments + Needs review / Rate cards ──── */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        {/* Recent shipments across all orgs — 2/3 width */}
+        <Card className="lg:col-span-2">
           <CardHeader className="flex flex-row items-center justify-between pb-3">
             <div>
-              <CardTitle className="text-sm font-semibold">Top Organisations</CardTitle>
+              <CardTitle className="text-sm font-semibold">Recent Bookings</CardTitle>
               <CardDescription className="text-xs mt-0.5">
-                Ranked by bookings in the last 30 days
+                Latest shipments across all organisations
               </CardDescription>
             </div>
             <Button variant="ghost" size="sm" className="gap-1 text-xs h-7" asChild>
-              <Link href="/arena-dashboard/business-associates">
+              <Link href="/arena-dashboard/bookings">
                 View all
                 <ArrowRight className="h-3 w-3" />
               </Link>
@@ -500,61 +488,51 @@ export default async function ArenaDashboardPage() {
           </CardHeader>
 
           <CardContent className="p-0">
-            {topOrgs.length === 0 ? (
-              <div className="flex flex-col items-center justify-center gap-2 py-10 text-center">
-                <Building2 className="h-8 w-8 text-muted-foreground" />
-                <p className="text-sm text-muted-foreground">No bookings in the last 30 days.</p>
+            {recentShipments.length === 0 ? (
+              <div className="flex flex-col items-center justify-center gap-2 py-12 text-center">
+                <Inbox className="h-8 w-8 text-muted-foreground" />
+                <p className="text-sm text-muted-foreground">No bookings yet.</p>
               </div>
             ) : (
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="pl-6">Organisation</TableHead>
-                    <TableHead>Plan</TableHead>
-                    <TableHead className={isArenaAdmin ? undefined : "pr-6"}>
-                      Bookings (30d)
-                    </TableHead>
-                    {/* Markup is what Arena makes on this org, so admins only. */}
-                    {isArenaAdmin && <TableHead className="pr-6">Markup</TableHead>}
+                    <TableHead className="pl-6">Org / Client</TableHead>
+                    <TableHead>Route</TableHead>
+                    <TableHead>Vendor</TableHead>
+                    <TableHead>Amount</TableHead>
+                    <TableHead className="pr-6">Status</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {topOrgs.map((org) => (
-                    <TableRow key={org.id} className="cursor-pointer">
+                  {recentShipments.map((s) => (
+                    <TableRow
+                      key={s.id}
+                      className="relative cursor-pointer hover:bg-muted/50"
+                    >
                       <TableCell className="pl-6">
-                        <div className="flex items-center gap-2">
-                          <div className="h-7 w-7 rounded-md border flex items-center justify-center shrink-0">
-                            <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
-                          </div>
-                          <div>
-                            <span className="text-sm font-medium">
-                              {org.name}
-                            </span>
-                            {org.isBusinessAssociate && (
-                              <Badge variant="secondary" className="ml-2 text-[10px] px-1.5 h-4">
-                                BA
-                              </Badge>
-                            )}
-                          </div>
-                        </div>
+                        <Link
+                          href={`/arena-dashboard/bookings/${s.id}`}
+                          className="font-medium leading-tight after:absolute after:inset-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
+                        >
+                          <span className="text-sm">{s.orgName}</span>
+                        </Link>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          {s.clientName ?? "Own shipment"}
+                        </p>
                       </TableCell>
-                      <TableCell>
-                        <Badge variant={PLAN_VARIANTS[org.plan]}>{org.plan}</Badge>
+                      <TableCell className="font-mono text-xs">
+                        {s.pickupCity} → {s.deliveryCity}
                       </TableCell>
-                      <TableCell
-                        className={
-                          isArenaAdmin
-                            ? "text-sm tabular-nums"
-                            : "pr-6 text-sm tabular-nums"
-                        }
-                      >
-                        {org.bookings30d}
+                      <TableCell className="text-xs text-muted-foreground">
+                        {s.selectedVendorName ?? "—"}
                       </TableCell>
-                      {isArenaAdmin && (
-                        <TableCell className="pr-6 text-sm tabular-nums">
-                          {org.markupPercent.toFixed(1)}%
-                        </TableCell>
-                      )}
+                      <TableCell className="text-sm tabular-nums font-medium">
+                        {s.quotedTotal != null ? formatMoney(s.quotedTotal, s.currency) : "—"}
+                      </TableCell>
+                      <TableCell className="pr-6">
+                        <ShipmentStatusBadge status={s.status} />
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -562,8 +540,177 @@ export default async function ArenaDashboardPage() {
             )}
           </CardContent>
         </Card>
+
+        {/* Right column — Needs review + Rate versions */}
+        <div className="space-y-6">
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-semibold">Needs Review</CardTitle>
+              <CardDescription className="text-xs mt-0.5">
+                {needsReviewCount} item{needsReviewCount === 1 ? "" : "s"} across the platform
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <ReviewRow
+                icon={ShieldCheck}
+                label="BA applications pending"
+                count={pendingBaCount}
+                href="/arena-dashboard/business-associates"
+              />
+              <Separator />
+              <ReviewRow
+                icon={PauseCircle}
+                label="Shipments on hold"
+                count={stuckShipmentsCount}
+                href="/arena-dashboard/bookings?status=ON_HOLD"
+              />
+              <Separator />
+              <ReviewRow
+                icon={FileWarning}
+                label="KYC docs unverified"
+                count={unverifiedKycCount}
+                href="/arena-dashboard/kyc"
+              />
+              <Separator />
+              <ReviewRow
+                icon={Upload}
+                label="Rate cards staged"
+                count={stagedRateVersionsCount}
+                href="/arena-dashboard/rate-cards"
+              />
+              {isArenaAdmin && (
+                <>
+                  <Separator />
+                  <ReviewRow
+                    icon={AlertTriangle}
+                    label="Orgs low on wallet balance"
+                    count={lowWalletOrgsCount}
+                    href="/arena-dashboard/wallets?tab=organisations&balance=low"
+                  />
+                </>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm font-semibold">Active Rate Cards</CardTitle>
+                <Button variant="ghost" size="sm" className="gap-1 text-xs h-7" asChild>
+                  <Link href="/arena-dashboard/rate-cards">Manage</Link>
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {activeRateVersions.length === 0 ? (
+                <p className="text-xs text-muted-foreground">No active rate cards yet.</p>
+              ) : (
+                activeRateVersions.map((rv, i) => (
+                  <div key={rv.id}>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-medium">{rv.vendor}</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          Effective {formatDate(new Date(rv.effectiveFromIso))}
+                        </p>
+                      </div>
+                      <Badge
+                        variant="outline"
+                        className="bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-800"
+                      >
+                        Active
+                      </Badge>
+                    </div>
+                    {i < activeRateVersions.length - 1 && <Separator className="mt-3" />}
+                  </div>
+                ))
+              )}
+            </CardContent>
+          </Card>
+        </div>
       </div>
-    </TooltipProvider>
+
+      {/* ── Bottom row: Top organisations ───────────────────────────── */}
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between pb-3">
+          <div>
+            <CardTitle className="text-sm font-semibold">Top Organisations</CardTitle>
+            <CardDescription className="text-xs mt-0.5">
+              Ranked by bookings in the last 30 days
+            </CardDescription>
+          </div>
+          <Button variant="ghost" size="sm" className="gap-1 text-xs h-7" asChild>
+            <Link href="/arena-dashboard/business-associates">
+              View all
+              <ArrowRight className="h-3 w-3" />
+            </Link>
+          </Button>
+        </CardHeader>
+
+        <CardContent className="p-0">
+          {topOrgs.length === 0 ? (
+            <div className="flex flex-col items-center justify-center gap-2 py-10 text-center">
+              <Building2 className="h-8 w-8 text-muted-foreground" />
+              <p className="text-sm text-muted-foreground">No bookings in the last 30 days.</p>
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="pl-6">Organisation</TableHead>
+                  <TableHead>Plan</TableHead>
+                  <TableHead className={isArenaAdmin ? undefined : "pr-6"}>
+                    Bookings (30d)
+                  </TableHead>
+                  {/* Markup is what Arena makes on this org, so admins only. */}
+                  {isArenaAdmin && <TableHead className="pr-6">Markup</TableHead>}
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {topOrgs.map((org) => (
+                  <TableRow key={org.id} className="cursor-pointer">
+                    <TableCell className="pl-6">
+                      <div className="flex items-center gap-2">
+                        <div className="h-7 w-7 rounded-md border flex items-center justify-center shrink-0">
+                          <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
+                        </div>
+                        <div>
+                          <span className="text-sm font-medium">
+                            {org.name}
+                          </span>
+                          {org.isBusinessAssociate && (
+                            <Badge variant="secondary" className="ml-2 text-[10px] px-1.5 h-4">
+                              BA
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={PLAN_VARIANTS[org.plan]}>{org.plan}</Badge>
+                    </TableCell>
+                    <TableCell
+                      className={
+                        isArenaAdmin
+                          ? "text-sm tabular-nums"
+                          : "pr-6 text-sm tabular-nums"
+                      }
+                    >
+                      {org.bookings30d}
+                    </TableCell>
+                    {isArenaAdmin && (
+                      <TableCell className="pr-6 text-sm tabular-nums">
+                        {org.markupPercent.toFixed(1)}%
+                      </TableCell>
+                    )}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+    </>
   );
 }
 
