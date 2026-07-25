@@ -5,6 +5,7 @@ import { Wallet, Plus, RefreshCw, ArrowUpRight, ArrowDownLeft, RotateCcw } from 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
  
 import { getWalletSummaryAction } from "@/actions/wallet/getWalletSummary.action";
 import { TopUpModal } from "@/components/wallet/TopUpModal";
@@ -62,9 +63,13 @@ export default function WalletPage() {
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Wallet balance</p>
-              <p className="text-3xl font-bold text-foreground">
-                {loading ? "…" : fmt(summary?.balance ?? 0, summary?.currency)}
-              </p>
+              {loading ? (
+                <Skeleton className="mt-1.5 h-8 w-40" />
+              ) : (
+                <p className="text-3xl font-bold text-foreground">
+                  {fmt(summary?.balance ?? 0, summary?.currency)}
+                </p>
+              )}
             </div>
           </div>
           <div className="flex gap-2">
@@ -84,7 +89,22 @@ export default function WalletPage() {
           <p className="text-sm font-semibold">Recent activity</p>
         </CardHeader>
         <CardContent className="divide-y">
-          {loading && <p className="py-6 text-center text-sm text-muted-foreground">Loading…</p>}
+          {loading &&
+            Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="flex items-center justify-between py-3">
+                <div className="flex items-center gap-3">
+                  <Skeleton className="h-8 w-8 rounded-full" />
+                  <div className="space-y-1.5">
+                    <Skeleton className="h-4 w-28" />
+                    <Skeleton className="h-3 w-36" />
+                  </div>
+                </div>
+                <div className="space-y-1.5 text-right">
+                  <Skeleton className="ml-auto h-4 w-20" />
+                  <Skeleton className="ml-auto h-3 w-14" />
+                </div>
+              </div>
+            ))}
           {!loading && summary?.transactions.length === 0 && (
             <p className="py-6 text-center text-sm text-muted-foreground">No transactions yet.</p>
           )}
