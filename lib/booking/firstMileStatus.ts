@@ -20,6 +20,8 @@ export interface FirstMileStageConfig {
   /** Colour is only ever a functional cue here: waiting vs moving vs done. */
   className: string;
   dotClassName: string;
+  /** Left-accent border tint for the leg card — same functional cue, card scale. */
+  accentClassName: string;
 }
 
 // Declared in journey order — index in this record IS the stage's position on
@@ -31,6 +33,7 @@ export const FIRST_MILE_STAGES: Record<FirstMileStatus, FirstMileStageConfig> = 
     className:
       "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/30 dark:text-amber-400 dark:border-amber-800",
     dotClassName: "bg-amber-500",
+    accentClassName: "border-l-amber-400",
   },
   PICKED_UP: {
     label: "Picked up",
@@ -38,6 +41,7 @@ export const FIRST_MILE_STAGES: Record<FirstMileStatus, FirstMileStageConfig> = 
     className:
       "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/30 dark:text-blue-400 dark:border-blue-800",
     dotClassName: "bg-blue-500",
+    accentClassName: "border-l-blue-500",
   },
   IN_TRANSIT_TO_HUB: {
     label: "In transit to hub",
@@ -45,6 +49,7 @@ export const FIRST_MILE_STAGES: Record<FirstMileStatus, FirstMileStageConfig> = 
     className:
       "bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-950/30 dark:text-sky-400 dark:border-sky-800",
     dotClassName: "bg-sky-500",
+    accentClassName: "border-l-sky-500",
   },
   ARRIVED_AT_HUB: {
     label: "Arrived at hub",
@@ -53,6 +58,7 @@ export const FIRST_MILE_STAGES: Record<FirstMileStatus, FirstMileStageConfig> = 
     className:
       "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-800",
     dotClassName: "bg-emerald-500",
+    accentClassName: "border-l-emerald-500",
   },
 };
 

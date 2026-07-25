@@ -105,7 +105,7 @@ export function FirstMilePickupCard(props: FirstMilePickupCardProps) {
     activeIdx <= 0 ? 0 : (Math.min(activeIdx, lastIdx) / lastIdx) * 100;
 
   return (
-    <Card className="overflow-hidden">
+    <Card className={cn("overflow-hidden border-l-4", cfg.accentClassName)}>
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3 border-b bg-muted/20 px-5 py-3.5">
         <div className="flex items-center gap-2">
@@ -117,12 +117,20 @@ export function FirstMilePickupCard(props: FirstMilePickupCardProps) {
             First mile · door to hub
           </span>
         </div>
-        <Badge
-          variant="outline"
-          className={cn("text-xs font-semibold px-2.5 py-0.5", cfg.className)}
-        >
-          {cfg.label}
-        </Badge>
+        <div className="flex items-center gap-2">
+          <span
+            className={cn(
+              "inline-flex h-2 w-2 rounded-full",
+              cfg.dotClassName,
+            )}
+          />
+          <Badge
+            variant="outline"
+            className={cn("text-xs font-semibold px-2.5 py-0.5", cfg.className)}
+          >
+            {cfg.label}
+          </Badge>
+        </div>
       </div>
 
       {/* Route pill */}
