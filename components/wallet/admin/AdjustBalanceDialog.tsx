@@ -94,8 +94,6 @@ function AdjustForm({
     direction === "credit" ? target.balance + amount : target.balance - amount;
   const wouldGoNegative = direction === "debit" && projected < 0;
 
-  const canReview = amountValid && reasonValid && !wouldGoNegative;
-
   const review = () => {
     setError(null);
 
@@ -344,7 +342,7 @@ function AdjustForm({
         <Button type="button" variant="ghost" onClick={onDone} disabled={pending}>
           Cancel
         </Button>
-        <Button type="button" onClick={review} disabled={!canReview || pending}>
+        <Button type="button" onClick={review} disabled={pending}>
           Review
         </Button>
       </DialogFooter>
