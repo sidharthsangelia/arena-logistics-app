@@ -5,7 +5,7 @@
 // permanent real estate — and worth a refresh control, because a top-up is
 // credited by a Razorpay webhook that lands after the page was rendered.
 
-import { useState, useTransition } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { RefreshCw, Wallet } from "lucide-react";
 import { toast } from "sonner";
@@ -17,6 +17,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { refreshWalletBalanceAction } from "@/actions/wallet/refreshWalletBalance.action";
+import { onWalletChanged } from "@/utils/wallet/events";
 import { resolveLowBalanceThreshold } from "@/utils/wallet/config";
 import { cn } from "@/lib/utils";
 import { formatMoney } from "@/utils/format";
@@ -44,18 +45,25 @@ export function WalletBalanceChip({
   const amount = Number(current);
   const isLow = exists && Number.isFinite(amount) && amount < resolveLowBalanceThreshold();
 
-  const handleRefresh = () => {
+  // Latest on-screen value, read from inside the async refresh without making it
+  // a dependency of the memoised callback.
+  const currentRef = useRef(current);
+  currentRef.current = current;
+
+  // Pull the true balance from the DB. `silent` refreshes come from a wallet
+  // change the user just triggered elsewhere (a booking, a top-up) — the chip
+  // updating in place is feedback enough, so they skip the toast. The manual
+  // button is not silent: it confirms out loud when the number actually moved.
+  const runRefresh = useCallback((options?: { silent?: boolean }) => {
     startTransition(async () => {
       const result = await refreshWalletBalanceAction();
 
       if (!result.ok) {
-        toast.error(result.error);
+        if (!options?.silent) toast.error(result.error);
         return;
       }
 
-      // Only shout when the number actually moved. A refresh that confirms what
-      // was already on screen is the common case and deserves no toast.
-      if (result.balance !== current) {
+      if (!options?.silent && result.balance !== currentRef.current) {
         toast.success(
           `Balance updated to ${formatMoney(result.balance, result.currency)}`,
         );
@@ -63,7 +71,13 @@ export function WalletBalanceChip({
 
       setRefreshed(result.balance);
     });
-  };
+  }, []);
+
+  const handleRefresh = () => runRefresh();
+
+  // Stay fresh on its own: whenever money is added or spent anywhere in the app
+  // (this tab or another of the same user's), re-read the balance immediately.
+  useEffect(() => onWalletChanged(() => runRefresh({ silent: true })), [runRefresh]);
 
   return (
     <TooltipProvider delayDuration={200}>

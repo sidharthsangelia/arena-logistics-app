@@ -40,6 +40,7 @@ import { DeliveryBillingStep } from "./steps/DeliveryBillingStep";
 import { createShipmentAction } from "@/actions/book/createShipment.action";
 import ShipmentDetailsStep from "./steps/ShipmentDetailStep";
 import { TopUpModal } from "@/components/wallet/TopUpModal";
+import { notifyWalletChanged } from "@/utils/wallet/events";
 
 // Steps validated against RHF-registered fields via getValues() + a zod schema,
 // keyed by the step's stable key (the list is dynamic — see useBookingWizard).
@@ -246,6 +247,11 @@ export default function BookingWizard({
         // Booking is now a real Shipment — the draft has served its purpose.
         // Fire-and-forget: a failed cleanup shouldn't block the success screen.
         void clearBookingDraft();
+        // The debit already committed server-side; refresh the header chip now
+        // so the spent balance shows without waiting for a manual refresh. A
+        // skipPayment org spends nothing, but re-reading a still-correct number
+        // is harmless.
+        notifyWalletChanged();
         setSubmitted({
           shipmentId: result.shipmentId,
           shipmentNumber: result.shipmentNumber,

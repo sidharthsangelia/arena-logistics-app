@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/dialog";
 import { createTopUpOrderAction } from "@/actions/wallet/createTopUpOrder.action";
 import { verifyTopUpPaymentAction } from "@/actions/wallet/verifyTopUpPayment.action";
+import { notifyWalletChanged, notifyWalletChangedSoon } from "@/utils/wallet/events";
 
 declare global {
   interface Window {
@@ -114,13 +115,17 @@ export function TopUpModal({
 
           if (result.success) {
             setStage("idle");
+            // Money is credited — refresh the header chip immediately.
+            notifyWalletChanged();
             onSuccess?.(result.balance);
             onOpenChange(false);
           } else if ("pending" in result && result.pending) {
             // Signature checked out; webhook just hasn't landed in our
-            // short poll window yet. The money is safe — let the caller
-            // refresh balance a moment later rather than showing an error.
+            // short poll window yet. The money is safe — nudge the header
+            // chip a few times over the next few seconds so it reflects the
+            // credit the moment the webhook settles.
             setStage("idle");
+            notifyWalletChangedSoon();
             onSuccess?.("");
             onOpenChange(false);
           } else {
