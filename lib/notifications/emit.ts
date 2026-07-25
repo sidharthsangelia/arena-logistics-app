@@ -3,7 +3,11 @@ import "server-only";
 import * as Sentry from "@sentry/nextjs";
 
 import { prisma } from "@/utils/db";
-import type { NoticeSeverity, ShipmentStatus } from "@/generated/prisma";
+import type {
+  NoticeSeverity,
+  ShipmentStatus,
+  FirstMileStatus,
+} from "@/generated/prisma";
 import { NOTIFICATION_KIND_META, type NotificationKindKey } from "./config";
 
 /**
@@ -285,6 +289,62 @@ const TENANT_STATUS_COPY: Partial<
     title: "Cancelled",
     body: "This shipment has been cancelled. Talk to us if that was not expected.",
     severity: "WARNING",
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Tenant: their door-pickup (first-mile) leg moved
+// ---------------------------------------------------------------------------
+
+/**
+ * Posts the door → hub leg's progress to the tenant inbox. Reuses the
+ * SHIPMENT_STATUS kind — from the tenant's point of view this IS their shipment
+ * moving, just on the leg before the carrier takes over. Only the stages worth
+ * telling someone about carry copy; the rest no-op.
+ */
+export async function notifyFirstMileStatusChanged(
+  shipmentId: string,
+  status: FirstMileStatus,
+): Promise<void> {
+  try {
+    const copy = TENANT_FIRST_MILE_COPY[status];
+    if (!copy) return;
+
+    const shipment = await prisma.shipment.findUnique({
+      where: { id: shipmentId },
+      select: { orgId: true, shipmentNumber: true },
+    });
+    if (!shipment) return;
+
+    await emitNotification({
+      kind: "SHIPMENT_STATUS",
+      orgId: shipment.orgId,
+      title: `${shipment.shipmentNumber}: ${copy.title}`,
+      body: copy.body,
+      severity: copy.severity,
+      linkHref: `/shipments/${shipmentId}`,
+      shipmentId,
+    });
+  } catch (error) {
+    Sentry.captureException(error, {
+      tags: { location: "notifyFirstMileStatusChanged" },
+      extra: { shipmentId, status },
+    });
+  }
+}
+
+const TENANT_FIRST_MILE_COPY: Partial<
+  Record<FirstMileStatus, { title: string; body: string; severity: NoticeSeverity }>
+> = {
+  PICKED_UP: {
+    title: "Parcel picked up",
+    body: "A courier has collected your parcel and is taking it to our hub.",
+    severity: "INFO",
+  },
+  ARRIVED_AT_HUB: {
+    title: "Parcel reached our hub",
+    body: "Your parcel is at the carrier hub. We are now arranging the international leg.",
+    severity: "INFO",
   },
 };
 

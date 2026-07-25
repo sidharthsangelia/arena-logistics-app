@@ -74,6 +74,8 @@ export interface RateQuote {
   totalWithoutTax: number;
   tatDays: number;
   charges: Charge[];
+  /** Vendor's own courier/service id, when exposed (Shipmozo domestic). */
+  courierId?: string | null;
 }
 
 export interface VendorError {

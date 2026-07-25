@@ -42,6 +42,14 @@ export interface FirstMileHub {
   postalCode: string;
   country: string;
   countryCode: string; // ISO alpha-2
+  /**
+   * Consignee contact for the first-mile forward order (the parcel is delivered
+   * TO the hub). Phone is required by Shipmozo; it can be overridden per env
+   * with SHIPMOZO_HUB_PHONE / SHIPMOZO_HUB_CONTACT_NAME / SHIPMOZO_HUB_EMAIL.
+   */
+  contactName?: string;
+  phone?: string;
+  email?: string;
 }
 
 export const FIRST_MILE_HUBS: FirstMileHub[] = [
@@ -54,6 +62,7 @@ export const FIRST_MILE_HUBS: FirstMileHub[] = [
     postalCode: "110077",
     country: "India",
     countryCode: "IN",
+    contactName: "Arena Logistics Hub",
   },
 ];
 

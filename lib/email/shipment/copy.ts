@@ -1,6 +1,6 @@
 import "server-only";
 
-import { ShipmentStatus } from "@/generated/prisma";
+import { ShipmentStatus, FirstMileStatus } from "@/generated/prisma";
 import { EMAIL_MILESTONES, isEmailMilestone } from "./milestones";
 
 // Re-exported so existing importers (send.ts) keep a single import site.
@@ -133,6 +133,65 @@ export function getMilestoneCopy(
         ],
         nextSteps: [],
         showTracking: true,
+      };
+
+    default:
+      return null;
+  }
+}
+
+/**
+ * Copy for the door → hub (first-mile) leg. Only the two stages the sender
+ * actually cares about get an email: the courier collecting the parcel, and the
+ * parcel reaching the hub where the international leg begins. The in-between
+ * transit hop is intentionally silent for a leg this short.
+ *
+ * `ctx.trackingNumber` / `ctx.trackingUrl` here carry the FIRST-MILE courier's
+ * details, not the HAWB — the caller overrides them before rendering.
+ */
+export function getFirstMileMilestoneCopy(
+  status: FirstMileStatus,
+  ctx: ShipmentEmailContext,
+): MilestoneCopy | null {
+  switch (status) {
+    case FirstMileStatus.PICKED_UP:
+      return {
+        subject: `Your parcel has been picked up (${ctx.shipmentNumber})`,
+        preheader: `A courier has collected shipment ${ctx.shipmentNumber} and is taking it to our hub.`,
+        headline: "Your parcel has been picked up",
+        statusLabel: "Picked up",
+        paragraphs: [
+          `Good news. A local courier has collected your parcel for shipment ${ctx.shipmentNumber} from ${ctx.originLabel}.`,
+          `It is now on its way to our carrier hub, where your international shipment begins. We will let you know as soon as it arrives, and your onward tracking details will follow from there.`,
+          ctx.trackingNumber
+            ? `You can follow the pickup leg using the tracking details below.`
+            : `If anything comes up in the meantime, just reply to this email and a real person will help.`,
+        ],
+        nextSteps: [
+          "The courier delivers your parcel to our hub",
+          "We confirm arrival and prepare the international leg",
+          "You receive onward tracking details",
+        ],
+        showTracking: true,
+      };
+
+    case FirstMileStatus.ARRIVED_AT_HUB:
+      return {
+        subject: `Your parcel has reached our hub (${ctx.shipmentNumber})`,
+        preheader: `Shipment ${ctx.shipmentNumber} has arrived at the hub and the international leg is next.`,
+        headline: "Your parcel has reached our hub",
+        statusLabel: "Arrived at hub",
+        paragraphs: [
+          `Your parcel for shipment ${ctx.shipmentNumber} has arrived safely at our carrier hub.`,
+          `Our team now takes over to book the international carrier and prepare your airway bill. We will keep you posted at every step from here, and your tracking details will be on their way once the airway bill is issued.`,
+          `As always, reply to this email if there is anything you would like to know.`,
+        ],
+        nextSteps: [
+          "We confirm your shipment with the international carrier",
+          "We generate and share your airway bill",
+          "You can follow the journey to the destination",
+        ],
+        showTracking: false,
       };
 
     default:

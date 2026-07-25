@@ -1,7 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/utils/db";
-import { ShipmentStatus } from "@/generated/prisma";
+import { ShipmentStatus, FirstMileStatus } from "@/generated/prisma";
 import Link from "next/link";
 
 import {
@@ -28,6 +28,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { PackageBoxList } from "@/components/booking/PackageBoxList";
+import { FirstMilePickupCard } from "@/components/booking/FirstMilePickupCard";
 import {
   Tooltip,
   TooltipContent,
@@ -74,6 +75,19 @@ async function getShipment(id: string) {
       hawbNumber: true,
       carrierAirline: true,
       vendorTrackingUrl: true,
+
+      // First-mile (door → hub) leg — rendered only when opted in
+      pickupIncluded: true,
+      firstMileStatus: true,
+      firstMileVendorName: true,
+      firstMileCharge: true,
+      firstMileHubLabel: true,
+      firstMileTrackingNumber: true,
+      firstMileTrackingUrl: true,
+      firstMilePickupScheduledAt: true,
+      firstMilePickedUpAt: true,
+      firstMileHubArrivedAt: true,
+      firstMileStatusUpdatedAt: true,
 
       client: {
         select: {
@@ -874,6 +888,27 @@ export default async function ShipmentDetailPage({
               </div>
             </CardContent>
           </Card>
+
+          {/* First-mile (door → hub) pickup leg — only when opted in.
+              Legacy rows may have no status yet; default to Scheduled. */}
+          {s.pickupIncluded && (
+            <FirstMilePickupCard
+              status={s.firstMileStatus ?? FirstMileStatus.SCHEDULED}
+              hubLabel={s.firstMileHubLabel}
+              courierName={s.firstMileVendorName}
+              charge={dec(s.firstMileCharge)}
+              currency={s.currency ?? "INR"}
+              trackingNumber={s.firstMileTrackingNumber}
+              trackingUrl={s.firstMileTrackingUrl}
+              pickupFromLabel={[s.pickupAddress.city, s.pickupAddress.postalCode]
+                .filter(Boolean)
+                .join(" ")}
+              scheduledAt={s.firstMilePickupScheduledAt}
+              pickedUpAt={s.firstMilePickedUpAt}
+              hubArrivedAt={s.firstMileHubArrivedAt}
+              updatedAt={s.firstMileStatusUpdatedAt}
+            />
+          )}
 
           {(s.hawbNumber || s.mawbNumber) && (
             <Card className="overflow-hidden">

@@ -199,6 +199,9 @@ export class ShipmozoDomesticAdapter extends BaseVendorAdapter<
       totalWithoutTax,
       tatDays: this.parseTatDays(product.estimated_delivery),
       charges,
+      // Shipmozo's courier id — carried through so an ops booking can request
+      // this exact courier via assign-courier instead of auto-assigning.
+      courierId: product.id != null ? String(product.id) : null,
     };
   }
 

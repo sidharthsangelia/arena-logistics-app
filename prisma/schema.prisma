@@ -577,6 +577,16 @@ enum ShipmentStatus {
   ON_HOLD
 }
 
+// The door → carrier-hub leg, when a customer opts into door pickup. Linear:
+// ops advances it one stage at a time. The main ShipmentStatus lifecycle covers
+// everything from the hub onward, so this stops at ARRIVED_AT_HUB.
+enum FirstMileStatus {
+  SCHEDULED // pickup booked with the domestic courier, not yet collected
+  PICKED_UP // courier has collected the parcel from the sender's door
+  IN_TRANSIT_TO_HUB // on the way to the carrier hub
+  ARRIVED_AT_HUB // reached the hub; the international leg takes over from here
+}
+
 enum ShipmentDocType {
   INVOICE // mandatory, fresh per shipment
   AIRWAY_BILL
@@ -830,6 +840,32 @@ model Shipment {
   firstMileCharge         Decimal? @db.Decimal(14, 4)
   firstMileHubLabel       String? // which hub the parcel is routed to (e.g. "Dwarka, New Delhi")
   firstMileChargeSnapshot Json? // full first-mile price breakdown shown at selection time
+
+  // ── first-mile leg tracking (door → hub) ──
+  // Only meaningful when pickupIncluded. The door→hub courier moves on its own
+  // schedule ahead of the international leg, so it gets a small, separate
+  // lifecycle that ops advances by hand (there is no domestic-courier tracking
+  // adapter yet). The main ShipmentStatus only takes over once the parcel has
+  // reached the hub. Set to SCHEDULED at booking time; null on shipments with no
+  // door pickup. arrivedAtHub is the trigger point for pay-on-arrival collection.
+  firstMileStatus            FirstMileStatus? // null = no door pickup on this shipment
+  firstMileTrackingNumber    String? // domestic courier AWB, once ops has it
+  firstMileTrackingUrl       String? // courier's public tracking page, if any
+  firstMilePickupScheduledAt DateTime? // when the courier is booked to collect
+  firstMilePickedUpAt        DateTime? // stamped when marked PICKED_UP
+  firstMileHubArrivedAt      DateTime? // stamped when marked ARRIVED_AT_HUB
+  firstMileStatusUpdatedAt   DateTime? // last first-mile status change
+
+  // Shipmozo domestic order booked from the ops dashboard (push-order → assign
+  // courier → schedule pickup). The order id is Shipmozo's handle for label /
+  // cancel / detail lookups; the AWB it returns is stored in
+  // firstMileTrackingNumber above and drives the tracking webhook match.
+  firstMileShipmozoOrderId String? // Shipmozo order_id, once ops books the pickup
+  firstMileBookedAt        DateTime? // when ops pushed the order to Shipmozo
+  // In Shipmozo a "warehouse" is the pickup point, so we register one per
+  // booking from the customer's pickup address (forward order: warehouse =
+  // pickup, consignee = our hub). Stored so a retry reuses it, never duplicates.
+  firstMileShipmozoWarehouseId String?
 
   // Payment collected on arrival at the hub instead of up-front — set for
   // orgs with payments turned off (Org.skipPayment). The shipment still

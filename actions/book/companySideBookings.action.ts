@@ -10,6 +10,12 @@ import {
   type ShipmentEmailResult,
 } from "@/lib/email/shipment/send";
 import { notifyShipmentStatusChanged } from "@/lib/notifications/emit";
+import {
+  type UpdateFirstMileInput,
+  type UpdateFirstMileResult,
+} from "@/lib/booking/firstMileStatus";
+import { applyFirstMileTransition } from "@/lib/booking/firstMileTransition";
+import * as Sentry from "@sentry/nextjs";
 
 const ARENA_ORG_ID = process.env.ARENA_ORG_ID!;
 
@@ -106,6 +112,59 @@ export async function updateShipmentStatus(
     console.error("[updateShipmentStatus]", err);
     return { success: false, message: "Failed to update status. Please try again." };
   }
+}
+
+// ---------------------------------------------------------------------------
+// Update the first-mile (door → hub) leg
+//
+// Ops drive this small linear leg by hand (there is no domestic-courier tracking
+// adapter yet). Advancing to PICKED_UP / ARRIVED_AT_HUB stamps the matching
+// timestamp once, logs a note on the main timeline for the audit trail, and — on
+// the two milestones that matter — emails the customer and posts to their inbox.
+// ARRIVED_AT_HUB is also the moment pay-on-arrival bookings become collectable.
+// ---------------------------------------------------------------------------
+
+export async function updateFirstMileStatus(
+  input: UpdateFirstMileInput,
+): Promise<UpdateFirstMileResult> {
+  try {
+    const { userId } = await assertArenaStaff();
+
+    // All the side effects (timestamps, timeline note, customer email + inbox,
+    // revalidation) live in the shared transition so the webhook behaves
+    // identically. Ops may correct the stage in either direction, so this path
+    // does not set onlyForward.
+    const result = await applyFirstMileTransition(input.shipmentId, input.status, {
+      changedByType: "OPS",
+      changedById: userId,
+      trackingNumber: input.trackingNumber ?? null,
+      trackingUrl: input.trackingUrl ?? null,
+      pickupScheduledAt: parseDateInput(input.pickupScheduledAt),
+      noteSuffix: input.trackingNumber?.trim()
+        ? `tracking ${input.trackingNumber.trim()}`
+        : undefined,
+    });
+
+    if (!result.success) return result;
+    return { success: true, emailed: result.emailed };
+  } catch (err) {
+    Sentry.captureException(err, {
+      tags: { location: "updateFirstMileStatus" },
+      extra: { shipmentId: input.shipmentId, status: input.status },
+    });
+    return {
+      success: false,
+      message: "Failed to update the pickup leg. Please try again.",
+    };
+  }
+}
+
+/** yyyy-mm-dd (or any parseable date) → Date at local midnight, else null. */
+function parseDateInput(value: string | null | undefined): Date | null {
+  const trimmed = value?.trim();
+  if (!trimmed) return null;
+  const d = new Date(trimmed);
+  return Number.isNaN(d.getTime()) ? null : d;
 }
 
 // ---------------------------------------------------------------------------

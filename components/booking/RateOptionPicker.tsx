@@ -67,6 +67,7 @@ export function quoteToServiceOption(q: RateQuote): ServiceOption {
     transitDays: q.tatDays ?? 0,
     price: q.totalWithTax,
     currency: q.currency ?? "INR",
+    courierId: q.courierId ?? null,
   };
 }
 

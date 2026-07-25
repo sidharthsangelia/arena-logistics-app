@@ -1,7 +1,7 @@
 import { prisma } from "@/utils/db";
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { ShipmentStatus } from "@/generated/prisma";
+import { ShipmentStatus, FirstMileStatus } from "@/generated/prisma";
 
 import {
   ArrowLeft,
@@ -49,6 +49,9 @@ import { CarrierTrackingPanel } from "@/components/booking/arena/CarrierTracking
 import { DocumentManager } from "@/components/booking/arena/DocumentManager";
 import { CopyButton } from "@/components/booking/arena/CopyButton";
 import { PackageBoxList } from "@/components/booking/PackageBoxList";
+import { FirstMilePickupCard } from "@/components/booking/FirstMilePickupCard";
+import { FirstMileStatusPanel } from "@/components/booking/arena/FirstMileStatusPanel";
+import { FirstMilePickupBooking } from "@/components/booking/arena/FirstMilePickupBooking";
 import { KycDocsCard } from "@/components/booking/arena/KycDocsCard";
 import { PaymentCollectionCard } from "@/components/booking/arena/PaymentCollectionCard";
 import { toCollectionRow } from "@/lib/wallet/adminLedger";
@@ -390,6 +393,9 @@ function NeedsAttention({
   missingHsnCount,
   missingKycCount,
   hasAwb,
+  pickupIncluded,
+  firstMileArrivedAtHub,
+  firstMileHasTracking,
 }: {
   status: ShipmentStatus;
   paymentDeferred: boolean;
@@ -403,6 +409,9 @@ function NeedsAttention({
   missingHsnCount: number;
   missingKycCount: number;
   hasAwb: boolean;
+  pickupIncluded: boolean;
+  firstMileArrivedAtHub: boolean;
+  firstMileHasTracking: boolean;
 }) {
   const closed = status === "DELIVERED" || status === "CANCELLED";
   const items: AttnItem[] = [];
@@ -432,14 +441,38 @@ function NeedsAttention({
       text: "This shipment is on hold.",
     });
 
-  // Drops off once the money is in. Nagging about a payment that has already
-  // been recorded trains ops to ignore this panel.
-  if (paymentDeferred && !paymentSettled && !closed)
+  // Door pickup booked but no courier tracking captured — ops can't tell the
+  // customer where the parcel is on the first leg. Drops off once it's at the
+  // hub (the leg is done) or the shipment is closed.
+  if (
+    pickupIncluded &&
+    !firstMileArrivedAtHub &&
+    !firstMileHasTracking &&
+    !closed
+  )
     items.push({
-      tone: "warn",
-      icon: Banknote,
-      text: "Pay on arrival. Collect payment when the parcel reaches the hub, then record it below.",
+      tone: "info",
+      icon: Truck,
+      text: "Door pickup is booked but no courier tracking is recorded. Add it so the customer can follow the pickup leg.",
     });
+
+  // Drops off once the money is in. Nagging about a payment that has already
+  // been recorded trains ops to ignore this panel. Once the door-pickup parcel
+  // is at the hub, this is the moment to actually collect, so the copy sharpens.
+  if (paymentDeferred && !paymentSettled && !closed)
+    items.push(
+      pickupIncluded && firstMileArrivedAtHub
+        ? {
+            tone: "warn",
+            icon: Banknote,
+            text: "The parcel has arrived at the hub. Collect the pay-on-arrival amount now, then record it below.",
+          }
+        : {
+            tone: "warn",
+            icon: Banknote,
+            text: "Pay on arrival. Collect payment when the parcel reaches the hub, then record it below.",
+          },
+    );
 
   if (!shipmentType)
     items.push({
@@ -690,6 +723,13 @@ export default async function BookingDetailPage({
   );
   const hasAwb = Boolean(s.hawbNumber || s.mawbNumber);
   const isMultipiece = totalBoxes > 1;
+  // Door pickup drives all the first-mile UI. Legacy rows created before the
+  // first-mile lifecycle existed have a null status, so default it to SCHEDULED
+  // at render — pickupIncluded is the real signal, not the presence of a status.
+  const hasFirstMile = s.pickupIncluded;
+  const firstMileStatus = s.firstMileStatus ?? FirstMileStatus.SCHEDULED;
+  const firstMileArrivedAtHub =
+    firstMileStatus === FirstMileStatus.ARRIVED_AT_HUB;
   const missingKycCount = s.shipmentType
     ? requiredKycDocTypes(s.shipmentType).filter(
         (dt) => !kycDocs.some((d) => d.docType === dt),
@@ -776,6 +816,9 @@ export default async function BookingDetailPage({
             missingHsnCount={missingHsnCount}
             missingKycCount={missingKycCount}
             hasAwb={hasAwb}
+            pickupIncluded={s.pickupIncluded}
+            firstMileArrivedAtHub={firstMileArrivedAtHub}
+            firstMileHasTracking={Boolean(s.firstMileTrackingNumber)}
           />
 
           {/* Money owed on this booking, if it shipped before paying */}
@@ -783,6 +826,29 @@ export default async function BookingDetailPage({
             <PaymentCollectionCard
               collection={collection}
               isArenaAdmin={isArenaAdmin}
+            />
+          )}
+
+          {/* First-mile (door → hub) pickup leg — only when opted in */}
+          {hasFirstMile && (
+            <FirstMilePickupCard
+              status={firstMileStatus}
+              hubLabel={s.firstMileHubLabel}
+              courierName={s.firstMileVendorName}
+              charge={s.firstMileCharge ? num(s.firstMileCharge) : null}
+              currency={s.currency}
+              trackingNumber={s.firstMileTrackingNumber}
+              trackingUrl={s.firstMileTrackingUrl}
+              pickupFromLabel={[
+                s.pickupAddress.city,
+                s.pickupAddress.postalCode,
+              ]
+                .filter(Boolean)
+                .join(" ")}
+              scheduledAt={s.firstMilePickupScheduledAt}
+              pickedUpAt={s.firstMilePickedUpAt}
+              hubArrivedAt={s.firstMileHubArrivedAt}
+              updatedAt={s.firstMileStatusUpdatedAt}
             />
           )}
 
@@ -1062,6 +1128,44 @@ export default async function BookingDetailPage({
               awbUpdatedAt: s.awbUpdatedAt,
             }}
           />
+
+          {/* Book the pickup with Shipmozo, then advance the leg by hand if
+              the webhook has not moved it. The booking button needs only that
+              door pickup was opted into — it does not depend on a first-mile
+              status existing yet (legacy rows may have none). */}
+          {s.pickupIncluded && (
+            <FirstMilePickupBooking
+              shipmentId={s.id}
+              courierName={s.firstMileVendorName}
+              charge={s.firstMileCharge ? num(s.firstMileCharge) : null}
+              currency={s.currency}
+              pickupFromLabel={[s.pickupAddress.city, s.pickupAddress.postalCode]
+                .filter(Boolean)
+                .join(" ")}
+              pickupContact={s.pickupAddress.contactName}
+              hubLabel={s.firstMileHubLabel}
+              weightKg={num(s.totalActualWeightKg)}
+              boxes={totalBoxes}
+              booked={{
+                awb: s.firstMileTrackingNumber,
+                orderId: s.firstMileShipmozoOrderId,
+                bookedAt: s.firstMileBookedAt ? fmtDatetime(s.firstMileBookedAt) : null,
+              }}
+            />
+          )}
+
+          {hasFirstMile && (
+            <FirstMileStatusPanel
+              shipmentId={s.id}
+              initial={{
+                status: firstMileStatus,
+                trackingNumber: s.firstMileTrackingNumber,
+                trackingUrl: s.firstMileTrackingUrl,
+                pickupScheduledAt: s.firstMilePickupScheduledAt,
+                updatedAt: s.firstMileStatusUpdatedAt,
+              }}
+            />
+          )}
 
           {/* Quick contact — pinned for fast follow-up on holds / docs */}
           <Card>

@@ -80,6 +80,13 @@ export interface ServiceOption {
   transitDays: number;
   price: number;
   currency: string;
+  /**
+   * Vendor's own courier id for this option, when exposed. For a first-mile
+   * Shipmozo option this is the domestic courier id, snapshotted so ops can
+   * later book the exact courier the customer selected. Optional/null for
+   * international services and legacy rows.
+   */
+  courierId?: string | null;
 }
 
 export interface FileMeta {

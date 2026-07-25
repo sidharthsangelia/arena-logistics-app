@@ -39,6 +39,7 @@ import {
   ShipmentStatus,
   ShipmentDocType,
   PartyType,
+  FirstMileStatus,
 } from "@/generated/prisma";
 import type {
   BookingFormData,
@@ -599,6 +600,14 @@ export async function createShipmentAction(
               data.pickupIncluded && data.firstMile
                 ? ({ ...data.firstMile, price: firstMileCharge } as unknown as object)
                 : undefined,
+
+            // Door-pickup shipments enter the first-mile leg at SCHEDULED; ops
+            // advance it by hand from the booking page. Left null when there is
+            // no door pickup, so the leg's UI never shows on those shipments.
+            firstMileStatus: data.pickupIncluded
+              ? FirstMileStatus.SCHEDULED
+              : null,
+            firstMileStatusUpdatedAt: data.pickupIncluded ? new Date() : null,
 
             pickupAddressId: pickupAddress.id,
             deliveryAddressId: deliveryAddress.id,

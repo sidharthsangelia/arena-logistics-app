@@ -96,6 +96,13 @@ export interface RateQuote {
   totalWithoutTax: number;
   tatDays: number;           // transit days; 0 = unknown
   charges: CanonicalChargeBreakdown[];
+  /**
+   * Vendor's own id for the selected courier/service, when the vendor exposes
+   * one (Shipmozo domestic returns a numeric courier id). Kept so a later
+   * booking call can request this exact courier instead of re-guessing. Null
+   * for vendors that don't surface an id.
+   */
+  courierId?: string | null;
 }
 
 /**
