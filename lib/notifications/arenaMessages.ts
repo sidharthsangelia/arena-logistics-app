@@ -1,14 +1,25 @@
 import "server-only";
 
+import { unstable_cache } from "next/cache";
+
 import { prisma } from "@/utils/db";
 import type { NoticeSeverity } from "@/generated/prisma";
 import type { MessageTarget } from "./messageSchema";
 
+/** Cache tag for the composer's recipient list. */
+export const ARENA_MESSAGE_RECIPIENTS_TAG = "arena-message-recipients";
+
+/** Cache tag for the "Already sent" history; the send action updates it. */
+export const ARENA_SENT_MESSAGES_TAG = "arena-sent-messages";
+
 /**
  * Reads for the targeted inbox message composer on the arena notices screen.
  *
- * Uncached. Ops is about to send something to real customers, so the recipient list
- * has to be the one that exists right now, not one from a minute ago.
+ * The recipient list is cached for 30s so reopening the inbox tab is instant. This is
+ * only the list ops SEES: the send itself calls resolveTargetOrgIds, which is
+ * uncached, so an org onboarded in the last half minute is still written to on an
+ * "Everyone" send even if the checklist has not caught up. The cached copy can never
+ * cause a message to reach the wrong people; at worst the visible count lags briefly.
  */
 
 export interface MessageRecipientOption {
@@ -19,26 +30,30 @@ export interface MessageRecipientOption {
   email: string | null;
 }
 
-export async function getMessageRecipients(): Promise<MessageRecipientOption[]> {
-  const orgs = await prisma.org.findMany({
-    where: { deletedAt: null },
-    select: {
-      id: true,
-      name: true,
-      companyName: true,
-      email: true,
-      isBusinessAssociate: true,
-    },
-    orderBy: [{ isBusinessAssociate: "desc" }, { name: "asc" }],
-  });
+export const getMessageRecipients = unstable_cache(
+  async (): Promise<MessageRecipientOption[]> => {
+    const orgs = await prisma.org.findMany({
+      where: { deletedAt: null },
+      select: {
+        id: true,
+        name: true,
+        companyName: true,
+        email: true,
+        isBusinessAssociate: true,
+      },
+      orderBy: [{ isBusinessAssociate: "desc" }, { name: "asc" }],
+    });
 
-  return orgs.map((org) => ({
-    id: org.id,
-    label: org.companyName?.trim() || org.name,
-    isBusinessAssociate: org.isBusinessAssociate,
-    email: org.email?.trim() || null,
-  }));
-}
+    return orgs.map((org) => ({
+      id: org.id,
+      label: org.companyName?.trim() || org.name,
+      isBusinessAssociate: org.isBusinessAssociate,
+      email: org.email?.trim() || null,
+    }));
+  },
+  ["arena-message-recipients"],
+  { tags: [ARENA_MESSAGE_RECIPIENTS_TAG], revalidate: 30 },
+);
 
 /**
  * Turns a target choice into concrete org ids.
@@ -96,49 +111,59 @@ export interface SentMessageSummary {
  * notification would be tidier, but it would be a column that exists only to
  * support this screen, and second-level grouping is exact for anything a human
  * composes and sends by hand.
+ *
+ * Cached for 30s because this is the heavy read on the inbox tab: it over-fetches
+ * up to `limit * 40` rows and groups them in memory. Two things move the numbers,
+ * a new send and a recipient opening a message, and neither needs to be instant
+ * here. A send does call updateTag(ARENA_SENT_MESSAGES_TAG) so it appears the
+ * moment it goes out; read counts simply catch up on the next revalidation.
  */
-export async function listSentMessages(limit = 25): Promise<SentMessageSummary[]> {
-  const rows = await prisma.notification.findMany({
-    where: { kind: "ARENA_MESSAGE" },
-    select: {
-      id: true,
-      title: true,
-      body: true,
-      severity: true,
-      linkHref: true,
-      createdAt: true,
-      orgId: true,
-      _count: { select: { receipts: true } },
-    },
-    orderBy: { createdAt: "desc" },
-    // Over-fetch, because grouping collapses many rows into one entry and we want
-    // `limit` entries out rather than `limit` rows in.
-    take: limit * 40,
-  });
+export const listSentMessages = unstable_cache(
+  async (limit = 25): Promise<SentMessageSummary[]> => {
+    const rows = await prisma.notification.findMany({
+      where: { kind: "ARENA_MESSAGE" },
+      select: {
+        id: true,
+        title: true,
+        body: true,
+        severity: true,
+        linkHref: true,
+        createdAt: true,
+        orgId: true,
+        _count: { select: { receipts: true } },
+      },
+      orderBy: { createdAt: "desc" },
+      // Over-fetch, because grouping collapses many rows into one entry and we want
+      // `limit` entries out rather than `limit` rows in.
+      take: limit * 40,
+    });
 
-  const groups = new Map<string, SentMessageSummary>();
+    const groups = new Map<string, SentMessageSummary>();
 
-  for (const row of rows) {
-    const bucket = `${row.title}|${row.body ?? ""}|${Math.floor(row.createdAt.getTime() / 1000)}`;
-    const existing = groups.get(bucket);
+    for (const row of rows) {
+      const bucket = `${row.title}|${row.body ?? ""}|${Math.floor(row.createdAt.getTime() / 1000)}`;
+      const existing = groups.get(bucket);
 
-    if (existing) {
-      existing.orgCount += 1;
-      existing.readCount += row._count.receipts > 0 ? 1 : 0;
-      continue;
+      if (existing) {
+        existing.orgCount += 1;
+        existing.readCount += row._count.receipts > 0 ? 1 : 0;
+        continue;
+      }
+
+      groups.set(bucket, {
+        key: row.id,
+        title: row.title,
+        body: row.body,
+        severity: row.severity,
+        linkHref: row.linkHref,
+        sentAt: row.createdAt.toISOString(),
+        orgCount: 1,
+        readCount: row._count.receipts > 0 ? 1 : 0,
+      });
     }
 
-    groups.set(bucket, {
-      key: row.id,
-      title: row.title,
-      body: row.body,
-      severity: row.severity,
-      linkHref: row.linkHref,
-      sentAt: row.createdAt.toISOString(),
-      orgCount: 1,
-      readCount: row._count.receipts > 0 ? 1 : 0,
-    });
-  }
-
-  return [...groups.values()].slice(0, limit);
-}
+    return [...groups.values()].slice(0, limit);
+  },
+  ["arena-sent-messages"],
+  { tags: [ARENA_SENT_MESSAGES_TAG], revalidate: 30 },
+);

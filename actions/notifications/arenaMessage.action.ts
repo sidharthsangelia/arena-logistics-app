@@ -17,11 +17,14 @@
  */
 
 import * as Sentry from "@sentry/nextjs";
-import { revalidatePath } from "next/cache";
+import { revalidatePath, updateTag } from "next/cache";
 
 import { ArenaForbiddenError, requireArenaMember } from "@/utils/arena-auth";
 import { notifyArenaMessage } from "@/lib/notifications/emit";
-import { resolveTargetOrgIds } from "@/lib/notifications/arenaMessages";
+import {
+  ARENA_SENT_MESSAGES_TAG,
+  resolveTargetOrgIds,
+} from "@/lib/notifications/arenaMessages";
 import {
   arenaMessageSchema,
   type ArenaMessageInput,
@@ -91,6 +94,9 @@ export async function sendArenaMessage(
       });
     }
 
+    // Read-your-writes so the send shows up in "Already sent" straight away
+    // rather than waiting out the cache's 30s window.
+    updateTag(ARENA_SENT_MESSAGES_TAG);
     revalidatePath(ADMIN_PATH);
     return { ok: true, delivered, emailed };
   } catch (error) {

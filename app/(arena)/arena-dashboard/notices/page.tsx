@@ -14,8 +14,11 @@
  * the moment it lands.
  */
 
+import { Suspense } from "react";
+
 import { listSystemNoticesForAdmin } from "@/lib/notices/queries";
 import { SystemNoticesManager } from "@/components/notices/admin/SystemNoticesManager";
+import { SystemNoticesManagerSkeleton } from "@/components/notices/admin/SystemNoticesManagerSkeleton";
 import { NoticeModeSwitch } from "@/components/notices/admin/NoticeModeSwitch";
 import {
   getMessageRecipients,
@@ -23,6 +26,7 @@ import {
 } from "@/lib/notifications/arenaMessages";
 import { ArenaMessageComposer } from "@/components/notifications/admin/ArenaMessageComposer";
 import { SentMessagesList } from "@/components/notifications/admin/SentMessagesList";
+import { InboxPanelSkeleton } from "@/components/notifications/admin/InboxPanelSkeleton";
 
 type RawSearchParams = Record<string, string | string[] | undefined>;
 
@@ -51,7 +55,22 @@ export default async function ArenaNoticesPage({
         <NoticeModeSwitch mode={mode} />
       </header>
 
-      {mode === "banner" ? <BannerPanel /> : <InboxPanel />}
+      {/* Only the panel sits behind Suspense; the header and mode switch above stay
+          mounted, so clicking a tab swaps just this region instead of blanking the
+          whole screen. Keyed by mode so switching re-shows the matching skeleton
+          immediately while the new panel's queries resolve. */}
+      <Suspense
+        key={mode}
+        fallback={
+          mode === "banner" ? (
+            <SystemNoticesManagerSkeleton />
+          ) : (
+            <InboxPanelSkeleton />
+          )
+        }
+      >
+        {mode === "banner" ? <BannerPanel /> : <InboxPanel />}
+      </Suspense>
     </div>
   );
 }

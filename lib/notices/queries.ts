@@ -7,6 +7,15 @@ import type { AdminSystemNoticeDTO, SystemNoticeDTO } from "./types";
 /** Revalidation tag. Every notice mutation invalidates this one key. */
 export const SYSTEM_NOTICES_TAG = "system-notices";
 
+/**
+ * Admin-list cache tag, separate from the tenant one so the two can be
+ * invalidated with different urgency. Every notice mutation calls
+ * `updateTag(ADMIN_SYSTEM_NOTICES_TAG)`, which is read-your-writes: the next
+ * render blocks for fresh data rather than serving stale, so a save still shows
+ * on the admin screen the instant it lands.
+ */
+export const ADMIN_SYSTEM_NOTICES_TAG = "admin-system-notices";
+
 const NOTICE_SELECT = {
   id: true,
   title: true,
@@ -72,34 +81,40 @@ export const getActiveSystemNotices = unstable_cache(
 // ---------------------------------------------------------------------------
 // listSystemNoticesForAdmin
 //
-// Uncached on purpose. The Arena admin screen is the one place that must show
-// the true current state the instant a save lands, so it reads straight from
-// the DB rather than sharing the tenant cache.
+// Cached under its own tag so switching back to this screen, or refreshing it,
+// does not pay for the DB round trip every time. The row content only changes
+// when ops mutates a notice, and every mutation calls
+// `updateTag(ADMIN_SYSTEM_NOTICES_TAG)` (read-your-writes), so a save is still
+// reflected here immediately. The 30s revalidate is a safety net, nothing more:
+// the admin table computes LIVE/SCHEDULED status client-side from these dates,
+// so a scheduled window opening does not need a fresh read to show correctly.
 // ---------------------------------------------------------------------------
 
-export async function listSystemNoticesForAdmin(): Promise<
-  AdminSystemNoticeDTO[]
-> {
-  const notices = await prisma.systemNotice.findMany({
-    where: { deletedAt: null },
-    select: {
-      ...NOTICE_SELECT,
-      createdBy: true,
-      updatedBy: true,
-      createdAt: true,
-      updatedAt: true,
-    },
-    orderBy: [{ isActive: "desc" }, { createdAt: "desc" }],
-  });
+export const listSystemNoticesForAdmin = unstable_cache(
+  async (): Promise<AdminSystemNoticeDTO[]> => {
+    const notices = await prisma.systemNotice.findMany({
+      where: { deletedAt: null },
+      select: {
+        ...NOTICE_SELECT,
+        createdBy: true,
+        updatedBy: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+      orderBy: [{ isActive: "desc" }, { createdAt: "desc" }],
+    });
 
-  return notices.map((notice) => ({
-    ...serialise(notice),
-    createdBy: notice.createdBy,
-    updatedBy: notice.updatedBy,
-    createdAt: notice.createdAt.toISOString(),
-    updatedAt: notice.updatedAt.toISOString(),
-  }));
-}
+    return notices.map((notice) => ({
+      ...serialise(notice),
+      createdBy: notice.createdBy,
+      updatedBy: notice.updatedBy,
+      createdAt: notice.createdAt.toISOString(),
+      updatedAt: notice.updatedAt.toISOString(),
+    }));
+  },
+  ["system-notices:admin"],
+  { tags: [ADMIN_SYSTEM_NOTICES_TAG], revalidate: 30 },
+);
 
 // ---------------------------------------------------------------------------
 // serialise

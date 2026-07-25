@@ -9,10 +9,13 @@
 
 import * as Sentry from "@sentry/nextjs";
 import { auth } from "@clerk/nextjs/server";
-import { revalidatePath, revalidateTag } from "next/cache";
+import { revalidatePath, revalidateTag, updateTag } from "next/cache";
 
 import { prisma } from "@/utils/db";
-import { SYSTEM_NOTICES_TAG } from "@/lib/notices/queries";
+import {
+  ADMIN_SYSTEM_NOTICES_TAG,
+  SYSTEM_NOTICES_TAG,
+} from "@/lib/notices/queries";
 import { systemNoticeInputSchema } from "@/lib/notices/schema";
 import type {
   SaveSystemNoticeResult,
@@ -25,14 +28,16 @@ const ADMIN_PATH = "/arena-dashboard/notices";
 // ---------------------------------------------------------------------------
 // invalidate
 //
-// One tag covers every tenant read. "max" gives stale-while-revalidate, which
-// is the right trade for the tenant side: a notice appears within moments
-// instead of blocking the next page render on a fresh DB round trip. The admin
-// list reads the DB directly, so ops always sees the truth immediately.
+// Two tags, invalidated with different urgency. The tenant read gets "max"
+// (stale-while-revalidate): a notice appears within moments instead of blocking
+// the next tenant page render on a fresh DB round trip. The admin list gets
+// updateTag (read-your-writes): ops must see their own save immediately, so its
+// next render blocks for fresh data rather than serving the cached copy.
 // ---------------------------------------------------------------------------
 
 function invalidate() {
   revalidateTag(SYSTEM_NOTICES_TAG, "max");
+  updateTag(ADMIN_SYSTEM_NOTICES_TAG);
   revalidatePath(ADMIN_PATH);
 }
 
@@ -238,7 +243,9 @@ export async function cloneSystemNotice(
       select: { id: true },
     });
 
-    revalidatePath(ADMIN_PATH);
+    // Full invalidate, not a bare revalidatePath: the admin list is cached now,
+    // so its tag has to be busted for the copy to appear on the screen.
+    invalidate();
     return { ok: true, id: created.id };
   } catch (error) {
     Sentry.captureException(error, {
