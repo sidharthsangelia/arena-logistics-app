@@ -446,8 +446,8 @@ async function RecentShipments({ orgId }: { orgId: string }) {
       hawbNumber: true,
       carrierAirline: true,
       client: { select: { companyName: true } },
-      pickupAddress: { select: { city: true, country: true } },
-      deliveryAddress: { select: { city: true, country: true } },
+      pickupAddress: { select: { city: true } },
+      deliveryAddress: { select: { city: true } },
     },
   });
 
@@ -530,10 +530,7 @@ async function RecentShipments({ orgId }: { orgId: string }) {
                     </p>
                   </TableCell>
                   <TableCell className="font-mono text-xs">
-                    {s.pickupAddress.city}
-                    {s.pickupAddress.country ? `, ${s.pickupAddress.country}` : ""} →{" "}
-                    {s.deliveryAddress.city}
-                    {s.deliveryAddress.country ? `, ${s.deliveryAddress.country}` : ""}
+                    {s.pickupAddress.city} → {s.deliveryAddress.city}
                   </TableCell>
                   <TableCell>
                     {s.hawbNumber ? (
