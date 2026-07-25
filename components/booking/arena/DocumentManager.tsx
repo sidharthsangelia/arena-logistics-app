@@ -255,7 +255,12 @@ export function DocumentManager({
       {/* Upload card */}
       <Card>
         <CardContent className="space-y-3 p-4">
-        
+          {sortedDocuments.length === 0 && (
+            <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Inbox className="h-3.5 w-3.5 shrink-0" />
+              No documents uploaded yet. Add the first one below.
+            </p>
+          )}
 
           <div className="grid grid-cols-2 gap-2">
             <div className="space-y-1.5">
@@ -494,13 +499,9 @@ export function DocumentManager({
         </CardContent>
       </Card>
 
-      {/* Existing docs */}
-      {sortedDocuments.length === 0 ? (
-        <div className="flex flex-col items-center gap-2 rounded-md border border-dashed py-8 text-center">
-          <Inbox className="h-6 w-6 text-muted-foreground" />
-          <p className="text-sm text-muted-foreground">No documents uploaded yet.</p>
-        </div>
-      ) : (
+      {/* Existing docs — only once at least one is on file; the empty state
+          lives inside the upload card above to save the vertical space. */}
+      {sortedDocuments.length > 0 && (
         <TooltipProvider delayDuration={200}>
           <div className="space-y-2">
             {sortedDocuments.map((doc, i) => {

@@ -1,11 +1,17 @@
 "use client";
 
 import * as React from "react";
-import { Banknote, CircleCheck, HandCoins, Undo2 } from "lucide-react";
+import {
+  Banknote,
+  ChevronDown,
+  CircleCheck,
+  HandCoins,
+  Undo2,
+} from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import {
   Tooltip,
@@ -58,12 +64,15 @@ export function PaymentCollectionCard({
     <TooltipProvider delayDuration={200}>
       <Card
         className={cn(
-          "border-l-4",
+          "gap-0 border-l-4 py-0",
           settled ? "border-l-emerald-500" : "border-l-amber-500",
         )}
       >
-        <CardHeader className="border-b py-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
+        {/* Settled bookings collapse — the money is in, so this becomes a
+            reference the chevron reveals rather than a standing task. Open while
+            anything is still owed. */}
+        <details open={!settled || undefined} className="group">
+          <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-2 px-4 py-3 [&::-webkit-details-marker]:hidden">
             <div className="flex items-center gap-2">
               <Banknote className="h-4 w-4 text-muted-foreground" />
               <CardTitle className="text-sm">Payment on arrival</CardTitle>
@@ -77,22 +86,34 @@ export function PaymentCollectionCard({
               </Tooltip>
             </div>
 
-            {!settled && collection.collectionStatus !== "WRITTEN_OFF" && (
-              <span
-                className={cn("text-xs", AGING_TONE_CLASS[agingTone(collection.ageDays)])}
-              >
-                Waiting{" "}
-                {collection.ageDays === 0
-                  ? "since today"
-                  : collection.ageDays === 1
-                    ? "1 day"
-                    : `${collection.ageDays} days`}
-              </span>
-            )}
-          </div>
-        </CardHeader>
+            <div className="flex items-center gap-2">
+              {settled ? (
+                <span className="text-xs text-muted-foreground group-open:hidden">
+                  {formatMoney(collection.collected, collection.currency)}{" "}
+                  collected
+                </span>
+              ) : (
+                collection.collectionStatus !== "WRITTEN_OFF" && (
+                  <span
+                    className={cn(
+                      "text-xs",
+                      AGING_TONE_CLASS[agingTone(collection.ageDays)],
+                    )}
+                  >
+                    Waiting{" "}
+                    {collection.ageDays === 0
+                      ? "since today"
+                      : collection.ageDays === 1
+                        ? "1 day"
+                        : `${collection.ageDays} days`}
+                  </span>
+                )
+              )}
+              <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200 group-open:rotate-180" />
+            </div>
+          </summary>
 
-        <CardContent className="space-y-4 pt-4">
+        <CardContent className="space-y-4 border-t pt-4">
           {collection.quotedTotal == null ? (
             <p className="text-sm text-muted-foreground">
               This booking has no price on it yet, so there is no amount to collect
@@ -197,6 +218,7 @@ export function PaymentCollectionCard({
             </>
           )}
         </CardContent>
+        </details>
       </Card>
 
       <RecordPaymentSheet

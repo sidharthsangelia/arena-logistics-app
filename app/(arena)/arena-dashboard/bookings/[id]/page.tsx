@@ -1004,6 +1004,7 @@ export default async function BookingDetailPage({
               pickedUpAt={s.firstMilePickedUpAt}
               hubArrivedAt={s.firstMileHubArrivedAt}
               updatedAt={s.firstMileStatusUpdatedAt}
+              collapsible={firstMileArrivedAtHub}
             />
           )}
 
@@ -1228,75 +1229,6 @@ export default async function BookingDetailPage({
             </CardContent>
           </Card>
 
-          {/* ── Audit trail — collapsed by default to keep the page airy ── */}
-          <CollapsibleCard
-            icon={Clock}
-            title="Status history"
-            summary={
-              s.statusHistory.length === 0
-                ? "No events"
-                : `${s.statusHistory.length} event${s.statusHistory.length !== 1 ? "s" : ""}`
-            }
-          >
-            {s.statusHistory.length === 0 ? (
-              <p className="text-xs text-muted-foreground">
-                No events recorded yet.
-              </p>
-            ) : (
-              <ol className="relative ml-2 space-y-4 border-l border-border">
-                {s.statusHistory.map((evt, i) => {
-                  const toCfg = STATUS_CONFIG[evt.toStatus];
-                  const isCurrent = i === 0;
-                  return (
-                    <li key={evt.id} className="pl-4">
-                      <div
-                        className={cn(
-                          "absolute -left-1.5 mt-1.5 h-3 w-3 rounded-full border-2 border-background bg-muted-foreground/40",
-                          isCurrent && "bg-foreground",
-                        )}
-                      />
-                      <div className="space-y-0.5">
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          {evt.fromStatus && (
-                            <>
-                              <span className="text-[10px] text-muted-foreground">
-                                {STATUS_CONFIG[evt.fromStatus]?.label ??
-                                  evt.fromStatus}
-                              </span>
-                              <span className="text-[10px] text-muted-foreground">
-                                →
-                              </span>
-                            </>
-                          )}
-                          <Badge
-                            variant="outline"
-                            className={`px-1.5 py-0 text-[10px] ${toCfg?.className ?? ""}`}
-                          >
-                            {toCfg?.label ?? evt.toStatus}
-                          </Badge>
-                          {isCurrent && (
-                            <span className="rounded-full border border-border bg-foreground/5 px-1.5 py-0 text-[10px] font-medium text-muted-foreground">
-                              Current
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-[10px] text-muted-foreground">
-                          {fmtDatetime(evt.createdAt)} · by{" "}
-                          {evt.changedByType.toLowerCase()}
-                        </p>
-                        {evt.note && (
-                          <p className="mt-1 rounded bg-muted/50 px-2 py-1 text-xs text-foreground">
-                            {evt.note}
-                          </p>
-                        )}
-                      </div>
-                    </li>
-                  );
-                })}
-              </ol>
-            )}
-          </CollapsibleCard>
-
           {s.walletTransactions.length > 0 && (
             <CollapsibleCard
               icon={Wallet}
@@ -1450,6 +1382,76 @@ export default async function BookingDetailPage({
                 </div>
               </CollapsibleCard>
             )}
+
+            {/* ── Audit trail — reference beside the status control that writes
+                to it. Collapsed by default to keep the rail operational. ── */}
+            <CollapsibleCard
+              icon={Clock}
+              title="Status history"
+              summary={
+                s.statusHistory.length === 0
+                  ? "No events"
+                  : `${s.statusHistory.length} event${s.statusHistory.length !== 1 ? "s" : ""}`
+              }
+            >
+              {s.statusHistory.length === 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  No events recorded yet.
+                </p>
+              ) : (
+                <ol className="relative ml-2 space-y-4 border-l border-border">
+                  {s.statusHistory.map((evt, i) => {
+                    const toCfg = STATUS_CONFIG[evt.toStatus];
+                    const isCurrent = i === 0;
+                    return (
+                      <li key={evt.id} className="pl-4">
+                        <div
+                          className={cn(
+                            "absolute -left-1.5 mt-1.5 h-3 w-3 rounded-full border-2 border-background bg-muted-foreground/40",
+                            isCurrent && "bg-foreground",
+                          )}
+                        />
+                        <div className="space-y-0.5">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {evt.fromStatus && (
+                              <>
+                                <span className="text-[10px] text-muted-foreground">
+                                  {STATUS_CONFIG[evt.fromStatus]?.label ??
+                                    evt.fromStatus}
+                                </span>
+                                <span className="text-[10px] text-muted-foreground">
+                                  →
+                                </span>
+                              </>
+                            )}
+                            <Badge
+                              variant="outline"
+                              className={`px-1.5 py-0 text-[10px] ${toCfg?.className ?? ""}`}
+                            >
+                              {toCfg?.label ?? evt.toStatus}
+                            </Badge>
+                            {isCurrent && (
+                              <span className="rounded-full border border-border bg-foreground/5 px-1.5 py-0 text-[10px] font-medium text-muted-foreground">
+                                Current
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[10px] text-muted-foreground">
+                            {fmtDatetime(evt.createdAt)} · by{" "}
+                            {evt.changedByType.toLowerCase()}
+                          </p>
+                          {evt.note && (
+                            <p className="mt-1 rounded bg-muted/50 px-2 py-1 text-xs text-foreground">
+                              {evt.note}
+                            </p>
+                          )}
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ol>
+              )}
+            </CollapsibleCard>
           </div>
         </div>
       </div>

@@ -7,6 +7,7 @@ import {
   CheckCircle2,
   CircleDot,
   Circle,
+  ChevronDown,
 } from "lucide-react";
 
 import { FirstMileStatus } from "@/generated/prisma";
@@ -39,6 +40,12 @@ export interface FirstMilePickupCardProps {
   pickedUpAt: Date | null;
   hubArrivedAt: Date | null;
   updatedAt: Date | null;
+  /**
+   * Collapse the body behind the header, opting into a native <details>. Used on
+   * the ops page once the leg is finished (arrived at hub) so the completed
+   * pickup stops taking up space it no longer earns. Defaults to always-open.
+   */
+  collapsible?: boolean;
 }
 
 function fmtDate(d: Date | null): string | null {
@@ -85,6 +92,7 @@ export function FirstMilePickupCard(props: FirstMilePickupCardProps) {
     pickedUpAt,
     hubArrivedAt,
     updatedAt,
+    collapsible = false,
   } = props;
 
   const cfg = FIRST_MILE_STAGES[status];
@@ -102,35 +110,44 @@ export function FirstMilePickupCard(props: FirstMilePickupCardProps) {
   const filledPct =
     activeIdx <= 0 ? 0 : (Math.min(activeIdx, lastIdx) / lastIdx) * 100;
 
-  return (
-    <Card className={cn("overflow-hidden border-l-4", cfg.accentClassName)}>
-      {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b bg-muted/20 px-5 py-3.5">
-        <div className="flex items-center gap-2">
-          <Truck className="h-3.5 w-3.5 text-muted-foreground" />
-          <span className="text-sm font-semibold text-foreground">
-            Door pickup
+  // Header row — shared between the open card and the collapsible summary. When
+  // collapsed it doubles as the <summary>, so it carries the route and chevron.
+  const header = (
+    <div className="flex flex-wrap items-center justify-between gap-3 bg-muted/20 px-5 py-3.5">
+      <div className="flex min-w-0 items-center gap-2">
+        <Truck className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        <span className="text-sm font-semibold text-foreground">
+          Door pickup
+        </span>
+        {collapsible ? (
+          <span className="truncate text-xs text-muted-foreground group-open:hidden">
+            {pickupFromLabel || "Pickup"} → {hubLabel ? `${hubLabel} hub` : "hub"}
           </span>
+        ) : (
           <span className="text-xs text-muted-foreground">
             First mile · door to hub
           </span>
-        </div>
-        <div className="flex items-center gap-2">
-          <span
-            className={cn(
-              "inline-flex h-2 w-2 rounded-full",
-              cfg.dotClassName,
-            )}
-          />
-          <Badge
-            variant="outline"
-            className={cn("text-xs font-semibold px-2.5 py-0.5", cfg.className)}
-          >
-            {cfg.label}
-          </Badge>
-        </div>
+        )}
       </div>
+      <div className="flex items-center gap-2">
+        <span
+          className={cn("inline-flex h-2 w-2 rounded-full", cfg.dotClassName)}
+        />
+        <Badge
+          variant="outline"
+          className={cn("text-xs font-semibold px-2.5 py-0.5", cfg.className)}
+        >
+          {cfg.label}
+        </Badge>
+        {collapsible && (
+          <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200 group-open:rotate-180" />
+        )}
+      </div>
+    </div>
+  );
 
+  const body = (
+    <>
       {/* Route pill */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-5 pt-4 text-sm">
         <span className="flex items-center gap-1.5 font-medium text-foreground">
@@ -248,6 +265,31 @@ export function FirstMilePickupCard(props: FirstMilePickupCardProps) {
           Pickup leg last updated {fmtDate(updatedAt)}
         </p>
       )}
+    </>
+  );
+
+  if (collapsible) {
+    return (
+      <Card
+        className={cn(
+          "gap-0 overflow-hidden border-l-4 py-0",
+          cfg.accentClassName,
+        )}
+      >
+        <details className="group">
+          <summary className="flex cursor-pointer list-none items-center [&::-webkit-details-marker]:hidden">
+            <div className="min-w-0 flex-1">{header}</div>
+          </summary>
+          <div className="border-t">{body}</div>
+        </details>
+      </Card>
+    );
+  }
+
+  return (
+    <Card className={cn("overflow-hidden border-l-4", cfg.accentClassName)}>
+      <div className="border-b">{header}</div>
+      {body}
     </Card>
   );
 }

@@ -5,17 +5,12 @@ import {
   ExternalLink,
   AlertTriangle,
   BadgeCheck,
+  ChevronDown,
 } from "lucide-react";
 import { KycDocType } from "@/generated/prisma";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { KYC_DOC_CONFIGS, KYC_KEY_TO_DOC_TYPE } from "@/lib/booking/kyc";
-import { cn } from "@/lib/utils";
 
 // ---------------------------------------------------------------------------
 // KYC documents for a shipment's party, rendered right on the booking detail
@@ -61,13 +56,7 @@ function fmtDate(d: Date): string {
   });
 }
 
-function DocLink({
-  doc,
-  required,
-}: {
-  doc: KycDocRow;
-  required: boolean;
-}) {
+function DocLink({ doc }: { doc: KycDocRow }) {
   const isImage = doc.mimeType.startsWith("image/");
   const Icon = isImage ? ImageIcon : FileText;
   const expired = doc.expired;
@@ -77,71 +66,47 @@ function DocLink({
       href={doc.fileUrl}
       target="_blank"
       rel="noopener noreferrer"
-      className="group flex items-center gap-3 rounded-lg border px-3 py-2.5 transition-colors hover:bg-muted/40"
+      className="group flex items-center gap-2.5 rounded-md border px-2.5 py-2 transition-colors hover:bg-muted/40"
     >
-      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border bg-background">
-        <Icon className="h-4 w-4 text-muted-foreground" />
-      </div>
+      <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
       <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-center gap-1.5">
+        <div className="flex items-center gap-1.5">
           <p className="truncate text-sm font-medium text-foreground">
             {doc.label}
           </p>
-          {required && (
-            <Badge variant="secondary" className="text-[10px] font-normal">
-              Required
-            </Badge>
+          {doc.docNumber && (
+            <span className="truncate font-mono text-xs text-muted-foreground">
+              {doc.docNumber}
+            </span>
           )}
           {doc.verifiedAt ? (
-            <span className="inline-flex items-center gap-0.5 rounded-full border border-emerald-200 bg-emerald-50 px-1.5 py-px text-[10px] font-medium text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-400">
-              <BadgeCheck className="h-3 w-3" />
-              Verified
-            </span>
-          ) : (
-            <span className="rounded-full border border-border px-1.5 py-px text-[10px] font-medium text-muted-foreground">
-              Unverified
-            </span>
-          )}
+            <BadgeCheck className="h-3.5 w-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+          ) : null}
           {expired && (
-            <span className="rounded-full border border-red-200 bg-red-50 px-1.5 py-px text-[10px] font-medium text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-400">
+            <span className="shrink-0 rounded-full border border-red-200 bg-red-50 px-1.5 py-px text-[10px] font-medium text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-400">
               Expired
             </span>
           )}
         </div>
-        <p className="mt-0.5 truncate text-xs text-muted-foreground">
-          {doc.docNumber && (
-            <span className="font-mono text-foreground/70">
-              {doc.docNumber}
-            </span>
-          )}
-          {doc.docNumber && " · "}
-          {doc.fileName} · {fmtBytes(doc.fileSize)} · Uploaded{" "}
-          {fmtDate(doc.uploadedAt)}
-        </p>
       </div>
-      <span className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-muted-foreground group-hover:text-foreground">
-        View
-        <ExternalLink className="h-3.5 w-3.5" />
+      <span className="shrink-0 text-[10px] text-muted-foreground/70">
+        {fmtBytes(doc.fileSize)} · {fmtDate(doc.uploadedAt)}
       </span>
+      <ExternalLink className="h-3.5 w-3.5 shrink-0 text-muted-foreground group-hover:text-foreground" />
     </a>
   );
 }
 
 function MissingRow({ label }: { label: string }) {
   return (
-    <div className="flex items-center gap-3 rounded-lg border border-dashed border-amber-300 bg-amber-50/60 px-3 py-2.5 dark:border-amber-800 dark:bg-amber-950/20">
-      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-amber-200 bg-background dark:border-amber-900">
-        <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
-      </div>
-      <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium text-foreground">{label}</p>
-        <p className="text-xs text-amber-700 dark:text-amber-400">
-          Required but not uploaded to the vault.
-        </p>
-      </div>
-      <Badge variant="secondary" className="shrink-0 text-[10px] font-normal">
-        Required
-      </Badge>
+    <div className="flex items-center gap-2.5 rounded-md border border-dashed border-amber-300 bg-amber-50/60 px-2.5 py-2 dark:border-amber-800 dark:bg-amber-950/20">
+      <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+      <p className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
+        {label}
+      </p>
+      <span className="shrink-0 text-[10px] font-medium text-amber-700 dark:text-amber-400">
+        Not on file
+      </span>
     </div>
   );
 }
@@ -172,83 +137,78 @@ export function KycDocsCard({
   const extras = docs.filter((d) => !requiredTypes.has(d.docType));
 
   const typeLabel = shipmentType ? (TYPE_LABEL[shipmentType] ?? shipmentType) : null;
+  // Keep the card open only while it needs ops' eyes — a required doc is
+  // missing. When the vault is complete it collapses to a one-line reference.
+  const needsAttention = missing.length > 0;
 
   return (
-    <Card>
-      <CardHeader className="border-b py-3">
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <FileCheck2 className="h-4 w-4 text-muted-foreground" />
-            <CardTitle className="text-sm">KYC documents</CardTitle>
-          </div>
-          <div className="flex items-center gap-2">
-            {missing.length > 0 && (
+    <Card className="gap-0 py-0">
+      <details open={needsAttention || undefined} className="group">
+        <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 [&::-webkit-details-marker]:hidden">
+          <FileCheck2 className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <CardTitle className="text-sm">KYC documents</CardTitle>
+          <span className="hidden truncate text-xs text-muted-foreground sm:inline">
+            · {partyLabel}
+          </span>
+          <span className="ml-auto flex items-center gap-2">
+            {missing.length > 0 ? (
               <Badge
                 variant="outline"
                 className="border-amber-300 bg-amber-100 text-[11px] font-medium text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-300"
               >
-                {missing.length} required missing
+                {missing.length} missing
               </Badge>
+            ) : (
+              <span className="text-xs text-muted-foreground">
+                {docs.length} on file
+              </span>
             )}
-            <span className="text-xs text-muted-foreground">
-              {docs.length} on file
-            </span>
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-4 pt-4">
-        <p className="text-xs text-muted-foreground">
-          From the vault of{" "}
-          <span className="font-medium text-foreground">{partyLabel}</span>.
-        </p>
+            <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200 group-open:rotate-180" />
+          </span>
+        </summary>
 
-        {/* Required for this shipment type */}
-        {requiredConfigs.length > 0 && (
-          <div className="space-y-2">
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-              Required for {typeLabel}
-            </p>
-            <div className="space-y-2">
-              {requiredConfigs.map((c) => {
-                const doc = byType.get(KYC_KEY_TO_DOC_TYPE[c.key]);
-                return doc ? (
-                  <DocLink key={c.key} doc={doc} required />
-                ) : (
-                  <MissingRow key={c.key} label={c.label} />
-                );
-              })}
+        <div className="space-y-3 border-t px-4 py-3">
+          {/* Required for this shipment type */}
+          {requiredConfigs.length > 0 && (
+            <div className="space-y-1.5">
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                Required for {typeLabel}
+              </p>
+              <div className="space-y-1.5">
+                {requiredConfigs.map((c) => {
+                  const doc = byType.get(KYC_KEY_TO_DOC_TYPE[c.key]);
+                  return doc ? (
+                    <DocLink key={c.key} doc={doc} />
+                  ) : (
+                    <MissingRow key={c.key} label={c.label} />
+                  );
+                })}
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {/* Anything else on file */}
-        {extras.length > 0 && (
-          <div className="space-y-2">
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-              Also on file
-            </p>
-            <div className="space-y-2">
-              {extras.map((doc) => (
-                <DocLink key={doc.id} doc={doc} required={false} />
-              ))}
+          {/* Anything else on file */}
+          {extras.length > 0 && (
+            <div className="space-y-1.5">
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                Also on file
+              </p>
+              <div className="space-y-1.5">
+                {extras.map((doc) => (
+                  <DocLink key={doc.id} doc={doc} />
+                ))}
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {/* Nothing at all */}
-        {docs.length === 0 && requiredConfigs.length === 0 && (
-          <div
-            className={cn(
-              "flex flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed py-8 text-center",
-            )}
-          >
-            <FileCheck2 className="h-6 w-6 text-muted-foreground/30" />
-            <p className="text-sm text-muted-foreground">
+          {/* Nothing at all */}
+          {docs.length === 0 && requiredConfigs.length === 0 && (
+            <p className="rounded-md border border-dashed py-4 text-center text-sm text-muted-foreground">
               No KYC documents on file for this party.
             </p>
-          </div>
-        )}
-      </CardContent>
+          )}
+        </div>
+      </details>
     </Card>
   );
 }
