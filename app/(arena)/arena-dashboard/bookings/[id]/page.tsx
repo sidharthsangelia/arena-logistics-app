@@ -24,6 +24,12 @@ import {
   FileWarning,
   PackageX,
   Bell,
+  ChevronDown,
+  RefreshCw,
+  Home,
+  Scale,
+  Receipt,
+  StickyNote,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -57,6 +63,7 @@ import { PaymentCollectionCard } from "@/components/booking/arena/PaymentCollect
 import { toCollectionRow } from "@/lib/wallet/adminLedger";
 import { getArenaAuth } from "@/utils/arena-auth";
 import { KYC_DOC_CONFIGS, requiredKycDocTypes } from "@/lib/booking/kyc";
+import { FIRST_MILE_STAGES } from "@/lib/booking/firstMileStatus";
 import { CSB4_MAX_VALUE } from "@/lib/booking/cargo";
 import { PartyType } from "@/generated/prisma";
 import { cn } from "@/lib/utils";
@@ -246,6 +253,106 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
     <p className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
       {children}
     </p>
+  );
+}
+
+// Solid left-accent per status, used on the hero. Accent only — the page stays
+// neutral; the colour is a functional read of state, not decoration.
+const STATUS_ACCENT: Record<ShipmentStatus, string> = {
+  DRAFT: "border-l-border",
+  PENDING_PAYMENT: "border-l-amber-400",
+  BOOKED: "border-l-blue-400",
+  PROCESSING: "border-l-indigo-400",
+  DOCUMENTS_PENDING: "border-l-orange-400",
+  IN_TRANSIT: "border-l-sky-400",
+  CUSTOMS_HOLD: "border-l-red-500",
+  OUT_FOR_DELIVERY: "border-l-violet-400",
+  DELIVERED: "border-l-emerald-500",
+  CANCELLED: "border-l-muted-foreground/30",
+  ON_HOLD: "border-l-yellow-400",
+};
+
+// One at-a-glance fact in the hero strip: quiet eyebrow label over a strong
+// value, so ops reads the whole shipment in one sweep.
+function HeroStat({
+  icon: Icon,
+  label,
+  value,
+  strong,
+  warn,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  value: string;
+  /** Bump the value to headline weight (used for the price). */
+  strong?: boolean;
+  /** Amber the value when it flags a gap ops must fill (e.g. no carrier). */
+  warn?: boolean;
+}) {
+  return (
+    <div className="min-w-0 space-y-1">
+      <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+        <Icon className="h-3 w-3 shrink-0" />
+        {label}
+      </p>
+      <p
+        title={value}
+        className={cn(
+          "truncate text-sm font-semibold tabular-nums text-foreground",
+          strong && "text-base",
+          warn && "text-amber-600 dark:text-amber-400",
+        )}
+      >
+        {value}
+      </p>
+    </div>
+  );
+}
+
+// A card whose body collapses behind its header. Native <details> keeps this a
+// server component (no client JS) while still nesting the client action panels.
+// Used both for low-value reference (history, wallet, meta) and for secondary
+// actions in the rail (AWB, first mile).
+function CollapsibleCard({
+  icon: Icon,
+  title,
+  summary,
+  badge,
+  defaultOpen = false,
+  contentClassName,
+  children,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  title: string;
+  /** Muted one-liner shown on the right while collapsed. */
+  summary?: string;
+  /** Optional chip beside the title (e.g. a count). */
+  badge?: React.ReactNode;
+  defaultOpen?: boolean;
+  contentClassName?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <Card className="gap-0 py-0">
+      <details open={defaultOpen || undefined} className="group">
+        <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 [&::-webkit-details-marker]:hidden">
+          <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <CardTitle className="text-sm font-semibold">{title}</CardTitle>
+          {badge}
+          <span className="ml-auto flex items-center gap-2">
+            {summary && (
+              <span className="text-xs text-muted-foreground group-open:hidden">
+                {summary}
+              </span>
+            )}
+            <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200 group-open:rotate-180" />
+          </span>
+        </summary>
+        <div className={cn("border-t px-4 py-4", contentClassName)}>
+          {children}
+        </div>
+      </details>
+    </Card>
   );
 }
 
@@ -745,82 +852,132 @@ export default async function BookingDetailPage({
     charges?: { name: string; amount: number; currency: string }[];
   } | null;
 
+  // AWB only matters once the shipment is moving; open that rail panel by
+  // default when it is relevant but still blank, so ops fills it in.
+  const awbRelevant =
+    s.status === "IN_TRANSIT" ||
+    s.status === "OUT_FOR_DELIVERY" ||
+    s.status === "CUSTOMS_HOLD" ||
+    s.status === "DELIVERED";
+  const firstMileNeedsAction =
+    hasFirstMile && !firstMileArrivedAtHub && !s.firstMileTrackingNumber;
+  const route = `${s.pickupAddress.city} → ${s.deliveryAddress.city}${
+    s.deliveryAddress.country ? `, ${s.deliveryAddress.country}` : ""
+  }`;
+
   return (
     <div className="mx-auto max-w-screen-xl space-y-6 px-6 py-8">
-      {/* ── Header ── */}
-      <div className="flex items-start gap-4">
-        <Button asChild variant="ghost" size="icon" className="mt-0.5 shrink-0">
-          <Link href="/arena-dashboard/bookings">
-            <ArrowLeft className="h-4 w-4" />
-          </Link>
-        </Button>
+      {/* ── Back ── */}
+      <Button
+        asChild
+        variant="ghost"
+        size="sm"
+        className="-ml-2 h-8 gap-1.5 text-muted-foreground"
+      >
+        <Link href="/arena-dashboard/bookings">
+          <ArrowLeft className="h-4 w-4" />
+          Bookings
+        </Link>
+      </Button>
 
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <CopyButton
-              value={s.shipmentNumber}
-              label="Shipment number"
-              mono
-              className="text-xl font-bold tracking-tight"
+      {/* ── Hero: identity + status + at-a-glance facts ── */}
+      <Card className={cn("border-l-4", STATUS_ACCENT[s.status])}>
+        <CardContent className="space-y-5">
+          <div className="min-w-0 space-y-2">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <CopyButton
+                value={s.shipmentNumber}
+                label="Shipment number"
+                mono
+                className="text-2xl font-bold tracking-tight"
+              />
+              <Badge
+                variant="outline"
+                className={cn("px-2.5 py-1 text-xs font-semibold", cfg.className)}
+              >
+                {cfg.label}
+              </Badge>
+              {s.paymentDeferred && (
+                <Badge
+                  variant="outline"
+                  className="border-amber-200 bg-amber-50 text-[11px] font-medium text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-400"
+                >
+                  <Banknote className="mr-1 h-3 w-3" />
+                  Payment on arrival
+                </Badge>
+              )}
+              {isMultipiece && (
+                <Badge
+                  variant="outline"
+                  className="border-amber-300 bg-amber-100 text-[11px] font-semibold text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-300"
+                >
+                  <Layers className="mr-1 h-3 w-3" />
+                  Multipiece · {totalBoxes} boxes
+                </Badge>
+              )}
+            </div>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
+              <span>
+                <span className="font-medium text-foreground">{s.org.name}</span>
+                {s.client && <span> · for {s.client.companyName}</span>}
+              </span>
+              {s.bookedAt && <span>· Booked {fmtDatetime(s.bookedAt)}</span>}
+              <span>· Created {fmtDatetime(s.createdAt)}</span>
+            </div>
+          </div>
+
+          <Separator />
+
+          <div className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-3 lg:grid-cols-5">
+            <HeroStat icon={MapPin} label="Route" value={route} />
+            <HeroStat
+              icon={Scale}
+              label="Chargeable wt"
+              value={fmtNum(s.totalChargeableWeightKg, " kg")}
             />
-            <Badge
-              variant="outline"
-              className={`text-xs font-medium ${cfg.className}`}
-            >
-              {cfg.label}
-            </Badge>
-            {s.paymentDeferred && (
-              <Badge
-                variant="outline"
-                className="border-amber-200 bg-amber-50 text-[11px] text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-400"
-              >
-                <Banknote className="mr-1 h-3 w-3" />
-                Payment on arrival
-              </Badge>
-            )}
-            {isMultipiece && (
-              <Badge
-                variant="outline"
-                className="border-amber-300 bg-amber-100 text-[11px] font-semibold text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-300"
-              >
-                <Layers className="mr-1 h-3 w-3" />
-                Multipiece · {totalBoxes} boxes
-              </Badge>
-            )}
+            <HeroStat
+              icon={Banknote}
+              label="Declared value"
+              value={fmtMoney(totalDeclared, s.currency)}
+            />
+            <HeroStat
+              icon={Receipt}
+              label="Quoted total"
+              value={fmtMoney(s.quotedTotal, s.currency)}
+              strong
+            />
+            <HeroStat
+              icon={Truck}
+              label="Carrier"
+              value={s.selectedVendorName ?? "Not selected"}
+              warn={!s.selectedVendorId}
+            />
           </div>
-          <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
-            <span>
-              <span className="font-medium text-foreground">{s.org.name}</span>
-              {s.client && <span> · for {s.client.companyName}</span>}
-            </span>
-            {s.bookedAt && <span>Booked {fmtDatetime(s.bookedAt)}</span>}
-            <span>Created {fmtDatetime(s.createdAt)}</span>
-          </div>
-        </div>
-      </div>
+        </CardContent>
+      </Card>
 
-      {/* ── Grid ── */}
+      {/* ── Needs attention — the loud triage banner, full width ── */}
+      <NeedsAttention
+        status={s.status}
+        paymentDeferred={s.paymentDeferred}
+        paymentSettled={collection ? collection.owed <= 0 : false}
+        shipmentType={s.shipmentType}
+        totalDeclared={totalDeclared}
+        currency={s.currency}
+        selectedVendorId={s.selectedVendorId}
+        totalBoxes={totalBoxes}
+        missingHsnCount={missingHsnCount}
+        missingKycCount={missingKycCount}
+        hasAwb={hasAwb}
+        pickupIncluded={s.pickupIncluded}
+        firstMileArrivedAtHub={firstMileArrivedAtHub}
+        firstMileHasTracking={Boolean(s.firstMileTrackingNumber)}
+      />
+
+      {/* ── Grid: LEFT reviews the shipment, RIGHT operates on it ── */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        {/* ── LEFT / MAIN column ── */}
+        {/* ── LEFT / MAIN column: review ── */}
         <div className="space-y-6 lg:col-span-2">
-          {/* Needs attention — first thing ops sees */}
-          <NeedsAttention
-            status={s.status}
-            paymentDeferred={s.paymentDeferred}
-            paymentSettled={collection ? collection.owed <= 0 : false}
-            shipmentType={s.shipmentType}
-            totalDeclared={totalDeclared}
-            currency={s.currency}
-            selectedVendorId={s.selectedVendorId}
-            totalBoxes={totalBoxes}
-            missingHsnCount={missingHsnCount}
-            missingKycCount={missingKycCount}
-            hasAwb={hasAwb}
-            pickupIncluded={s.pickupIncluded}
-            firstMileArrivedAtHub={firstMileArrivedAtHub}
-            firstMileHasTracking={Boolean(s.firstMileTrackingNumber)}
-          />
-
           {/* Money owed on this booking, if it shipped before paying */}
           {collection && (
             <PaymentCollectionCard
@@ -1070,220 +1227,134 @@ export default async function BookingDetailPage({
           {/* Documents */}
           <DocumentManager shipmentId={s.id} documents={s.documents} />
 
-          {/* Wallet transactions */}
-          {s.walletTransactions.length > 0 && (
-            <Card className="overflow-hidden">
-              <CardTitleRow icon={Wallet} title="Wallet transactions" />
-              <CardContent className="p-0">
-                <Table>
-                  <TableHeader>
-                    <TableRow className="bg-muted/40">
-                      <TableHead className="pl-5 text-xs">Type</TableHead>
-                      <TableHead className="text-xs">Status</TableHead>
-                      <TableHead className="text-right text-xs">Amount</TableHead>
-                      <TableHead className="pr-5 text-right text-xs">
-                        Balance after
-                      </TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {s.walletTransactions.map((txn) => (
-                      <TableRow key={txn.id}>
-                        <TableCell className="pl-5 text-xs font-medium">
-                          {txn.type.replace(/_/g, " ")}
-                        </TableCell>
-                        <TableCell className="text-xs text-muted-foreground">
-                          {txn.status.toLowerCase()}
-                        </TableCell>
-                        <TableCell className="text-right text-xs tabular-nums">
-                          {fmtMoney(txn.amount, txn.currency)}
-                        </TableCell>
-                        <TableCell className="pr-5 text-right text-xs tabular-nums text-muted-foreground">
-                          {fmtMoney(txn.balanceAfter, txn.currency)}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
-          )}
-        </div>
-
-        {/* ── RIGHT sidebar ── */}
-        <div className="space-y-6">
-          {/* Actions first — this is where ops spends most of its time */}
-          <StatusUpdatePanel
-            shipmentId={s.id}
-            currentStatus={s.status}
-            allStatuses={allStatuses}
-          />
-          <CarrierTrackingPanel
-            shipmentId={s.id}
-            initial={{
-              mawbNumber: s.mawbNumber,
-              hawbNumber: s.hawbNumber,
-              carrierAirline: s.carrierAirline,
-              vendorTrackingUrl: s.vendorTrackingUrl,
-              awbUpdatedAt: s.awbUpdatedAt,
-            }}
-          />
-
-          {/* Book the pickup with Shipmozo, then advance the leg by hand if
-              the webhook has not moved it. The booking button needs only that
-              door pickup was opted into — it does not depend on a first-mile
-              status existing yet (legacy rows may have none). */}
-          {s.pickupIncluded && (
-            <FirstMilePickupBooking
-              shipmentId={s.id}
-              courierName={s.firstMileVendorName}
-              charge={s.firstMileCharge ? num(s.firstMileCharge) : null}
-              currency={s.currency}
-              pickupFromLabel={[s.pickupAddress.city, s.pickupAddress.postalCode]
-                .filter(Boolean)
-                .join(" ")}
-              pickupContact={s.pickupAddress.contactName}
-              hubLabel={s.firstMileHubLabel}
-              weightKg={num(s.totalActualWeightKg)}
-              boxes={totalBoxes}
-              booked={{
-                awb: s.firstMileTrackingNumber,
-                orderId: s.firstMileShipmozoOrderId,
-                bookedAt: s.firstMileBookedAt ? fmtDatetime(s.firstMileBookedAt) : null,
-              }}
-            />
-          )}
-
-          {hasFirstMile && (
-            <FirstMileStatusPanel
-              shipmentId={s.id}
-              initial={{
-                status: firstMileStatus,
-                trackingNumber: s.firstMileTrackingNumber,
-                trackingUrl: s.firstMileTrackingUrl,
-                pickupScheduledAt: s.firstMilePickupScheduledAt,
-                updatedAt: s.firstMileStatusUpdatedAt,
-              }}
-            />
-          )}
-
-          {/* Quick contact — pinned for fast follow-up on holds / docs */}
+          {/* Internal notes — ops-only scratchpad */}
           <Card>
-            <CardTitleRow icon={User} title="Quick contact" />
-            <CardContent className="space-y-3 pt-4">
-              <div className="space-y-1.5">
-                <SectionLabel>Booking org</SectionLabel>
-                <InfoRow
-                  icon={Mail}
-                  label="Email"
-                  value={s.org.email}
-                  copyLabel="Org email"
-                />
-                <InfoRow
-                  icon={Phone}
-                  label="Phone"
-                  value={s.org.phone}
-                  copyLabel="Org phone"
-                />
-              </div>
-              {s.client && (s.client.email || s.client.phone) && (
-                <>
-                  <Separator />
-                  <div className="space-y-1.5">
-                    <SectionLabel>Client</SectionLabel>
-                    <InfoRow
-                      icon={Mail}
-                      label="Email"
-                      value={s.client.email}
-                      copyLabel="Client email"
-                    />
-                    <InfoRow
-                      icon={Phone}
-                      label="Phone"
-                      value={s.client.phone}
-                      copyLabel="Client phone"
-                    />
-                  </div>
-                </>
-              )}
+            <CardTitleRow icon={StickyNote} title="Internal notes" />
+            <CardContent className="pt-4">
+              <InternalNotesPanel
+                shipmentId={s.id}
+                initialNotes={s.internalNotes ?? ""}
+              />
             </CardContent>
           </Card>
 
-          {/* Internal notes */}
-          <InternalNotesPanel
-            shipmentId={s.id}
-            initialNotes={s.internalNotes ?? ""}
-          />
-
-          {/* Timeline — newest first */}
-          <Card>
-            <CardTitleRow icon={Clock} title="Status history" />
-            <CardContent className="pt-4">
-              {s.statusHistory.length === 0 ? (
-                <p className="text-xs text-muted-foreground">
-                  No events recorded yet.
-                </p>
-              ) : (
-                <ol className="relative ml-2 space-y-4 border-l border-border">
-                  {s.statusHistory.map((evt, i) => {
-                    const toCfg = STATUS_CONFIG[evt.toStatus];
-                    const isCurrent = i === 0;
-                    return (
-                      <li key={evt.id} className="pl-4">
-                        <div
-                          className={cn(
-                            "absolute -left-1.5 mt-1.5 h-3 w-3 rounded-full border-2 border-background bg-muted-foreground/40",
-                            isCurrent && "bg-foreground",
-                          )}
-                        />
-                        <div className="space-y-0.5">
-                          <div className="flex flex-wrap items-center gap-1.5">
-                            {evt.fromStatus && (
-                              <>
-                                <span className="text-[10px] text-muted-foreground">
-                                  {STATUS_CONFIG[evt.fromStatus]?.label ??
-                                    evt.fromStatus}
-                                </span>
-                                <span className="text-[10px] text-muted-foreground">
-                                  →
-                                </span>
-                              </>
-                            )}
-                            <Badge
-                              variant="outline"
-                              className={`px-1.5 py-0 text-[10px] ${toCfg?.className ?? ""}`}
-                            >
-                              {toCfg?.label ?? evt.toStatus}
-                            </Badge>
-                            {isCurrent && (
-                              <span className="rounded-full border border-border bg-foreground/5 px-1.5 py-0 text-[10px] font-medium text-muted-foreground">
-                                Current
+          {/* ── Audit trail — collapsed by default to keep the page airy ── */}
+          <CollapsibleCard
+            icon={Clock}
+            title="Status history"
+            summary={
+              s.statusHistory.length === 0
+                ? "No events"
+                : `${s.statusHistory.length} event${s.statusHistory.length !== 1 ? "s" : ""}`
+            }
+          >
+            {s.statusHistory.length === 0 ? (
+              <p className="text-xs text-muted-foreground">
+                No events recorded yet.
+              </p>
+            ) : (
+              <ol className="relative ml-2 space-y-4 border-l border-border">
+                {s.statusHistory.map((evt, i) => {
+                  const toCfg = STATUS_CONFIG[evt.toStatus];
+                  const isCurrent = i === 0;
+                  return (
+                    <li key={evt.id} className="pl-4">
+                      <div
+                        className={cn(
+                          "absolute -left-1.5 mt-1.5 h-3 w-3 rounded-full border-2 border-background bg-muted-foreground/40",
+                          isCurrent && "bg-foreground",
+                        )}
+                      />
+                      <div className="space-y-0.5">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {evt.fromStatus && (
+                            <>
+                              <span className="text-[10px] text-muted-foreground">
+                                {STATUS_CONFIG[evt.fromStatus]?.label ??
+                                  evt.fromStatus}
                               </span>
-                            )}
-                          </div>
-                          <p className="text-[10px] text-muted-foreground">
-                            {fmtDatetime(evt.createdAt)} · by{" "}
-                            {evt.changedByType.toLowerCase()}
-                          </p>
-                          {evt.note && (
-                            <p className="mt-1 rounded bg-muted/50 px-2 py-1 text-xs text-foreground">
-                              {evt.note}
-                            </p>
+                              <span className="text-[10px] text-muted-foreground">
+                                →
+                              </span>
+                            </>
+                          )}
+                          <Badge
+                            variant="outline"
+                            className={`px-1.5 py-0 text-[10px] ${toCfg?.className ?? ""}`}
+                          >
+                            {toCfg?.label ?? evt.toStatus}
+                          </Badge>
+                          {isCurrent && (
+                            <span className="rounded-full border border-border bg-foreground/5 px-1.5 py-0 text-[10px] font-medium text-muted-foreground">
+                              Current
+                            </span>
                           )}
                         </div>
-                      </li>
-                    );
-                  })}
-                </ol>
-              )}
-            </CardContent>
-          </Card>
+                        <p className="text-[10px] text-muted-foreground">
+                          {fmtDatetime(evt.createdAt)} · by{" "}
+                          {evt.changedByType.toLowerCase()}
+                        </p>
+                        {evt.note && (
+                          <p className="mt-1 rounded bg-muted/50 px-2 py-1 text-xs text-foreground">
+                            {evt.note}
+                          </p>
+                        )}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ol>
+            )}
+          </CollapsibleCard>
 
-          {/* Meta */}
-          <Card>
-            <CardTitleRow icon={Info} title="Shipment meta" />
-            <CardContent className="space-y-2.5 pt-4">
-              <InfoRow icon={Hash} label="ID" value={s.id} copyLabel="Shipment ID" />
+          {s.walletTransactions.length > 0 && (
+            <CollapsibleCard
+              icon={Wallet}
+              title="Wallet transactions"
+              summary={`${s.walletTransactions.length} recent`}
+              contentClassName="px-0 pb-0 pt-0"
+            >
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-muted/40">
+                    <TableHead className="pl-5 text-xs">Type</TableHead>
+                    <TableHead className="text-xs">Status</TableHead>
+                    <TableHead className="text-right text-xs">Amount</TableHead>
+                    <TableHead className="pr-5 text-right text-xs">
+                      Balance after
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {s.walletTransactions.map((txn) => (
+                    <TableRow key={txn.id}>
+                      <TableCell className="pl-5 text-xs font-medium">
+                        {txn.type.replace(/_/g, " ")}
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground">
+                        {txn.status.toLowerCase()}
+                      </TableCell>
+                      <TableCell className="text-right text-xs tabular-nums">
+                        {fmtMoney(txn.amount, txn.currency)}
+                      </TableCell>
+                      <TableCell className="pr-5 text-right text-xs tabular-nums text-muted-foreground">
+                        {fmtMoney(txn.balanceAfter, txn.currency)}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </CollapsibleCard>
+          )}
+
+          <CollapsibleCard icon={Info} title="Shipment meta">
+            <div className="space-y-2.5">
+              <InfoRow
+                icon={Hash}
+                label="ID"
+                value={s.id}
+                copyLabel="Shipment ID"
+              />
               <InfoRow label="Created" value={fmtDatetime(s.createdAt)} />
               <InfoRow label="Booked" value={fmtDatetime(s.bookedAt)} />
               <InfoRow label="Last updated" value={fmtDatetime(s.updatedAt)} />
@@ -1292,8 +1363,104 @@ export default async function BookingDetailPage({
                 label="Documents"
                 value={`${s.documents.length} file${s.documents.length !== 1 ? "s" : ""}`}
               />
-            </CardContent>
-          </Card>
+            </div>
+          </CollapsibleCard>
+        </div>
+
+        {/* ── RIGHT / rail: operate on the shipment (sticky) ── */}
+        <div className="lg:col-span-1">
+          <div className="space-y-4 lg:sticky lg:top-6">
+            {/* Primary action — always open, given the emphasis ring */}
+            <Card className="ring-2 ring-primary/20">
+              <CardTitleRow
+                icon={RefreshCw}
+                title="Update status"
+                right={
+                  <Badge
+                    variant="outline"
+                    className={cn("text-[11px] font-medium", cfg.className)}
+                  >
+                    {cfg.label}
+                  </Badge>
+                }
+              />
+              <CardContent className="pt-4">
+                <StatusUpdatePanel
+                  shipmentId={s.id}
+                  currentStatus={s.status}
+                  allStatuses={allStatuses}
+                />
+              </CardContent>
+            </Card>
+
+            {/* Carrier / AWB — opens itself when the shipment is moving but blank */}
+            <CollapsibleCard
+              icon={Truck}
+              title="Carrier / AWB"
+              summary={hasAwb ? "Recorded" : "Not set"}
+              defaultOpen={awbRelevant && !hasAwb}
+            >
+              <CarrierTrackingPanel
+                shipmentId={s.id}
+                initial={{
+                  mawbNumber: s.mawbNumber,
+                  hawbNumber: s.hawbNumber,
+                  carrierAirline: s.carrierAirline,
+                  vendorTrackingUrl: s.vendorTrackingUrl,
+                  awbUpdatedAt: s.awbUpdatedAt,
+                }}
+              />
+            </CollapsibleCard>
+
+            {/* Door pickup (first mile) — book with Shipmozo, then advance the
+                leg by hand if the webhook has not moved it. Gated on opt-in;
+                legacy rows may have no first-mile status yet. */}
+            {s.pickupIncluded && (
+              <CollapsibleCard
+                icon={Home}
+                title="Door pickup (first mile)"
+                summary={FIRST_MILE_STAGES[firstMileStatus].label}
+                defaultOpen={firstMileNeedsAction}
+              >
+                <div className="space-y-4">
+                  <FirstMilePickupBooking
+                    shipmentId={s.id}
+                    courierName={s.firstMileVendorName}
+                    charge={s.firstMileCharge ? num(s.firstMileCharge) : null}
+                    currency={s.currency}
+                    pickupFromLabel={[
+                      s.pickupAddress.city,
+                      s.pickupAddress.postalCode,
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
+                    pickupContact={s.pickupAddress.contactName}
+                    hubLabel={s.firstMileHubLabel}
+                    weightKg={num(s.totalActualWeightKg)}
+                    boxes={totalBoxes}
+                    booked={{
+                      awb: s.firstMileTrackingNumber,
+                      orderId: s.firstMileShipmozoOrderId,
+                      bookedAt: s.firstMileBookedAt
+                        ? fmtDatetime(s.firstMileBookedAt)
+                        : null,
+                    }}
+                  />
+                  <Separator />
+                  <FirstMileStatusPanel
+                    shipmentId={s.id}
+                    initial={{
+                      status: firstMileStatus,
+                      trackingNumber: s.firstMileTrackingNumber,
+                      trackingUrl: s.firstMileTrackingUrl,
+                      pickupScheduledAt: s.firstMilePickupScheduledAt,
+                      updatedAt: s.firstMileStatusUpdatedAt,
+                    }}
+                  />
+                </div>
+              </CollapsibleCard>
+            )}
+          </div>
         </div>
       </div>
     </div>

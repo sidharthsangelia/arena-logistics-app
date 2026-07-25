@@ -6,10 +6,8 @@ import { ShipmentStatus } from "@/generated/prisma";
 
 import { toast } from "sonner";
 
-import { CheckCircle2, Loader2, ChevronDown } from "lucide-react";
+import { CheckCircle2, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import {
@@ -85,12 +83,7 @@ export function StatusUpdatePanel({ shipmentId, currentStatus, allStatuses }: Pr
   }
 
   return (
-    <Card>
-      <CardHeader className="pb-3">
-        <CardTitle className="text-sm">Update Status</CardTitle>
-      </CardHeader>
-      <Separator />
-      <CardContent className="pt-4 space-y-4">
+    <div className="space-y-4">
         <div className="space-y-1.5">
           <Label className="text-xs text-muted-foreground">New status</Label>
           <Select
@@ -153,7 +146,6 @@ export function StatusUpdatePanel({ shipmentId, currentStatus, allStatuses }: Pr
             Select a different status to save
           </p>
         )}
-      </CardContent>
-    </Card>
+    </div>
   );
 }

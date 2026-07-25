@@ -13,8 +13,6 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -101,47 +99,34 @@ export function FirstMilePickupBooking(props: Props) {
     });
   }
 
-  // --- Already booked: compact confirmation card ---------------------------
+  // --- Already booked: compact confirmation --------------------------------
   if (alreadyBooked) {
     return (
-      <Card>
-        <CardHeader className="pb-3">
-          <div className="flex items-center gap-2">
-            <PackageCheck className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-            <CardTitle className="text-sm">Pickup booked with Shipmozo</CardTitle>
-          </div>
-        </CardHeader>
-        <Separator />
-        <CardContent className="space-y-2.5 pt-4">
-          <Row label="AWB" value={<span className="font-mono">{booked.awb}</span>} />
-          {props.courierName && <Row label="Courier" value={props.courierName} />}
-          {booked.orderId && (
-            <Row
-              label="Shipmozo order"
-              value={<span className="font-mono text-xs">{booked.orderId}</span>}
-            />
-          )}
-          {booked.bookedAt && <Row label="Booked" value={booked.bookedAt} />}
-          <p className="pt-1 text-[10px] leading-relaxed text-muted-foreground/70">
-            Status updates arrive automatically from Shipmozo and advance the
-            pickup leg above.
-          </p>
-        </CardContent>
-      </Card>
+      <div className="space-y-2.5">
+        <p className="flex items-center gap-1.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+          <PackageCheck className="h-3.5 w-3.5 shrink-0" />
+          Pickup booked with Shipmozo
+        </p>
+        <Row label="AWB" value={<span className="font-mono">{booked.awb}</span>} />
+        {props.courierName && <Row label="Courier" value={props.courierName} />}
+        {booked.orderId && (
+          <Row
+            label="Shipmozo order"
+            value={<span className="font-mono text-xs">{booked.orderId}</span>}
+          />
+        )}
+        {booked.bookedAt && <Row label="Booked" value={booked.bookedAt} />}
+        <p className="pt-1 text-[10px] leading-relaxed text-muted-foreground/70">
+          Status updates arrive automatically from Shipmozo and advance the
+          pickup leg below.
+        </p>
+      </div>
     );
   }
 
   // --- Not booked: review + confirm ----------------------------------------
   return (
-    <Card>
-      <CardHeader className="pb-3">
-        <div className="flex items-center gap-2">
-          <Truck className="h-4 w-4 text-muted-foreground" />
-          <CardTitle className="text-sm">Book door pickup</CardTitle>
-        </div>
-      </CardHeader>
-      <Separator />
-      <CardContent className="space-y-3 pt-4">
+    <div className="space-y-3">
         <p className="text-xs leading-relaxed text-muted-foreground">
           Push this pickup to Shipmozo so the courier collects from the customer
           and brings it to the hub. No need to open the Shipmozo panel.
@@ -240,7 +225,6 @@ export function FirstMilePickupBooking(props: Props) {
             </DialogFooter>
           </DialogContent>
         </Dialog>
-      </CardContent>
-    </Card>
+    </div>
   );
 }

@@ -3,10 +3,8 @@
 import React from "react";
  
 
-import { CheckCircle2, Loader2, StickyNote } from "lucide-react";
+import { CheckCircle2, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { updateInternalNotes } from "@/actions/book/companySideBookings.action";
 
@@ -40,15 +38,7 @@ export function InternalNotesPanel({ shipmentId, initialNotes }: Props) {
   }
 
   return (
-    <Card>
-      <CardHeader className="pb-3">
-        <div className="flex items-center gap-2">
-          <StickyNote className="h-4 w-4 text-muted-foreground" />
-          <CardTitle className="text-sm">Internal Notes</CardTitle>
-        </div>
-      </CardHeader>
-      <Separator />
-      <CardContent className="pt-4 space-y-3">
+    <div className="space-y-3">
         <p className="text-[10px] text-muted-foreground">
           Visible to ops only. Not shown to tenants.
         </p>
@@ -84,7 +74,6 @@ export function InternalNotesPanel({ shipmentId, initialNotes }: Props) {
             "Save notes"
           )}
         </Button>
-      </CardContent>
-    </Card>
+    </div>
   );
 }

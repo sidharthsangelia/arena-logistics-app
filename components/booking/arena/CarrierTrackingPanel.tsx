@@ -1,9 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Truck, Save, ExternalLink } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
+import { Save, ExternalLink } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
@@ -48,15 +46,7 @@ export function CarrierTrackingPanel({
   }
 
   return (
-    <Card>
-      <CardHeader className="pb-3">
-        <div className="flex items-center gap-2">
-          <Truck className="h-4 w-4 text-muted-foreground" />
-          <CardTitle className="text-sm">Carrier AWB Tracking</CardTitle>
-        </div>
-      </CardHeader>
-      <Separator />
-      <CardContent className="pt-4 space-y-3">
+    <div className="space-y-3">
         <div className="space-y-1.5">
           <Label className="text-xs">Airline / Carrier</Label>
           <Input
@@ -121,7 +111,6 @@ export function CarrierTrackingPanel({
             Preview tracking link
           </a>
         )}
-      </CardContent>
-    </Card>
+    </div>
   );
 }

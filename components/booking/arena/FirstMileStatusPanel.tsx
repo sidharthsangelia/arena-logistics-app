@@ -1,12 +1,10 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Home, Save, CheckCircle2, Loader2 } from "lucide-react";
+import { Save, CheckCircle2, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { FirstMileStatus } from "@/generated/prisma";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
@@ -90,15 +88,7 @@ export function FirstMileStatusPanel({ shipmentId, initial }: Props) {
   }
 
   return (
-    <Card>
-      <CardHeader className="pb-3">
-        <div className="flex items-center gap-2">
-          <Home className="h-4 w-4 text-muted-foreground" />
-          <CardTitle className="text-sm">Door pickup (first mile)</CardTitle>
-        </div>
-      </CardHeader>
-      <Separator />
-      <CardContent className="space-y-3 pt-4">
+    <div className="space-y-3">
         <div className="space-y-1.5">
           <Label className="text-xs text-muted-foreground">Stage</Label>
           <Select
@@ -189,7 +179,6 @@ export function FirstMileStatusPanel({ shipmentId, initial }: Props) {
             Last updated {initial.updatedAt.toLocaleString("en-IN")}
           </p>
         )}
-      </CardContent>
-    </Card>
+    </div>
   );
 }
