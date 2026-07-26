@@ -1,34 +1,35 @@
 "use client";
 
+/**
+ * components/documentVault/VaultTable.tsx
+ *
+ * A Business Associate's own client KYC paperwork. Server-paginated, sorted and
+ * filtered on the server; the client only ever holds one page.
+ *
+ * What this has over the Arena table: row selection with a bulk delete, and a
+ * per-row delete. Both remove the file from UploadThing as well as the row, so
+ * both go through a confirm.
+ */
+
+import * as React from "react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useState, useTransition } from "react";
-import {
-  FileText,
-  ImageIcon,
-  ExternalLink,
-  Trash2,
-  Building2,
-} from "lucide-react";
+import type { ColumnDef, RowSelectionState } from "@tanstack/react-table";
+import { Building2, FileText, ImageIcon, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
-import type { KycDocType } from "@/generated/prisma";
-
+import { DataTable } from "@/components/data-table/DataTable";
+import { DataTableColumnHeader } from "@/components/data-table/DataTableColumnHeader";
+import { DataTableSkeleton } from "@/components/data-table/DataTableSkeleton";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+  DataTableBulkBar,
+  selectedIds,
+  selectionColumn,
+} from "@/components/data-table/DataTableSelection";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  DataTableEmptyState,
+  DataTableErrorState,
+  DataTableToolbar,
+} from "@/components/data-table/DataTableToolbar";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -38,540 +39,351 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Input } from "@/components/ui/input";
 import {
-  KYC_DOC_TYPE_LABELS,
-  KYC_DOC_TYPES,
-} from "@/lib/validations/clientsDocument.schema";
-import { VaultDocumentRow } from "@/actions/documentVault/documentValut.action";
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { deleteKycDocumentAction } from "@/actions/documentVault/clientsDocument.action";
+import { formatDate } from "@/utils/format";
+import {
+  KYC_DOC_TYPES,
+  KYC_DOC_TYPE_LABELS,
+} from "@/lib/validations/clientsDocument.schema";
+import {
+  VAULT_QUICK_DOC_TYPES,
+  formatBytes,
+  type VaultDocTypeFilter,
+  type VaultDocumentRow,
+} from "@/lib/documentVault/config";
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Constants
-// ─────────────────────────────────────────────────────────────────────────────
+import { useVaultQuery } from "./useVaultQuery";
 
-const DOC_TYPE_OPTIONS = [
-  { value: "all", label: "All types" },
-  ...KYC_DOC_TYPES.map((t) => ({ value: t, label: KYC_DOC_TYPE_LABELS[t] })),
-] as const;
+/** "all" is the Select's stand-in for the empty filter, since "" is not a valid item value. */
+const ALL_TYPES = "all";
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Helpers
-// ─────────────────────────────────────────────────────────────────────────────
+export default function VaultTable() {
+  const t = useVaultQuery();
+  const invalidate = t.invalidate;
 
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
-}
+  const [selection, setSelection] = React.useState<RowSelectionState>({});
+  const [isPending, setIsPending] = React.useState(false);
+  const [toDelete, setToDelete] = React.useState<VaultDocumentRow | null>(null);
 
-function formatDate(d: Date): string {
-  return new Intl.DateTimeFormat("en-IN", {
-    day: "2-digit",
-    month: "short",
-    year: "2-digit",
-  }).format(new Date(d));
-}
+  const chosen = selectedIds(selection);
 
-function isImage(mimeType: string) {
-  return mimeType.startsWith("image/");
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Props
-// ─────────────────────────────────────────────────────────────────────────────
-
-interface Props {
-  documents: VaultDocumentRow[];
-  page: number;
-  total: number;
-  pageSize: number;
-  query: string;
-  docType: KycDocType | "";
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Component
-// ─────────────────────────────────────────────────────────────────────────────
-
-export default function VaultTable({
-  documents,
-  page,
-  total,
-  pageSize,
-  query,
-  docType,
-}: Props) {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
-
-  const [searchValue, setSearchValue] = useState(query);
-
-  useEffect(() => {
-  setSearchValue(query);
-}, [query]);
-
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [isPending, startTransition] = useTransition();
-
-  const [documentToDelete, setDocumentToDelete] = useState<{
-    id: string;
-    label: string;
-  } | null>(null);
-
-  const allIds = documents.map((d) => d.id);
-  const allSelected =
-    allIds.length > 0 && allIds.every((id) => selected.has(id));
-  const someSelected = selected.size > 0;
-
-
-  const searchParamsString = searchParams.toString();
-
-useEffect(() => {
-  const timer = setTimeout(() => {
-    const params = new URLSearchParams(searchParamsString);
-
-    if (searchValue.trim()) {
-      params.set("q", searchValue.trim());
-    } else {
-      params.delete("q");
-    }
-
-    params.delete("page");
-
-    const nextUrl =
-      `/document-vault?${params.toString()}`;
-
-    const currentUrl =
-      `/document-vault?${searchParamsString}`;
-
-    if (nextUrl === currentUrl) {
-      return;
-    }
-
-    startTransition(() => {
-      router.replace(nextUrl);
-    });
-  }, 400);
-
-  return () => clearTimeout(timer);
-}, [
-  searchValue,
-  searchParamsString,
-  router,
-]);
-
-  // ── Selection handlers ─────────────────────────────────────────────────────
-
-  const toggleAll = () =>
-    setSelected(allSelected ? new Set() : new Set(allIds));
-
-  const toggleOne = (id: string) =>
-    setSelected((prev) => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
-
-  const handleSingleDelete = () => {
-    if (!documentToDelete) return;
-
-    startTransition(async () => {
-      const result = await deleteKycDocumentAction(documentToDelete.id);
-
+  const handleSingleDelete = async () => {
+    if (!toDelete) return;
+    setIsPending(true);
+    try {
+      const result = await deleteKycDocumentAction(toDelete.id);
       if (result.success) {
         toast.success("Document deleted.");
-
-        setDocumentToDelete(null);
-
-        router.refresh();
+        setToDelete(null);
+        invalidate();
       } else {
         toast.error(result.message);
       }
-    });
+    } finally {
+      setIsPending(false);
+    }
   };
 
-  // ── Bulk delete ────────────────────────────────────────────────────────────
-
-  const handleBulkDelete = () => {
-    startTransition(async () => {
-      const ids = Array.from(selected);
-      const errors: string[] = [];
-
-      // deleteKycDocumentAction handles one doc at a time (also deletes from UT)
-      await Promise.all(
-        ids.map(async (id) => {
-          const result = await deleteKycDocumentAction(id);
-          if (!result.success) errors.push(id);
-        }),
+  const handleBulkDelete = async () => {
+    setIsPending(true);
+    try {
+      // deleteKycDocumentAction handles one document at a time, because each one
+      // also has to be removed from UploadThing.
+      const results = await Promise.all(
+        chosen.map((id) => deleteKycDocumentAction(id)),
       );
+      const failed = results.filter((r) => !r.success).length;
 
-      if (errors.length === 0) {
+      if (failed === 0) {
         toast.success(
-          `${ids.length} document${ids.length !== 1 ? "s" : ""} deleted`,
+          `${chosen.length} document${chosen.length !== 1 ? "s" : ""} deleted`,
         );
-        setSelected(new Set());
-        router.refresh();
       } else {
         toast.error(
-          `${errors.length} deletion${errors.length !== 1 ? "s" : ""} failed. Please try again.`,
+          `${failed} deletion${failed !== 1 ? "s" : ""} failed. Please try again.`,
         );
       }
-    });
+      // Some may have succeeded even when others failed, so always refetch.
+      setSelection({});
+      invalidate();
+    } finally {
+      setIsPending(false);
+    }
   };
 
-  // ── URL param helpers ──────────────────────────────────────────────────────
-
-  const updateParams = (updates: Record<string, string | undefined>) => {
-    const params = new URLSearchParams(searchParams);
-    Object.entries(updates).forEach(([key, value]) => {
-      if (!value) params.delete(key);
-      else params.set(key, value);
-    });
-    params.delete("page");
-    router.replace(`/document-vault?${params.toString()}`);
-  };
-
-  const changePage = (newPage: number) => {
-    const params = new URLSearchParams(searchParams);
-    if (newPage <= 1) params.delete("page");
-    else params.set("page", String(newPage));
-    router.replace(`/document-vault?${params.toString()}`);
-  };
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // Render
-  // ─────────────────────────────────────────────────────────────────────────
-
-  return (
-    <div className="space-y-4">
-      {/* Filter bar / bulk action bar */}
-      <div className="flex flex-wrap items-center gap-2">
-        {someSelected ? (
-          /* ── Bulk action mode ── */
-          <>
-            <span className="text-sm text-muted-foreground">
-              {selected.size} selected
+  const columns = React.useMemo<ColumnDef<VaultDocumentRow>[]>(
+    () => [
+      selectionColumn<VaultDocumentRow>((row) => row.label),
+      {
+        accessorKey: "label",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Document" />
+        ),
+        cell: ({ row }) => (
+          <div className="max-w-[220px]">
+            <Link
+              href={row.original.fileUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block truncate text-sm font-medium leading-tight hover:underline"
+            >
+              {row.original.label}
+            </Link>
+            {row.original.description && (
+              <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">
+                {row.original.description}
+              </span>
+            )}
+          </div>
+        ),
+      },
+      {
+        accessorKey: "docType",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Type" />
+        ),
+        cell: ({ row }) => (
+          <Badge variant="secondary" className="text-[11px] font-normal">
+            {KYC_DOC_TYPE_LABELS[row.original.docType]}
+          </Badge>
+        ),
+      },
+      {
+        accessorKey: "clientName",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Client" />
+        ),
+        cell: ({ row }) => (
+          <div className="max-w-[180px]">
+            <Link
+              href={`/clients/${row.original.client.id}`}
+              className="group flex items-center gap-1.5"
+            >
+              <Building2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              <span className="block truncate text-sm group-hover:underline">
+                {row.original.client.companyName}
+              </span>
+            </Link>
+            {row.original.client.contactName && (
+              <span className="mt-0.5 block truncate pl-5 text-[11px] text-muted-foreground">
+                {row.original.client.contactName}
+              </span>
+            )}
+          </div>
+        ),
+      },
+      {
+        accessorKey: "fileName",
+        enableSorting: false,
+        header: () => <span className="text-xs">File</span>,
+        cell: ({ row }) => (
+          <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
+            {row.original.mimeType.startsWith("image/") ? (
+              <ImageIcon className="h-3.5 w-3.5 shrink-0" />
+            ) : (
+              <FileText className="h-3.5 w-3.5 shrink-0" />
+            )}
+            <span className="block max-w-[140px] truncate">
+              {row.original.fileName}
             </span>
-
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  disabled={isPending}
-                  className="h-8"
-                >
-                  <Trash2 className="mr-1.5 h-3.5 w-3.5" />
-                  Delete {selected.size}
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>
-                    Delete {selected.size} document
-                    {selected.size !== 1 ? "s" : ""}?
-                  </AlertDialogTitle>
-                  <AlertDialogDescription>
-                    Selected document{selected.size !== 1 ? "s" : ""} will be
-                    permanently removed from the vault and storage. This cannot
-                    be undone.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction
-                    onClick={handleBulkDelete}
-                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                  >
-                    Delete
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-
+          </span>
+        ),
+      },
+      {
+        accessorKey: "fileSize",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Size" />
+        ),
+        cell: ({ row }) => (
+          <span className="whitespace-nowrap text-sm tabular-nums text-muted-foreground">
+            {formatBytes(row.original.fileSize)}
+          </span>
+        ),
+      },
+      {
+        accessorKey: "uploadedAt",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Uploaded" />
+        ),
+        cell: ({ row }) => (
+          <span className="whitespace-nowrap text-sm text-muted-foreground">
+            {formatDate(row.original.uploadedAt)}
+          </span>
+        ),
+      },
+      {
+        id: "actions",
+        enableSorting: false,
+        header: () => <span className="sr-only">Actions</span>,
+        cell: ({ row }) => (
+          <div className="flex justify-end">
             <Button
               variant="ghost"
-              size="sm"
-              className="h-8"
-              onClick={() => setSelected(new Set())}
+              size="icon"
+              className="h-7 w-7 text-muted-foreground hover:text-destructive"
+              onClick={() => setToDelete(row.original)}
+              aria-label={`Delete ${row.original.label}`}
             >
-              Clear selection
+              <Trash2 className="h-3.5 w-3.5" />
             </Button>
-          </>
-        ) : (
-          /* ── Filter mode ── */
-          <>
-            <Input
-              placeholder="Search documents, clients, GST, IEC, PAN..."
-              value={searchValue}
-              className="h-8 w-[320px] text-sm"
-              onChange={(e) => setSearchValue(e.target.value)}
-            />
+          </div>
+        ),
+      },
+    ],
+    [],
+  );
 
-            <Select
-              value={docType || "all"}
-              onValueChange={(value) =>
-                updateParams({ docType: value === "all" ? undefined : value })
-              }
+  const total = t.data?.total ?? 0;
+
+  const toolbar =
+    chosen.length > 0 ? (
+      <DataTableBulkBar
+        count={chosen.length}
+        noun="document"
+        isPending={isPending}
+        onDelete={handleBulkDelete}
+        onClear={() => setSelection({})}
+      />
+    ) : (
+      <DataTableToolbar
+        search={t.searchInput}
+        onSearchChange={t.setSearchInput}
+        searchPlaceholder="Search documents, clients, GST, IEC, PAN..."
+        isFetching={t.isFetching && !t.isFirstLoad}
+        resultLabel={
+          t.data
+            ? `${total.toLocaleString()} document${total !== 1 ? "s" : ""}`
+            : null
+        }
+      >
+        <Select
+          value={t.docType || ALL_TYPES}
+          onValueChange={(value) =>
+            t.setDocType(value === ALL_TYPES ? "" : (value as VaultDocTypeFilter))
+          }
+        >
+          <SelectTrigger className="h-9 w-[190px]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ALL_TYPES}>All types</SelectItem>
+            {KYC_DOC_TYPES.map((value) => (
+              <SelectItem key={value} value={value}>
+                {KYC_DOC_TYPE_LABELS[value]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <div className="flex flex-wrap gap-1.5">
+          {VAULT_QUICK_DOC_TYPES.map((chip) => (
+            <Button
+              key={chip.value}
+              variant={t.docType === chip.value ? "default" : "outline"}
+              size="sm"
+              className="h-9"
+              aria-pressed={t.docType === chip.value}
+              onClick={() => t.toggleDocType(chip.value)}
             >
-              <SelectTrigger className="h-8 w-[180px] text-sm">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {DOC_TYPE_OPTIONS.map((opt) => (
-                  <SelectItem key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              {chip.label}
+            </Button>
+          ))}
+        </div>
+      </DataTableToolbar>
+    );
 
-            <div className="flex flex-wrap gap-2">
-              {[
-                { label: "GST", value: "GST_CERTIFICATE" },
-                { label: "IEC", value: "IEC_CODE" },
-                { label: "PAN", value: "PAN_CARD" },
-                { label: "Bank", value: "BANK_STATEMENT" },
-                { label: "Cheque", value: "CANCELLED_CHEQUE" },
-              ].map((chip) => (
-                <Button
-                  key={chip.value}
-                  variant={docType === chip.value ? "default" : "outline"}
-                  size="sm"
-                  className="h-7"
-                  onClick={() =>
-                    updateParams({
-                      docType: docType === chip.value ? undefined : chip.value,
-                    })
-                  }
-                >
-                  {chip.label}
-                </Button>
-              ))}
-            </div>
-          </>
-        )}
-
-        <span className="ml-auto text-xs text-muted-foreground">
-          {total.toLocaleString()} document{total !== 1 ? "s" : ""}
-        </span>
-      </div>
-
-      {/* Table */}
-      <div className="rounded-lg border">
-        <Table>
-          <TableHeader>
-            <TableRow className="bg-muted/50 hover:bg-muted/50">
-              <TableHead className="w-10 pl-4">
-                <Checkbox
-                  checked={allSelected}
-                  onCheckedChange={toggleAll}
-                  aria-label="Select all"
-                />
-              </TableHead>
-              <TableHead className="text-xs uppercase tracking-wide">
-                Document
-              </TableHead>
-              <TableHead className="text-xs uppercase tracking-wide">
-                Type
-              </TableHead>
-              <TableHead className="text-xs uppercase tracking-wide">
-                Client
-              </TableHead>
-              <TableHead className="text-xs uppercase tracking-wide">
-                File
-              </TableHead>
-              <TableHead className="text-xs uppercase tracking-wide">
-                Size
-              </TableHead>
-              <TableHead className="text-xs uppercase tracking-wide">
-                Uploaded
-              </TableHead>
-              <TableHead className="w-10" />
-            </TableRow>
-          </TableHeader>
-
-          <TableBody>
-            {documents.length === 0 ? (
-              <TableRow>
-                <TableCell
-                  colSpan={8}
-                  className="h-32 text-center text-sm text-muted-foreground"
-                >
-                  No documents match your filters.
-                </TableCell>
-              </TableRow>
-            ) : (
-              documents.map((doc) => (
-                <TableRow
-                  key={doc.id}
-                  data-state={selected.has(doc.id) ? "selected" : undefined}
-                >
-                  {/* Checkbox */}
-                  <TableCell className="pl-4">
-                    <Checkbox
-                      checked={selected.has(doc.id)}
-                      onCheckedChange={() => toggleOne(doc.id)}
-                      aria-label={`Select ${doc.label}`}
-                    />
-                  </TableCell>
-
-                  {/* Label + open link */}
-                  <TableCell>
-                    <Link
-                      href={doc.fileUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 text-sm font-medium hover:underline "
-                    >
-                      <span className="block text-sm font-medium leading-tight">
-                        {doc.label}
-                      </span>
-                    </Link>
-
-                    {doc.description && (
-                      <span className="mt-0.5 block truncate text-[11px] text-muted-foreground max-w-[200px]">
-                        {doc.description}
-                      </span>
-                    )}
-                  </TableCell>
-
-                  {/* Doc type badge */}
-                  <TableCell>
-                    <Badge
-                      variant="secondary"
-                      className="text-[11px] font-normal"
-                    >
-                      {KYC_DOC_TYPE_LABELS[doc.docType]}
-                    </Badge>
-                  </TableCell>
-
-                  {/* Client */}
-                  <TableCell>
-                    <Link
-                      href={`/clients/${doc.client.id}`}
-                      className="group flex items-center gap-1.5"
-                    >
-                      <Building2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                      <span className="block text-sm group-hover:underline">
-                        {doc.client.companyName}
-                      </span>
-                    </Link>
-                    {doc.client.contactName && (
-                      <span className="mt-0.5 block text-[11px] text-muted-foreground pl-5">
-                        {doc.client.contactName}
-                      </span>
-                    )}
-                  </TableCell>
-
-                  {/* File name + icon */}
-                  <TableCell>
-                    <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
-                      {isImage(doc.mimeType) ? (
-                        <ImageIcon className="h-3.5 w-3.5 shrink-0" />
-                      ) : (
-                        <FileText className="h-3.5 w-3.5 shrink-0" />
-                      )}
-                      <span className="max-w-[140px] truncate">
-                        {doc.fileName}
-                      </span>
-                    </span>
-                  </TableCell>
-
-                  {/* Size */}
-                  <TableCell className="text-sm text-muted-foreground tabular-nums">
-                    {formatBytes(doc.fileSize)}
-                  </TableCell>
-
-                  {/* Uploaded date */}
-                  <TableCell className="text-sm text-muted-foreground">
-                    {formatDate(doc.uploadedAt)}
-                  </TableCell>
-
-                  {/* Single-row delete */}
-                  <TableCell>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                      onClick={() =>
-                        setDocumentToDelete({
-                          id: doc.id,
-                          label: doc.label,
-                        })
-                      }
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </div>
-
-      {/* Pagination */}
-      <div className="flex items-center justify-between">
-        <p className="text-xs text-muted-foreground">
-          Page {page} of {totalPages}
-        </p>
-        <div className="flex gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={page <= 1}
-            onClick={() => changePage(page - 1)}
+  const deleteDialog = (
+    <AlertDialog
+      open={toDelete !== null}
+      onOpenChange={(open) => !open && setToDelete(null)}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete document?</AlertDialogTitle>
+          <AlertDialogDescription>
+            <strong>{toDelete?.label}</strong> will be permanently deleted from
+            the vault and from storage. This cannot be undone.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            onClick={handleSingleDelete}
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
           >
-            ← Previous
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={page >= totalPages}
-            onClick={() => changePage(page + 1)}
-          >
-            Next →
-          </Button>
+            Delete
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+
+  // First load has nothing to keep on screen, so show the shape of the table.
+  // Every later fetch reuses the rows already rendered.
+  if (t.isFirstLoad) {
+    return (
+      <div className="space-y-4">
+        {toolbar}
+        <DataTableSkeleton columns={columns.length} rows={8} />
+      </div>
+    );
+  }
+
+  if (t.error) {
+    return (
+      <div className="space-y-4">
+        {toolbar}
+        <div className="rounded-md border">
+          <DataTableErrorState
+            message="Could not load your documents. Please try again."
+            onRetry={() => t.refetch()}
+          />
         </div>
       </div>
-      <AlertDialog
-        open={!!documentToDelete}
-        onOpenChange={(open) => {
-          if (!open) {
-            setDocumentToDelete(null);
-          }
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete document?</AlertDialogTitle>
+    );
+  }
 
-            <AlertDialogDescription>
-              <strong>{documentToDelete?.label}</strong> will be permanently
-              deleted from the vault and storage. This cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-
-            <AlertDialogAction
-              onClick={handleSingleDelete}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </div>
+  return (
+    <>
+      <DataTable
+        columns={columns}
+        data={t.data?.rows ?? []}
+        // The server's echoed page, not the URL's: it clamps a stale ?page= to
+        // the last page that actually exists, and the controls should agree with
+        // the rows on screen.
+        page={t.data?.page ?? t.page}
+        pageSize={t.pageSize}
+        totalRows={total}
+        pageCount={t.data?.pageCount ?? 1}
+        onPageChange={t.setPage}
+        onPageSizeChange={t.setPageSize}
+        sorting={t.sorting}
+        onSortingChange={t.setSorting}
+        isLoading={t.isFetching}
+        toolbar={toolbar}
+        rowSelection={selection}
+        onRowSelectionChange={setSelection}
+        getRowId={(row) => row.id}
+        emptyState={
+          <DataTableEmptyState
+            filtered={t.isFiltered}
+            emptyText="No client documents uploaded yet."
+            filteredText="No documents match your filters."
+            onReset={t.clearFilters}
+          />
+        }
+      />
+      {deleteDialog}
+    </>
   );
 }
