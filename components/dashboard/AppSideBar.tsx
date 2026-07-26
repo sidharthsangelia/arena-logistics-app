@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { Fragment, useEffect, useMemo, useRef } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
@@ -29,8 +29,6 @@ import {
   SquareSigma,
   PackageCheck,
   Users,
-  BarChart3,
-  Upload,
   ChevronsUpDown,
   User,
   LogOut,
@@ -46,10 +44,12 @@ import {
   SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
+  SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarRail,
   useSidebar,
 } from "@/components/ui/sidebar";
 
@@ -62,6 +62,12 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+
 import { cn } from "@/lib/utils";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -72,6 +78,9 @@ interface NavItem {
   title: string;
   href: string;
   icon: React.ElementType;
+  /** Plain-language line shown under the title in the collapsed-rail tooltip.
+   *  Written for someone who has not used the app before. */
+  description: string;
 }
 
 interface NavSection {
@@ -96,30 +105,100 @@ const NAV_CONFIGS: Record<string, NavConfig> = {
       {
         label: "Operations",
         items: [
-          { title: "Dashboard",      href: "/",               icon: LayoutDashboard },
-          { title: "Clients",        href: "/clients",        icon: Building2 },
-          { title: "Address Book",   href: "/addressbook",    icon: BookMarked },
-          { title: "Quotes",         href: "/quotes",         icon: FileUser },
-          { title: "Document Vault", href: "/document-vault", icon: Shield },
+          {
+            title: "Dashboard",
+            href: "/",
+            icon: LayoutDashboard,
+            description: "Your shipping activity at a glance",
+          },
+          {
+            title: "Clients",
+            href: "/clients",
+            icon: Building2,
+            description: "Companies you ship on behalf of",
+          },
+          {
+            title: "Address Book",
+            href: "/addressbook",
+            icon: BookMarked,
+            description: "Saved pickup and delivery addresses",
+          },
+          {
+            title: "Quotes",
+            href: "/quotes",
+            icon: FileUser,
+            description: "Prices you have quoted to your clients",
+          },
+          {
+            title: "Document Vault",
+            href: "/document-vault",
+            icon: Shield,
+            description: "All your shipping paperwork in one place",
+          },
         ],
       },
       {
         label: "Shipping",
         items: [
-          { title: "International Rates", href: "/rates",          icon: Calculator },
-          { title: "Domestic Rates",      href: "/domestic-rates", icon: SquareSigma },
-          { title: "Book Shipment",       href: "/book",           icon: PackagePlus },
-          { title: "Track Shipment",      href: "/track",          icon: MapPin },
-          { title: "Shipments",           href: "/shipments",      icon: Package },
+          {
+            title: "International Rates",
+            href: "/rates",
+            icon: Calculator,
+            description: "Check prices for parcels going abroad",
+          },
+          {
+            title: "Domestic Rates",
+            href: "/domestic-rates",
+            icon: SquareSigma,
+            description: "Check prices for parcels inside India",
+          },
+          {
+            title: "Book Shipment",
+            href: "/book",
+            icon: PackagePlus,
+            description: "Start a new booking",
+          },
+          {
+            title: "Track Shipment",
+            href: "/track",
+            icon: MapPin,
+            description: "See where a parcel has reached",
+          },
+          {
+            title: "Shipments",
+            href: "/shipments",
+            icon: Package,
+            description: "Every shipment you have booked",
+          },
         ],
       },
       {
-        label: "Admin",
+        label: "Account",
         items: [
-          {title: "Wallet", href: "/wallet", icon: Wallet},
-          { title: "Invoices", href: "/invoices", icon: FileText },
-          { title: "Client Emails", href: "/settings/client-emails", icon: MailCheck },
-          { title: "Settings", href: "/settings/profile", icon: Settings },
+          {
+            title: "Wallet",
+            href: "/wallet",
+            icon: Wallet,
+            description: "Add money and see what you have spent",
+          },
+          {
+            title: "Invoices",
+            href: "/invoices",
+            icon: FileText,
+            description: "Bills Arena has raised to you",
+          },
+          {
+            title: "Client Emails",
+            href: "/settings/client-emails",
+            icon: MailCheck,
+            description: "Choose which updates your clients receive",
+          },
+          {
+            title: "Settings",
+            href: "/settings/profile",
+            icon: Settings,
+            description: "Your company profile and account details",
+          },
         ],
       },
     ],
@@ -131,38 +210,88 @@ const NAV_CONFIGS: Record<string, NavConfig> = {
       {
         label: "Operations",
         items: [
-          { title: "Overview",  href: "/",         icon: LayoutDashboard },
-          { title: "Bookings",  href: "/bookings", icon: PackageCheck },
-          {title: "Business Associates", href: "/business-associates", icon: Handshake},
-          { title: "All Clients",   href: "/clients",  icon: Users },
-          { title: "All Quotes",         href: "/quotes",         icon: FileUser },
-          { title: "Document Vault", href: "/document-vault", icon: Shield },
-        ],
-      },
-
           {
-        label: "Shipping",
-        items: [
-          { title: "International Rates", href: "/rates",          icon: Calculator },
-          { title: "Domestic Rates",      href: "/domestic-rates", icon: SquareSigma },
-          { title: "Track Shipment",      href: "/track",          icon: MapPin },
-          
+            title: "Overview",
+            href: "/",
+            icon: LayoutDashboard,
+            description: "Today's activity across every account",
+          },
+          {
+            title: "Bookings",
+            href: "/bookings",
+            icon: PackageCheck,
+            description: "Requests waiting to be processed",
+          },
+          {
+            title: "Business Associates",
+            href: "/business-associates",
+            icon: Handshake,
+            description: "Partner firms that book for their own clients",
+          },
+          {
+            title: "All Clients",
+            href: "/clients",
+            icon: Users,
+            description: "Every client across every account",
+          },
+          {
+            title: "All Quotes",
+            href: "/quotes",
+            icon: FileUser,
+            description: "Quotes raised by every account",
+          },
+          {
+            title: "Document Vault",
+            href: "/document-vault",
+            icon: Shield,
+            description: "Shipping paperwork uploaded by accounts",
+          },
         ],
       },
       {
-        label: "Rate Management",
+        label: "Shipping",
         items: [
-          { title: "Rate Cards",   href: "/rate-cards",        icon: BarChart3 },
-          { title: "Upload Domestic Rates", href: "/domestic-rates/upload", icon: Upload },
+          {
+            title: "International Rates",
+            href: "/rates",
+            icon: Calculator,
+            description: "Check prices for parcels going abroad",
+          },
+          {
+            title: "Domestic Rates",
+            href: "/domestic-rates",
+            icon: SquareSigma,
+            description: "Check prices for parcels inside India",
+          },
+          {
+            title: "Track Shipment",
+            href: "/track",
+            icon: MapPin,
+            description: "See where a parcel has reached",
+          },
         ],
       },
       {
         label: "Admin",
         items: [
-          { title: "Wallets", href: "/wallets", icon: Wallet },
-           { title: "Invoices", href: "/invoices", icon: FileText },
-          { title: "Notices", href: "/notices", icon: Megaphone },
-          { title: "Settings", href: "/settings", icon: Settings },
+          {
+            title: "Wallets",
+            href: "/wallets",
+            icon: Wallet,
+            description: "Money held by each account",
+          },
+          {
+            title: "Invoices",
+            href: "/invoices",
+            icon: FileText,
+            description: "Bills you raise to accounts",
+          },
+          {
+            title: "Notices",
+            href: "/notices",
+            icon: Megaphone,
+            description: "Messages shown to accounts across the app",
+          },
         ],
       },
     ],
@@ -205,19 +334,19 @@ const STANDARD_HIDDEN_HREFS = new Set([
 // admins only, so ops members do not see the link at all.
 const ARENA_ADMIN_ONLY_HREFS = new Set(["/wallets"]);
 
+// Shared row geometry. Kept in one place so the nav rows, the org switcher and
+// the user button all collapse to the same 40px square on the icon rail and the
+// rail reads as a single column of evenly sized targets.
+const RAIL_SQUARE =
+  "group-data-[collapsible=icon]:size-10! group-data-[collapsible=icon]:p-0! group-data-[collapsible=icon]:justify-center";
+
 // ─────────────────────────────────────────────────────────────────────────────
-// OrgAvatar
+// Avatars
 // ─────────────────────────────────────────────────────────────────────────────
 
-function OrgAvatar({
-  name,
-  logoUrl,
-  size = 32,
-}: {
-  name: string;
-  logoUrl?: string | null;
-  size?: number;
-}) {
+const AVATAR_SIZE = 28;
+
+function OrgAvatar({ name, logoUrl }: { name: string; logoUrl?: string | null }) {
   const initials = name
     .split(/\s+/)
     .slice(0, 2)
@@ -230,33 +359,43 @@ function OrgAvatar({
       <Image
         src={logoUrl}
         alt={name}
-        width={size}
-        height={size}
-        className="rounded-md object-cover shrink-0"
-        style={{ width: size, height: size }}
+        width={AVATAR_SIZE}
+        height={AVATAR_SIZE}
+        className="size-7 shrink-0 rounded-md object-cover"
       />
     );
   }
 
   return (
-    <div
-      className="flex shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground font-semibold"
-      style={{ width: size, height: size, fontSize: size * 0.38 }}
-    >
+    <div className="flex size-7 shrink-0 items-center justify-center rounded-md bg-sidebar-primary text-[11px] font-semibold text-sidebar-primary-foreground">
       {initials}
     </div>
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// SectionLabel
-// ─────────────────────────────────────────────────────────────────────────────
+function UserAvatar({
+  name,
+  avatarUrl,
+}: {
+  name: string;
+  avatarUrl?: string | null;
+}) {
+  if (avatarUrl) {
+    return (
+      <Image
+        src={avatarUrl}
+        alt={name}
+        width={AVATAR_SIZE}
+        height={AVATAR_SIZE}
+        className="size-7 shrink-0 rounded-full object-cover"
+      />
+    );
+  }
 
-function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <p className="px-2 mb-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/40 select-none">
-      {children}
-    </p>
+    <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-sidebar-primary text-[11px] font-semibold text-sidebar-primary-foreground">
+      {name[0]?.toUpperCase()}
+    </div>
   );
 }
 
@@ -266,49 +405,135 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 
 function NavItemRow({
   item,
+  href,
   isActive,
 }: {
   item: NavItem;
+  href: string;
   isActive: boolean;
 }) {
-  const { state } = useSidebar();
-  const collapsed = state === "collapsed";
   const Icon = item.icon;
 
   return (
     <SidebarMenuItem>
       <SidebarMenuButton
         asChild
-        tooltip={item.title}
         isActive={isActive}
+        // Only fires on the collapsed rail (SidebarMenuButton hides it when
+        // expanded), where the label is not visible and the icon alone has to
+        // carry the meaning.
+        tooltip={{
+          children: (
+            <>
+              <span className="font-medium">{item.title}</span>
+              <span className="text-background/70">{item.description}</span>
+            </>
+          ),
+          className: "flex-col items-start gap-0.5 px-3 py-2 text-xs",
+        }}
+        // Active styling goes through the same `data-active:` variant the base
+        // cva uses, so tailwind-merge drops its defaults outright rather than
+        // leaving two rules to fight in the cascade. Setting these from a JS
+        // conditional instead would leave the cva's own active colours in the
+        // class list, and they land later in the stylesheet.
         className={cn(
-          "h-8 rounded-md px-2 transition-all duration-100 gap-2.5",
-          isActive
-            ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
-            : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
+          "h-9 gap-3 rounded-md px-2.5 text-sm transition-colors",
+          "[&_svg]:size-4.5",
+          // Resting
+          "text-sidebar-foreground/75 [&_svg]:text-sidebar-foreground/50",
+          "hover:bg-sidebar-foreground/6 hover:text-sidebar-foreground hover:[&_svg]:text-sidebar-foreground/80",
+          // Current page
+          "data-active:bg-sidebar-primary data-active:font-medium data-active:text-sidebar-primary-foreground data-active:shadow-sm",
+          "data-active:[&_svg]:text-sidebar-primary-foreground",
+          // Hold the pill on hover rather than letting the resting hover win.
+          // The icon needs its own rule: the resting `hover:[&_svg]:` selector
+          // outranks the plain active one, and would grey the icon out against
+          // the dark pill.
+          "data-active:hover:bg-sidebar-primary data-active:hover:text-sidebar-primary-foreground",
+          "data-active:hover:[&_svg]:text-sidebar-primary-foreground",
+          RAIL_SQUARE,
         )}
       >
-        <Link
-          href={item.href}
-          className={cn(
-            "flex items-center gap-2.5",
-            collapsed && "justify-center",
-          )}
-        >
-          <Icon
-            className={cn(
-              "h-[15px] w-[15px] shrink-0",
-              isActive
-                ? "text-sidebar-foreground"
-                : "text-muted-foreground/60",
-            )}
-          />
-          {!collapsed && (
-            <span className="text-[13px] leading-none">{item.title}</span>
-          )}
+        <Link href={href}>
+          <Icon />
+          <span className="truncate group-data-[collapsible=icon]:hidden">
+            {item.title}
+          </span>
         </Link>
       </SidebarMenuButton>
     </SidebarMenuItem>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// OrgSwitcher
+//
+// Clerk's OrganizationSwitcher ships its own trigger, so it is laid invisibly
+// on top of our own row and takes the click. The row underneath is what the
+// user actually sees.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function OrgSwitcherRow() {
+  const { state, isMobile } = useSidebar();
+  const { organization } = useOrganization();
+
+  const name = organization?.name ?? "Select organisation";
+  const members = organization?.membersCount;
+
+  const clerkOverlay = (
+    <div className="absolute inset-0 overflow-hidden rounded-md opacity-0">
+      <OrganizationSwitcher
+        hidePersonal
+        appearance={{
+          elements: {
+            rootBox: "w-full h-full",
+            organizationSwitcherTrigger:
+              "w-full h-full absolute inset-0 opacity-0",
+          },
+        }}
+      />
+    </div>
+  );
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <div className="relative">
+          <SidebarMenuButton
+            className={cn(
+              "h-12 gap-2.5 rounded-md px-2 transition-colors",
+              "border border-sidebar-border bg-sidebar-foreground/3",
+              "hover:bg-sidebar-foreground/6",
+              RAIL_SQUARE,
+              "group-data-[collapsible=icon]:border-transparent",
+            )}
+          >
+            <OrgAvatar name={name} logoUrl={organization?.imageUrl} />
+            <div className="min-w-0 flex-1 text-left group-data-[collapsible=icon]:hidden">
+              <p className="truncate text-[13px] font-medium leading-tight text-sidebar-foreground">
+                {name}
+              </p>
+              {members != null && (
+                <p className="mt-0.5 truncate text-[11px] leading-tight text-sidebar-foreground/55">
+                  {members} {members === 1 ? "member" : "members"}
+                </p>
+              )}
+            </div>
+            <ChevronsUpDown className="size-4 shrink-0 text-sidebar-foreground/40 group-data-[collapsible=icon]:hidden" />
+          </SidebarMenuButton>
+          {clerkOverlay}
+        </div>
+      </TooltipTrigger>
+      <TooltipContent
+        side="right"
+        align="center"
+        hidden={state !== "collapsed" || isMobile}
+        className="flex-col items-start gap-0.5 px-3 py-2 text-xs"
+      >
+        <span className="font-medium">{name}</span>
+        <span className="text-background/70">Switch to another organisation</span>
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -325,8 +550,7 @@ export function AppSidebar({
   const { subtitle, sections: allSections } = NAV_CONFIGS[variant];
 
   const pathname = usePathname();
-  const { state } = useSidebar();
-  const collapsed = state === "collapsed";
+  const { isMobile } = useSidebar();
   const { organization } = useOrganization();
   const { user } = useUser();
 
@@ -335,8 +559,7 @@ export function AppSidebar({
   // metadata mirror is a fallback for the rare case the prop is unavailable, so
   // stale metadata can never hide/show the wrong routes.
   const metadataOrgType = coerceOrgType(organization?.publicMetadata?.orgType);
-  const isBA =
-    isBusinessAssociate ?? isBusinessAssociateType(metadataOrgType);
+  const isBA = isBusinessAssociate ?? isBusinessAssociateType(metadataOrgType);
 
   // Backfill the Clerk metadata mirror once for orgs created before it existed.
   // Guarded by a ref so it fires at most once per mount: the Clerk client won't
@@ -400,23 +623,38 @@ export function AppSidebar({
   };
 
   // Resolve full href by prepending basePath to relative hrefs
-  // e.g. basePath="/dashboard", href="/clients" → "/dashboard/clients"
+  // e.g. basePath="/arena-dashboard", href="/clients" → "/arena-dashboard/clients"
   // e.g. href="/" → basePath itself (the index route)
-const resolveHref = (href: string) => {
-  if (href === "/") return basePath;
-  // Avoid double slash when basePath is "/"
-  if (basePath === "/") return href;
-  return `${basePath}${href}`;
-};
+  const resolveHref = (href: string) => {
+    if (href === "/") return basePath;
+    // Avoid a double slash when basePath is the app root
+    if (basePath === "/") return href;
+    return `${basePath}${href}`;
+  };
 
-  // Active check against full resolved path
-const isActive = (href: string) => {
-  const full = resolveHref(href);
-  // For basePath="/" the root is just "/"
-  return full === "/"
-    ? pathname === "/"
-    : pathname.startsWith(full);
-};
+  // Exactly one row is ever active: the longest nav href that the current path
+  // sits on or under. Matching on a plain startsWith would light up two rows at
+  // once wherever one nav route nests inside another, and comparing on segment
+  // boundaries keeps "/rates" from claiming "/rate-cards".
+  const activeHref = useMemo(() => {
+    let best: string | null = null;
+    let bestLength = -1;
+
+    for (const section of sections) {
+      for (const item of section.items) {
+        const full = resolveHref(item.href);
+        const onRoute = pathname === full || pathname.startsWith(`${full}/`);
+        if (onRoute && full.length > bestLength) {
+          best = item.href;
+          bestLength = full.length;
+        }
+      }
+    }
+
+    return best;
+    // resolveHref is a pure function of basePath, which is in the dep list.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sections, pathname, basePath]);
 
   const displayName =
     user?.fullName ??
@@ -425,252 +663,165 @@ const isActive = (href: string) => {
   const email = user?.primaryEmailAddress?.emailAddress ?? "";
   const avatarUrl = user?.imageUrl;
 
-  const UserAvatar = ({ size }: { size: number }) =>
-    avatarUrl ? (
-      <Image
-        src={avatarUrl}
-        alt={displayName}
-        width={size}
-        height={size}
-        className="rounded-full shrink-0"
-      />
-    ) : (
-      <div
-        className="rounded-full bg-primary flex items-center justify-center font-semibold text-primary-foreground shrink-0"
-        style={{ width: size, height: size, fontSize: size * 0.4 }}
+  const accountMenu = (
+    <>
+      <DropdownMenuLabel className="font-normal">
+        <div className="flex items-center gap-2.5">
+          <UserAvatar name={displayName} avatarUrl={avatarUrl} />
+          <div className="min-w-0">
+            <p className="truncate text-[13px] font-medium">{displayName}</p>
+            <p className="truncate text-[11px] text-muted-foreground">{email}</p>
+          </div>
+        </div>
+      </DropdownMenuLabel>
+      <DropdownMenuSeparator />
+      <DropdownMenuItem onClick={handleOpenSettings}>
+        <Settings className="mr-2 size-4" />
+        Settings
+      </DropdownMenuItem>
+      <DropdownMenuItem onClick={handleOpenProfile}>
+        <User className="mr-2 size-4" />
+        Profile
+      </DropdownMenuItem>
+      <DropdownMenuSeparator />
+      <DropdownMenuItem
+        className="text-destructive focus:bg-destructive/10 focus:text-destructive"
+        onClick={() => signOut({ redirectUrl: "/sign-in" })}
       >
-        {displayName[0]?.toUpperCase()}
-      </div>
-    );
+        <LogOut className="mr-2 size-4" />
+        Sign out
+      </DropdownMenuItem>
+    </>
+  );
 
   return (
-    <Sidebar collapsible="icon" className="border-r border-border/60">
-
-      {/* ── Header ──────────────────────────────────────────────────────── */}
-      <SidebarHeader
-        className={cn("pb-2", collapsed ? "px-2 pt-3" : "px-3 pt-3")}
-      >
-        {/* Logo */}
+    <Sidebar collapsible="icon" className="border-r border-sidebar-border">
+      {/* ── Header ──────────────────────────────────────────────────────────
+          The brand row is fixed at h-14 so it lines up exactly with the page
+          header bar to its right. */}
+      <SidebarHeader className="gap-0 p-0">
         <Link
           href={basePath}
           className={cn(
-            "flex items-center rounded-lg transition-colors hover:bg-sidebar-accent/50",
-            collapsed ? "justify-center p-1.5" : "gap-3 px-1.5 py-2",
+            "flex h-14 shrink-0 items-center gap-2.5 border-b border-sidebar-border px-3 transition-colors",
+            "hover:bg-sidebar-foreground/4",
+            "group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0",
           )}
         >
           <Image
             src="/arena_logo.png"
             alt="Arena Cargo"
-            width={collapsed ? 34 : 36}
-            height={collapsed ? 34 : 36}
+            width={32}
+            height={32}
             priority
-            className="shrink-0 rounded-md object-contain"
+            className="size-8 shrink-0 rounded-md object-contain"
           />
-          {!collapsed && (
-            <div className="min-w-0">
-              <p className="text-[13px] font-semibold leading-tight tracking-tight text-foreground truncate">
-                Arena Cargo
-              </p>
-              <p className="text-[11px] leading-tight text-muted-foreground truncate mt-0.5">
-                {subtitle}
-              </p>
-            </div>
-          )}
+          <div className="min-w-0 group-data-[collapsible=icon]:hidden">
+            <p className="truncate text-sm font-semibold leading-tight tracking-tight text-sidebar-foreground">
+              Arena Cargo
+            </p>
+            <p className="mt-0.5 truncate text-[11px] leading-tight text-sidebar-foreground/55">
+              {subtitle}
+            </p>
+          </div>
         </Link>
 
-        {/* Divider */}
-        <div className="h-px bg-border/50 my-2" />
-
-        {/* Org switcher */}
-        {collapsed ? (
+        <div className="p-2 group-data-[collapsible=icon]:px-3">
           <SidebarMenu>
             <SidebarMenuItem>
-              <div className="flex justify-center py-1 relative">
-                <div className="h-9 w-9 flex items-center justify-center rounded-md hover:bg-sidebar-accent/60 transition-colors cursor-pointer relative">
-                  <OrgAvatar
-                    name={organization?.name ?? "O"}
-                    logoUrl={organization?.imageUrl}
-                    size={28}
-                  />
-                  <div className="absolute inset-0 opacity-0 overflow-hidden rounded-md">
-                    <OrganizationSwitcher
-                      hidePersonal
-                      appearance={{
-                        elements: {
-                          rootBox: "w-full h-full",
-                          organizationSwitcherTrigger:
-                            "w-full h-full absolute inset-0 opacity-0",
-                        },
-                      }}
-                    />
-                  </div>
-                </div>
-              </div>
+              <OrgSwitcherRow />
             </SidebarMenuItem>
           </SidebarMenu>
-        ) : (
-          <div className="relative rounded-lg border border-border/50 bg-sidebar-accent/30 hover:bg-sidebar-accent/50 transition-colors cursor-pointer">
-            <div className="flex items-center gap-2.5 px-2.5 py-2">
-              <OrgAvatar
-                name={organization?.name ?? "Select org"}
-                logoUrl={organization?.imageUrl}
-                size={26}
-              />
-              <div className="min-w-0 flex-1">
-                <p className="text-[12px] font-medium leading-tight truncate text-foreground">
-                  {organization?.name ?? "Select organisation"}
-                </p>
-                {organization?.membersCount != null && (
-                  <p className="text-[11px] leading-tight text-muted-foreground mt-0.5">
-                    {organization.membersCount}{" "}
-                    {organization.membersCount === 1 ? "member" : "members"}
-                  </p>
-                )}
-              </div>
-              <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground/50" />
-            </div>
-            <div className="absolute inset-0 opacity-0 overflow-hidden rounded-lg">
-              <OrganizationSwitcher
-                hidePersonal
-                appearance={{
-                  elements: {
-                    rootBox: "w-full h-full",
-                    organizationSwitcherTrigger:
-                      "w-full h-full absolute inset-0 opacity-0",
-                  },
-                }}
-              />
-            </div>
-          </div>
-        )}
+        </div>
       </SidebarHeader>
 
-      {/* ── Content ─────────────────────────────────────────────────────── */}
-      <SidebarContent className={cn("py-2", collapsed ? "px-2" : "px-2.5")}>
-        {sections.map((section, sectionIndex) => (
-          <div key={section.label}>
-            {/* Divider between sections (not before the first) */}
-            {sectionIndex > 0 && (
-              <div className={cn("h-px bg-border/40 my-2", collapsed && "mx-1")} />
+      {/* ── Content ─────────────────────────────────────────────────────────
+          px-3 on the rail centres the 40px rows inside the 64px column. */}
+      <SidebarContent className="gap-0 px-2 pb-3 group-data-[collapsible=icon]:px-3">
+        {sections.map((section, index) => (
+          <Fragment key={section.label}>
+            {/* The rail has no group headings, so a hairline is what keeps the
+                groups readable there. Expanded, the headings do that job. */}
+            {index > 0 && (
+              <div
+                aria-hidden
+                className="mx-1 my-2 hidden h-px bg-sidebar-border group-data-[collapsible=icon]:block"
+              />
             )}
 
-            <SidebarGroup className="p-0 mb-1">
-              {!collapsed && <SectionLabel>{section.label}</SectionLabel>}
+            <SidebarGroup
+              className={cn(
+                "p-0",
+                index > 0 && "mt-4 group-data-[collapsible=icon]:mt-0",
+              )}
+            >
+              <SidebarGroupLabel className="h-7 px-2.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-sidebar-foreground/45 group-data-[collapsible=icon]:-mt-7">
+                {section.label}
+              </SidebarGroupLabel>
+
               <SidebarGroupContent>
-                <SidebarMenu className="gap-px">
+                <SidebarMenu className="gap-0.5">
                   {section.items.map((item) => (
                     <NavItemRow
                       key={item.href}
-                      item={{ ...item, href: resolveHref(item.href) }}
-                      isActive={isActive(item.href)}
+                      item={item}
+                      href={resolveHref(item.href)}
+                      isActive={item.href === activeHref}
                     />
                   ))}
                 </SidebarMenu>
               </SidebarGroupContent>
             </SidebarGroup>
-          </div>
+          </Fragment>
         ))}
       </SidebarContent>
 
       {/* ── Footer ──────────────────────────────────────────────────────── */}
-      <SidebarFooter
-        className={cn(
-          "border-t border-border/60 py-2",
-          collapsed ? "px-2" : "px-2.5",
-        )}
-      >
+      <SidebarFooter className="border-t border-sidebar-border p-2 group-data-[collapsible=icon]:px-3">
         <SidebarMenu>
           <SidebarMenuItem>
-            {collapsed ? (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <SidebarMenuButton
-                    tooltip={displayName}
-                    className="h-9 w-9 rounded-md flex items-center justify-center hover:bg-sidebar-accent/60 p-0 mx-auto"
-                  >
-                    <UserAvatar size={28} />
-                  </SidebarMenuButton>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent side="right" align="end" className="w-52">
-                  <DropdownMenuLabel className="font-normal">
-                    <p className="text-[13px] font-medium truncate">{displayName}</p>
-                    <p className="text-[11px] text-muted-foreground truncate">{email}</p>
-                  </DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={handleOpenSettings}>
-                    <Settings className="mr-2 h-4 w-4" />
-                    Settings
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={handleOpenProfile}>
-                    <User className="mr-2 h-4 w-4" />
-                    Profile
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    className="text-destructive focus:text-destructive"
-                    onClick={() => signOut({ redirectUrl: "/sign-in" })}
-                  >
-                    <LogOut className="mr-2 h-4 w-4" />
-                    Sign out
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            ) : (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <SidebarMenuButton
-                    className={cn(
-                      "h-auto w-full rounded-lg px-2 py-2 gap-2.5",
-                      "hover:bg-sidebar-accent/60 transition-colors",
-                      "data-[state=open]:bg-sidebar-accent/60",
-                    )}
-                  >
-                    <UserAvatar size={32} />
-                    <div className="min-w-0 flex-1 text-left">
-                      <p className="text-[12px] font-medium leading-tight truncate text-foreground">
-                        {displayName}
-                      </p>
-                      <p className="text-[11px] leading-tight text-muted-foreground truncate mt-0.5">
-                        {email}
-                      </p>
-                    </div>
-                    <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground/50" />
-                  </SidebarMenuButton>
-                </DropdownMenuTrigger>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <SidebarMenuButton
+                  aria-label={`Account menu for ${displayName}`}
+                  className={cn(
+                    "h-12 gap-2.5 rounded-md px-2 transition-colors",
+                    "hover:bg-sidebar-foreground/6",
+                    "data-open:bg-sidebar-foreground/6",
+                    RAIL_SQUARE,
+                  )}
+                >
+                  <UserAvatar name={displayName} avatarUrl={avatarUrl} />
+                  <div className="min-w-0 flex-1 text-left group-data-[collapsible=icon]:hidden">
+                    <p className="truncate text-[13px] font-medium leading-tight text-sidebar-foreground">
+                      {displayName}
+                    </p>
+                    <p className="mt-0.5 truncate text-[11px] leading-tight text-sidebar-foreground/55">
+                      {email}
+                    </p>
+                  </div>
+                  <ChevronsUpDown className="size-4 shrink-0 text-sidebar-foreground/40 group-data-[collapsible=icon]:hidden" />
+                </SidebarMenuButton>
+              </DropdownMenuTrigger>
 
-                <DropdownMenuContent side="top" align="end" sideOffset={8} className="w-56">
-                  <DropdownMenuLabel className="font-normal pb-2">
-                    <div className="flex items-center gap-2.5">
-                      <UserAvatar size={32} />
-                      <div className="min-w-0">
-                        <p className="text-[13px] font-medium truncate">{displayName}</p>
-                        <p className="text-[11px] text-muted-foreground truncate">{email}</p>
-                      </div>
-                    </div>
-                  </DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={handleOpenSettings}>
-                    <Settings className="mr-2 h-4 w-4" />
-                    Settings
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={handleOpenProfile}>
-                    <User className="mr-2 h-4 w-4" />
-                    Profile
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    className="text-destructive focus:text-destructive focus:bg-destructive/10"
-                    onClick={() => signOut({ redirectUrl: "/sign-in" })}
-                  >
-                    <LogOut className="mr-2 h-4 w-4" />
-                    Sign out
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            )}
+              <DropdownMenuContent
+                side="right"
+                align="end"
+                sideOffset={8}
+                className="w-56"
+              >
+                {accountMenu}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarFooter>
+
+      {/* Drag/click the edge to collapse. Gives the sidebar a toggle that is
+          reachable without going back up to the header button. Desktop only:
+          in the mobile sheet there is no rail to grab, and the element would
+          otherwise sit at the bottom of the panel as an invisible hit area. */}
+      {!isMobile && <SidebarRail />}
     </Sidebar>
   );
 }
