@@ -99,7 +99,6 @@ async function resolveShipmentEmailTarget(
       shipmentNumber: true,
       senderEmail: true,
       senderName: true,
-      selectedVendorName: true,
       selectedProductName: true,
       totalActualWeightKg: true,
       hawbNumber: true,
@@ -216,11 +215,10 @@ async function resolveShipmentEmailTarget(
   }
 
   const pieces = shipment.packages.reduce((sum, p) => sum + (p.quantity || 0), 0);
-  const serviceName =
-    [shipment.selectedVendorName, shipment.selectedProductName]
-      .filter(Boolean)
-      .join(" ")
-      .trim() || null;
+  // Service only. The sourcing vendor never appears in customer-facing copy, so
+  // a shipment with no product name shows no Service row rather than falling
+  // back to the vendor. See carrierBranding.md.
+  const serviceName = shipment.selectedProductName?.trim() || null;
 
   const ctx: ShipmentEmailContext = {
     shipmentNumber: shipment.shipmentNumber,
