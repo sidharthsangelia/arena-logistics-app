@@ -3,6 +3,7 @@
 import * as React from "react";
 import {
   type ColumnDef,
+  type RowSelectionState,
   type SortingState,
   type VisibilityState,
   flexRender,
@@ -43,6 +44,19 @@ interface DataTableProps<TData, TValue> {
 
   toolbar?: React.ReactNode;
   emptyState?: React.ReactNode;
+
+  // ── Row selection (opt-in) ────────────────────────────────────────────────
+  // Only tables with bulk actions pass these. Left out, the table behaves
+  // exactly as before, so existing call sites are unaffected.
+  /** Selected rows, keyed by the id `getRowId` returns. */
+  rowSelection?: RowSelectionState;
+  onRowSelectionChange?: (selection: RowSelectionState) => void;
+  /**
+   * Required alongside rowSelection. Selection must key off the row's own id,
+   * not its index, or paging would carry a selection over to whichever rows
+   * happen to land in the same positions on the next page.
+   */
+  getRowId?: (row: TData) => string;
 }
 
 export function DataTable<TData, TValue>({
@@ -61,6 +75,9 @@ export function DataTable<TData, TValue>({
   isLoading,
   toolbar,
   emptyState,
+  rowSelection,
+  onRowSelectionChange,
+  getRowId,
 }: DataTableProps<TData, TValue>) {
   const table = useReactTable({
     data,
@@ -70,6 +87,8 @@ export function DataTable<TData, TValue>({
     manualPagination: true,
     pageCount,
     getCoreRowModel: getCoreRowModel(),
+    getRowId: getRowId ? (row) => getRowId(row) : undefined,
+    enableRowSelection: Boolean(onRowSelectionChange),
     onSortingChange: (updater) => {
       const next = typeof updater === "function" ? updater(sorting) : updater;
       onSortingChange(next);
@@ -80,9 +99,16 @@ export function DataTable<TData, TValue>({
         typeof updater === "function" ? updater(columnVisibility ?? {}) : updater;
       onColumnVisibilityChange(next);
     },
+    onRowSelectionChange: (updater) => {
+      if (!onRowSelectionChange) return;
+      const next =
+        typeof updater === "function" ? updater(rowSelection ?? {}) : updater;
+      onRowSelectionChange(next);
+    },
     state: {
       sorting,
       columnVisibility,
+      rowSelection: rowSelection ?? {},
     },
   });
 
@@ -111,7 +137,11 @@ export function DataTable<TData, TValue>({
             <TableBody>
               {rows.length ? (
                 rows.map((row, i) => (
-                  <TableRow key={row.id} className={cn(i % 2 !== 0 && "bg-muted/10")}>
+                  <TableRow
+                    key={row.id}
+                    data-state={row.getIsSelected() ? "selected" : undefined}
+                    className={cn(i % 2 !== 0 && "bg-muted/10")}
+                  >
                     {row.getVisibleCells().map((cell) => (
                       <TableCell key={cell.id}>
                         {flexRender(cell.column.columnDef.cell, cell.getContext())}
