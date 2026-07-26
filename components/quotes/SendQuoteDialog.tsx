@@ -55,6 +55,12 @@ export type SendQuoteDialogProps = {
     contactName: string | null;
     email: string | null;
   };
+  /**
+   * Called after a successful send. Tables that hold their rows in react-query
+   * pass an invalidate here; server-rendered callers can leave it out and rely on
+   * the router.refresh() below.
+   */
+  onChanged?: () => void;
 };
 
 type ClientInfo = {
@@ -124,6 +130,7 @@ export default function SendQuoteDialog({
   onOpenChange,
   quote,
   client: clientProp,
+  onChanged,
 }: SendQuoteDialogProps) {
   const isArena = useIsArenaOrg();
   const [client, setClient] = useState<ClientInfo>(clientProp);
@@ -221,6 +228,7 @@ export default function SendQuoteDialog({
       : "Email sent successfully.",
   );
 
+  onChanged?.();
   router.refresh();
 
   handleOpenChange(false);

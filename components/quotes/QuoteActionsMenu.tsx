@@ -38,11 +38,17 @@ export type QuoteActionsMenuProps = {
     contactName: string | null;
     email: string | null;
   };
+  /**
+   * Called after an action changes the quote. Tables that hold their rows in
+   * react-query pass an invalidate here; server-rendered callers can omit it.
+   */
+  onChanged?: () => void;
 };
 
 export default function QuoteActionsMenu({
   quote,
   client,
+  onChanged,
 }: QuoteActionsMenuProps) {
   const [emailOpen, setEmailOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
@@ -54,6 +60,7 @@ export default function QuoteActionsMenu({
       const result = await markQuoteAsSentAction(quote.id);
       if (result.success) {
         toast.success(`Quote #${quote.quoteNumber} marked as Sent.`);
+        onChanged?.();
       } else {
         toast.error(result.error);
       }
@@ -119,6 +126,7 @@ export default function QuoteActionsMenu({
         onOpenChange={setEmailOpen}
         quote={quote}
         client={client}
+        onChanged={onChanged}
       />
     </>
   );

@@ -1,126 +1,41 @@
 "use server";
- 
+
+/**
+ * actions/quote/quotesList.action.ts
+ *
+ * Reads and single-row writes for a tenant's own quotes.
+ *
+ * Every function here resolves the caller's org itself through getDbOrgId(); the
+ * org is never a parameter, so no caller can widen its own scope. The row shape
+ * and the sort/filter vocabulary live in lib/quotes/config.ts, because this file
+ * is "use server" and may export functions only.
+ */
+
 import { revalidatePath } from "next/cache";
+import * as Sentry from "@sentry/nextjs";
+
 import { prisma } from "@/utils/db";
-import type { EmailEvent, Prisma, QuoteStatus } from "@/generated/prisma";
+import type { QuoteStatus } from "@/generated/prisma";
 import { getDbOrgId } from "@/utils/tenant";
- 
-export interface QuoteRow {
-  id:            string;
-  quoteNumber:   string;
-  status:        QuoteStatus;
-  vendorName:    string;
-  productName:   string;
-  currency:      string;
-  quotedTotal:   number;
-lastEmailEvent: EmailEvent | null;
-  markupPercent: number;
-  tatDays:       number | null;
-  pdfUrl:        string | null;
-  validUntil:    string;
-  createdAt:     string;
-  client: {
-    id:          string;
-    companyName: string;
-    contactName: string | null;
-  } | null;
-  isExpired: boolean;
-}
- 
-export interface QuoteListResult {
-  quotes: QuoteRow[];
-  total:  number;
-}
- 
-const PAGE_SIZE = 25;
- 
-export async function getQuotesAction(params: {
-  q?:      string;
-  status?: QuoteStatus | "";
-  page?:   number;
-}): Promise<QuoteListResult> {
+import { getTenantQuotesPage } from "@/lib/quotes/tenantQueries";
+import type { QuoteListParams, QuotePage } from "@/lib/quotes/config";
+
+export async function listQuotesAction(
+  params: QuoteListParams,
+): Promise<QuotePage> {
   const orgId = await getDbOrgId();
-  const query = params.q?.trim() ?? "";
-  const page  = Math.max(1, params.page ?? 1);
-  const skip  = (page - 1) * PAGE_SIZE;
-  const now   = new Date();
- 
-  const where: Prisma.QuoteWhereInput = {
-    orgId,          // ← only this org's quotes
-    ...(params.status ? { status: params.status } : {}),
-    ...(query
-      ? {
-          OR: [
-            { quoteNumber: { contains: query, mode: "insensitive" } },
-            { vendorName:  { contains: query, mode: "insensitive" } },
-            { productName: { contains: query, mode: "insensitive" } },
-            { client: { companyName: { contains: query, mode: "insensitive" } } },
-          ],
-        }
-      : {}),
-  };
- 
-  const [rows, total] = await Promise.all([
-    prisma.quote.findMany({
-      where,
-      orderBy: { createdAt: "desc" },
-      skip,
-      take: PAGE_SIZE,
-      select: {
-        id:            true,
-        quoteNumber:   true,
-        status:        true,
-        vendorName:    true,
-        productName:   true,
-        currency:      true,
-        quotedTotal:   true,
-        markupPercent: true,
-        tatDays:       true,
-        pdfUrl:        true,
-        validUntil:    true,
-        createdAt:     true,
-        emailEvents: {
-  orderBy: {
-    createdAt: "desc",
-  },
-  take: 1,
-  select: {
-    event: true,
-  },
-},
-        client: {
-          select: {
-            id:          true,
-            companyName: true,
-            contactName: true,
-          },
-        },
-      },
-    }),
-    prisma.quote.count({ where }),
-  ]);
- 
-  const quotes: QuoteRow[] = rows.map((r) => ({
-    id:            r.id,
-    quoteNumber:   r.quoteNumber,
-    status:        r.status,
-    vendorName:    r.vendorName,
-    productName:   r.productName,
-    currency:      r.currency,
-    quotedTotal:   Number(r.quotedTotal),
-    markupPercent: Number(r.markupPercent),
-    tatDays:       r.tatDays,
-    pdfUrl:        r.pdfUrl,
-    lastEmailEvent: r.emailEvents[0]?.event ?? null,
-    validUntil:    r.validUntil.toISOString(),
-    createdAt:     r.createdAt.toISOString(),
-    client:        r.client,
-    isExpired:     r.validUntil < now && r.status === "DRAFT",
-  }));
- 
-  return { quotes, total };
+
+  try {
+    return await getTenantQuotesPage(orgId, params);
+  } catch (error) {
+    Sentry.captureException(error, {
+      tags: { location: "listQuotesAction" },
+      extra: { params },
+    });
+    throw error;
+  }
 }
- 
+
 type ActionResult =
   | { success: true }
   | { success: false; message: string };

@@ -1,61 +1,30 @@
 /**
- * src/app/quotes/page.tsx
+ * app/(tenant)/quotes/page.tsx
  *
- * Server component. Reads searchParams, fetches quotes, renders the page.
- * Follows the exact same pattern as ClientsPage.
+ * A Business Associate's own quotations. The org scope is enforced twice over:
+ * the layout calls requireBusinessAssociateOrg(), and the action behind the table
+ * resolves the org itself through getDbOrgId() rather than taking it as a param.
+ *
+ * The page fetches nothing. Paging, sorting, search and the status filter live in
+ * the URL but are driven client-side through the History API, so the table
+ * refetches through react-query instead of re-rendering this route on every
+ * keystroke. The Suspense boundary is what useSearchParams needs, and it doubles
+ * as the first paint.
  */
 
 import { Suspense } from "react";
 
-import type { QuoteStatus } from "@/generated/prisma";
-import { getQuotesAction } from "@/actions/quote/quotesList.action";
-import QuotesToolbar from "@/components/quotes/QuotesToolbar";
-import QuotesTableSkeleton from "@/components/quotes/QuotesTableSkeleton";
 import QuotesTable from "@/components/quotes/QuotesTable";
+import { DataTableSkeleton } from "@/components/data-table/DataTableSkeleton";
 
-type PageProps = {
-  searchParams: Promise<{
-    q?: string;
-    status?: string;
-    page?: string;
-  }>;
+export const metadata = {
+  title: "Quotes",
 };
 
-const VALID_STATUSES: QuoteStatus[] = [
-  "DRAFT",
-  "SENT",
-  "ACCEPTED",
-  "EXPIRED",
-  "CANCELLED",
-];
-
-function toStatus(raw: string | undefined): QuoteStatus | "" {
-  if (!raw) return "";
-  const upper = raw.toUpperCase() as QuoteStatus;
-  return VALID_STATUSES.includes(upper) ? upper : "";
-}
-
-export default async function QuotesPage({ searchParams }: PageProps) {
-  const params = await searchParams;
-
-  const query = params.q?.trim() ?? "";
-  const status = toStatus(params.status);
-  const page = Math.max(1, Number.parseInt(params.page ?? "1", 10) || 1);
-
-  const { quotes, total } = await getQuotesAction({ q: query, status, page });
-
-  const PAGE_SIZE = 25;
-
+export default function QuotesPage() {
   return (
-    <>
-      <QuotesTable
-        quotes={quotes}
-        page={page}
-        total={total}
-        pageSize={PAGE_SIZE}
-        query={query}
-        status={status}
-      />
-    </>
+    <Suspense fallback={<DataTableSkeleton columns={10} rows={10} withToolbar />}>
+      <QuotesTable />
+    </Suspense>
   );
 }

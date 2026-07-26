@@ -1,21 +1,36 @@
 "use client";
 
+/**
+ * components/quotes/QuotesTable.tsx
+ *
+ * A Business Associate's own quotes. Server-paginated, sorted and filtered on
+ * the server; the client only ever holds one page.
+ *
+ * Two things this table has that the Arena one does not: row selection with a
+ * bulk delete, and a per-row actions menu (send by email, mark as sent). Both
+ * invalidate the react-query cache on success rather than calling
+ * router.refresh(), which would have re-rendered the whole route.
+ */
+
+import * as React from "react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
-import { Trash2, Mail, MailOpen, MousePointerClick, MailX, AlertTriangle, Send } from "lucide-react";
-import { useState, useTransition } from "react";
+import type { ColumnDef, RowSelectionState } from "@tanstack/react-table";
+import { FileWarning } from "lucide-react";
+import { toast } from "sonner";
 
-import type { QuoteStatus, EmailEvent } from "@/generated/prisma";
-import type { QuoteRow } from "@/actions/quote/quotesList.action";
-
+import { DataTable } from "@/components/data-table/DataTable";
+import { DataTableColumnHeader } from "@/components/data-table/DataTableColumnHeader";
+import { DataTableSkeleton } from "@/components/data-table/DataTableSkeleton";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+  DataTableBulkBar,
+  selectedIds,
+  selectionColumn,
+} from "@/components/data-table/DataTableSelection";
+import {
+  DataTableEmptyState,
+  DataTableErrorState,
+  DataTableToolbar,
+} from "@/components/data-table/DataTableToolbar";
 import {
   Select,
   SelectContent,
@@ -23,490 +38,301 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
-import QuoteStatusBadge from "./QuotesStatusBadge";
-import QuoteActionsMenu from "./QuoteActionsMenu";
-import { toast } from "sonner";
 import { bulkDeleteQuotesAction } from "@/actions/quote/quotes.action";
-import { QuotesExportButton } from "./QuotesExportButton";
 import { useIsArenaOrg } from "@/hooks/useIsArenaOrg";
 import { displayServiceName } from "@/lib/branding/serviceName";
+import { formatDate, formatMoney } from "@/utils/format";
+import {
+  QUOTE_STATUS_FILTERS,
+  QUOTE_STATUS_FILTER_LABELS,
+  type QuoteRow,
+  type QuoteStatusFilter,
+} from "@/lib/quotes/config";
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
+import QuoteStatusBadge from "./QuotesStatusBadge";
+import QuoteActionsMenu from "./QuoteActionsMenu";
+import { EmailEventBadge } from "./EmailEventBadge";
+import { QuotesExportButton } from "./QuotesExportButton";
+import { useQuotesQuery } from "./useQuotesQuery";
 
-interface Props {
-  quotes:   QuoteRow[];
-  page:     number;
-  total:    number;
-  pageSize: number;
-  query:    string;
-  status:   QuoteStatus | "";
-}
-
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-const STATUS_OPTIONS = [
-  { value: "all",       label: "All statuses" },
-  { value: "DRAFT",     label: "Draft"        },
-  { value: "SENT",      label: "Sent"         },
-  { value: "ACCEPTED",  label: "Accepted"     },
-  { value: "EXPIRED",   label: "Expired"      },
-  { value: "CANCELLED", label: "Cancelled"    },
-] as const;
-
-// Config for each email event badge: icon, label, colours
-const EMAIL_EVENT_CONFIG: Record<
-  EmailEvent,
-  { icon: React.ElementType; label: string; className: string; tooltip: string }
-> = {
-  SENT: {
-    icon:      Send,
-    label:     "Sent",
-    className: "bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400",
-    tooltip:   "Email delivered to server",
-  },
-  DELIVERED: {
-    icon:      Mail,
-    label:     "Delivered",
-    className: "bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400",
-    tooltip:   "Email delivered to inbox",
-  },
-  OPENED: {
-    icon:      MailOpen,
-    label:     "Opened",
-    className: "bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-400",
-    tooltip:   "Client opened the email",
-  },
-  CLICKED: {
-    icon:      MousePointerClick,
-    label:     "Clicked",
-    className: "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400",
-    tooltip:   "Client clicked the PDF link",
-  },
-  BOUNCED: {
-    icon:      MailX,
-    label:     "Bounced",
-    className: "bg-red-50 text-red-600 dark:bg-red-900/30 dark:text-red-400",
-    tooltip:   "Email bounced — check the address",
-  },
-  COMPLAINED: {
-    icon:      AlertTriangle,
-    label:     "Complained",
-    className: "bg-orange-50 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400",
-    tooltip:   "Client marked email as spam",
-  },
-};
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function fmt(amount: number, currency: string) {
-  return new Intl.NumberFormat("en-IN", {
-    style:              "currency",
-    currency,
-    maximumFractionDigits: 0,
-  }).format(amount);
-}
-
-function fmtDate(date: string | Date) {
-  return new Date(date).toLocaleDateString("en-IN", {
-    day:   "2-digit",
-    month: "short",
-    year:  "2-digit",
-  });
-}
-
-// ---------------------------------------------------------------------------
-// EmailEventBadge
-// ---------------------------------------------------------------------------
-
-function EmailEventBadge({ event }: { event: EmailEvent | null }) {
-  if (!event) {
-    return (
-      <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
-        No Event Yet
-      </span>
-    );
-  }
-
-  const config = EMAIL_EVENT_CONFIG[event];
-  const Icon   = config.icon;
-
-  return (
-    <TooltipProvider delayDuration={200}>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <span
-            className={`inline-flex cursor-default items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${config.className}`}
-          >
-            <Icon className="h-3 w-3" />
-            {config.label}
-          </span>
-        </TooltipTrigger>
-        <TooltipContent side="top" className="text-xs">
-          {config.tooltip}
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// QuotesTable
-// ---------------------------------------------------------------------------
-
-export default function QuotesTable({
-  quotes,
-  page,
-  total,
-  pageSize,
-  query,
-  status,
-}: Props) {
-  const router       = useRouter();
-  const searchParams = useSearchParams();
-  const totalPages   = Math.max(1, Math.ceil(total / pageSize));
+export default function QuotesTable() {
+  const t = useQuotesQuery();
   // Vendor column is Arena-internal; masked for tenants and BAs.
-  const isArena      = useIsArenaOrg();
+  const isArena = useIsArenaOrg();
 
-  const [selected, setSelected]   = useState<Set<string>>(new Set());
-  const [isPending, startTransition] = useTransition();
+  const [selection, setSelection] = React.useState<RowSelectionState>({});
+  const [isDeleting, setIsDeleting] = React.useState(false);
 
-  const allIds      = quotes.map((q) => q.id);
-  const allSelected = allIds.length > 0 && allIds.every((id) => selected.has(id));
-  const someSelected = selected.size > 0;
+  // Pulled out of `t` so the columns memo can depend on it directly; it is a
+  // stable useCallback, so the columns are not rebuilt every render.
+  const invalidate = t.invalidate;
 
-  const toggleAll = () =>
-    setSelected(allSelected ? new Set() : new Set(allIds));
+  const chosen = selectedIds(selection);
 
-  const toggleOne = (id: string) =>
-    setSelected((prev) => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
-
-  const handleBulkDelete = () => {
-    startTransition(async () => {
-      const ids    = Array.from(selected);
-      const result = await bulkDeleteQuotesAction(ids);
+  const handleBulkDelete = async () => {
+    setIsDeleting(true);
+    try {
+      const result = await bulkDeleteQuotesAction(chosen);
       if (result.success) {
-        toast.success(`${ids.length} quote${ids.length !== 1 ? "s" : ""} deleted`);
-        setSelected(new Set());
-        router.refresh();
+        toast.success(
+          `${chosen.length} quote${chosen.length !== 1 ? "s" : ""} deleted`,
+        );
+        setSelection({});
+        invalidate();
       } else {
         toast.error(result.message);
       }
-    });
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
-  const updateParams = (updates: Record<string, string | undefined>) => {
-    const params = new URLSearchParams(searchParams);
-    Object.entries(updates).forEach(([key, value]) => {
-      if (!value) params.delete(key);
-      else params.set(key, value);
-    });
-    params.delete("page");
-    router.push(`/quotes?${params.toString()}`);
-  };
-
-  const changePage = (newPage: number) => {
-    const params = new URLSearchParams(searchParams);
-    if (newPage <= 1) params.delete("page");
-    else params.set("page", String(newPage));
-    router.push(`/quotes?${params.toString()}`);
-  };
-
-  return (
-    <div className="space-y-4">
-
-      {/* ── Filters / bulk action bar ──────────────────────────────────── */}
-      <div className="flex flex-wrap items-center gap-2">
-        {someSelected ? (
-          <>
-            <span className="text-sm text-muted-foreground">
-              {selected.size} selected
+  const columns = React.useMemo<ColumnDef<QuoteRow>[]>(() => {
+    const cols: ColumnDef<QuoteRow>[] = [
+      selectionColumn<QuoteRow>((row) => row.quoteNumber),
+      {
+        accessorKey: "quoteNumber",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Quote" />
+        ),
+        cell: ({ row }) =>
+          row.original.pdfUrl ? (
+            <Link
+              href={row.original.pdfUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm font-medium tabular-nums hover:underline"
+            >
+              {row.original.quoteNumber}
+            </Link>
+          ) : (
+            <span className="inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground">
+              {row.original.quoteNumber}
+              <FileWarning
+                className="h-3.5 w-3.5 shrink-0"
+                aria-label="No PDF generated"
+              />
             </span>
-
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  disabled={isPending}
-                  className="h-8"
-                >
-                  <Trash2 className="mr-1.5 h-3.5 w-3.5" />
-                  Delete {selected.size}
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>
-                    Delete {selected.size} quote{selected.size !== 1 ? "s" : ""}?
-                  </AlertDialogTitle>
-                  <AlertDialogDescription>
-                    This will permanently delete the selected quote
-                    {selected.size !== 1 ? "s" : ""}. This action cannot be undone.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction
-                    onClick={handleBulkDelete}
-                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                  >
-                    Delete
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-8"
-              onClick={() => setSelected(new Set())}
-            >
-              Clear selection
-            </Button>
-          </>
-        ) : (
-          <>
-            <Input
-              placeholder="Search by quote, client, vendor…"
-              defaultValue={query}
-              className="h-8 w-[220px] text-sm"
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  updateParams({
-                    q: (e.target as HTMLInputElement).value || undefined,
-                  });
-                }
-              }}
-            />
-
-            <Select
-              value={status || "all"}
-              onValueChange={(value) =>
-                updateParams({ status: value === "all" ? undefined : value })
-              }
-            >
-              <SelectTrigger className="h-8 w-[160px] text-sm">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {STATUS_OPTIONS.map((item) => (
-                  <SelectItem key={item.value} value={item.value}>
-                    {item.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </>
-        )}
-   <div className="flex items-center gap-2">
-        <QuotesExportButton />
-      </div>
-        <span className="ml-auto text-xs text-muted-foreground">
-          {total.toLocaleString()} quote{total !== 1 ? "s" : ""}
-        </span>
-      </div>
-
-      {/* ── Table ─────────────────────────────────────────────────────── */}
-      <div className="rounded-lg border">
-        <Table>
-          <TableHeader>
-            <TableRow className="bg-muted/50 hover:bg-muted/50">
-              <TableHead className="w-10 pl-4">
-                <Checkbox
-                  checked={allSelected}
-                  onCheckedChange={toggleAll}
-                  aria-label="Select all"
-                />
-              </TableHead>
-              <TableHead className="text-xs uppercase tracking-wide">Quote</TableHead>
-              <TableHead className="text-xs uppercase tracking-wide">Status</TableHead>
-              <TableHead className="text-xs uppercase tracking-wide">Email</TableHead>
-              <TableHead className="text-xs uppercase tracking-wide">Client</TableHead>
-              {isArena && (
-                <TableHead className="text-xs uppercase tracking-wide">Vendor</TableHead>
-              )}
-              <TableHead className="text-xs uppercase tracking-wide">Product</TableHead>
-              <TableHead className="text-right text-xs uppercase tracking-wide">Total</TableHead>
-              <TableHead className="text-xs uppercase tracking-wide">Valid until</TableHead>
-              <TableHead className="text-xs uppercase tracking-wide">Created</TableHead>
-              <TableHead className="w-10" />
-            </TableRow>
-          </TableHeader>
-
-          <TableBody>
-            {quotes.length === 0 ? (
-              <TableRow>
-                <TableCell
-                  colSpan={isArena ? 11 : 10}
-                  className="h-32 text-center text-sm text-muted-foreground"
-                >
-                  No quotes match your filters.
-                </TableCell>
-              </TableRow>
-            ) : (
-              quotes.map((quote) => (
-                <TableRow
-                  key={quote.id}
-                  data-state={selected.has(quote.id) ? "selected" : undefined}
-                >
-                  {/* Checkbox */}
-                  <TableCell className="pl-4">
-                    <Checkbox
-                      checked={selected.has(quote.id)}
-                      onCheckedChange={() => toggleOne(quote.id)}
-                      aria-label={`Select ${quote.quoteNumber}`}
-                    />
-                  </TableCell>
-
-                  {/* Quote number + PDF link */}
-                  <TableCell>
-                    {quote.pdfUrl ? (
-                      <Link
-                        href={quote.pdfUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 text-sm font-medium hover:underline"
-                      >
-                        {quote.quoteNumber}
-                      </Link>
-                    ) : (
-                      <span className="inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground">
-                        {quote.quoteNumber}
-                        <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-900/40 dark:text-amber-400">
-                          No PDF
-                        </span>
-                      </span>
-                    )}
-                  </TableCell>
-
-                  {/* Quote status */}
-                  <TableCell>
-                    <QuoteStatusBadge status={quote.status} />
-                  </TableCell>
-
-                  {/* Email event status — the new column */}
-                  <TableCell>
-                    <EmailEventBadge event={quote.lastEmailEvent} />
-                  </TableCell>
-
-                  {/* Client */}
-                  <TableCell>
-                    <span className="block truncate text-sm">
-                      {quote.client?.companyName ?? "—"}
-                    </span>
-                    {quote.client?.contactName && (
-                      <span className="block truncate text-[11px] text-muted-foreground">
-                        {quote.client.contactName}
-                      </span>
-                    )}
-                  </TableCell>
-
-                  {/* Vendor */}
-                  {isArena && (
-                    <TableCell className="truncate text-sm text-muted-foreground">
-                      {quote.vendorName}
-                    </TableCell>
-                  )}
-
-                  {/* Product */}
-                  <TableCell className="max-w-[130px] truncate text-sm">
-                    {displayServiceName(quote.productName, isArena)}
-                  </TableCell>
-
-                  {/* Total */}
-                  <TableCell className="text-right text-sm tabular-nums">
-                    {fmt(quote.quotedTotal, quote.currency)}
-                  </TableCell>
-
-                  {/* Valid until */}
-                  <TableCell>
-                    <span className="block text-sm">{fmtDate(quote.validUntil)}</span>
-                    {quote.isExpired && (
-                      <span className="text-[10px] text-destructive">Expired</span>
-                    )}
-                  </TableCell>
-
-                  {/* Created */}
-                  <TableCell className="text-sm text-muted-foreground">
-                    {fmtDate(quote.createdAt)}
-                  </TableCell>
-
-                  {/* Actions menu */}
-                  <TableCell>
-                    <QuoteActionsMenu
-                      quote={{
-                        ...quote,
-                        validUntil: quote.validUntil ? new Date(quote.validUntil) : null,
-                      }}
-                      client={{
-                        companyName: quote.client?.companyName ?? "",
-                        contactName: quote.client?.contactName ?? null,
-                        email:       null,
-                      }}
-                    />
-                  </TableCell>
-                </TableRow>
-              ))
+          ),
+      },
+      {
+        accessorKey: "status",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Status" />
+        ),
+        cell: ({ row }) => <QuoteStatusBadge status={row.original.status} />,
+      },
+      {
+        id: "email",
+        enableSorting: false,
+        header: () => <span className="text-xs">Email</span>,
+        cell: ({ row }) => <EmailEventBadge event={row.original.lastEmailEvent} />,
+      },
+      {
+        accessorKey: "clientName",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Client" />
+        ),
+        cell: ({ row }) => (
+          <div className="max-w-[160px]">
+            <span className="block truncate text-sm">
+              {row.original.client?.companyName ?? "Unassigned"}
+            </span>
+            {row.original.client?.contactName && (
+              <span className="block truncate text-[11px] text-muted-foreground">
+                {row.original.client.contactName}
+              </span>
             )}
-          </TableBody>
-        </Table>
-      </div>
+          </div>
+        ),
+      },
+    ];
 
-      {/* ── Pagination ────────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between">
-        <p className="text-xs text-muted-foreground">
-          Page {page} of {totalPages}
-        </p>
-        <div className="flex gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={page <= 1}
-            onClick={() => changePage(page - 1)}
-          >
-            ← Previous
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={page >= totalPages}
-            onClick={() => changePage(page + 1)}
-          >
-            Next →
-          </Button>
+    // The sourcing vendor's identity is Arena-internal. See carrierBranding.md.
+    if (isArena) {
+      cols.push({
+        accessorKey: "vendorName",
+        enableSorting: false,
+        header: () => <span className="text-xs">Vendor</span>,
+        cell: ({ row }) => (
+          <span className="block max-w-[130px] truncate text-sm text-muted-foreground">
+            {row.original.vendorName}
+          </span>
+        ),
+      });
+    }
+
+    cols.push(
+      {
+        accessorKey: "productName",
+        enableSorting: false,
+        header: () => <span className="text-xs">Product</span>,
+        cell: ({ row }) => (
+          <span className="block max-w-[130px] truncate text-sm">
+            {displayServiceName(row.original.productName, isArena)}
+          </span>
+        ),
+      },
+      {
+        accessorKey: "quotedTotal",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Total" />
+        ),
+        cell: ({ row }) => (
+          <span className="block text-right text-sm font-medium tabular-nums">
+            {formatMoney(row.original.quotedTotal, row.original.currency)}
+          </span>
+        ),
+      },
+      {
+        accessorKey: "validUntil",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Valid until" />
+        ),
+        cell: ({ row }) => (
+          <div className="whitespace-nowrap">
+            <span className="block text-sm">
+              {formatDate(row.original.validUntil)}
+            </span>
+            {row.original.isExpired && (
+              <span className="text-[10px] text-destructive">Expired</span>
+            )}
+          </div>
+        ),
+      },
+      {
+        accessorKey: "createdAt",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Created" />
+        ),
+        cell: ({ row }) => (
+          <span className="whitespace-nowrap text-sm text-muted-foreground">
+            {formatDate(row.original.createdAt)}
+          </span>
+        ),
+      },
+      {
+        id: "actions",
+        enableSorting: false,
+        header: () => <span className="sr-only">Actions</span>,
+        cell: ({ row }) => (
+          <div className="flex justify-end">
+            <QuoteActionsMenu
+              quote={{
+                ...row.original,
+                validUntil: row.original.validUntil
+                  ? new Date(row.original.validUntil)
+                  : null,
+              }}
+              client={{
+                companyName: row.original.client?.companyName ?? "",
+                contactName: row.original.client?.contactName ?? null,
+                email: null,
+              }}
+              onChanged={invalidate}
+            />
+          </div>
+        ),
+      },
+    );
+
+    return cols;
+  }, [isArena, invalidate]);
+
+  const total = t.data?.total ?? 0;
+
+  const toolbar =
+    chosen.length > 0 ? (
+      <DataTableBulkBar
+        count={chosen.length}
+        noun="quote"
+        isPending={isDeleting}
+        onDelete={handleBulkDelete}
+        onClear={() => setSelection({})}
+      />
+    ) : (
+      <DataTableToolbar
+        search={t.searchInput}
+        onSearchChange={t.setSearchInput}
+        searchPlaceholder="Search quote, client or product..."
+        isFetching={t.isFetching && !t.isFirstLoad}
+        resultLabel={
+          t.data ? `${total.toLocaleString()} quote${total !== 1 ? "s" : ""}` : null
+        }
+      >
+        <Select
+          value={t.status}
+          onValueChange={(value) => t.setStatus(value as QuoteStatusFilter)}
+        >
+          <SelectTrigger className="h-9 w-[150px]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {QUOTE_STATUS_FILTERS.map((value) => (
+              <SelectItem key={value} value={value}>
+                {QUOTE_STATUS_FILTER_LABELS[value]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <QuotesExportButton />
+      </DataTableToolbar>
+    );
+
+  // First load has nothing to keep on screen, so show the shape of the table.
+  // Every later fetch reuses the rows already rendered.
+  if (t.isFirstLoad) {
+    return (
+      <div className="space-y-4">
+        {toolbar}
+        <DataTableSkeleton columns={columns.length} rows={10} />
+      </div>
+    );
+  }
+
+  if (t.error) {
+    return (
+      <div className="space-y-4">
+        {toolbar}
+        <div className="rounded-md border">
+          <DataTableErrorState
+            message="Could not load your quotes. Please try again."
+            onRetry={() => t.refetch()}
+          />
         </div>
       </div>
-    </div>
+    );
+  }
+
+  return (
+    <DataTable
+      columns={columns}
+      data={t.data?.rows ?? []}
+      // The server's echoed page, not the URL's: it clamps a stale ?page= to the
+      // last page that actually exists, and the controls should agree with the
+      // rows on screen.
+      page={t.data?.page ?? t.page}
+      pageSize={t.pageSize}
+      totalRows={total}
+      pageCount={t.data?.pageCount ?? 1}
+      onPageChange={t.setPage}
+      onPageSizeChange={t.setPageSize}
+      sorting={t.sorting}
+      onSortingChange={t.setSorting}
+      isLoading={t.isFetching}
+      toolbar={toolbar}
+      rowSelection={selection}
+      onRowSelectionChange={setSelection}
+      getRowId={(row) => row.id}
+      emptyState={
+        <DataTableEmptyState
+          filtered={t.isFiltered}
+          emptyText="You have not generated any quotes yet."
+          filteredText="No quotes match your filters."
+          onReset={t.clearFilters}
+        />
+      }
+    />
   );
 }
