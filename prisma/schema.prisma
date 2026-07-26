@@ -283,6 +283,10 @@ model ClientDocument {
   @@index([clientId])
   @@index([orgId, docType])
   @@index([clientId, docType])
+  // The Arena vault lists documents across every org ordered by uploadedAt, so
+  // the default page has no org predicate to narrow on. Without this the sort is
+  // a full scan. Mirrors Quote's @@index([createdAt]).
+  @@index([uploadedAt])
 }
 
 model QuoteEmailEvent {
