@@ -1,28 +1,25 @@
 "use client";
 
+/**
+ * components/quotes/AdminQuotesTable.tsx
+ *
+ * Every tenant's quotes in one table, for Arena ops. Server-paginated, sorted
+ * and filtered on the server; the client only ever holds one page.
+ */
+
+import * as React from "react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import type { ColumnDef } from "@tanstack/react-table";
+import { Building2, FileWarning } from "lucide-react";
+
+import { DataTable } from "@/components/data-table/DataTable";
+import { DataTableColumnHeader } from "@/components/data-table/DataTableColumnHeader";
+import { DataTableSkeleton } from "@/components/data-table/DataTableSkeleton";
 import {
-  Mail,
-  MailOpen,
-  MousePointerClick,
-  MailX,
-  AlertTriangle,
-  Send,
-  Building2,
-} from "lucide-react";
-
-import type { EmailEvent, QuoteStatus } from "@/generated/prisma";
-
-
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+  DataTableEmptyState,
+  DataTableErrorState,
+  DataTableToolbar,
+} from "@/components/data-table/DataTableToolbar";
 import {
   Select,
   SelectContent,
@@ -30,359 +27,240 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { formatDate, formatMoney } from "@/utils/format";
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
+  QUOTE_STATUS_FILTERS,
+  QUOTE_STATUS_FILTER_LABELS,
+  type AdminQuoteRow,
+  type QuoteStatusFilter,
+} from "@/lib/quotes/config";
+
 import QuoteStatusBadge from "./QuotesStatusBadge";
-import { AdminQuoteRow } from "@/actions/quote/quotesListAdmin.action";
+import { EmailEventBadge } from "./EmailEventBadge";
+import { useAdminQuotesQuery } from "./useAdminQuotesQuery";
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
+const COLUMN_COUNT = 10;
 
-interface Props {
-  quotes: AdminQuoteRow[];
-  page: number;
-  total: number;
-  pageSize: number;
-  query: string;
-  status: QuoteStatus | "";
-}
+export default function AdminQuotesTable() {
+  const t = useAdminQuotesQuery();
 
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
+  const columns = React.useMemo<ColumnDef<AdminQuoteRow>[]>(
+    () => [
+      {
+        accessorKey: "quoteNumber",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Quote" />
+        ),
+        cell: ({ row }) =>
+          row.original.pdfUrl ? (
+            <Link
+              href={row.original.pdfUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm font-medium tabular-nums hover:underline"
+            >
+              {row.original.quoteNumber}
+            </Link>
+          ) : (
+            <span className="inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground">
+              {row.original.quoteNumber}
+              <FileWarning
+                className="h-3.5 w-3.5 shrink-0"
+                aria-label="No PDF generated"
+              />
+            </span>
+          ),
+      },
+      {
+        accessorKey: "status",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Status" />
+        ),
+        cell: ({ row }) => <QuoteStatusBadge status={row.original.status} />,
+      },
+      {
+        id: "email",
+        enableSorting: false,
+        header: () => <span className="text-xs">Email</span>,
+        cell: ({ row }) => <EmailEventBadge event={row.original.lastEmailEvent} />,
+      },
+      {
+        accessorKey: "orgName",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Organisation" />
+        ),
+        cell: ({ row }) => (
+          <Link
+            href={`/arena-dashboard/business-associates/${row.original.org.id}`}
+            className="group flex items-center gap-1.5"
+          >
+            <Building2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            <span className="block max-w-[160px] truncate text-sm group-hover:underline">
+              {row.original.org.name}
+            </span>
+          </Link>
+        ),
+      },
+      {
+        accessorKey: "clientName",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Client" />
+        ),
+        cell: ({ row }) => (
+          <div className="max-w-[160px]">
+            <span className="block truncate text-sm">
+              {row.original.client?.companyName ?? "Unassigned"}
+            </span>
+            {row.original.client?.contactName && (
+              <span className="block truncate text-[11px] text-muted-foreground">
+                {row.original.client.contactName}
+              </span>
+            )}
+          </div>
+        ),
+      },
+      {
+        accessorKey: "vendorName",
+        enableSorting: false,
+        header: () => <span className="text-xs">Vendor</span>,
+        cell: ({ row }) => (
+          <span className="block max-w-[130px] truncate text-sm text-muted-foreground">
+            {row.original.vendorName}
+          </span>
+        ),
+      },
+      {
+        accessorKey: "productName",
+        enableSorting: false,
+        header: () => <span className="text-xs">Product</span>,
+        cell: ({ row }) => (
+          <span className="block max-w-[130px] truncate text-sm">
+            {row.original.productName}
+          </span>
+        ),
+      },
+      {
+        accessorKey: "quotedTotal",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Total" />
+        ),
+        cell: ({ row }) => (
+          <span className="block text-right text-sm font-medium tabular-nums">
+            {formatMoney(row.original.quotedTotal, row.original.currency)}
+          </span>
+        ),
+      },
+      {
+        accessorKey: "validUntil",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Valid until" />
+        ),
+        cell: ({ row }) => (
+          <div className="whitespace-nowrap">
+            <span className="block text-sm">
+              {formatDate(row.original.validUntil)}
+            </span>
+            {row.original.isExpired && (
+              <span className="text-[10px] text-destructive">Expired</span>
+            )}
+          </div>
+        ),
+      },
+      {
+        accessorKey: "createdAt",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Created" />
+        ),
+        cell: ({ row }) => (
+          <span className="whitespace-nowrap text-sm text-muted-foreground">
+            {formatDate(row.original.createdAt)}
+          </span>
+        ),
+      },
+    ],
+    [],
+  );
 
-const QUOTES_BASE_PATH = "/arena-dashboard/quotes";
+  const total = t.data?.total ?? 0;
 
-const STATUS_OPTIONS = [
-  { value: "all", label: "All statuses" },
-  { value: "DRAFT", label: "Draft" },
-  { value: "SENT", label: "Sent" },
-  { value: "ACCEPTED", label: "Accepted" },
-  { value: "EXPIRED", label: "Expired" },
-  { value: "CANCELLED", label: "Cancelled" },
-] as const;
+  const toolbar = (
+    <DataTableToolbar
+      search={t.searchInput}
+      onSearchChange={t.setSearchInput}
+      searchPlaceholder="Search quote, client, vendor or organisation..."
+      isFetching={t.isFetching && !t.isFirstLoad}
+      resultLabel={
+        t.data ? `${total.toLocaleString()} quote${total !== 1 ? "s" : ""}` : null
+      }
+    >
+      <Select
+        value={t.status}
+        onValueChange={(value) => t.setStatus(value as QuoteStatusFilter)}
+      >
+        <SelectTrigger className="h-9 w-[150px]">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {QUOTE_STATUS_FILTERS.map((value) => (
+            <SelectItem key={value} value={value}>
+              {QUOTE_STATUS_FILTER_LABELS[value]}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </DataTableToolbar>
+  );
 
-// Config for each email event badge: icon, label, colours — unchanged from
-// the tenant-side table, just reused here.
-const EMAIL_EVENT_CONFIG: Record<
-  EmailEvent,
-  { icon: React.ElementType; label: string; className: string; tooltip: string }
-> = {
-  SENT: {
-    icon: Send,
-    label: "Sent",
-    className: "bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400",
-    tooltip: "Email delivered to server",
-  },
-  DELIVERED: {
-    icon: Mail,
-    label: "Delivered",
-    className: "bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400",
-    tooltip: "Email delivered to inbox",
-  },
-  OPENED: {
-    icon: MailOpen,
-    label: "Opened",
-    className: "bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-400",
-    tooltip: "Client opened the email",
-  },
-  CLICKED: {
-    icon: MousePointerClick,
-    label: "Clicked",
-    className: "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400",
-    tooltip: "Client clicked the PDF link",
-  },
-  BOUNCED: {
-    icon: MailX,
-    label: "Bounced",
-    className: "bg-red-50 text-red-600 dark:bg-red-900/30 dark:text-red-400",
-    tooltip: "Email bounced — check the address",
-  },
-  COMPLAINED: {
-    icon: AlertTriangle,
-    label: "Complained",
-    className: "bg-orange-50 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400",
-    tooltip: "Client marked email as spam",
-  },
-};
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function fmt(amount: number, currency: string) {
-  return new Intl.NumberFormat("en-IN", {
-    style: "currency",
-    currency,
-    maximumFractionDigits: 0,
-  }).format(amount);
-}
-
-function fmtDate(date: string | Date) {
-  return new Date(date).toLocaleDateString("en-IN", {
-    day: "2-digit",
-    month: "short",
-    year: "2-digit",
-  });
-}
-
-// ---------------------------------------------------------------------------
-// EmailEventBadge
-// ---------------------------------------------------------------------------
-
-function EmailEventBadge({ event }: { event: EmailEvent | null }) {
-  if (!event) {
+  // First load has nothing to keep on screen, so show the shape of the table.
+  // Every later fetch reuses the rows already rendered.
+  if (t.isFirstLoad) {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
-        No Event Yet
-      </span>
+      <div className="space-y-4">
+        {toolbar}
+        <DataTableSkeleton columns={COLUMN_COUNT} rows={10} />
+      </div>
     );
   }
 
-  const config = EMAIL_EVENT_CONFIG[event];
-  const Icon = config.icon;
-
-  return (
-    <TooltipProvider delayDuration={200}>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <span
-            className={`inline-flex cursor-default items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${config.className}`}
-          >
-            <Icon className="h-3 w-3" />
-            {config.label}
-          </span>
-        </TooltipTrigger>
-        <TooltipContent side="top" className="text-xs">
-          {config.tooltip}
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// AdminQuotesTable
-// ---------------------------------------------------------------------------
-
-export default function AdminQuotesTable({
-  quotes,
-  page,
-  total,
-  pageSize,
-  query,
-  status,
-}: Props) {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
-
-  const updateParams = (updates: Record<string, string | undefined>) => {
-    const params = new URLSearchParams(searchParams);
-    Object.entries(updates).forEach(([key, value]) => {
-      if (!value) params.delete(key);
-      else params.set(key, value);
-    });
-    params.delete("page");
-    router.push(`${QUOTES_BASE_PATH}?${params.toString()}`);
-  };
-
-  const changePage = (newPage: number) => {
-    const params = new URLSearchParams(searchParams);
-    if (newPage <= 1) params.delete("page");
-    else params.set("page", String(newPage));
-    router.push(`${QUOTES_BASE_PATH}?${params.toString()}`);
-  };
-
-  return (
-    <div className="space-y-4">
-      {/* ── Filters ───────────────────────────────────────────────────── */}
-      <div className="flex flex-wrap items-center gap-2">
-        <Input
-          placeholder="Search by quote, client, vendor, organisation…"
-          defaultValue={query}
-          className="h-8 w-[260px] text-sm"
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              updateParams({
-                q: (e.target as HTMLInputElement).value || undefined,
-              });
-            }
-          }}
-        />
-
-        <Select
-          value={status || "all"}
-          onValueChange={(value) =>
-            updateParams({ status: value === "all" ? undefined : value })
-          }
-        >
-          <SelectTrigger className="h-8 w-[160px] text-sm">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {STATUS_OPTIONS.map((item) => (
-              <SelectItem key={item.value} value={item.value}>
-                {item.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <span className="ml-auto text-xs text-muted-foreground">
-          {total.toLocaleString()} quote{total !== 1 ? "s" : ""}
-        </span>
-      </div>
-
-      {/* ── Table ─────────────────────────────────────────────────────── */}
-      <div className="rounded-lg border">
-        <Table>
-          <TableHeader>
-            <TableRow className="bg-muted/50 hover:bg-muted/50">
-              <TableHead className="text-xs uppercase tracking-wide">Quote</TableHead>
-              <TableHead className="text-xs uppercase tracking-wide">Status</TableHead>
-              <TableHead className="text-xs uppercase tracking-wide">Email</TableHead>
-              <TableHead className="text-xs uppercase tracking-wide">Organisation</TableHead>
-              <TableHead className="text-xs uppercase tracking-wide">Client</TableHead>
-              <TableHead className="text-xs uppercase tracking-wide">Vendor</TableHead>
-              <TableHead className="text-xs uppercase tracking-wide">Product</TableHead>
-              <TableHead className="text-right text-xs uppercase tracking-wide">Total</TableHead>
-              <TableHead className="text-xs uppercase tracking-wide">Valid until</TableHead>
-              <TableHead className="text-xs uppercase tracking-wide">Created</TableHead>
-            </TableRow>
-          </TableHeader>
-
-          <TableBody>
-            {quotes.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={10} className="h-32 text-center text-sm text-muted-foreground">
-                  No quotes match your filters.
-                </TableCell>
-              </TableRow>
-            ) : (
-              quotes.map((quote) => (
-                <TableRow key={quote.id}>
-                  {/* Quote number + PDF link */}
-                  <TableCell>
-                    {quote.pdfUrl ? (
-                      <Link
-                        href={quote.pdfUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 text-sm font-medium hover:underline"
-                      >
-                        {quote.quoteNumber}
-                      </Link>
-                    ) : (
-                      <span className="inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground">
-                        {quote.quoteNumber}
-                        <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-900/40 dark:text-amber-400">
-                          No PDF
-                        </span>
-                      </span>
-                    )}
-                  </TableCell>
-
-                  {/* Quote status */}
-                  <TableCell>
-                    <QuoteStatusBadge status={quote.status} />
-                  </TableCell>
-
-                  {/* Email event status */}
-                  <TableCell>
-                    <EmailEventBadge event={quote.lastEmailEvent} />
-                  </TableCell>
-
-                  {/* Organisation — links to the business associate detail page */}
-                  <TableCell>
-                    <Link
-                      href={`/arena-dashboard/business-associates/${quote.org.id}`}
-                      className="group flex items-center gap-1.5"
-                    >
-                      <Building2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                      <span className="block truncate text-sm group-hover:underline">
-                        {quote.org.name}
-                      </span>
-                    </Link>
-                  </TableCell>
-
-                  {/* Client */}
-                  <TableCell>
-                    <span className="block truncate text-sm">
-                      {quote.client?.companyName ?? "—"}
-                    </span>
-                    {quote.client?.contactName && (
-                      <span className="block truncate text-[11px] text-muted-foreground">
-                        {quote.client.contactName}
-                      </span>
-                    )}
-                  </TableCell>
-
-                  {/* Vendor */}
-                  <TableCell className="truncate text-sm text-muted-foreground">
-                    {quote.vendorName}
-                  </TableCell>
-
-                  {/* Product */}
-                  <TableCell className="max-w-[130px] truncate text-sm">
-                    {quote.productName}
-                  </TableCell>
-
-                  {/* Total */}
-                  <TableCell className="text-right text-sm tabular-nums">
-                    {fmt(quote.quotedTotal, quote.currency)}
-                  </TableCell>
-
-                  {/* Valid until */}
-                  <TableCell>
-                    <span className="block text-sm">{fmtDate(quote.validUntil)}</span>
-                    {quote.isExpired && (
-                      <span className="text-[10px] text-destructive">Expired</span>
-                    )}
-                  </TableCell>
-
-                  {/* Created */}
-                  <TableCell className="text-sm text-muted-foreground">
-                    {fmtDate(quote.createdAt)}
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </div>
-
-      {/* ── Pagination ────────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between">
-        <p className="text-xs text-muted-foreground">
-          Page {page} of {totalPages}
-        </p>
-        <div className="flex gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={page <= 1}
-            onClick={() => changePage(page - 1)}
-          >
-            ← Previous
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={page >= totalPages}
-            onClick={() => changePage(page + 1)}
-          >
-            Next →
-          </Button>
+  if (t.error) {
+    return (
+      <div className="space-y-4">
+        {toolbar}
+        <div className="rounded-md border">
+          <DataTableErrorState
+            message="Could not load quotes. You may not have access, or the request failed."
+            onRetry={() => t.refetch()}
+          />
         </div>
       </div>
-    </div>
+    );
+  }
+
+  return (
+    <DataTable
+      columns={columns}
+      data={t.data?.rows ?? []}
+      // The server's echoed page, not the URL's: it clamps a stale ?page= to the
+      // last page that actually exists, and the controls should agree with the
+      // rows on screen.
+      page={t.data?.page ?? t.page}
+      pageSize={t.pageSize}
+      totalRows={total}
+      pageCount={t.data?.pageCount ?? 1}
+      onPageChange={t.setPage}
+      onPageSizeChange={t.setPageSize}
+      sorting={t.sorting}
+      onSortingChange={t.setSorting}
+      isLoading={t.isFetching}
+      toolbar={toolbar}
+      emptyState={
+        <DataTableEmptyState
+          filtered={t.isFiltered}
+          emptyText="No quotes have been generated yet."
+          filteredText="No quotes match your filters."
+          onReset={t.clearFilters}
+        />
+      }
+    />
   );
 }

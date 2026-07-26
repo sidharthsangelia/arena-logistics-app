@@ -23,7 +23,7 @@ import {
   type AdminQuotePage,
   type AdminQuoteRow,
   type AdminQuoteSortField,
-} from "./adminConfig";
+} from "./config";
 
 function coercePage(value: number | undefined): number {
   return Number.isFinite(value) && (value as number) > 0

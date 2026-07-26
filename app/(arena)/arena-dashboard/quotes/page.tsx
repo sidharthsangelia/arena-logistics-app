@@ -1,62 +1,30 @@
 /**
- * src/app/arena-dashboard/quotes/page.tsx
+ * app/(arena)/arena-dashboard/quotes/page.tsx
  *
- * Company-side view across every tenant org. Unlike /quotes (tenant-scoped,
- * see src/app/quotes/page.tsx), this intentionally shows quotes regardless
- * of which org generated them, so ops can search the whole platform from
- * one place.
+ * Company-side view across every tenant org. Unlike /quotes (tenant-scoped, see
+ * app/(tenant)/quotes/page.tsx), this intentionally shows quotes regardless of
+ * which org generated them, so ops can search the whole platform from one place.
+ *
+ * The page itself fetches nothing. Paging, sorting, search and the status filter
+ * all live in the URL but are driven client-side through the History API, so the
+ * table refetches through react-query instead of re-rendering this route on every
+ * keystroke. The Suspense boundary is what useSearchParams needs, and it doubles
+ * as the first paint.
  */
 
-import { getAllQuotesAction } from "@/actions/quote/quotesListAdmin.action";
+import { Suspense } from "react";
+
 import AdminQuotesTable from "@/components/quotes/AdminQuotesTable";
-import type { QuoteStatus } from "@/generated/prisma";
+import { DataTableSkeleton } from "@/components/data-table/DataTableSkeleton";
 
-
-const PAGE_SIZE = 25;
-
-type PageProps = {
-  searchParams: Promise<{
-    q?: string;
-    status?: string;
-    page?: string;
-  }>;
+export const metadata = {
+  title: "Quotes",
 };
 
-const VALID_STATUSES: QuoteStatus[] = [
-  "DRAFT",
-  "SENT",
-  "ACCEPTED",
-  "EXPIRED",
-  "CANCELLED",
-];
-
-function toStatus(raw: string | undefined): QuoteStatus | "" {
-  if (!raw) return "";
-  const upper = raw.toUpperCase() as QuoteStatus;
-  return VALID_STATUSES.includes(upper) ? upper : "";
-}
-
-export default async function ArenaQuotesPage({ searchParams }: PageProps) {
-  const params = await searchParams;
-
-  const query = params.q?.trim() ?? "";
-  const status = toStatus(params.status);
-  const page = Math.max(1, Number.parseInt(params.page ?? "1", 10) || 1);
-
-  const { quotes, total } = await getAllQuotesAction({ q: query, status, page });
-
+export default function ArenaQuotesPage() {
   return (
-    <div className="space-y-6">
-   
-
-      <AdminQuotesTable
-        quotes={quotes}
-        page={page}
-        total={total}
-        pageSize={PAGE_SIZE}
-        query={query}
-        status={status}
-      />
-    </div>
+    <Suspense fallback={<DataTableSkeleton columns={10} rows={10} withToolbar />}>
+      <AdminQuotesTable />
+    </Suspense>
   );
 }
