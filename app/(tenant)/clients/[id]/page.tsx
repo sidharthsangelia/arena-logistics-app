@@ -9,6 +9,7 @@ import ClientDetailStats from "@/components/clients/clientDetailPage/ClientDetai
 import ClientQuoteHistory from "@/components/clients/clientDetailPage/ClientQuoteHistory";
 import KycVault from "@/components/clients/clientDetailPage/KycVault";
 import { AddressBookManager } from "@/components/address/AddressBookManager";
+import { Skeleton } from "@/components/ui/skeleton";
 import { ClientEmailPreferenceCard } from "@/components/clients/clientDetailPage/ClientEmailPreferenceCard";
 import { getCurrentOrg } from "@/utils/tenant";
 import {
@@ -324,8 +325,8 @@ export default async function ClientDetailPage({ params }: Props) {
         <Suspense
           fallback={
             <div className="flex items-center gap-2">
-              <div className="h-8 w-20 rounded-md bg-muted animate-pulse" />
-              <div className="h-8 w-28 rounded-md bg-muted animate-pulse" />
+              <Skeleton className="h-8 w-20" />
+              <Skeleton className="h-8 w-28" />
             </div>
           }
         >

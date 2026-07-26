@@ -37,6 +37,7 @@ import type { AddressKind } from "@/generated/prisma";
 import type { AddressSummary, Party } from "@/types/booking";
 import { listAddresses, deleteAddress, setDefaultAddress } from "@/actions/book/addresses";
 import { AddressFormSheet } from "./AddressFormSheet";
+import { Skeleton } from "@/components/ui/skeleton";
 
 const KIND_LABEL: Record<AddressKind, string> = {
   PICKUP: "Pickup",
@@ -179,7 +180,7 @@ export function AddressBookManager({ party }: Props) {
       {loading ? (
         <div className="grid gap-3 sm:grid-cols-2">
           {[0, 1].map((i) => (
-            <div key={i} className="h-28 animate-pulse rounded-lg border bg-muted/30" />
+            <Skeleton key={i} className="h-28 rounded-lg border" />
           ))}
         </div>
       ) : totalVisible === 0 ? (

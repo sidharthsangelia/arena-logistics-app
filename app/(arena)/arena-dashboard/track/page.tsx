@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
 import { trackShipmentAction } from "@/actions/tracking/tracking.actions";
@@ -491,17 +492,17 @@ function EmptyState() {
 
 function LoadingSkeleton() {
   return (
-    <div className="space-y-4 animate-pulse" aria-label="Loading tracking data">
+    <div className="space-y-4" aria-label="Loading tracking data">
       {/* Hero card */}
       <Card>
         <CardHeader className="pb-5">
           <div className="flex items-start justify-between">
             <div className="space-y-2">
-              <div className="h-3 w-16 rounded bg-muted" />
-              <div className="h-7 w-44 rounded bg-muted" />
-              <div className="h-4 w-28 rounded bg-muted" />
+              <Skeleton className="h-3 w-16 rounded" />
+              <Skeleton className="h-7 w-44 rounded" />
+              <Skeleton className="h-4 w-28 rounded" />
             </div>
-            <div className="h-7 w-24 rounded-md bg-muted" />
+            <Skeleton className="h-7 w-24" />
           </div>
         </CardHeader>
         <CardContent className="space-y-6 pt-0">
@@ -509,8 +510,8 @@ function LoadingSkeleton() {
           <div className="flex items-start gap-2">
             {[...Array(5)].map((_, i) => (
               <div key={i} className="flex items-center flex-1">
-                <div className="h-8 w-8 rounded-full bg-muted shrink-0" />
-                {i < 4 && <div className="h-0.5 flex-1 mx-1.5 bg-muted" />}
+                <Skeleton className="h-8 w-8 rounded-full shrink-0" />
+                {i < 4 && <Skeleton className="h-0.5 flex-1 mx-1.5 rounded-none" />}
               </div>
             ))}
           </div>
@@ -518,17 +519,17 @@ function LoadingSkeleton() {
           <div className="grid grid-cols-4 gap-4">
             {[...Array(4)].map((_, i) => (
               <div key={i} className="space-y-1.5">
-                <div className="h-3 w-12 rounded bg-muted" />
-                <div className="h-4 w-16 rounded bg-muted" />
+                <Skeleton className="h-3 w-12 rounded" />
+                <Skeleton className="h-4 w-16 rounded" />
               </div>
             ))}
           </div>
           <Separator />
           <div className="rounded-lg border bg-muted/30 p-4 space-y-2">
-            <div className="h-3 w-20 rounded bg-muted" />
-            <div className="h-5 w-48 rounded bg-muted" />
-            <div className="h-4 w-36 rounded bg-muted" />
-            <div className="h-3 w-28 rounded bg-muted" />
+            <Skeleton className="h-3 w-20 rounded" />
+            <Skeleton className="h-5 w-48 rounded" />
+            <Skeleton className="h-4 w-36 rounded" />
+            <Skeleton className="h-3 w-28 rounded" />
           </div>
         </CardContent>
       </Card>
@@ -536,16 +537,16 @@ function LoadingSkeleton() {
       {/* Timeline card */}
       <Card>
         <CardHeader className="pb-3">
-          <div className="h-5 w-36 rounded bg-muted" />
+          <Skeleton className="h-5 w-36 rounded" />
         </CardHeader>
         <CardContent className="space-y-5">
           {[...Array(4)].map((_, i) => (
             <div key={i} className="flex gap-3">
-              <div className="h-7 w-7 rounded-full bg-muted shrink-0" />
+              <Skeleton className="h-7 w-7 rounded-full shrink-0" />
               <div className="flex-1 space-y-1.5 pt-0.5">
-                <div className="h-4 w-48 rounded bg-muted" />
-                <div className="h-3 w-32 rounded bg-muted" />
-                <div className="h-3 w-20 rounded bg-muted" />
+                <Skeleton className="h-4 w-48 rounded" />
+                <Skeleton className="h-3 w-32 rounded" />
+                <Skeleton className="h-3 w-20 rounded" />
               </div>
             </div>
           ))}

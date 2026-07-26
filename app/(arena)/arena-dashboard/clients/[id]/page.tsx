@@ -8,6 +8,7 @@ import ClientEditSheet from "@/components/clients/clientDetailPage/ClientEditShe
 import ClientDetailStats from "@/components/clients/clientDetailPage/ClientDetailStats";
 import ClientQuoteHistory from "@/components/clients/clientDetailPage/ClientQuoteHistory";
 import KycVault from "@/components/clients/clientDetailPage/KycVault";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   HeaderSkeleton,
   StatsSkeleton,
@@ -307,8 +308,8 @@ export default async function ClientDetailPage({ params }: Props) {
         <Suspense
           fallback={
             <div className="flex items-center gap-2">
-              <div className="h-8 w-20 rounded-md bg-muted animate-pulse" />
-              <div className="h-8 w-28 rounded-md bg-muted animate-pulse" />
+              <Skeleton className="h-8 w-20" />
+              <Skeleton className="h-8 w-28" />
             </div>
           }
         >

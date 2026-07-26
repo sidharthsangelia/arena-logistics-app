@@ -4,6 +4,7 @@
 
 import { getCachedWalletBalance } from "@/lib/wallet/queries";
 import { WalletBalanceChip } from "@/components/wallet/WalletBalanceChip";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export async function WalletBalanceIndicator({ orgId }: { orgId: string }) {
   const wallet = await getCachedWalletBalance(orgId);
@@ -20,5 +21,5 @@ export async function WalletBalanceIndicator({ orgId }: { orgId: string }) {
 
 /** Matches the chip's footprint so the header does not shift when it lands. */
 export function WalletBalanceIndicatorSkeleton() {
-  return <div className="h-7 w-28 animate-pulse rounded-md bg-muted" />;
+  return <Skeleton className="h-7 w-28" />;
 }

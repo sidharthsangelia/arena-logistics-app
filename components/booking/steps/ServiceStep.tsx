@@ -28,6 +28,7 @@ import {
 } from "@/lib/booking/cargo";
 import { RateOptionPicker, quoteToServiceOption } from "../RateOptionPicker";
 import { useIsArenaOrg } from "@/hooks/useIsArenaOrg";
+import { Skeleton } from "@/components/ui/skeleton";
 
 function toISO(country: string): string {
   if (!country) return "";
@@ -140,7 +141,7 @@ function RateSkeleton() {
     <div className="space-y-3">
       <div className="grid gap-3 sm:grid-cols-2">
         {[1, 2, 3, 4].map((i) => (
-          <div key={i} className="h-36 animate-pulse rounded-xl border bg-muted/40" />
+          <Skeleton key={i} className="h-36 rounded-xl border" />
         ))}
       </div>
       <p className="text-center text-xs text-muted-foreground" aria-live="polite">

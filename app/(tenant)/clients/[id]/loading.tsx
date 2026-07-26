@@ -4,6 +4,7 @@
 // This file only covers the rare case where the page segment
 // itself hasn't streamed yet (e.g. slow params resolution).
 
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   HeaderSkeleton,
   StatsSkeleton,
@@ -19,8 +20,8 @@ export default function ClientDetailLoading() {
       <div className="flex flex-wrap items-start justify-between gap-4">
         <HeaderSkeleton />
         <div className="flex items-center gap-2">
-          <div className="h-8 w-20 rounded-md bg-muted animate-pulse" />
-          <div className="h-8 w-28 rounded-md bg-muted animate-pulse" />
+          <Skeleton className="h-8 w-20" />
+          <Skeleton className="h-8 w-28" />
         </div>
       </div>
 

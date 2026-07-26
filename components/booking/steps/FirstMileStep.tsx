@@ -23,6 +23,7 @@ import {
   resolveFirstMileHub,
 } from "@/lib/booking/firstMile";
 import { RateOptionPicker, quoteToServiceOption, quoteKey } from "../RateOptionPicker";
+import { Skeleton } from "@/components/ui/skeleton";
 
 // ---------------------------------------------------------------------------
 // Props
@@ -62,7 +63,7 @@ function RateSkeleton() {
     <div className="space-y-3">
       <div className="grid gap-3 sm:grid-cols-2">
         {[1, 2, 3].map((i) => (
-          <div key={i} className="h-36 animate-pulse rounded-xl border bg-muted/40" />
+          <Skeleton key={i} className="h-36 rounded-xl border" />
         ))}
       </div>
       <p className="text-center text-xs text-muted-foreground" aria-live="polite">

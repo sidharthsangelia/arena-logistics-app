@@ -39,6 +39,8 @@
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
+  --color-skeleton: var(--skeleton);
+  --animate-skeleton-sheen: skeleton-sheen 2.1s ease-in-out infinite;
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -81,6 +83,8 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+  --skeleton: oklch(0.943 0 0);
+  --skeleton-sheen: oklch(1 0 0 / 85%);
 }
 
 .dark {
@@ -115,6 +119,22 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
+  --skeleton: oklch(0.248 0 0);
+  --skeleton-sheen: oklch(1 0 0 / 7%);
+}
+
+/*
+ * Skeleton sheen: one slow pass of light across the placeholder, left to right.
+ * The lit band is narrow, so each pass ends with a beat of stillness before the
+ * next begins. No pulsing.
+ */
+@keyframes skeleton-sheen {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
+  }
 }
 
 @layer base {
