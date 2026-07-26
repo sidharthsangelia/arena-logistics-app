@@ -1,10 +1,10 @@
-import VaultTableSkeleton from "@/components/documentVault/VaultTableSkeleton";
+import { DataTableSkeleton } from "@/components/data-table/DataTableSkeleton";
 
-
-export default function loading() {
-  return (
-    <>
-      <VaultTableSkeleton />
-    </>
-  )
+/**
+ * Covers the instant between clicking Document Vault in the sidebar and the route
+ * rendering. The layout header is already on screen by then, so this stands in
+ * only for the toolbar and the table.
+ */
+export default function Loading() {
+  return <DataTableSkeleton columns={7} rows={10} withToolbar />;
 }

@@ -1,80 +1,29 @@
-import { getAllVaultDocumentsAction } from "@/actions/documentVault/documentVaultAdmin.action";
+/**
+ * app/(arena)/arena-dashboard/document-vault/page.tsx
+ *
+ * Company-side view of every business associate's KYC and compliance paperwork.
+ * Unlike /document-vault (tenant-scoped) this intentionally spans every org.
+ *
+ * The page itself fetches nothing. Paging, sorting, search and the doc-type
+ * filter all live in the URL but are driven client-side through the History API,
+ * so the table refetches through react-query instead of re-rendering this route
+ * on every keystroke. The Suspense boundary is what useSearchParams needs, and it
+ * doubles as the first paint.
+ */
+
+import { Suspense } from "react";
+
 import AdminVaultTable from "@/components/documentVault/AdminVaultTable";
-import type { KycDocType } from "@/generated/prisma";
- 
+import { DataTableSkeleton } from "@/components/data-table/DataTableSkeleton";
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Constants
-// ─────────────────────────────────────────────────────────────────────────────
-
-const PAGE_SIZE = 25;
-
-const VALID_DOC_TYPES: KycDocType[] = [
-  "PAN_CARD",
-  "ADHAR_CARD",
-  "GST_CERTIFICATE",
-  "IEC_CODE",
-  "MSME_CERTIFICATE",
-  "INCORPORATION_CERT",
-  "CANCELLED_CHEQUE",
-  "BANK_STATEMENT",
-  "TRADE_LICENSE",
-  "AUTHORIZED_SIGNATORY",
-  "OTHER",
-];
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Helpers
-// ─────────────────────────────────────────────────────────────────────────────
-
-function toDocType(raw: string | undefined): KycDocType | "" {
-  if (!raw) return "";
-  const upper = raw.toUpperCase() as KycDocType;
-  return VALID_DOC_TYPES.includes(upper) ? upper : "";
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Page
-// ─────────────────────────────────────────────────────────────────────────────
-
-type PageProps = {
-  searchParams: Promise<{
-    q?: string;
-    docType?: string;
-    page?: string;
-  }>;
+export const metadata = {
+  title: "Document Vault",
 };
 
-export default async function ArenaDocumentVaultPage({ searchParams }: PageProps) {
-  const params = await searchParams;
-
-  const query = params.q?.trim() ?? "";
-  const docType = toDocType(params.docType);
-  const page = Math.max(1, Number.parseInt(params.page ?? "1", 10) || 1);
-
-  const { documents, total } = await getAllVaultDocumentsAction({
-    q: query,
-    docType,
-    page,
-  });
-
+export default function ArenaDocumentVaultPage() {
   return (
-    <div className="space-y-6">
-      {/* <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Document Vault</h1>
-        <p className="text-sm text-muted-foreground">
-          KYC and compliance documents across every business associate.
-        </p>
-      </div> */}
-
-      <AdminVaultTable
-        documents={documents}
-        page={page}
-        total={total}
-        pageSize={PAGE_SIZE}
-        query={query}
-        docType={docType}
-      />
-    </div>
+    <Suspense fallback={<DataTableSkeleton columns={7} rows={10} withToolbar />}>
+      <AdminVaultTable />
+    </Suspense>
   );
 }
