@@ -36,6 +36,7 @@ import {
 } from "@/components/ui/tooltip";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
 
 import type { AddressKind } from "@/generated/prisma";
 import type { BookingFormData } from "@/types/booking.types";
@@ -219,6 +220,16 @@ export function AddressBookControls({
         <BookMarked className="h-3.5 w-3.5" />
         {loading ? "Loading saved…" : saved.length > 0 ? "Use a saved one" : "Address book"}
       </span>
+
+      {/* Chip placeholders while the address book loads — same pill shape as
+          the real chips, so nothing jumps around when they swap in. */}
+      {loading && (
+        <>
+          <Skeleton className="h-6 w-24 rounded-full" />
+          <Skeleton className="h-6 w-20 rounded-full" />
+          <Skeleton className="h-6 w-28 rounded-full" />
+        </>
+      )}
 
       {/* Inline chips */}
       {!loading &&

@@ -37,6 +37,7 @@ import { Badge }    from "@/components/ui/badge";
 import { Button }   from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Progress } from "@/components/ui/progress";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Collapsible,
   CollapsibleContent,
@@ -371,6 +372,29 @@ function DocSection({
 }
 
 // ---------------------------------------------------------------------------
+// DocSectionSkeleton — placeholder shaped like DocSection, shown while the
+// vault check for existing docs is in flight. The required doc count is
+// already known synchronously from shipmentType, so this renders the exact
+// number of cards instead of a generic spinner — no layout shift when the
+// real cards swap in.
+// ---------------------------------------------------------------------------
+
+function DocSectionSkeleton() {
+  return (
+    <div className="space-y-3 rounded-lg border bg-card p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1 space-y-1.5">
+          <Skeleton className="h-4 w-32" />
+          <Skeleton className="h-3 w-full max-w-64" />
+        </div>
+        <Skeleton className="h-3 w-14 shrink-0" />
+      </div>
+      <Skeleton className="h-16 w-full rounded-md" />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // KycStep
 // ---------------------------------------------------------------------------
 
@@ -503,9 +527,11 @@ export default function KycStep({
       </div>
 
       {loadingDocs && (
-        <div className="flex items-center gap-2 text-sm text-muted-foreground" aria-live="polite">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          Checking your document vault…
+        <div className="space-y-2.5" aria-live="polite" aria-busy="true">
+          <span className="sr-only">Checking your document vault…</span>
+          {Array.from({ length: Math.max(requiredConfigs.length, 1) }).map((_, i) => (
+            <DocSectionSkeleton key={i} />
+          ))}
         </div>
       )}
 

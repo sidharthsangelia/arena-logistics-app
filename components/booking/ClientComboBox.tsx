@@ -17,6 +17,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { Skeleton } from "@/components/ui/skeleton";
 // import { searchClients } from "@/lib/actions/clients";
 import { ClientSummary } from "@/types/booking";
 import { searchClientsAction } from "@/actions/clientSrearch.action";
@@ -79,8 +80,14 @@ export function ClientCombobox({
           </div>
           <CommandList>
             {isPending && (
-              <div className="text-muted-foreground p-3 text-sm">
-                Searching…
+              <div className="space-y-2 p-2" aria-live="polite">
+                <span className="sr-only">Searching…</span>
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="flex flex-col gap-1.5 px-1 py-1">
+                    <Skeleton className="h-3.5 w-32" />
+                    <Skeleton className="h-3 w-44" />
+                  </div>
+                ))}
               </div>
             )}
             {!isPending && results.length === 0 && (

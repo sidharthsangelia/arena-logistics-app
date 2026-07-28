@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Wallet, Plus, RefreshCw, CheckCircle2, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { getWalletSummaryAction } from "@/actions/wallet/getWalletSummary.action";
 import { TopUpModal } from "@/components/wallet/TopUpModal";
 
@@ -118,27 +119,30 @@ export function WalletPaymentSummary({
       </div>
 
       <div className="space-y-2 px-4 py-3 text-sm">
-        <div className="flex justify-between">
+        <div className="flex items-center justify-between">
           <span className="text-muted-foreground">Current balance</span>
-          <span className="font-medium">{loading ? "…" : fmt(balance ?? 0, currency)}</span>
+          {loading ? <Skeleton className="h-4 w-20" /> : (
+            <span className="font-medium">{fmt(balance ?? 0, currency)}</span>
+          )}
         </div>
         <div className="flex justify-between">
           <span className="text-muted-foreground">Order total</span>
           <span className="font-medium">{fmt(requiredAmountRupees, currency)}</span>
         </div>
-        <div className="flex justify-between border-t pt-2 font-semibold">
+        <div className="flex items-center justify-between border-t pt-2 font-semibold">
           <span>{sufficient ? "Balance after payment" : "You still need"}</span>
-          <span className={sufficient ? "text-green-700" : "text-amber-700"}>
-            {loading
-              ? "…"
-              : sufficient
+          {loading ? <Skeleton className="h-4 w-20" /> : (
+            <span className={sufficient ? "text-green-700" : "text-amber-700"}>
+              {sufficient
                 ? fmt((balance ?? 0) - requiredAmountRupees, currency)
                 : fmt(shortfall, currency)}
-          </span>
+            </span>
+          )}
         </div>
       </div>
 
       <div className="border-t px-4 py-3">
+        {loading && <Skeleton className="h-5 w-56" />}
         {!loading && sufficient && (
           <div className="flex items-center gap-2 text-sm text-green-700">
             <CheckCircle2 className="h-4 w-4 shrink-0" />
