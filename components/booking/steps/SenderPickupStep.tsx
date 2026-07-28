@@ -282,6 +282,11 @@ export function SenderPickupStep({
       {showSender && (
         <div className="space-y-3">
           <h3 className="text-sm font-semibold">Sender</h3>
+          <p className="rounded-md border-l-2 border-amber-400 bg-amber-50/60 px-2.5 py-1.5 text-xs leading-relaxed text-amber-800 dark:border-amber-600 dark:bg-amber-950/20 dark:text-amber-300">
+            If the sender is an individual, the address must match the Aadhaar
+            card used for KYC. If the sender is a company, the address must
+            match the GST certificate.
+          </p>
 
           {/* Address-book chips are redundant under "My organisation" — the
               sender is already filled from the org profile. Only offer them when
