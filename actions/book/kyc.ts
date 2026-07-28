@@ -15,6 +15,7 @@
  */
 
 import * as Sentry from "@sentry/nextjs";
+import { revalidateTag, unstable_cache } from "next/cache";
 
 import { prisma } from "@/utils/db";
 import { getCurrentOrg, assertOrgOwnsClient } from "@/actions/book/getOrgs";
@@ -67,6 +68,56 @@ export type GetKycDocsResult =
   | { success: false; error: string; docs: [] };
 
 // ---------------------------------------------------------------------------
+// Shared row fetch — no auth, callers have already resolved orgId/clientId
+// ---------------------------------------------------------------------------
+
+async function fetchKycDocsForParty(
+  orgId: string | null,
+  clientId: string | null,
+  partyType: PartyType,
+): Promise<PartyKycDoc[]> {
+  const wantedTypes = KYC_DOC_KEYS.map((k) => KYC_KEY_TO_DOC_TYPE[k]);
+
+  const rows = await prisma.kycDocument.findMany({
+    where: { orgId, clientId, partyType, docType: { in: wantedTypes } },
+    orderBy: { uploadedAt: "desc" }, // newest first → take the latest per type
+    select: {
+      docType: true,
+      fileUrl: true,
+      fileKey: true,
+      fileName: true,
+      fileSize: true,
+      mimeType: true,
+      verifiedAt: true,
+      uploadedAt: true,
+    },
+  });
+
+  // One doc per key — take the first (newest) for each.
+  const seen = new Set<KycDocKey>();
+  const docs: PartyKycDoc[] = [];
+
+  for (const row of rows) {
+    const key = KYC_DOC_TYPE_TO_KEY[row.docType];
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+
+    docs.push({
+      key,
+      fileUrl: row.fileUrl,
+      fileKey: row.fileKey,
+      fileName: row.fileName,
+      fileSize: row.fileSize,
+      mimeType: row.mimeType,
+      verifiedAt: row.verifiedAt?.toISOString() ?? null,
+      uploadedAt: row.uploadedAt.toISOString(),
+    });
+  }
+
+  return docs;
+}
+
+// ---------------------------------------------------------------------------
 // getKycDocs — called by KycStep on mount, for the relevant party
 // ---------------------------------------------------------------------------
 
@@ -74,50 +125,8 @@ export async function getKycDocs(party: Party): Promise<GetKycDocsResult> {
   try {
     const org = await getCurrentOrg();
     const { orgId, clientId } = await resolveParty(party, org.id);
-
-    const wantedTypes = KYC_DOC_KEYS.map((k) => KYC_KEY_TO_DOC_TYPE[k]);
-
-    const rows = await prisma.kycDocument.findMany({
-      where: {
-        orgId,
-        clientId,
-        partyType: party.partyType === "ORG" ? PartyType.ORG : PartyType.CLIENT,
-        docType: { in: wantedTypes },
-      },
-      orderBy: { uploadedAt: "desc" }, // newest first → take the latest per type
-      select: {
-        docType: true,
-        fileUrl: true,
-        fileKey: true,
-        fileName: true,
-        fileSize: true,
-        mimeType: true,
-        verifiedAt: true,
-        uploadedAt: true,
-      },
-    });
-
-    // One doc per key — take the first (newest) for each.
-    const seen = new Set<KycDocKey>();
-    const docs: PartyKycDoc[] = [];
-
-    for (const row of rows) {
-      const key = KYC_DOC_TYPE_TO_KEY[row.docType];
-      if (!key || seen.has(key)) continue;
-      seen.add(key);
-
-      docs.push({
-        key,
-        fileUrl: row.fileUrl,
-        fileKey: row.fileKey,
-        fileName: row.fileName,
-        fileSize: row.fileSize,
-        mimeType: row.mimeType,
-        verifiedAt: row.verifiedAt?.toISOString() ?? null,
-        uploadedAt: row.uploadedAt.toISOString(),
-      });
-    }
-
+    const docType = party.partyType === "ORG" ? PartyType.ORG : PartyType.CLIENT;
+    const docs = await fetchKycDocsForParty(orgId, clientId, docType);
     return { success: true, docs };
   } catch (err) {
     console.error("[getKycDocs]", err);
@@ -128,6 +137,50 @@ export async function getKycDocs(party: Party): Promise<GetKycDocsResult> {
         err instanceof Error ? err.message : "Failed to fetch KYC documents.",
       docs: [],
     };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// getCachedOrgKycDocs — the SSR read behind "My documents" on the Document
+// Vault / Profile Settings pages.
+//
+// An org's own KYC barely changes (upload once, reuse on every booking), so
+// this is worth a real cache instead of hitting Postgres on every page view.
+// 10 minutes is a safety-net TTL; saveKycDocAction below revalidates the tag
+// the moment a new doc lands, so the wait is never actually felt. The
+// browser-side vault UI (OrgDocumentsSection) is unaffected — it refetches
+// through the live, uncached getKycDocs via react-query, so uploads show up
+// instantly in the same session regardless of this cache.
+// ---------------------------------------------------------------------------
+
+// Not exported: every export from a "use server" file is treated as a Server
+// Action, and Server Actions must be async functions. This plain string
+// helper stays module-private; saveKycDocAction below is the only other spot
+// that needs the tag, and it's in the same file.
+function orgKycDocsTag(orgId: string) {
+  return `kyc-docs:org:${orgId}`;
+}
+
+export async function getCachedOrgKycDocs(
+  orgId: string,
+): Promise<PartyKycDoc[]> {
+  const read = unstable_cache(
+    () => fetchKycDocsForParty(orgId, null, PartyType.ORG),
+    [`kyc-docs:org:${orgId}`],
+    { tags: [orgKycDocsTag(orgId)], revalidate: 600 },
+  );
+
+  try {
+    return await read();
+  } catch (err) {
+    // A read failure shouldn't crash the page — fall back to an empty list,
+    // the same graceful degradation getKycDocs gives its callers.
+    console.error("[getCachedOrgKycDocs]", err);
+    Sentry.captureException(err, {
+      tags: { action: "getCachedOrgKycDocs" },
+      extra: { orgId },
+    });
+    return [];
   }
 }
 
@@ -178,6 +231,7 @@ export async function saveKycDocAction(
 
     if (party.partyType === "ORG" && orgId) {
       await syncOrgProfileMetadata(orgId);
+      revalidateTag(orgKycDocsTag(orgId), "max");
     }
     return { success: true, docId: doc.id };
   } catch (err) {
