@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import ClientEditSheet from "@/components/clients/clientDetailPage/ClientEditSheet";
 import ClientDetailStats from "@/components/clients/clientDetailPage/ClientDetailStats";
 import ClientQuoteHistory from "@/components/clients/clientDetailPage/ClientQuoteHistory";
+import ClientRecentShipments from "@/components/clients/clientDetailPage/ClientRecentShipments";
 import KycVault from "@/components/clients/clientDetailPage/KycVault";
 import { AddressBookManager } from "@/components/address/AddressBookManager";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -16,6 +17,7 @@ import {
   HeaderSkeleton,
   StatsSkeleton,
   ContactSidebarSkeleton,
+  RecentShipmentsSkeleton,
   QuoteHistorySkeleton,
   KycVaultSkeleton,
 } from "./skeletons";
@@ -103,6 +105,23 @@ async function fetchClient(id: string) {
           uploadedAt: true,
         },
       },
+      shipments: {
+        orderBy: { createdAt: "desc" },
+        take: 5,
+        select: {
+          id: true,
+          shipmentNumber: true,
+          status: true,
+          quotedTotal: true,
+          currency: true,
+          createdAt: true,
+          pickupAddress: { select: { city: true } },
+          deliveryAddress: { select: { city: true } },
+        },
+      },
+      _count: {
+        select: { shipments: true },
+      },
     },
   });
 
@@ -167,23 +186,37 @@ async function ClientStats({
   const client = await clientPromise;
 
   const acceptedQuotes = client.quotes.filter((q) => q.status === "ACCEPTED");
-  const totalRevenue = acceptedQuotes.reduce(
-    (sum, q) => sum + Number(q.quotedTotal),
-    0,
-  );
   const acceptanceRate =
     client.quotes.length > 0
       ? Math.round((acceptedQuotes.length / client.quotes.length) * 100)
       : 0;
+
+  // Whichever happened more recently — a quote or an actual booked shipment —
+  // is the one worth surfacing as "last activity" for this client.
   const lastQuote = client.quotes[0] ?? null;
+  const lastShipment = client.shipments[0] ?? null;
+  const lastActivity =
+    lastShipment && (!lastQuote || lastShipment.createdAt > lastQuote.createdAt)
+      ? {
+          type: "shipment" as const,
+          label: lastShipment.shipmentNumber,
+          date: lastShipment.createdAt,
+        }
+      : lastQuote
+        ? {
+            type: "quote" as const,
+            label: lastQuote.quoteNumber,
+            date: lastQuote.createdAt,
+          }
+        : null;
 
   return (
     <ClientDetailStats
+      totalShipments={client._count.shipments}
       totalQuotes={client.quotes.length}
-      totalRevenue={totalRevenue}
       acceptanceRate={acceptanceRate}
       acceptedCount={acceptedQuotes.length}
-      lastQuote={lastQuote}
+      lastActivity={lastActivity}
     />
   );
 }
@@ -278,6 +311,21 @@ async function ClientQuotes({
   );
 }
 
+async function ClientShipments({
+  clientPromise,
+}: {
+  clientPromise: ReturnType<typeof fetchClient>;
+}) {
+  const client = await clientPromise;
+
+  return (
+    <ClientRecentShipments
+      shipments={client.shipments}
+      totalCount={client._count.shipments}
+    />
+  );
+}
+
 async function ClientDocuments({
   clientPromise,
 }: {
@@ -350,6 +398,10 @@ export default async function ClientDetailPage({ params }: Props) {
 
         {/* Right column — each section suspends independently */}
         <div className="space-y-5">
+          <Suspense fallback={<RecentShipmentsSkeleton />}>
+            <ClientShipments clientPromise={clientPromise} />
+          </Suspense>
+
           <Suspense fallback={<QuoteHistorySkeleton />}>
             <ClientQuotes clientPromise={clientPromise} />
           </Suspense>

@@ -100,6 +100,14 @@ async function fetchClient(id: string) {
           uploadedAt: true,
         },
       },
+      shipments: {
+        orderBy: { createdAt: "desc" },
+        take: 1,
+        select: { shipmentNumber: true, createdAt: true },
+      },
+      _count: {
+        select: { shipments: true },
+      },
     },
   });
 
@@ -164,23 +172,37 @@ async function ClientStats({
   const client = await clientPromise;
 
   const acceptedQuotes = client.quotes.filter((q) => q.status === "ACCEPTED");
-  const totalRevenue = acceptedQuotes.reduce(
-    (sum, q) => sum + Number(q.quotedTotal),
-    0,
-  );
   const acceptanceRate =
     client.quotes.length > 0
       ? Math.round((acceptedQuotes.length / client.quotes.length) * 100)
       : 0;
+
+  // Whichever happened more recently — a quote or an actual booked shipment —
+  // is the one worth surfacing as "last activity" for this client.
   const lastQuote = client.quotes[0] ?? null;
+  const lastShipment = client.shipments[0] ?? null;
+  const lastActivity =
+    lastShipment && (!lastQuote || lastShipment.createdAt > lastQuote.createdAt)
+      ? {
+          type: "shipment" as const,
+          label: lastShipment.shipmentNumber,
+          date: lastShipment.createdAt,
+        }
+      : lastQuote
+        ? {
+            type: "quote" as const,
+            label: lastQuote.quoteNumber,
+            date: lastQuote.createdAt,
+          }
+        : null;
 
   return (
     <ClientDetailStats
+      totalShipments={client._count.shipments}
       totalQuotes={client.quotes.length}
-      totalRevenue={totalRevenue}
       acceptanceRate={acceptanceRate}
       acceptedCount={acceptedQuotes.length}
-      lastQuote={lastQuote}
+      lastActivity={lastActivity}
     />
   );
 }

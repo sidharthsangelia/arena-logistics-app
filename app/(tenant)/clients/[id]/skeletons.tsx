@@ -90,6 +90,43 @@ export function ContactSidebarSkeleton() {
   );
 }
 
+// ─── Recent shipments: section header is hardcoded, rows are dynamic ─────────
+
+function SkeletonShipmentRow() {
+  return (
+    <div className="flex items-center justify-between gap-4 py-3 px-4">
+      <div className="space-y-1.5 flex-1">
+        <Skeleton className="h-4 w-32" />
+        <Skeleton className="h-3 w-24" />
+      </div>
+      <div className="text-right space-y-1.5">
+        <Skeleton className="h-4 w-16 ml-auto" />
+        <Skeleton className="h-5 w-20 ml-auto rounded-full" />
+      </div>
+    </div>
+  );
+}
+
+export function RecentShipmentsSkeleton() {
+  return (
+    <div className="rounded-lg border">
+      <div className="border-b px-4 py-3 flex items-center justify-between">
+        {/* Label is static */}
+        <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
+          Recent shipments
+        </p>
+        {/* Count is dynamic */}
+        <Skeleton className="h-3 w-12" />
+      </div>
+      <div className="divide-y">
+        {Array.from({ length: 5 }).map((_, i) => (
+          <SkeletonShipmentRow key={i} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ─── Quote history: section header is hardcoded, rows are dynamic ────────────
 
 function SkeletonQuoteRow() {

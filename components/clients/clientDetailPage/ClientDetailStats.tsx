@@ -1,19 +1,16 @@
-import { fmt } from "@/utils/helpers";
-
-
-type QuoteSummary = {
-  quoteNumber: string;
-  createdAt: Date;
+type LastActivity = {
+  type: "quote" | "shipment";
+  label: string;
+  date: Date;
 } | null;
 
 type Props = {
+  totalShipments: number;
   totalQuotes: number;
-  totalRevenue: number;
   acceptanceRate: number;
   acceptedCount: number;
-  lastQuote: QuoteSummary;
+  lastActivity: LastActivity;
 };
-
 
 function fmtDate(d: Date) {
   return new Intl.DateTimeFormat("en-IN", {
@@ -23,33 +20,37 @@ function fmtDate(d: Date) {
 }
 
 export default function ClientDetailStats({
+  totalShipments,
   totalQuotes,
-  totalRevenue,
   acceptanceRate,
   acceptedCount,
-  lastQuote,
+  lastActivity,
 }: Props) {
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <StatCard
+        label="Total shipments"
+        value={String(totalShipments)}
+        sub="All time"
+      />
       <StatCard
         label="Total quotes"
         value={String(totalQuotes)}
         sub="All time"
       />
       <StatCard
-        label="Revenue"
-        value={fmt(totalRevenue, "INR")}
-        sub={`${acceptedCount} accepted quote${acceptedCount !== 1 ? "s" : ""}`}
-      />
-      <StatCard
-        label="Acceptance rate"
+        label="Quote win rate"
         value={`${acceptanceRate}%`}
-        sub={`${acceptedCount} of ${totalQuotes}`}
+        sub={`${acceptedCount} of ${totalQuotes} accepted`}
       />
       <StatCard
-        label="Last quote"
-        value={lastQuote ? fmtDate(lastQuote.createdAt) : "—"}
-        sub={lastQuote?.quoteNumber ?? "No quotes yet"}
+        label="Last activity"
+        value={lastActivity ? fmtDate(lastActivity.date) : "—"}
+        sub={
+          lastActivity
+            ? `${lastActivity.type === "shipment" ? "Shipment" : "Quote"} ${lastActivity.label}`
+            : "No activity yet"
+        }
       />
     </div>
   );
