@@ -151,7 +151,7 @@ export default function BookingWizard({
     goToPreviousStep,
     updateFormData,
     resetBooking,
-  } = useBookingWizard(initialDraft);
+  } = useBookingWizard(orgContext, initialDraft);
 
   const [submitting, setSubmitting] = React.useState(false);
   const [submitError, setSubmitError] = React.useState<string | null>(null);

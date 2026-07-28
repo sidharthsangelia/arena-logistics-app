@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import {
   UseFormRegister,
   UseFormWatch,
@@ -30,23 +30,9 @@ import type { Party } from "@/types/booking";
 import { ClientCombobox } from "../ClientComboBox";
 import { AddressFields } from "../AddressFields";
 import { AddressBookControls } from "../AddressBookControls";
+import { EMPTY_CONSIGNOR, selfToConsignor } from "@/lib/booking/consignorPrefill";
 
 // ── Prefill mappers ────────────────────────────────────────────────────────
-
-function selfToConsignor(self: BookingOrgContext["self"]): ConsignorForm {
-  return {
-    contactName: self.contactName ?? "",
-    companyName: self.companyName ?? "",
-    email: self.email ?? "",
-    phone: self.phone ?? "",
-    addressLine1: self.addressLine1 ?? "",
-    addressLine2: "",
-    city: self.city ?? "",
-    state: self.state ?? "",
-    postalCode: self.postalCode ?? "",
-    country: self.country ?? "India",
-  };
-}
 
 function clientToConsignor(client: ClientSummary): ConsignorForm {
   return {
@@ -62,19 +48,6 @@ function clientToConsignor(client: ClientSummary): ConsignorForm {
     country: client.country ?? "India",
   };
 }
-
-const EMPTY_CONSIGNOR: ConsignorForm = {
-  contactName: "",
-  companyName: "",
-  email: "",
-  phone: "",
-  addressLine1: "",
-  addressLine2: "",
-  city: "",
-  state: "",
-  postalCode: "",
-  country: "India",
-};
 
 // ── Props ──────────────────────────────────────────────────────────────────
 
@@ -138,19 +111,6 @@ export function SenderPickupStep({
 
   const isBA = orgContext.isBusinessAssociate;
 
-  // "Has the org saved *any* usable profile detail?" — deliberately looser than
-  // the strict all-fields `profileAddressComplete` flag. A partially filled
-  // profile still has a sender worth pre-filling, so we key both the auto-prefill
-  // and the helper copy off this instead of the strict flag.
-  const self = orgContext.self;
-  const hasSavedProfile = !!(
-    self.contactName ||
-    self.addressLine1 ||
-    self.companyName ||
-    self.email ||
-    self.phone
-  );
-
   // Segmented modes — the client option only exists for Business Associates.
   const modes: { value: OwnerMode; label: string }[] = [
     { value: "SELF", label: "My Self" },
@@ -164,23 +124,11 @@ export function SenderPickupStep({
       ? { partyType: "CLIENT", clientId: selectedClient.id }
       : { partyType: "ORG", orgId: orgContext.orgId };
 
-  // "My organisation" is selected by default, so seed the sender from the org
-  // profile on mount without the user having to re-tap. Guarded so a resumed
-  // draft (which already has sender data) is never overwritten, and keyed off
-  // `hasSavedProfile` so any saved detail triggers the prefill.
-  const prefilledRef = useRef(false);
-  useEffect(() => {
-    if (prefilledRef.current) return;
-    prefilledRef.current = true;
-    const c = watch("consignor");
-    if (mode === "SELF" && !c?.contactName && !c?.addressLine1 && hasSavedProfile) {
-      setValue("consignor", selfToConsignor(orgContext.self), {
-        shouldValidate: false,
-      });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
+  // The SELF sender is already prefilled from the org profile at wizard-init
+  // time (useBookingWizard's initial formData), so it's correct from the very
+  // first render — no mount effect needed here. This handler only re-prefills
+  // when the user actively SWITCHES back to "My Self" after visiting another
+  // mode, where the field was cleared.
   const handleModeChange = (v: OwnerMode) => {
     setValue("shipmentOwnerMode", v);
     clearErrors();

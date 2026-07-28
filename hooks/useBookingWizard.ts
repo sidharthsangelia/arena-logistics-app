@@ -11,8 +11,13 @@ import {
   Building,
   Home,
 } from "lucide-react";
-import { BookingFormData, BookingStep } from "@/types/booking.types";
+import {
+  BookingFormData,
+  BookingOrgContext,
+  BookingStep,
+} from "@/types/booking.types";
 import type { BookingDraftPayload } from "@/actions/book/bookingDraft.action";
+import { hasSavedProfile, selfToConsignor } from "@/lib/booking/consignorPrefill";
 
 // ---------------------------------------------------------------------------
 // Step keys — the wizard is keyed by these STABLE string ids, never by raw
@@ -146,7 +151,10 @@ const initialFormData: BookingFormData = {
   firstMileHubLabel: null,
 };
 
-export function useBookingWizard(initialDraft?: BookingDraftPayload | null) {
+export function useBookingWizard(
+  orgContext: BookingOrgContext,
+  initialDraft?: BookingDraftPayload | null,
+) {
   // A resumed draft seeds both the step and the form data. Merge over
   // `initialFormData` so a draft saved by an older wizard build (missing
   // newer fields) still hydrates cleanly instead of leaving fields undefined.
@@ -154,9 +162,24 @@ export function useBookingWizard(initialDraft?: BookingDraftPayload | null) {
 
   const [rawStep, setCurrentStep] = useState(initialDraft?.currentStep ?? 0);
   const [isSubmitted, setIsSubmitted] = useState(false);
-  const [formData, setFormData] = useState<BookingFormData>(
-    draftData ? { ...initialFormData, ...draftData } : initialFormData,
-  );
+  // Sender defaults to "My self" (see initialFormData), so seed `consignor`
+  // from the org profile right here in the initial state rather than via a
+  // post-mount effect. Doing it eagerly means the form is correct on the
+  // very first render — no empty-then-filled flash, and nothing for the
+  // wizard's step-change `reset()` (BookingWizard.tsx) to stomp on later.
+  // Skipped when resuming a draft — the draft's own consignor wins.
+  const [formData, setFormData] = useState<BookingFormData>(() => {
+    if (draftData) return { ...initialFormData, ...draftData };
+    if (hasSavedProfile(orgContext.self)) {
+      const consignor = selfToConsignor(orgContext.self);
+      // pickupSameAsSender defaults to true, and the step's mirroring effect
+      // only reacts to FUTURE watch changes — it won't fire just because
+      // consignor already differs from pickup at mount. Seed both here so
+      // they start in sync.
+      return { ...initialFormData, consignor, pickup: consignor };
+    }
+    return initialFormData;
+  });
 
   // The active step list depends on whether door pickup was opted into. Derive
   // it every render from the current form data so toggling pickup on the
