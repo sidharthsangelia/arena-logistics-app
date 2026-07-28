@@ -64,7 +64,7 @@ export default async function ClientEmailsSettingsPage({
       </header>
 
       {/* Everything below needs the org + a DB read, so it is the part that
-          suspends. The header above is static and renders on the firs */}
+          suspends.    The header above is static and renders on the firs */}
       <Suspense fallback={<SettingsSkeleton />}>
         <SettingsPanel page={page} query={query} exceptionsOnly={exceptionsOnly} />
       </Suspense>
