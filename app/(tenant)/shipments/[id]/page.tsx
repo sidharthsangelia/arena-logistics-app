@@ -36,6 +36,16 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { STATUS_CONFIG } from "@/utils/statusConfigColors";
+import {
+  toNumber,
+  formatMoney,
+  formatWeight,
+  formatDate,
+  formatDateTime,
+  formatFileSize,
+} from "@/utils/format";
+import { formatEnumLabel } from "@/utils/helpers";
 
 // ---------------------------------------------------------------------------
 // Data fetch — tenant-scoped (unchanged from original)
@@ -205,105 +215,7 @@ async function getShipment(id: string) {
   return { shipment, orgName: org.name };
 }
 
-// ---------------------------------------------------------------------------
-// Status config — matches ops side exactly
-// ---------------------------------------------------------------------------
-
-export const STATUS_CONFIG: Record<
-  ShipmentStatus,
-  {
-    label: string;
-    description: string;
-    className: string;
-    dotClassName: string;
-  }
-> = {
-  DRAFT: {
-    label: "Draft",
-    description:
-      "Your booking is being prepared and has not been submitted yet.",
-    className: "bg-secondary text-secondary-foreground border-border",
-    dotClassName: "bg-muted-foreground/40",
-  },
-  PENDING_PAYMENT: {
-    label: "Pending Payment",
-    description:
-      "Your shipment is awaiting payment confirmation before it can be processed.",
-    className:
-      "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/30 dark:text-amber-400 dark:border-amber-800",
-    dotClassName: "bg-amber-500",
-  },
-  BOOKED: {
-    label: "Booked",
-    description:
-      "Your shipment has been confirmed and is in the operations queue for processing.",
-    className:
-      "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/30 dark:text-blue-400 dark:border-blue-800",
-    dotClassName: "bg-blue-500",
-  },
-  PROCESSING: {
-    label: "Processing",
-    description:
-      "Our operations team is preparing your shipment: labels, AWB, and carrier booking.",
-    className:
-      "bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950/30 dark:text-indigo-400 dark:border-indigo-800",
-    dotClassName: "bg-indigo-500",
-  },
-  DOCUMENTS_PENDING: {
-    label: "Documents Pending",
-    description:
-      "We need additional documents from you to proceed. Please check your email or contact support.",
-    className:
-      "bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-950/30 dark:text-orange-400 dark:border-orange-800",
-    dotClassName: "bg-orange-500",
-  },
-  IN_TRANSIT: {
-    label: "In Transit",
-    description:
-      "Your shipment has been handed over to the carrier and is on its way to the destination.",
-    className:
-      "bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-950/30 dark:text-sky-400 dark:border-sky-800",
-    dotClassName: "bg-sky-500",
-  },
-  CUSTOMS_HOLD: {
-    label: "Customs Hold",
-    description:
-      "Your shipment is being held at customs. Our team is working to resolve this. We will contact you if any action is needed.",
-    className:
-      "bg-red-50 text-red-700 border-red-200 dark:bg-red-950/30 dark:text-red-400 dark:border-red-800",
-    dotClassName: "bg-red-500",
-  },
-  OUT_FOR_DELIVERY: {
-    label: "Out for Delivery",
-    description: "Your shipment is out for final delivery today.",
-    className:
-      "bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-950/30 dark:text-violet-400 dark:border-violet-800",
-    dotClassName: "bg-violet-500",
-  },
-  DELIVERED: {
-    label: "Delivered",
-    description:
-      "Your shipment has been successfully delivered to the destination.",
-    className:
-      "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-800",
-    dotClassName: "bg-emerald-500",
-  },
-  CANCELLED: {
-    label: "Cancelled",
-    description:
-      "This shipment has been cancelled. Contact support if you believe this is an error.",
-    className: "bg-secondary text-muted-foreground border-border",
-    dotClassName: "bg-muted-foreground/30",
-  },
-  ON_HOLD: {
-    label: "On Hold",
-    description:
-      "Your shipment is temporarily on hold. Our team will reach out with more information.",
-    className:
-      "bg-yellow-50 text-yellow-700 border-yellow-200 dark:bg-yellow-950/30 dark:text-yellow-400 dark:border-yellow-800",
-    dotClassName: "bg-yellow-500",
-  },
-};
+ 
 
 // ---------------------------------------------------------------------------
 // Journey steps — the progress rail shown to clients
@@ -361,56 +273,6 @@ function getJourneyState(currentStatus: ShipmentStatus) {
     step.status.includes(currentStatus),
   );
   return { activeIdx, cancelled: false };
-}
-
-// ---------------------------------------------------------------------------
-// Formatters
-// ---------------------------------------------------------------------------
-
-function dec(v: unknown): number {
-  if (v == null) return 0;
-  if (typeof v === "object" && "toNumber" in (v as object))
-    return (v as { toNumber(): number }).toNumber();
-  return Number(v);
-}
-
-function fmt(amount: unknown, currency = "INR"): string {
-  const n = dec(amount);
-  if (!n && n !== 0) return "Not set";
-  return new Intl.NumberFormat("en-IN", {
-    style: "currency",
-    currency,
-    maximumFractionDigits: 0,
-  }).format(n);
-}
-
-function fmtKg(v: unknown): string {
-  const n = dec(v);
-  return n ? `${n.toFixed(2)} kg` : "Not set";
-}
-
-function fmtDate(d: Date): string {
-  return d.toLocaleDateString("en-IN", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
-}
-
-function fmtDateTime(d: Date): string {
-  return d.toLocaleString("en-IN", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-function fmtBytes(n: number): string {
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 // ---------------------------------------------------------------------------
@@ -730,7 +592,7 @@ export default async function ShipmentDetailPage({
     0,
   );
   const totalDeclared = s.packages.reduce(
-    (sum, p) => sum + (p.declaredValue ? dec(p.declaredValue) : 0) * p.quantity,
+    (sum, p) => sum + (toNumber(p.declaredValue) ?? 0) * p.quantity,
     0,
   );
 
@@ -771,8 +633,8 @@ export default async function ShipmentDetailPage({
                       </Tooltip>
                     </div>
                     <p className="text-xs text-muted-foreground">
-                      Created {fmtDate(s.createdAt)}
-                      {s.bookedAt && ` · Booked ${fmtDate(s.bookedAt)}`}
+                      Created {formatDate(s.createdAt)}
+                      {s.bookedAt && ` · Booked ${formatDate(s.bookedAt)}`}
                     </p>
                   </div>
                 </div>
@@ -782,7 +644,9 @@ export default async function ShipmentDetailPage({
                     <TooltipTrigger asChild>
                       <div className="cursor-default">
                         <p className="text-2xl font-bold tabular-nums text-foreground">
-                          {fmt(s.quotedTotal, s.currency)}
+                          {formatMoney(s.quotedTotal, s.currency, {
+                            fallback: "Not set",
+                          })}
                         </p>
                         <p className="text-xs text-muted-foreground">
                           Total quoted
@@ -840,9 +704,15 @@ export default async function ShipmentDetailPage({
                   },
                   {
                     label: "Actual weight",
-                    value: fmtKg(s.totalActualWeightKg),
+                    value: formatWeight(s.totalActualWeightKg, {
+                      fallback: "Not set",
+                      treatZeroAsUnset: true,
+                    }),
                     sub: s.totalChargeableWeightKg
-                      ? `Chargeable ${fmtKg(s.totalChargeableWeightKg)}`
+                      ? `Chargeable ${formatWeight(s.totalChargeableWeightKg, {
+                          fallback: "Not set",
+                          treatZeroAsUnset: true,
+                        })}`
                       : undefined,
                     tooltip:
                       "Actual physical weight. Chargeable weight can be higher when the box size (volumetric weight) is greater.",
@@ -855,7 +725,12 @@ export default async function ShipmentDetailPage({
                   },
                   {
                     label: "Declared value",
-                    value: totalDeclared > 0 ? fmt(totalDeclared) : "Not declared",
+                    value:
+                      totalDeclared > 0
+                        ? formatMoney(totalDeclared, undefined, {
+                            fallback: "Not set",
+                          })
+                        : "Not declared",
                     sub: s.client ? `For ${s.client.companyName}` : "Your own org",
                     tooltip:
                       "Total declared value of the goods, used for customs and insurance.",
@@ -894,7 +769,7 @@ export default async function ShipmentDetailPage({
               status={s.firstMileStatus ?? FirstMileStatus.SCHEDULED}
               hubLabel={s.firstMileHubLabel}
               courierName={s.firstMileVendorName}
-              charge={dec(s.firstMileCharge)}
+              charge={toNumber(s.firstMileCharge) ?? 0}
               currency={s.currency ?? "INR"}
               trackingNumber={s.firstMileTrackingNumber}
               trackingUrl={s.firstMileTrackingUrl}
@@ -1032,14 +907,18 @@ export default async function ShipmentDetailPage({
                             {c.name}
                           </span>
                           <span className="tabular-nums font-medium">
-                            {fmt(c.amount, c.currency)}
+                            {formatMoney(c.amount, c.currency, {
+                              fallback: "Not set",
+                            })}
                           </span>
                         </div>
                       ))}
                       <div className="flex items-center justify-between bg-muted/30 px-5 py-3 text-sm font-bold">
                         <span>Total</span>
                         <span className="tabular-nums">
-                          {fmt(s.quotedTotal, s.currency)}
+                          {formatMoney(s.quotedTotal, s.currency, {
+                            fallback: "Not set",
+                          })}
                         </span>
                       </div>
                     </div>
@@ -1050,7 +929,9 @@ export default async function ShipmentDetailPage({
                   <div className="px-5 pb-4">
                     <KVRow
                       label="Total quoted"
-                      value={fmt(s.quotedTotal, s.currency)}
+                      value={formatMoney(s.quotedTotal, s.currency, {
+                        fallback: "Not set",
+                      })}
                     />
                   </div>
                 )}
@@ -1097,8 +978,9 @@ export default async function ShipmentDetailPage({
                             {doc.label}
                           </p>
                           <p className="text-xs text-muted-foreground mt-0.5">
-                            {doc.docType.replace(/_/g, " ")} · {doc.fileName} ·{" "}
-                            {fmtBytes(doc.fileSize)} · {fmtDate(doc.uploadedAt)}
+                            {formatEnumLabel(doc.docType)} · {doc.fileName} ·{" "}
+                            {formatFileSize(doc.fileSize)} ·{" "}
+                            {formatDate(doc.uploadedAt)}
                           </p>
                         </div>
                         <ExternalLink className="h-3.5 w-3.5 shrink-0 text-muted-foreground/30 group-hover:text-muted-foreground transition-colors" />
@@ -1127,10 +1009,10 @@ export default async function ShipmentDetailPage({
                         >
                           <div className="space-y-0.5">
                             <p className="text-xs font-medium text-foreground">
-                              {txn.type.replace(/_/g, " ")}
+                              {formatEnumLabel(txn.type)}
                             </p>
                             <p className="text-[10px] text-muted-foreground">
-                              {fmtDateTime(txn.createdAt)}
+                              {formatDateTime(txn.createdAt)}
                             </p>
                             {txn.notes && (
                               <p className="text-[10px] text-muted-foreground/70">
@@ -1141,10 +1023,12 @@ export default async function ShipmentDetailPage({
                           <div className="text-right space-y-1">
                             <p className="text-sm font-semibold tabular-nums">
                               {isCredit ? "+" : "−"}
-                              {fmt(txn.amount, txn.currency)}
+                              {formatMoney(txn.amount, txn.currency, {
+                                fallback: "Not set",
+                              })}
                             </p>
                             <Badge variant="outline" className="text-[10px]">
-                              {txn.status.toLowerCase()}
+                              {formatEnumLabel(txn.status, "lower")}
                             </Badge>
                           </div>
                         </div>
@@ -1208,17 +1092,17 @@ export default async function ShipmentDetailPage({
                 <div className="px-4 py-1.5">
                   <KVRow
                     label="Created"
-                    value={fmtDateTime(s.createdAt)}
+                    value={formatDateTime(s.createdAt)}
                     tooltip="When this booking was first created in the system."
                   />
                   <KVRow
                     label="Booked"
-                    value={s.bookedAt ? fmtDateTime(s.bookedAt) : null}
+                    value={s.bookedAt ? formatDateTime(s.bookedAt) : null}
                     tooltip="When payment was confirmed and the shipment entered the ops queue."
                   />
                   <KVRow
                     label="Last updated"
-                    value={fmtDateTime(s.updatedAt)}
+                    value={formatDateTime(s.updatedAt)}
                     tooltip="When this shipment record was last modified."
                   />
                 </div>
@@ -1278,7 +1162,7 @@ export default async function ShipmentDetailPage({
                                 </p>
                               )}
                               <p className="text-[10px] text-muted-foreground/50">
-                                {fmtDateTime(evt.createdAt)}
+                                {formatDateTime(evt.createdAt)}
                               </p>
                             </div>
                           </li>

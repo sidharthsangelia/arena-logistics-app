@@ -4,7 +4,7 @@
 type Numberish = number | string | null | undefined | { toNumber(): number };
 
 /** Handles plain numbers, numeric strings, and Prisma.Decimal alike. */
-function toNumber(value: Numberish): number | null {
+export function toNumber(value: Numberish): number | null {
   if (value === null || value === undefined) return null;
   if (typeof value === "number") return Number.isNaN(value) ? null : value;
   if (typeof value === "object" && "toNumber" in value) {
@@ -87,13 +87,44 @@ export interface FormatWeightOptions {
   unit?: string;
   fractionDigits?: number;
   fallback?: string;
+  /** Treat 0 as "not set" too — useful when a real weight can never be zero. */
+  treatZeroAsUnset?: boolean;
 }
 
 export function formatWeight(
   kg: Numberish,
-  { unit = "kg", fractionDigits = 2, fallback = "—" }: FormatWeightOptions = {}
+  {
+    unit = "kg",
+    fractionDigits = 2,
+    fallback = "—",
+    treatZeroAsUnset = false,
+  }: FormatWeightOptions = {}
 ) {
   const n = toNumber(kg);
   if (n === null) return fallback;
+  if (treatZeroAsUnset && n === 0) return fallback;
   return `${n.toFixed(fractionDigits)} ${unit}`;
+}
+
+export type FileSizeVariant = "short" | "long";
+
+const FILE_SIZE_UNITS: Record<FileSizeVariant, [string, string, string]> = {
+  short: ["B", "KB", "MB"],
+  long: ["Bytes", "Kilobytes", "Megabytes"],
+};
+
+export interface FormatFileSizeOptions {
+  variant?: FileSizeVariant;
+  fractionDigits?: number;
+}
+
+export function formatFileSize(
+  bytes: number,
+  { variant = "short", fractionDigits = 1 }: FormatFileSizeOptions = {}
+) {
+  const [b, kb, mb] = FILE_SIZE_UNITS[variant];
+  if (!Number.isFinite(bytes) || bytes < 1024) return `${bytes} ${b}`;
+  if (bytes < 1024 * 1024)
+    return `${(bytes / 1024).toFixed(fractionDigits)} ${kb}`;
+  return `${(bytes / (1024 * 1024)).toFixed(fractionDigits)} ${mb}`;
 }
