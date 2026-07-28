@@ -458,7 +458,7 @@ async function RecentShipments({ orgId }: { orgId: string }) {
           <CardTitle className="text-sm font-semibold">Recent Shipments</CardTitle>
           <CardDescription className="text-xs mt-0.5">
             Your last {recentShipments.length} booking{recentShipments.length === 1 ? "" : "s"}
-            — select one for full details
+            . Select one for full details
           </CardDescription>
         </div>
         <Button variant="ghost" size="sm" className="gap-1 text-xs h-7" asChild>

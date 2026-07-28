@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { notFound, redirect } from "next/navigation";
 import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/utils/db";
@@ -13,7 +14,7 @@ import {
   FileText,
   MapPin,
   Package,
-  Truck,
+  Receipt,
   Wallet,
   Mail,
   Phone,
@@ -26,7 +27,6 @@ import {
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
 import { PackageBoxList } from "@/components/booking/PackageBoxList";
 import { FirstMilePickupCard } from "@/components/booking/FirstMilePickupCard";
 import {
@@ -46,23 +46,44 @@ import {
   formatFileSize,
 } from "@/utils/format";
 import { formatEnumLabel } from "@/utils/helpers";
+import {
+  HeroSkeleton,
+  FirstMileSkeleton,
+  AddressesSkeleton,
+  PackagesSkeleton,
+  PricingSkeleton,
+  DocumentsSkeleton,
+  WalletTransactionsSkeleton,
+  BookingSummarySkeleton,
+  StatusHistorySkeleton,
+  ShipmentIdSkeleton,
+} from "./skeletons";
 
 // ---------------------------------------------------------------------------
-// Data fetch — tenant-scoped (unchanged from original)
+// Data fetch — tenant-scoped. The org lookup is fast (single indexed query)
+// and awaited up front; the shipment itself is fetched as one query and
+// handed down as a shared promise. Every card below awaits that same promise
+// independently inside its own <Suspense>, so the page shell (back link,
+// grid layout) paints immediately and each card streams in the instant the
+// query resolves, with a layout-matched skeleton until then.
 // ---------------------------------------------------------------------------
 
-async function getShipment(id: string) {
+async function getTenantOrgId() {
   const { orgId: clerkOrgId } = await auth();
   if (!clerkOrgId) redirect("/sign-in");
 
   const org = await prisma.org.findUnique({
     where: { clerkOrgId },
-    select: { id: true, name: true },
+    select: { id: true },
   });
   if (!org) redirect("/sign-in");
 
+  return org.id;
+}
+
+async function getShipment(id: string, orgId: string) {
   const shipment = await prisma.shipment.findFirst({
-    where: { id, orgId: org.id },
+    where: { id, orgId },
     select: {
       id: true,
       shipmentNumber: true,
@@ -212,10 +233,25 @@ async function getShipment(id: string) {
   });
 
   if (!shipment) notFound();
-  return { shipment, orgName: org.name };
+  return shipment;
 }
 
- 
+type ShipmentPromise = ReturnType<typeof getShipment>;
+
+function packageTotals(shipment: Awaited<ShipmentPromise>) {
+  // A box's `quantity` is how many identical boxes it stands for, so the box
+  // count is the sum of those. Item lines are the individual goods declared.
+  const totalBoxes = shipment.packages.reduce((a, p) => a + p.quantity, 0);
+  const totalItemLines = shipment.packages.reduce(
+    (a, p) => a + (p.contents?.length ?? 0),
+    0,
+  );
+  const totalDeclared = shipment.packages.reduce(
+    (sum, p) => sum + (toNumber(p.declaredValue) ?? 0) * p.quantity,
+    0,
+  );
+  return { totalBoxes, totalItemLines, totalDeclared };
+}
 
 // ---------------------------------------------------------------------------
 // Journey steps — the progress rail shown to clients
@@ -329,29 +365,43 @@ function SectionHeader({
   title,
   meta,
   tooltip,
+  description,
 }: {
   icon: React.ComponentType<{ className?: string }>;
   title: string;
   meta?: string;
   tooltip?: string;
+  /** Permanent one-line explainer shown under the title — reserve this for
+   * cards whose purpose or behavior genuinely isn't obvious at a glance, so
+   * it doesn't read as noise on the cards that are already self-explanatory. */
+  description?: string;
 }) {
   return (
-    <div className="flex items-center justify-between px-5 py-3.5 border-b bg-muted/20">
-      <div className="flex items-center gap-2">
-        <Icon className="h-3.5 w-3.5 text-muted-foreground" />
-        <span className="text-sm font-semibold text-foreground">{title}</span>
-        {tooltip && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Info className="h-3.5 w-3.5 text-muted-foreground/40 cursor-help" />
-            </TooltipTrigger>
-            <TooltipContent className="max-w-52 text-xs">
-              {tooltip}
-            </TooltipContent>
-          </Tooltip>
-        )}
+    <div className="border-b bg-muted/20">
+      <div className="flex items-center justify-between px-5 py-3.5">
+        <div className="flex items-center gap-2">
+          <Icon className="h-3.5 w-3.5 text-muted-foreground" />
+          <span className="text-sm font-semibold text-foreground">
+            {title}
+          </span>
+          {tooltip && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Info className="h-3.5 w-3.5 text-muted-foreground/40 cursor-help" />
+              </TooltipTrigger>
+              <TooltipContent className="max-w-52 text-xs">
+                {tooltip}
+              </TooltipContent>
+            </Tooltip>
+          )}
+        </div>
+        {meta && <span className="text-xs text-muted-foreground">{meta}</span>}
       </div>
-      {meta && <span className="text-xs text-muted-foreground">{meta}</span>}
+      {description && (
+        <p className="px-5 pb-3 -mt-1.5 text-xs text-muted-foreground/70">
+          {description}
+        </p>
+      )}
     </div>
   );
 }
@@ -570,7 +620,660 @@ function JourneyRail({ currentStatus }: { currentStatus: ShipmentStatus }) {
 }
 
 // ---------------------------------------------------------------------------
-// Page
+// Card sections — each awaits the same shared shipment promise, and each is
+// wrapped in its own <Suspense> by the page below. Splitting it this way
+// means every card gets a skeleton that matches its own shape, and a slow
+// render in one card never holds up the others.
+// ---------------------------------------------------------------------------
+
+async function ShipmentHeroCard({
+  shipmentPromise,
+}: {
+  shipmentPromise: ShipmentPromise;
+}) {
+  const s = await shipmentPromise;
+  const { totalBoxes, totalItemLines, totalDeclared } = packageTotals(s);
+  // Whichever AWB is on file — House AWB is the one we generate and hand to
+  // the customer, so it takes priority over the airline's Master AWB.
+  const trackingNumber = s.hawbNumber ?? s.mawbNumber;
+
+  return (
+    <Card className="overflow-hidden">
+      <CardContent className="p-0">
+        {/* Top bar with shipment number */}
+        <div className="flex flex-wrap items-center justify-between gap-4 border-b bg-muted/20 px-5 py-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg border bg-background">
+              <Package className="h-4 w-4 text-muted-foreground" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h1 className="font-mono text-lg font-bold tracking-tight text-foreground">
+                  {s.shipmentNumber}
+                </h1>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Info className="h-3.5 w-3.5 text-muted-foreground/40 cursor-help" />
+                  </TooltipTrigger>
+                  <TooltipContent className="text-xs">
+                    Your unique shipment reference number.
+                  </TooltipContent>
+                </Tooltip>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Created {formatDate(s.createdAt)}
+                {s.bookedAt && ` · Booked ${formatDate(s.bookedAt)}`}
+              </p>
+            </div>
+          </div>
+
+          <div className="text-right">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className="cursor-default">
+                  <p className="text-2xl font-bold tabular-nums text-foreground">
+                    {formatMoney(s.quotedTotal, s.currency, {
+                      fallback: "Not set",
+                    })}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Total quoted
+                  </p>
+                </div>
+              </TooltipTrigger>
+              <TooltipContent className="text-xs max-w-52">
+                The price quoted to you at time of booking, including all
+                surcharges and applicable markup.
+              </TooltipContent>
+            </Tooltip>
+          </div>
+        </div>
+
+        {/* Route strip */}
+        <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 px-5 py-4 border-b">
+          <div>
+            <MicroLabel>From</MicroLabel>
+            <p className="mt-1 text-base font-semibold text-foreground">
+              {s.pickupAddress.city}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {s.pickupAddress.country}
+              {s.pickupAddress.contactName &&
+                ` · ${s.pickupAddress.contactName}`}
+            </p>
+          </div>
+          <div className="flex items-center gap-2 text-muted-foreground/40">
+            <div className="h-px w-8 bg-border" />
+            <ArrowRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground/50" />
+            <div className="h-px w-8 bg-border" />
+          </div>
+          <div className="text-right">
+            <MicroLabel>To</MicroLabel>
+            <p className="mt-1 text-base font-semibold text-foreground">
+              {s.deliveryAddress.city}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {s.deliveryAddress.country}
+              {s.deliveryAddress.contactName &&
+                ` · ${s.deliveryAddress.contactName}`}
+            </p>
+          </div>
+        </div>
+
+        {/* Quick stat tiles */}
+        <div className="grid grid-cols-2 gap-0 sm:grid-cols-4 divide-x divide-y sm:divide-y-0 border-b">
+          {[
+            {
+              label: "Boxes",
+              value: `${totalBoxes} box${totalBoxes !== 1 ? "es" : ""}`,
+              sub: `${totalItemLines} item${totalItemLines !== 1 ? "s" : ""} inside`,
+              tooltip:
+                "Total physical boxes in this shipment, and the number of goods declared across them.",
+            },
+            {
+              label: "Actual weight",
+              value: formatWeight(s.totalActualWeightKg, {
+                fallback: "Not set",
+                treatZeroAsUnset: true,
+              }),
+              sub: s.totalChargeableWeightKg
+                ? `Chargeable ${formatWeight(s.totalChargeableWeightKg, {
+                    fallback: "Not set",
+                    treatZeroAsUnset: true,
+                  })}`
+                : undefined,
+              tooltip:
+                "Actual physical weight. Chargeable weight can be higher when the box size (volumetric weight) is greater.",
+            },
+            {
+              label: "Service",
+              value: s.selectedProductName ?? "Not assigned",
+              tooltip:
+                "The service selected for this shipment when it was booked.",
+            },
+            {
+              label: "Declared value",
+              value:
+                totalDeclared > 0
+                  ? formatMoney(totalDeclared, undefined, {
+                      fallback: "Not set",
+                    })
+                  : "Not declared",
+              sub: s.client ? `For ${s.client.companyName}` : "Your own org",
+              tooltip:
+                "Total declared value of the goods, used for customs and insurance.",
+            },
+          ].map(({ label, value, sub, tooltip }) => (
+            <Tooltip key={label}>
+              <TooltipTrigger asChild>
+                <div className="flex flex-col gap-1 px-4 py-4 cursor-default hover:bg-muted/20 transition-colors">
+                  <MicroLabel>{label}</MicroLabel>
+                  <p className="text-sm font-semibold text-foreground leading-tight">
+                    {value}
+                  </p>
+                  {sub && (
+                    <p className="text-xs text-muted-foreground">{sub}</p>
+                  )}
+                </div>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-52 text-xs">
+                {tooltip}
+              </TooltipContent>
+            </Tooltip>
+          ))}
+        </div>
+
+        {/* Tracking number — whichever AWB is on file. Kept plain (no link,
+            no HAWB/MAWB distinction) until tracking-page linking is decided. */}
+        <div className="flex items-center justify-between px-5 py-3 border-b">
+          <span className="text-xs text-muted-foreground">
+            Tracking number
+          </span>
+          {trackingNumber ? (
+            <span className="text-sm font-mono font-semibold text-foreground">
+              {trackingNumber}
+            </span>
+          ) : (
+            <span className="text-xs text-muted-foreground">
+              Not added yet
+            </span>
+          )}
+        </div>
+
+        {/* Journey progress rail */}
+        <div className="p-5">
+          <JourneyRail currentStatus={s.status} />
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+async function FirstMileSection({
+  shipmentPromise,
+}: {
+  shipmentPromise: ShipmentPromise;
+}) {
+  const s = await shipmentPromise;
+  if (!s.pickupIncluded) return null;
+
+  // Legacy rows may have no status yet; default to Scheduled.
+  const firstMileStatus = s.firstMileStatus ?? FirstMileStatus.SCHEDULED;
+
+  return (
+    <FirstMilePickupCard
+      status={firstMileStatus}
+      hubLabel={s.firstMileHubLabel}
+      courierName={s.firstMileVendorName}
+      charge={toNumber(s.firstMileCharge) ?? 0}
+      currency={s.currency ?? "INR"}
+      trackingNumber={s.firstMileTrackingNumber}
+      trackingUrl={s.firstMileTrackingUrl}
+      pickupFromLabel={[s.pickupAddress.city, s.pickupAddress.postalCode]
+        .filter(Boolean)
+        .join(" ")}
+      scheduledAt={s.firstMilePickupScheduledAt}
+      pickedUpAt={s.firstMilePickedUpAt}
+      hubArrivedAt={s.firstMileHubArrivedAt}
+      updatedAt={s.firstMileStatusUpdatedAt}
+      // Once the parcel has reached the hub this leg is done; collapse it so
+      // it stops taking up space the international leg now owns.
+      collapsible={firstMileStatus === FirstMileStatus.ARRIVED_AT_HUB}
+    />
+  );
+}
+
+async function AddressesCard({
+  shipmentPromise,
+}: {
+  shipmentPromise: ShipmentPromise;
+}) {
+  const s = await shipmentPromise;
+
+  return (
+    <Card className="overflow-hidden">
+      <SectionHeader
+        icon={MapPin}
+        title="Addresses"
+        tooltip="Pickup and delivery contact details and full addresses for this shipment."
+      />
+      <div className="grid gap-3 p-4 sm:grid-cols-2">
+        <AddressBlock role="pickup" addr={s.pickupAddress} />
+        <AddressBlock role="delivery" addr={s.deliveryAddress} />
+      </div>
+
+      {!s.billingSameAsDelivery && s.billingAddress && (
+        <div className="border-t px-4 py-3.5 space-y-2">
+          <MicroLabel>Billing address</MicroLabel>
+          <div className="text-xs text-muted-foreground space-y-0.5 leading-relaxed">
+            {s.billingAddress.contactName && (
+              <p className="font-medium text-foreground">
+                {s.billingAddress.contactName}
+              </p>
+            )}
+            <p>{s.billingAddress.line1}</p>
+            <p>
+              {[
+                s.billingAddress.city,
+                s.billingAddress.state,
+                s.billingAddress.postalCode,
+              ]
+                .filter(Boolean)
+                .join(", ")}
+            </p>
+            <p>{s.billingAddress.country}</p>
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+async function PackagesCard({
+  shipmentPromise,
+}: {
+  shipmentPromise: ShipmentPromise;
+}) {
+  const s = await shipmentPromise;
+  const { totalBoxes, totalItemLines } = packageTotals(s);
+
+  return (
+    <Card className="overflow-hidden">
+      <SectionHeader
+        icon={Package}
+        title="What's inside"
+        meta={`${totalBoxes} box${totalBoxes !== 1 ? "es" : ""} · ${totalItemLines} item${totalItemLines !== 1 ? "s" : ""}`}
+        tooltip="Every box in this shipment with its size, weight, and the goods packed inside it."
+      />
+      <PackageBoxList
+        packages={s.packages}
+        fallbackCurrency={s.currency ?? "INR"}
+      />
+    </Card>
+  );
+}
+
+async function PricingCard({
+  shipmentPromise,
+}: {
+  shipmentPromise: ShipmentPromise;
+}) {
+  const s = await shipmentPromise;
+  const charges = s.chargesSnapshot as {
+    charges?: { name: string; amount: number; currency: string }[];
+  } | null;
+  const lineItems = charges?.charges ?? [];
+
+  return (
+    <Card className="overflow-hidden">
+      <SectionHeader
+        icon={Receipt}
+        title="Pricing breakdown"
+        tooltip="Full charge breakdown as quoted at time of booking. This price is locked in."
+        description="Locked in at booking. The total won't change even if rates move afterward."
+      />
+
+      {/* Service — metadata line, not a charge, styled a step down from the
+          amounts below so it reads as context rather than another line item */}
+      <div className="flex items-center justify-between px-5 py-3 border-b border-border/50">
+        <span className="text-xs text-muted-foreground">Service</span>
+        <span className="text-sm font-medium text-foreground">
+          {s.selectedProductName ?? "Not assigned"}
+        </span>
+      </div>
+
+      {lineItems.length > 0 && (
+        <div className="divide-y divide-border/40">
+          {lineItems.map((c, i) => (
+            <div
+              key={i}
+              className="flex items-center justify-between px-5 py-3"
+            >
+              <span className="text-sm text-muted-foreground">{c.name}</span>
+              <span className="text-sm font-medium tabular-nums text-foreground">
+                {formatMoney(c.amount, c.currency, { fallback: "Not set" })}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Total — the bottom line, given clearly more visual weight than the
+          rows above so it reads at a glance, same as the hero card's total */}
+      <div className="flex items-center justify-between border-t bg-muted/30 px-5 py-4">
+        <span className="text-sm font-semibold text-foreground">Total</span>
+        <span className="text-xl font-bold tabular-nums text-foreground">
+          {formatMoney(s.quotedTotal, s.currency, { fallback: "Not set" })}
+        </span>
+      </div>
+    </Card>
+  );
+}
+
+async function DocumentsCard({
+  shipmentPromise,
+}: {
+  shipmentPromise: ShipmentPromise;
+}) {
+  const s = await shipmentPromise;
+
+  return (
+    <Card className="overflow-hidden">
+      <SectionHeader
+        icon={FileText}
+        title="Documents"
+        meta={
+          s.documents.length > 0
+            ? `${s.documents.length} file${s.documents.length > 1 ? "s" : ""}`
+            : undefined
+        }
+        tooltip="Shipment documents such as commercial invoices, airway bills, and customs declarations."
+      />
+      {s.documents.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-10 gap-2">
+          <FileText className="h-7 w-7 text-muted-foreground/30" />
+          <p className="text-sm text-muted-foreground">
+            No documents available yet.
+          </p>
+          <p className="text-xs text-muted-foreground/70">
+            Documents such as AWB and invoices will appear here once
+            generated.
+          </p>
+        </div>
+      ) : (
+        <div className="divide-y divide-border/40">
+          {s.documents.map((doc) => (
+            <a
+              key={doc.id}
+              href={doc.fileUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="group flex items-center gap-3 px-5 py-3.5 transition-colors hover:bg-muted/30"
+            >
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border bg-background">
+                <FileCheck2 className="h-4 w-4 text-muted-foreground" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium text-foreground">
+                  {doc.label}
+                </p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {formatEnumLabel(doc.docType)} · {doc.fileName} ·{" "}
+                  {formatFileSize(doc.fileSize)} ·{" "}
+                  {formatDate(doc.uploadedAt)}
+                </p>
+              </div>
+              <ExternalLink className="h-3.5 w-3.5 shrink-0 text-muted-foreground/30 group-hover:text-muted-foreground transition-colors" />
+            </a>
+          ))}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+async function WalletTransactionsCard({
+  shipmentPromise,
+}: {
+  shipmentPromise: ShipmentPromise;
+}) {
+  const s = await shipmentPromise;
+  if (s.walletTransactions.length === 0) return null;
+
+  return (
+    <Card className="overflow-hidden">
+      <SectionHeader
+        icon={Wallet}
+        title="Wallet transactions"
+        tooltip="Payment debits and credits linked to this shipment."
+        description="Credits (top-ups and refunds) are shown in green; debits are the charges for this shipment."
+      />
+      <div className="divide-y divide-border/40">
+        {s.walletTransactions.map((txn) => {
+          const isCredit = txn.type === "TOP_UP" || txn.type === "REFUND";
+          return (
+            <div
+              key={txn.id}
+              className="flex items-center justify-between px-5 py-3.5"
+            >
+              <div className="space-y-0.5">
+                <p className="text-xs font-medium text-foreground">
+                  {formatEnumLabel(txn.type)}
+                </p>
+                <p className="text-[10px] text-muted-foreground">
+                  {formatDateTime(txn.createdAt)}
+                </p>
+                {txn.notes && (
+                  <p className="text-[10px] text-muted-foreground/70">
+                    {txn.notes}
+                  </p>
+                )}
+              </div>
+              <div className="text-right space-y-1">
+                <p
+                  className={cn(
+                    "text-sm font-semibold tabular-nums",
+                    isCredit
+                      ? "text-emerald-600 dark:text-emerald-400"
+                      : "text-foreground",
+                  )}
+                >
+                  {isCredit ? "+" : "−"}
+                  {formatMoney(txn.amount, txn.currency, {
+                    fallback: "Not set",
+                  })}
+                </p>
+                <Badge variant="outline" className="text-[10px]">
+                  {formatEnumLabel(txn.status, "lower")}
+                </Badge>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </Card>
+  );
+}
+
+async function BookingSummaryCard({
+  shipmentPromise,
+}: {
+  shipmentPromise: ShipmentPromise;
+}) {
+  const s = await shipmentPromise;
+
+  return (
+    <Card className="overflow-hidden">
+      <div className="px-4 py-3 border-b bg-muted/20">
+        <MicroLabel>Booking details</MicroLabel>
+      </div>
+
+      {/* Client */}
+      {s.client ? (
+        <div className="p-4 border-b">
+          <div className="flex items-center gap-2.5 mb-3">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-muted text-[10px] font-bold text-muted-foreground">
+              {s.client.companyName.slice(0, 2).toUpperCase()}
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold leading-tight text-foreground truncate">
+                {s.client.companyName}
+              </p>
+              {s.client.contactName && (
+                <p className="text-xs text-muted-foreground truncate">
+                  {s.client.contactName}
+                </p>
+              )}
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            {s.client.email && (
+              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <Mail className="h-3 w-3 shrink-0" />
+                <span className="truncate">{s.client.email}</span>
+              </div>
+            )}
+            {s.client.phone && (
+              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <Phone className="h-3 w-3 shrink-0" />
+                <span>{s.client.phone}</span>
+              </div>
+            )}
+          </div>
+        </div>
+      ) : (
+        <div className="px-4 py-3 border-b">
+          <p className="text-xs text-muted-foreground">
+            Booked for your own organisation.
+          </p>
+        </div>
+      )}
+
+      {/* Timestamps */}
+      <div className="px-4 py-1.5">
+        <KVRow
+          label="Created"
+          value={formatDateTime(s.createdAt)}
+          tooltip="When this booking was first created in the system."
+        />
+        <KVRow
+          label="Booked"
+          value={s.bookedAt ? formatDateTime(s.bookedAt) : null}
+          tooltip="When payment was confirmed and the shipment entered the ops queue."
+        />
+        <KVRow
+          label="Last updated"
+          value={formatDateTime(s.updatedAt)}
+          tooltip="When this shipment record was last modified."
+        />
+      </div>
+    </Card>
+  );
+}
+
+async function StatusHistoryCard({
+  shipmentPromise,
+}: {
+  shipmentPromise: ShipmentPromise;
+}) {
+  const s = await shipmentPromise;
+
+  return (
+    <Card className="overflow-hidden">
+      <div className="flex items-center gap-2 px-4 py-3 border-b bg-muted/20">
+        <Clock className="h-3.5 w-3.5 text-muted-foreground" />
+        <MicroLabel>Status history</MicroLabel>
+      </div>
+      {s.statusHistory.length === 0 ? (
+        <p className="px-4 py-6 text-xs text-center text-muted-foreground">
+          No events recorded yet.
+        </p>
+      ) : (
+        <div className="px-4 py-4">
+          <ol className="relative ml-1">
+            <div className="absolute left-[3px] top-2 bottom-4 w-px bg-border" />
+            {s.statusHistory.map((evt, i) => {
+              const evtCfg = STATUS_CONFIG[evt.toStatus];
+              // History is newest-first, so the top row is current.
+              const isCurrent = i === 0;
+              return (
+                <li key={evt.id} className="relative pl-5 pb-5 last:pb-0">
+                  <span
+                    className={cn(
+                      "absolute left-0 top-1.5 h-[7px] w-[7px] rounded-full ring-2 ring-background",
+                      evtCfg?.dotClassName ?? "bg-muted-foreground/30",
+                      isCurrent && "ring-4 ring-foreground/10",
+                    )}
+                  />
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <Badge
+                        variant="outline"
+                        className={cn(
+                          "text-[10px] font-medium px-1.5 py-0",
+                          evtCfg?.className,
+                        )}
+                      >
+                        {evtCfg?.label ?? evt.toStatus}
+                      </Badge>
+                      {isCurrent && (
+                        <span className="rounded-full bg-foreground/5 border border-border px-1.5 py-0 text-[10px] font-medium text-muted-foreground">
+                          Current
+                        </span>
+                      )}
+                    </div>
+                    {evt.note && (
+                      <p className="text-[10px] text-muted-foreground leading-relaxed bg-muted/50 rounded px-2 py-1">
+                        {evt.note}
+                      </p>
+                    )}
+                    <p className="text-[10px] text-muted-foreground/50">
+                      {formatDateTime(evt.createdAt)}
+                    </p>
+                  </div>
+                </li>
+              );
+            })}
+          </ol>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+async function ShipmentIdCard({
+  shipmentPromise,
+}: {
+  shipmentPromise: ShipmentPromise;
+}) {
+  const s = await shipmentPromise;
+
+  return (
+    <Card>
+      <CardContent className="px-4 py-3 space-y-1">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div className="cursor-default">
+              <MicroLabel>Shipment ID</MicroLabel>
+              <p className="font-mono text-[10px] text-muted-foreground break-all mt-1 leading-relaxed">
+                {s.id}
+              </p>
+            </div>
+          </TooltipTrigger>
+          <TooltipContent className="text-xs">
+            Internal system ID. Use the shipment number (above) when
+            contacting support.
+          </TooltipContent>
+        </Tooltip>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Page — a thin, static shell. The back link and grid layout render
+// instantly; every card below streams in independently as the (single,
+// shared) shipment query resolves.
 // ---------------------------------------------------------------------------
 
 export default async function ShipmentDetailPage({
@@ -579,28 +1282,17 @@ export default async function ShipmentDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const { shipment: s } = await getShipment(id);
+  const orgId = await getTenantOrgId();
 
-  const charges = s.chargesSnapshot as {
-    charges?: { name: string; amount: number; currency: string }[];
-  } | null;
-  // A box's `quantity` is how many identical boxes it stands for, so the box
-  // count is the sum of those. Item lines are the individual goods declared.
-  const totalBoxes = s.packages.reduce((a, p) => a + p.quantity, 0);
-  const totalItemLines = s.packages.reduce(
-    (a, p) => a + (p.contents?.length ?? 0),
-    0,
-  );
-  const totalDeclared = s.packages.reduce(
-    (sum, p) => sum + (toNumber(p.declaredValue) ?? 0) * p.quantity,
-    0,
-  );
+  // Kick off the query once — every card below shares this promise. React
+  // dedupes the underlying fetch, so this is still a single DB round trip.
+  const shipmentPromise = getShipment(id, orgId);
 
   return (
     <TooltipProvider delayDuration={200}>
       <div className="min-h-screen bg-background">
         <div className="mx-auto max-w-5xl px-5 py-8 space-y-5">
-          {/* ── Back nav ── */}
+          {/* ── Back nav — static, never blocked ── */}
           <Link
             href="/shipments"
             className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors group"
@@ -609,589 +1301,52 @@ export default async function ShipmentDetailPage({
             All shipments
           </Link>
 
-          {/* ── Header card ── */}
-          <Card className="overflow-hidden">
-            <CardContent className="p-0">
-              {/* Top bar with shipment number */}
-              <div className="flex flex-wrap items-center justify-between gap-4 border-b bg-muted/20 px-5 py-4">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-lg border bg-background">
-                    <Package className="h-4 w-4 text-muted-foreground" />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h1 className="font-mono text-lg font-bold tracking-tight text-foreground">
-                        {s.shipmentNumber}
-                      </h1>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Info className="h-3.5 w-3.5 text-muted-foreground/40 cursor-help" />
-                        </TooltipTrigger>
-                        <TooltipContent className="text-xs">
-                          Your unique shipment tracking reference number.
-                        </TooltipContent>
-                      </Tooltip>
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      Created {formatDate(s.createdAt)}
-                      {s.bookedAt && ` · Booked ${formatDate(s.bookedAt)}`}
-                    </p>
-                  </div>
-                </div>
+          <Suspense fallback={<HeroSkeleton />}>
+            <ShipmentHeroCard shipmentPromise={shipmentPromise} />
+          </Suspense>
 
-                <div className="text-right">
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <div className="cursor-default">
-                        <p className="text-2xl font-bold tabular-nums text-foreground">
-                          {formatMoney(s.quotedTotal, s.currency, {
-                            fallback: "Not set",
-                          })}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          Total quoted
-                        </p>
-                      </div>
-                    </TooltipTrigger>
-                    <TooltipContent className="text-xs max-w-52">
-                      The price quoted to you at time of booking, including all
-                      surcharges and applicable markup.
-                    </TooltipContent>
-                  </Tooltip>
-                </div>
-              </div>
+          <Suspense fallback={<FirstMileSkeleton />}>
+            <FirstMileSection shipmentPromise={shipmentPromise} />
+          </Suspense>
 
-              {/* Route strip */}
-              <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 px-5 py-4 border-b">
-                <div>
-                  <MicroLabel>From</MicroLabel>
-                  <p className="mt-1 text-base font-semibold text-foreground">
-                    {s.pickupAddress.city}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {s.pickupAddress.country}
-                    {s.pickupAddress.contactName &&
-                      ` · ${s.pickupAddress.contactName}`}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2 text-muted-foreground/40">
-                  <div className="h-px w-8 bg-border" />
-                  <ArrowRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground/50" />
-                  <div className="h-px w-8 bg-border" />
-                </div>
-                <div className="text-right">
-                  <MicroLabel>To</MicroLabel>
-                  <p className="mt-1 text-base font-semibold text-foreground">
-                    {s.deliveryAddress.city}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {s.deliveryAddress.country}
-                    {s.deliveryAddress.contactName &&
-                      ` · ${s.deliveryAddress.contactName}`}
-                  </p>
-                </div>
-              </div>
-
-              {/* Quick stat tiles */}
-              <div className="grid grid-cols-2 gap-0 sm:grid-cols-4 divide-x divide-y sm:divide-y-0 border-b">
-                {[
-                  {
-                    label: "Boxes",
-                    value: `${totalBoxes} box${totalBoxes !== 1 ? "es" : ""}`,
-                    sub: `${totalItemLines} item${totalItemLines !== 1 ? "s" : ""} inside`,
-                    tooltip:
-                      "Total physical boxes in this shipment, and the number of goods declared across them.",
-                  },
-                  {
-                    label: "Actual weight",
-                    value: formatWeight(s.totalActualWeightKg, {
-                      fallback: "Not set",
-                      treatZeroAsUnset: true,
-                    }),
-                    sub: s.totalChargeableWeightKg
-                      ? `Chargeable ${formatWeight(s.totalChargeableWeightKg, {
-                          fallback: "Not set",
-                          treatZeroAsUnset: true,
-                        })}`
-                      : undefined,
-                    tooltip:
-                      "Actual physical weight. Chargeable weight can be higher when the box size (volumetric weight) is greater.",
-                  },
-                  {
-                    label: "Service",
-                    value: s.selectedProductName ?? "Not assigned",
-                    tooltip:
-                      "The service selected for this shipment when it was booked.",
-                  },
-                  {
-                    label: "Declared value",
-                    value:
-                      totalDeclared > 0
-                        ? formatMoney(totalDeclared, undefined, {
-                            fallback: "Not set",
-                          })
-                        : "Not declared",
-                    sub: s.client ? `For ${s.client.companyName}` : "Your own org",
-                    tooltip:
-                      "Total declared value of the goods, used for customs and insurance.",
-                  },
-                ].map(({ label, value, sub, tooltip }) => (
-                  <Tooltip key={label}>
-                    <TooltipTrigger asChild>
-                      <div className="flex flex-col gap-1 px-4 py-4 cursor-default hover:bg-muted/20 transition-colors">
-                        <MicroLabel>{label}</MicroLabel>
-                        <p className="text-sm font-semibold text-foreground leading-tight">
-                          {value}
-                        </p>
-                        {sub && (
-                          <p className="text-xs text-muted-foreground">{sub}</p>
-                        )}
-                      </div>
-                    </TooltipTrigger>
-                    <TooltipContent className="max-w-52 text-xs">
-                      {tooltip}
-                    </TooltipContent>
-                  </Tooltip>
-                ))}
-              </div>
-
-              {/* Journey progress rail */}
-              <div className="p-5">
-                <JourneyRail currentStatus={s.status} />
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* First-mile (door → hub) pickup leg — only when opted in.
-              Legacy rows may have no status yet; default to Scheduled. */}
-          {s.pickupIncluded && (
-            <FirstMilePickupCard
-              status={s.firstMileStatus ?? FirstMileStatus.SCHEDULED}
-              hubLabel={s.firstMileHubLabel}
-              courierName={s.firstMileVendorName}
-              charge={toNumber(s.firstMileCharge) ?? 0}
-              currency={s.currency ?? "INR"}
-              trackingNumber={s.firstMileTrackingNumber}
-              trackingUrl={s.firstMileTrackingUrl}
-              pickupFromLabel={[s.pickupAddress.city, s.pickupAddress.postalCode]
-                .filter(Boolean)
-                .join(" ")}
-              scheduledAt={s.firstMilePickupScheduledAt}
-              pickedUpAt={s.firstMilePickedUpAt}
-              hubArrivedAt={s.firstMileHubArrivedAt}
-              updatedAt={s.firstMileStatusUpdatedAt}
-            />
-          )}
-
-          {(s.hawbNumber || s.mawbNumber) && (
-            <Card className="overflow-hidden">
-              <SectionHeader
-                icon={Truck}
-                title="Carrier Tracking"
-                tooltip="Tracking reference issued by the airline/carrier handling your shipment."
-              />
-              <div className="grid gap-3 p-4 sm:grid-cols-3">
-                {s.carrierAirline && (
-                  <div>
-                    <MicroLabel>Airline</MicroLabel>
-                    <p className="mt-1 text-sm font-semibold text-foreground">
-                      {s.carrierAirline}
-                    </p>
-                  </div>
-                )}
-                {s.hawbNumber && (
-                  <div>
-                    <MicroLabel>AWB Number</MicroLabel>
-                    <p className="mt-1 text-sm font-mono font-semibold text-foreground">
-                      {s.hawbNumber}
-                    </p>
-                  </div>
-                )}
-                {s.vendorTrackingUrl && (
-                  <div className="flex items-end">
-                    <a
-                      href={s.vendorTrackingUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1.5 text-xs font-medium text-foreground hover:underline"
-                    >
-                      Track with {s.carrierAirline ?? "carrier"}
-                      <ExternalLink className="h-3 w-3" />
-                    </a>
-                  </div>
-                )}
-              </div>
-            </Card>
-          )}
-
-          {/* ── Two-column layout ── */}
+          {/* ── Two-column layout — shell is static, each card suspends on its own ── */}
           <div className="grid gap-5 xl:grid-cols-[1fr_260px] xl:items-start">
             {/* ── Left: main sections ── */}
             <div className="space-y-5 min-w-0">
-              {/* Route detail */}
-              <Card className="overflow-hidden">
-                <SectionHeader
-                  icon={MapPin}
-                  title="Addresses"
-                  tooltip="Pickup and delivery contact details and full addresses for this shipment."
-                />
-                <div className="grid gap-3 p-4 sm:grid-cols-2">
-                  <AddressBlock role="pickup" addr={s.pickupAddress} />
-                  <AddressBlock role="delivery" addr={s.deliveryAddress} />
-                </div>
+              <Suspense fallback={<AddressesSkeleton />}>
+                <AddressesCard shipmentPromise={shipmentPromise} />
+              </Suspense>
 
-                {!s.billingSameAsDelivery && s.billingAddress && (
-                  <div className="border-t px-4 py-3.5 space-y-2">
-                    <MicroLabel>Billing address</MicroLabel>
-                    <div className="text-xs text-muted-foreground space-y-0.5 leading-relaxed">
-                      {s.billingAddress.contactName && (
-                        <p className="font-medium text-foreground">
-                          {s.billingAddress.contactName}
-                        </p>
-                      )}
-                      <p>{s.billingAddress.line1}</p>
-                      <p>
-                        {[
-                          s.billingAddress.city,
-                          s.billingAddress.state,
-                          s.billingAddress.postalCode,
-                        ]
-                          .filter(Boolean)
-                          .join(", ")}
-                      </p>
-                      <p>{s.billingAddress.country}</p>
-                    </div>
-                  </div>
-                )}
-              </Card>
+              <Suspense fallback={<PackagesSkeleton />}>
+                <PackagesCard shipmentPromise={shipmentPromise} />
+              </Suspense>
 
-              {/* Packages — one card per box, with the packing list inside */}
-              <Card className="overflow-hidden">
-                <SectionHeader
-                  icon={Package}
-                  title="What's inside"
-                  meta={`${totalBoxes} box${totalBoxes !== 1 ? "es" : ""} · ${totalItemLines} item${totalItemLines !== 1 ? "s" : ""}`}
-                  tooltip="Every box in this shipment with its size, weight, and the goods packed inside it."
-                />
-                <PackageBoxList
-                  packages={s.packages}
-                  fallbackCurrency={s.currency ?? "INR"}
-                />
-              </Card>
+              <Suspense fallback={<PricingSkeleton />}>
+                <PricingCard shipmentPromise={shipmentPromise} />
+              </Suspense>
 
-              {/* Pricing */}
-              <Card className="overflow-hidden">
-                <SectionHeader
-                  icon={Truck}
-                  title="Pricing breakdown"
-                  tooltip="Full charge breakdown as quoted at time of booking. This price is locked in."
-                />
-                <div className="px-5 py-1">
-                  <KVRow
-                    label="Service"
-                    value={s.selectedProductName ?? "—"}
-                    tooltip="The service selected for this shipment."
-                  />
-                </div>
+              <Suspense fallback={<DocumentsSkeleton />}>
+                <DocumentsCard shipmentPromise={shipmentPromise} />
+              </Suspense>
 
-                {charges?.charges && charges.charges.length > 0 && (
-                  <>
-                    <Separator />
-                    <div className="divide-y divide-border/40">
-                      {charges.charges.map((c, i) => (
-                        <div
-                          key={i}
-                          className="flex items-center justify-between px-5 py-3 text-sm"
-                        >
-                          <span className="text-muted-foreground">
-                            {c.name}
-                          </span>
-                          <span className="tabular-nums font-medium">
-                            {formatMoney(c.amount, c.currency, {
-                              fallback: "Not set",
-                            })}
-                          </span>
-                        </div>
-                      ))}
-                      <div className="flex items-center justify-between bg-muted/30 px-5 py-3 text-sm font-bold">
-                        <span>Total</span>
-                        <span className="tabular-nums">
-                          {formatMoney(s.quotedTotal, s.currency, {
-                            fallback: "Not set",
-                          })}
-                        </span>
-                      </div>
-                    </div>
-                  </>
-                )}
-
-                {!charges?.charges?.length && (
-                  <div className="px-5 pb-4">
-                    <KVRow
-                      label="Total quoted"
-                      value={formatMoney(s.quotedTotal, s.currency, {
-                        fallback: "Not set",
-                      })}
-                    />
-                  </div>
-                )}
-              </Card>
-
-              {/* Documents */}
-              <Card className="overflow-hidden">
-                <SectionHeader
-                  icon={FileText}
-                  title="Documents"
-                  meta={
-                    s.documents.length > 0
-                      ? `${s.documents.length} file${s.documents.length > 1 ? "s" : ""}`
-                      : undefined
-                  }
-                  tooltip="Shipment documents such as commercial invoices, airway bills, and customs declarations."
-                />
-                {s.documents.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center py-10 gap-2">
-                    <FileText className="h-7 w-7 text-muted-foreground/30" />
-                    <p className="text-sm text-muted-foreground">
-                      No documents available yet.
-                    </p>
-                    <p className="text-xs text-muted-foreground/70">
-                      Documents such as AWB and invoices will appear here once
-                      generated.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="divide-y divide-border/40">
-                    {s.documents.map((doc) => (
-                      <a
-                        key={doc.id}
-                        href={doc.fileUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="group flex items-center gap-3 px-5 py-3.5 transition-colors hover:bg-muted/30"
-                      >
-                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border bg-background">
-                          <FileCheck2 className="h-4 w-4 text-muted-foreground" />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-medium text-foreground">
-                            {doc.label}
-                          </p>
-                          <p className="text-xs text-muted-foreground mt-0.5">
-                            {formatEnumLabel(doc.docType)} · {doc.fileName} ·{" "}
-                            {formatFileSize(doc.fileSize)} ·{" "}
-                            {formatDate(doc.uploadedAt)}
-                          </p>
-                        </div>
-                        <ExternalLink className="h-3.5 w-3.5 shrink-0 text-muted-foreground/30 group-hover:text-muted-foreground transition-colors" />
-                      </a>
-                    ))}
-                  </div>
-                )}
-              </Card>
-
-              {/* Wallet transactions */}
-              {s.walletTransactions.length > 0 && (
-                <Card className="overflow-hidden">
-                  <SectionHeader
-                    icon={Wallet}
-                    title="Wallet transactions"
-                    tooltip="Payment debits and credits linked to this shipment."
-                  />
-                  <div className="divide-y divide-border/40">
-                    {s.walletTransactions.map((txn) => {
-                      const isCredit =
-                        txn.type === "TOP_UP" || txn.type === "REFUND";
-                      return (
-                        <div
-                          key={txn.id}
-                          className="flex items-center justify-between px-5 py-3.5"
-                        >
-                          <div className="space-y-0.5">
-                            <p className="text-xs font-medium text-foreground">
-                              {formatEnumLabel(txn.type)}
-                            </p>
-                            <p className="text-[10px] text-muted-foreground">
-                              {formatDateTime(txn.createdAt)}
-                            </p>
-                            {txn.notes && (
-                              <p className="text-[10px] text-muted-foreground/70">
-                                {txn.notes}
-                              </p>
-                            )}
-                          </div>
-                          <div className="text-right space-y-1">
-                            <p className="text-sm font-semibold tabular-nums">
-                              {isCredit ? "+" : "−"}
-                              {formatMoney(txn.amount, txn.currency, {
-                                fallback: "Not set",
-                              })}
-                            </p>
-                            <Badge variant="outline" className="text-[10px]">
-                              {formatEnumLabel(txn.status, "lower")}
-                            </Badge>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </Card>
-              )}
+              <Suspense fallback={<WalletTransactionsSkeleton />}>
+                <WalletTransactionsCard shipmentPromise={shipmentPromise} />
+              </Suspense>
             </div>
 
             {/* ── Right sidebar ── */}
             <div className="space-y-4">
-              {/* Booking summary sidebar card */}
-              <Card className="overflow-hidden">
-                <div className="px-4 py-3 border-b bg-muted/20">
-                  <MicroLabel>Booking details</MicroLabel>
-                </div>
+              <Suspense fallback={<BookingSummarySkeleton />}>
+                <BookingSummaryCard shipmentPromise={shipmentPromise} />
+              </Suspense>
 
-                {/* Client */}
-                {s.client ? (
-                  <div className="p-4 border-b">
-                    <div className="flex items-center gap-2.5 mb-3">
-                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-muted text-[10px] font-bold text-muted-foreground">
-                        {s.client.companyName.slice(0, 2).toUpperCase()}
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-sm font-semibold leading-tight text-foreground truncate">
-                          {s.client.companyName}
-                        </p>
-                        {s.client.contactName && (
-                          <p className="text-xs text-muted-foreground truncate">
-                            {s.client.contactName}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                    <div className="space-y-1.5">
-                      {s.client.email && (
-                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                          <Mail className="h-3 w-3 shrink-0" />
-                          <span className="truncate">{s.client.email}</span>
-                        </div>
-                      )}
-                      {s.client.phone && (
-                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                          <Phone className="h-3 w-3 shrink-0" />
-                          <span>{s.client.phone}</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="px-4 py-3 border-b">
-                    <p className="text-xs text-muted-foreground">
-                      Booked for your own organisation.
-                    </p>
-                  </div>
-                )}
+              <Suspense fallback={<StatusHistorySkeleton />}>
+                <StatusHistoryCard shipmentPromise={shipmentPromise} />
+              </Suspense>
 
-                {/* Timestamps */}
-                <div className="px-4 py-1.5">
-                  <KVRow
-                    label="Created"
-                    value={formatDateTime(s.createdAt)}
-                    tooltip="When this booking was first created in the system."
-                  />
-                  <KVRow
-                    label="Booked"
-                    value={s.bookedAt ? formatDateTime(s.bookedAt) : null}
-                    tooltip="When payment was confirmed and the shipment entered the ops queue."
-                  />
-                  <KVRow
-                    label="Last updated"
-                    value={formatDateTime(s.updatedAt)}
-                    tooltip="When this shipment record was last modified."
-                  />
-                </div>
-              </Card>
-
-              {/* Status history */}
-              <Card className="overflow-hidden">
-                <div className="flex items-center gap-2 px-4 py-3 border-b bg-muted/20">
-                  <Clock className="h-3.5 w-3.5 text-muted-foreground" />
-                  <MicroLabel>Status history</MicroLabel>
-                </div>
-                {s.statusHistory.length === 0 ? (
-                  <p className="px-4 py-6 text-xs text-center text-muted-foreground">
-                    No events recorded yet.
-                  </p>
-                ) : (
-                  <div className="px-4 py-4">
-                    <ol className="relative ml-1">
-                      <div className="absolute left-[3px] top-2 bottom-4 w-px bg-border" />
-                      {s.statusHistory.map((evt, i) => {
-                        const evtCfg = STATUS_CONFIG[evt.toStatus];
-                        // History is newest-first, so the top row is current.
-                        const isCurrent = i === 0;
-                        return (
-                          <li
-                            key={evt.id}
-                            className="relative pl-5 pb-5 last:pb-0"
-                          >
-                            <span
-                              className={cn(
-                                "absolute left-0 top-1.5 h-[7px] w-[7px] rounded-full ring-2 ring-background",
-                                evtCfg?.dotClassName ??
-                                  "bg-muted-foreground/30",
-                                isCurrent && "ring-4 ring-foreground/10",
-                              )}
-                            />
-                            <div className="space-y-1">
-                              <div className="flex items-center gap-1.5 flex-wrap">
-                                <Badge
-                                  variant="outline"
-                                  className={cn(
-                                    "text-[10px] font-medium px-1.5 py-0",
-                                    evtCfg?.className,
-                                  )}
-                                >
-                                  {evtCfg?.label ?? evt.toStatus}
-                                </Badge>
-                                {isCurrent && (
-                                  <span className="rounded-full bg-foreground/5 border border-border px-1.5 py-0 text-[10px] font-medium text-muted-foreground">
-                                    Current
-                                  </span>
-                                )}
-                              </div>
-                              {evt.note && (
-                                <p className="text-[10px] text-muted-foreground leading-relaxed bg-muted/50 rounded px-2 py-1">
-                                  {evt.note}
-                                </p>
-                              )}
-                              <p className="text-[10px] text-muted-foreground/50">
-                                {formatDateTime(evt.createdAt)}
-                              </p>
-                            </div>
-                          </li>
-                        );
-                      })}
-                    </ol>
-                  </div>
-                )}
-              </Card>
-
-              {/* Shipment ID */}
-              <Card>
-                <CardContent className="px-4 py-3 space-y-1">
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <div className="cursor-default">
-                        <MicroLabel>Shipment ID</MicroLabel>
-                        <p className="font-mono text-[10px] text-muted-foreground break-all mt-1 leading-relaxed">
-                          {s.id}
-                        </p>
-                      </div>
-                    </TooltipTrigger>
-                    <TooltipContent className="text-xs">
-                      Internal system ID. Use the shipment number (above) when
-                      contacting support.
-                    </TooltipContent>
-                  </Tooltip>
-                </CardContent>
-              </Card>
+              <Suspense fallback={<ShipmentIdSkeleton />}>
+                <ShipmentIdCard shipmentPromise={shipmentPromise} />
+              </Suspense>
             </div>
           </div>
         </div>

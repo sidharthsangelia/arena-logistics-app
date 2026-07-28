@@ -53,7 +53,7 @@ import { InternalNotesPanel } from "@/components/booking/arena/InternalNotesPane
 import { STATUS_CONFIG } from "@/utils/statusConfigColors";
 import { CarrierTrackingPanel } from "@/components/booking/arena/CarrierTrackingPanel";
 import { DocumentManager } from "@/components/booking/arena/DocumentManager";
-import { CopyButton } from "@/components/booking/arena/CopyButton";
+import { CopyButton } from "@/components/booking/CopyButton";
 import { PackageBoxList } from "@/components/booking/PackageBoxList";
 import { FirstMilePickupCard } from "@/components/booking/FirstMilePickupCard";
 import { FirstMileStatusPanel } from "@/components/booking/arena/FirstMileStatusPanel";

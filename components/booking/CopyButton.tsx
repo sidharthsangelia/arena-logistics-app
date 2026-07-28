@@ -6,9 +6,9 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
 // ---------------------------------------------------------------------------
-// Inline copy-to-clipboard control for ops. Wrap a value (AWB, shipment number,
-// email, phone) so the ops team can drop it into carrier portals without
-// re-typing. Renders the value with a copy affordance; shows a tick on success.
+// Inline copy-to-clipboard control. Wrap a value (AWB, shipment number, email,
+// phone) so it can be copied without re-typing. Renders the value with a copy
+// affordance; shows a tick on success.
 // ---------------------------------------------------------------------------
 
 export function CopyButton({
