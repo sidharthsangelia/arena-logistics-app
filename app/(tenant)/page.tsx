@@ -435,7 +435,7 @@ async function RecentShipments({ orgId }: { orgId: string }) {
   const recentShipments = await prisma.shipment.findMany({
     where: { orgId },
     orderBy: { createdAt: "desc" },
-    take: 10,
+    take: 5,
     select: {
       id: true,
       shipmentNumber: true,
@@ -516,7 +516,7 @@ async function RecentShipments({ orgId }: { orgId: string }) {
                   key={s.id}
                   className="relative cursor-pointer hover:bg-muted/50 transition-colors group"
                 >
-                  <TableCell className="pl-6 relative">
+                  <TableCell className="pl-6 py-3 relative">
                     <RowLink
                       href={`/shipments/${s.id}`}
                       label={`View shipment ${s.shipmentNumber}`}
@@ -529,10 +529,10 @@ async function RecentShipments({ orgId }: { orgId: string }) {
                       {formatDate(s.createdAt)}
                     </p>
                   </TableCell>
-                  <TableCell className="font-mono text-xs">
+                  <TableCell className="px-3 py-3 font-mono text-xs">
                     {s.pickupAddress.city} → {s.deliveryAddress.city}
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="px-3 py-3">
                     {s.hawbNumber ? (
                       <>
                         <p className="text-xs font-mono flex items-center gap-1">
@@ -552,10 +552,10 @@ async function RecentShipments({ orgId }: { orgId: string }) {
                       </span>
                     )}
                   </TableCell>
-                  <TableCell className="text-sm tabular-nums font-medium">
+                  <TableCell className=" py-3 text-sm tabular-nums font-medium">
                     {s.quotedTotal ? formatMoney(s.quotedTotal.toString(), s.currency) : "—"}
                   </TableCell>
-                  <TableCell className="pr-6">
+                  <TableCell className="pr-6 py-3">
                     <div className="flex items-center justify-between gap-2">
                       <ShipmentStatusBadge status={s.status} />
                       <ChevronRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
@@ -576,13 +576,13 @@ async function WalletActivity({ walletId }: { walletId: string | null }) {
     ? await prisma.walletTransaction.findMany({
         where: { walletId },
         orderBy: { createdAt: "desc" },
-        take: 5,
+        take: 2,
       })
     : [];
 
   return (
     <Card>
-      <CardHeader className="pb-3">
+      <CardHeader className="">
         <div className="flex items-center justify-between">
           <div>
             <CardTitle className="text-sm font-semibold">Wallet Activity</CardTitle>
@@ -665,7 +665,7 @@ async function QuotesCard({ orgId }: { orgId: string }) {
     prisma.quote.findMany({
       where: { orgId },
       orderBy: { createdAt: "desc" },
-      take: 4,
+      take: 2,
       select: {
         id: true,
         quoteNumber: true,
@@ -687,10 +687,10 @@ async function QuotesCard({ orgId }: { orgId: string }) {
 
   return (
     <Card>
-      <CardHeader className="pb-3">
+      <CardHeader className=" ">
         <div className="flex items-center justify-between">
           <div>
-            <CardTitle className="text-sm font-semibold">Quotes</CardTitle>
+            <CardTitle className="text-sm font-semibold">Recent Quotes</CardTitle>
             <CardDescription className="text-xs mt-0.5">
               {openQuotesCount} open quote{openQuotesCount === 1 ? "" : "s"}
             </CardDescription>
@@ -1053,7 +1053,7 @@ export default async function DashboardOverviewPage() {
           does not exist, and there is no BA application flow in the tenant app
           yet. TODO: restore a CTA once a real application flow is built.
         */}
-        {org.isBusinessAssociate && (
+        {/* {org.isBusinessAssociate && (
           <Suspense
             fallback={
               <Card>
@@ -1066,7 +1066,7 @@ export default async function DashboardOverviewPage() {
           >
             <ClientsCard orgId={org.id} />
           </Suspense>
-        )}
+        )} */}
       </div>
     </TooltipProvider>
   );
