@@ -42,24 +42,8 @@ export default async function ClientEmailsSettingsPage({
 }: {
   searchParams: Promise<RawSearchParams>;
 }) {
-  const org = await requireBusinessAssociateOrg();
+  // Params only, no data fetch, so the header below is never held up by them.
   const sp = await searchParams;
-
-  const settings = await getClientEmailSettings(org.id);
-
-  // requireBusinessAssociateOrg just resolved this org, so a miss here means it was
-  // deleted between the two reads. Rare enough to handle plainly rather than with a
-  // dedicated error state.
-  if (!settings) {
-    return (
-      <div className="mx-auto max-w-3xl px-6 py-8">
-        <p className="text-sm text-muted-foreground">
-          We could not load your settings. Please refresh the page.
-        </p>
-      </div>
-    );
-  }
-
   const rawPage = Number(readString(sp.page));
   const page = Number.isFinite(rawPage) && rawPage > 0 ? Math.floor(rawPage) : 1;
   const query = readString(sp.q);
@@ -79,6 +63,40 @@ export default async function ClientEmailsSettingsPage({
         </p>
       </header>
 
+      {/* Everything below needs the org + a DB read, so it is the part that
+          suspends. The header above is static and renders on the first byte. */}
+      <Suspense fallback={<SettingsSkeleton />}>
+        <SettingsPanel page={page} query={query} exceptionsOnly={exceptionsOnly} />
+      </Suspense>
+    </div>
+  );
+}
+
+async function SettingsPanel({
+  page,
+  query,
+  exceptionsOnly,
+}: {
+  page: number;
+  query: string;
+  exceptionsOnly: boolean;
+}) {
+  const org = await requireBusinessAssociateOrg();
+  const settings = await getClientEmailSettings(org.id);
+
+  // requireBusinessAssociateOrg just resolved this org, so a miss here means it was
+  // deleted between the two reads. Rare enough to handle plainly rather than with a
+  // dedicated error state.
+  if (!settings) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        We could not load your settings. Please refresh the page.
+      </p>
+    );
+  }
+
+  return (
+    <>
       <ClientEmailSettingsForm settings={settings} />
 
       {/* Suspended separately so the roster query never holds up the settings
@@ -92,7 +110,7 @@ export default async function ClientEmailsSettingsPage({
           exceptionsOnly={exceptionsOnly}
         />
       </Suspense>
-    </div>
+    </>
   );
 }
 
@@ -131,6 +149,29 @@ async function RosterPanel({
       exceptionsOnly={exceptionsOnly}
       orgEnabled={orgEnabled}
     />
+  );
+}
+
+function SettingsSkeleton() {
+  return (
+    <div className="space-y-6">
+      <Skeleton className="h-24 w-full rounded-xl" />
+      <div className="space-y-3 rounded-xl border p-6">
+        <Skeleton className="h-5 w-40" />
+        <Skeleton className="h-4 w-full max-w-md" />
+        <div className="space-y-2 pt-3">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <Skeleton key={i} className="h-10 w-full" />
+          ))}
+        </div>
+      </div>
+      <div className="space-y-3 rounded-xl border p-6">
+        <Skeleton className="h-5 w-32" />
+        <Skeleton className="h-4 w-full max-w-sm" />
+        <Skeleton className="h-9 w-full max-w-md" />
+      </div>
+      <RosterSkeleton />
+    </div>
   );
 }
 
