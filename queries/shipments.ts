@@ -4,6 +4,42 @@ import { prisma } from "@/utils/db";
 import { Prisma, ShipmentStatus } from "@/generated/prisma";
 import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
+import { unstable_cache } from "next/cache";
+
+// ---------------------------------------------------------------------------
+// Cache tags — mutation sites call revalidateTag with these so a booking or
+// status change shows up immediately instead of waiting out the TTL below.
+// ---------------------------------------------------------------------------
+
+export const SHIPMENTS_LIST_TAG = "shipments-list";
+export const SHIPMENTS_COUNTS_TAG = "shipments-counts";
+
+// Short TTL: these lists are viewed constantly (dashboard-style) but don't
+// need to be real-time — a few seconds of staleness is an easy trade for
+// not hitting Postgres on every render. Mutations that change what's shown
+// (booking, status update) revalidate the tags above immediately, so this
+// is really just a ceiling for cases nothing explicitly invalidated.
+const CACHE_TTL_SECONDS = 8;
+
+// ---------------------------------------------------------------------------
+// Auth — resolved *before* entering a cached scope. unstable_cache can't
+// call auth()/cookies() itself, so every cached fetcher below takes the
+// already-resolved orgId as a plain argument (which also makes it part of
+// the cache key, scoping the cache correctly per tenant).
+// ---------------------------------------------------------------------------
+
+async function resolveClientOrgId(): Promise<string> {
+  const { orgId: clerkOrgId } = await auth();
+  if (!clerkOrgId) redirect("/sign-in");
+
+  const org = await prisma.org.findUnique({
+    where: { clerkOrgId },
+    select: { id: true },
+  });
+  if (!org) redirect("/sign-in");
+
+  return org.id;
+}
 
 // ---------------------------------------------------------------------------
 // Config
@@ -93,138 +129,122 @@ export interface GetShipmentsPageParams {
   client?: boolean;
 }
 
-export async function getShipmentsPage({
-  page,
-  pageSize,
-  sortField,
-  sortDir,
-  statuses,
-  query,
-  client = false,
-}: GetShipmentsPageParams) {
-  const where: Prisma.ShipmentWhereInput = {};
+type ShipmentsPageQuery = Omit<GetShipmentsPageParams, "client">;
 
-  // -------------------------------------------------------------------------
-  // Client dashboard -> restrict to current organisation
-  // -------------------------------------------------------------------------
+const fetchShipmentsPage = unstable_cache(
+  async (orgId: string | null, params: ShipmentsPageQuery) => {
+    const { page, pageSize, sortField, sortDir, statuses, query } = params;
+    const where: Prisma.ShipmentWhereInput = {};
 
-  if (client) {
-    const { orgId: clerkOrgId } = await auth();
-
-    if (!clerkOrgId) {
-      redirect("/sign-in");
+    if (orgId) {
+      where.orgId = orgId;
     }
 
-    const org = await prisma.org.findUnique({
-      where: {
-        clerkOrgId,
-      },
-      select: {
-        id: true,
-      },
-    });
+    // -----------------------------------------------------------------------
+    // Status filter
+    // -----------------------------------------------------------------------
 
-    if (!org) {
-      redirect("/sign-in");
+    if (statuses?.length) {
+      where.status = {
+        in: statuses,
+      };
     }
 
-    where.orgId = org.id;
-  }
+    // -----------------------------------------------------------------------
+    // Search
+    // -----------------------------------------------------------------------
 
-  // -------------------------------------------------------------------------
-  // Status filter
-  // -------------------------------------------------------------------------
+    const q = query?.trim();
 
-  if (statuses?.length) {
-    where.status = {
-      in: statuses,
+    if (q) {
+      where.OR = [
+        {
+          shipmentNumber: {
+            contains: q,
+            mode: "insensitive",
+          },
+        },
+        {
+          mawbNumber: {
+            contains: q,
+            mode: "insensitive",
+          },
+        },
+        {
+          hawbNumber: {
+            contains: q,
+            mode: "insensitive",
+          },
+        },
+        {
+          org: {
+            name: {
+              contains: q,
+              mode: "insensitive",
+            },
+          },
+        },
+        {
+          client: {
+            companyName: {
+              contains: q,
+              mode: "insensitive",
+            },
+          },
+        },
+        {
+          pickupAddress: {
+            city: {
+              contains: q,
+              mode: "insensitive",
+            },
+          },
+        },
+        {
+          deliveryAddress: {
+            city: {
+              contains: q,
+              mode: "insensitive",
+            },
+          },
+        },
+      ];
+    }
+
+    const skip = (page - 1) * pageSize;
+
+    const [rows, totalRows] = await Promise.all([
+      prisma.shipment.findMany({
+        where,
+        select: SHIPMENT_SELECT,
+        orderBy: {
+          [sortField]: sortDir,
+        },
+        skip,
+        take: pageSize,
+      }),
+
+      prisma.shipment.count({
+        where,
+      }),
+    ]);
+
+    return {
+      rows,
+      totalRows,
+      pageCount: Math.max(Math.ceil(totalRows / pageSize), 1),
     };
-  }
+  },
+  ["shipments-page"],
+  { revalidate: CACHE_TTL_SECONDS, tags: [SHIPMENTS_LIST_TAG] },
+);
 
-  // -------------------------------------------------------------------------
-  // Search
-  // -------------------------------------------------------------------------
-
-  const q = query?.trim();
-
-  if (q) {
-    where.OR = [
-      {
-        shipmentNumber: {
-          contains: q,
-          mode: "insensitive",
-        },
-      },
-      {
-        mawbNumber: {
-          contains: q,
-          mode: "insensitive",
-        },
-      },
-      {
-        hawbNumber: {
-          contains: q,
-          mode: "insensitive",
-        },
-      },
-      {
-        org: {
-          name: {
-            contains: q,
-            mode: "insensitive",
-          },
-        },
-      },
-      {
-        client: {
-          companyName: {
-            contains: q,
-            mode: "insensitive",
-          },
-        },
-      },
-      {
-        pickupAddress: {
-          city: {
-            contains: q,
-            mode: "insensitive",
-          },
-        },
-      },
-      {
-        deliveryAddress: {
-          city: {
-            contains: q,
-            mode: "insensitive",
-          },
-        },
-      },
-    ];
-  }
-
-  const skip = (page - 1) * pageSize;
-
-  const [rows, totalRows] = await Promise.all([
-    prisma.shipment.findMany({
-      where,
-      select: SHIPMENT_SELECT,
-      orderBy: {
-        [sortField]: sortDir,
-      },
-      skip,
-      take: pageSize,
-    }),
-
-    prisma.shipment.count({
-      where,
-    }),
-  ]);
-
-  return {
-    rows,
-    totalRows,
-    pageCount: Math.max(Math.ceil(totalRows / pageSize), 1),
-  };
+export async function getShipmentsPage({
+  client = false,
+  ...params
+}: GetShipmentsPageParams) {
+  const orgId = client ? await resolveClientOrgId() : null;
+  return fetchShipmentsPage(orgId, params);
 }
 
 /**
@@ -232,41 +252,27 @@ export async function getShipmentsPage({
  * Used by the summary cards and filter badges.
  */
 
-export async function getShipmentStatusCounts(client = false) {
-  const where: Prisma.ShipmentWhereInput = {};
+const fetchShipmentStatusCounts = unstable_cache(
+  async (orgId: string | null) => {
+    const where: Prisma.ShipmentWhereInput = orgId ? { orgId } : {};
 
-  if (client) {
-    const { orgId: clerkOrgId } = await auth();
-
-    if (!clerkOrgId) {
-      redirect("/sign-in");
-    }
-
-    const org = await prisma.org.findUnique({
-      where: {
-        clerkOrgId,
-      },
-      select: {
-        id: true,
+    const counts = await prisma.shipment.groupBy({
+      by: ["status"],
+      where,
+      _count: {
+        _all: true,
       },
     });
 
-    if (!org) {
-      redirect("/sign-in");
-    }
+    return Object.fromEntries(
+      counts.map((c) => [c.status, c._count._all]),
+    ) as Partial<Record<ShipmentStatus, number>>;
+  },
+  ["shipment-status-counts"],
+  { revalidate: CACHE_TTL_SECONDS, tags: [SHIPMENTS_COUNTS_TAG] },
+);
 
-    where.orgId = org.id;
-  }
-
-  const counts = await prisma.shipment.groupBy({
-    by: ["status"],
-    where,
-    _count: {
-      _all: true,
-    },
-  });
-
-  return Object.fromEntries(
-    counts.map((c) => [c.status, c._count._all]),
-  ) as Partial<Record<ShipmentStatus, number>>;
+export async function getShipmentStatusCounts(client = false) {
+  const orgId = client ? await resolveClientOrgId() : null;
+  return fetchShipmentStatusCounts(orgId);
 }

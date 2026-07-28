@@ -3,8 +3,9 @@
 import { auth } from "@clerk/nextjs/server";
 import { after } from "next/server";
 import { prisma } from "@/utils/db";
-import { revalidatePath } from "next/cache";
+import { revalidatePath, updateTag } from "next/cache";
 import { ShipmentStatus } from "@/generated/prisma";
+import { SHIPMENTS_LIST_TAG, SHIPMENTS_COUNTS_TAG } from "@/queries/shipments";
 import {
   sendShipmentMilestoneEmail,
   type ShipmentEmailResult,
@@ -86,6 +87,11 @@ export async function updateShipmentStatus(
 
     revalidatePath(`/arena-dashboard/bookings/${shipmentId}`);
     revalidatePath("/arena-dashboard/bookings");
+    // The status just changed, which is exactly what the tenant-facing
+    // /shipments list and its stat cards show — updateTag expires it
+    // immediately (read-your-own-writes) rather than waiting out the TTL.
+    updateTag(SHIPMENTS_LIST_TAG);
+    updateTag(SHIPMENTS_COUNTS_TAG);
 
     // Notify the sender when the shipment reaches a customer milestone. Only
     // fires on a real transition (skips re-saving the same status) and is

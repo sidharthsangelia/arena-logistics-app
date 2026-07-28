@@ -58,6 +58,8 @@ import {
   InsufficientFundsError,
 } from "@/utils/wallet/service";
 import { invalidateWalletBalance } from "@/lib/wallet/queries";
+import { updateTag } from "next/cache";
+import { SHIPMENTS_LIST_TAG, SHIPMENTS_COUNTS_TAG } from "@/queries/shipments";
 import {
   generateShipmentNumber,
   ShipmentNumberSequenceError,
@@ -741,6 +743,11 @@ export async function createShipmentAction(
       // lib/wallet/queries.ts. Safe when skipPayment left the balance untouched
       // — an invalidation with nothing to change simply re-reads the same value.
       invalidateWalletBalance(dbOrgId);
+
+      // The new booking should show up on the tenant's /shipments list (and
+      // its stat cards) right away rather than waiting out the cache TTL.
+      updateTag(SHIPMENTS_LIST_TAG);
+      updateTag(SHIPMENTS_COUNTS_TAG);
 
       // Booking confirmation email to the sender. Fired only after the booking
       // is durably committed. sendShipmentMilestoneEmail never throws, so a
