@@ -6,15 +6,30 @@
  * Persists a completed BookingFormData to the database as a Shipment, and
  * pays for it out of the org's Wallet.
  *
+ * Books BOTH modes. The two share this action rather than getting one each,
+ * because everything structural about placing a booking — auth, addresses,
+ * packages, the shipment number, the wallet debit, the status events, the
+ * confirmation email — is identical, and only three things actually differ:
+ * which documents are required, whether there is a first-mile leg, and whether
+ * cash on delivery applies. Each of those branches on `isDomestic` below,
+ * derived from BookingFormData.mode.
+ *
+ * Note what does NOT differ: the wallet is debited for the freight in both
+ * modes. On a COD domestic booking the customer still pays Arena for shipping
+ * out of their wallet here; COD is Shipmozo collecting the GOODS value from the
+ * receiver at the door, recorded on the row but never part of chargeTotal.
+ *
  * Write order (single $transaction — fully atomic):
  *   1. Resolve org + validate caller
- *   2. Pre-flight checks (service, packages, addresses)
- *   3. KYC check against the KycDocument table (PAN always; IEC if >₹25k)
+ *   2. Pre-flight checks (service, packages, addresses, and — domestic only —
+ *      the GST paperwork, re-derived here rather than trusted from the form)
+ *   3. KYC check against the KycDocument table (export matrix by shipment type
+ *      internationally; Aadhaar for an individual sender domestically)
  *  4. Generate shipment number via PostgreSQL sequence (atomic and globally unique)
  *   5. Create pickup Address (consignor)
  *   6. Create delivery Address (consignee)
  *   7. Create Shipment (status PENDING_PAYMENT) + nested PackageItems
- *   8. Create ShipmentDocument if invoice file was uploaded
+ *   8. Create ShipmentDocuments for whatever files were uploaded
  *   9. Create ShipmentStatusEvent (DRAFT → PENDING_PAYMENT)
  *  10. Atomically debit the Wallet for service.price — throws
  *      InsufficientFundsError if short, which rolls back EVERYTHING above
@@ -38,6 +53,7 @@ import { prisma } from "@/utils/db";
 import {
   ShipmentStatus,
   ShipmentDocType,
+  ShipmentMode,
   PartyType,
   FirstMileStatus,
 } from "@/generated/prisma";
@@ -52,7 +68,18 @@ import {
   totalDeclaredValue as cargoDeclaredValue,
   boxDeclaredValue,
 } from "@/lib/booking/cargo";
-import { requiredKycDocTypes, KYC_DOC_CONFIGS } from "@/lib/booking/kyc";
+import {
+  requiredKycDocTypes,
+  requiredDomesticKycDocTypes,
+  KYC_DOC_CONFIGS,
+} from "@/lib/booking/kyc";
+import {
+  DOMESTIC_DOC_CONFIGS,
+  domesticDocLabels,
+  isCompanyParty,
+  missingDomesticDocs,
+} from "@/lib/booking/domesticDocs";
+import { domesticCodAmount } from "@/lib/booking/domesticRequest";
 import { isKycWaived } from "@/lib/booking/waiver";
 import {
   debitWalletForShipment,
@@ -193,6 +220,7 @@ type PreflightResult = PreflightOk | PreflightFail;
 
 function preflight(data: BookingFormData): PreflightResult {
   const fieldErrors: Record<string, string> = {};
+  const isDomestic = data.mode === "DOMESTIC";
 
   // Service
   if (!data.selectedService) {
@@ -248,12 +276,35 @@ function preflight(data: BookingFormData): PreflightResult {
   // First mile — when door pickup is opted into, a courier must have been
   // chosen (the wizard's first-mile step enforces this, but the server is the
   // source of truth: never persist pickupIncluded without a priced courier).
-  if (data.pickupIncluded) {
+  // A domestic booking has no first-mile leg at all; the whole move is one
+  // door-to-door courier order, so the flag is forced off below.
+  if (!isDomestic && data.pickupIncluded) {
     if (!data.firstMile) {
       fieldErrors.firstMile = "A door-pickup courier must be selected.";
     } else if (!Number.isFinite(Number(data.firstMile.price))) {
       fieldErrors.firstMile =
         "The selected pickup courier has an invalid price. Please re-select it.";
+    }
+  }
+
+  if (isDomestic) {
+    // The destination must be in India. The wizard never offers a country
+    // picker on a domestic booking, so this can only trip on a hand-edited
+    // payload — but a foreign address on a domestic courier order is a
+    // shipment nobody can deliver, so it is refused rather than trusted.
+    const country = (data.consignee?.country ?? "").trim().toLowerCase();
+    if (country && country !== "india" && country !== "in") {
+      fieldErrors["consignee.country"] =
+        "Domestic shipments can only be delivered within India.";
+    }
+
+    // GST paperwork. Re-derived here from the same rules the form used, rather
+    // than trusting that the form asked for the right things: which documents
+    // apply is a function of the company-name fields and the declared value,
+    // and all three arrive in the same payload a browser could have edited.
+    const missing = missingDomesticDocs(data);
+    if (missing.length > 0) {
+      fieldErrors.domesticDocs = `Missing required documents: ${domesticDocLabels(missing)}.`;
     }
   }
 
@@ -270,8 +321,12 @@ function preflight(data: BookingFormData): PreflightResult {
   const declaredTotal = cargoDeclaredValue(data.boxes);
 
   const servicePrice = Number(data.selectedService!.price);
+  // A domestic booking has no first-mile leg, so it never carries a first-mile
+  // charge even if a stale one survived in the payload.
   const firstMileCharge =
-    data.pickupIncluded && data.firstMile ? Number(data.firstMile.price) : 0;
+    !isDomestic && data.pickupIncluded && data.firstMile
+      ? Number(data.firstMile.price)
+      : 0;
 
   return { ok: true, totalWeightKg, declaredTotal, servicePrice, firstMileCharge };
 }
@@ -295,8 +350,10 @@ async function assertKycComplete(params: {
   orgId: string;
   clientId: string | null;
   shipmentType: ShipmentTypeValue;
+  isDomestic: boolean;
+  senderIsCompany: boolean;
 }): Promise<boolean> {
-  const { orgId, clientId, shipmentType } = params;
+  const { orgId, clientId, shipmentType, isDomestic, senderIsCompany } = params;
 
   // THE WAIVER IS READ HERE, FROM THE DATABASE.
   //
@@ -311,10 +368,24 @@ async function assertKycComplete(params: {
       : { partyType: "ORG", orgId },
   );
 
-  // Required docs branch by shipment type (shared matrix), collapsing to
-  // Aadhaar alone under a live waiver. When booking for a client (clientId
-  // set), the docs live in the CLIENT's vault, not the org's.
-  const required = requiredKycDocTypes(shipmentType, waived);
+  // Which documents are required.
+  //
+  //  • International — the export matrix keyed by shipment type, collapsing to
+  //    Aadhaar alone under a live waiver.
+  //
+  //  • Domestic — the export matrix does not apply, because nothing clears
+  //    customs. It is an Aadhaar for an individual sender and nothing at all
+  //    for a company one (identified instead by the tax invoice it must
+  //    attach). A waiver changes nothing here: the domestic list is already
+  //    Aadhaar-only, and Aadhaar is the one document a waiver can never remove.
+  //
+  // Either way, when booking for a client the docs live in the CLIENT's vault,
+  // not the org's.
+  const required = isDomestic
+    ? requiredDomesticKycDocTypes(senderIsCompany)
+    : requiredKycDocTypes(shipmentType, waived);
+
+  if (required.length === 0) return waived;
 
   const where = clientId
     ? { clientId, partyType: PartyType.CLIENT, docType: { in: required } }
@@ -439,6 +510,12 @@ export async function createShipmentAction(
     // ── 2. Pre-flight ─────────────────────────────────────────────────────
     Sentry.addBreadcrumb({ message: "Pre-flight validation", level: "info" });
 
+    // Both derived, never trusted from a separate field the payload could have
+    // set independently of the addresses it is supposed to describe.
+    const isDomestic = data.mode === "DOMESTIC";
+    const senderIsCompany = isCompanyParty(data.consignor ?? {});
+    scope.setTag("shipmentMode", isDomestic ? "DOMESTIC" : "INTERNATIONAL");
+
     const check = preflight(data);
     if (!check.ok) {
       // TypeScript now correctly narrows to PreflightFail here
@@ -476,6 +553,8 @@ export async function createShipmentAction(
         orgId: dbOrgId,
         clientId: kycClientId,
         shipmentType: data.shipmentType,
+        isDomestic,
+        senderIsCompany,
       });
     } catch (err) {
       if (err instanceof KycIncompleteError) {
@@ -494,6 +573,12 @@ export async function createShipmentAction(
 
     // service is guaranteed non-null — preflight would have returned early
     const service = data.selectedService!;
+
+    // Door pickup is an INTERNATIONAL concept: it is the door → hub leg that
+    // feeds the air carrier. A domestic booking is already door to door, so the
+    // flag is forced off here rather than trusted from the payload, and every
+    // firstMile* column below reads this instead of data.pickupIncluded.
+    const pickupIncluded = isDomestic ? false : data.pickupIncluded;
 
     // Recipient snapshot for the customer-facing status emails. For a BA org
     // booking on behalf of a client, the real sender is the CLIENT; otherwise
@@ -538,6 +623,7 @@ export async function createShipmentAction(
             orgId: dbOrgId,
             kind: "PICKUP",
             contactName: pickupSource.contactName,
+            companyName: pickupSource.companyName?.trim() || null,
             contactPhone: pickupSource.phone || null,
             contactEmail: pickupSource.email || null,
             line1: pickupSource.addressLine1,
@@ -557,6 +643,7 @@ export async function createShipmentAction(
             orgId: dbOrgId,
             kind: "DELIVERY",
             contactName: data.consignee.contactName,
+            companyName: data.consignee.companyName?.trim() || null,
             contactPhone: data.consignee.phone || null,
             contactEmail: data.consignee.email || null,
             line1: data.consignee.addressLine1,
@@ -580,6 +667,7 @@ export async function createShipmentAction(
               orgId: dbOrgId,
               kind: "BILLING",
               contactName: data.billing.contactName,
+              companyName: data.billing.companyName?.trim() || null,
               contactPhone: data.billing.phone || null,
               contactEmail: data.billing.email || null,
               line1: data.billing.addressLine1,
@@ -608,35 +696,54 @@ export async function createShipmentAction(
             senderEmail,
             senderName,
 
-            shipmentType: data.shipmentType,
+            mode: isDomestic ? ShipmentMode.DOMESTIC : ShipmentMode.INTERNATIONAL,
+
+            // The customs category exists only on an export. Writing CSB4 onto
+            // a domestic row would make it read, everywhere it is displayed, as
+            // a shipment that clears customs.
+            shipmentType: isDomestic ? null : data.shipmentType,
             kycWaivedAtBooking,
-            pickupIncluded: data.pickupIncluded,
+
+            // Cash on delivery: the courier collects the declared goods value
+            // from the receiver and Shipmozo remits it. Recorded here so ops
+            // can see it and so the courier push can set it; it is deliberately
+            // NOT part of what the wallet is debited below, which is the
+            // freight and nothing else.
+            codEnabled: isDomestic && data.codEnabled,
+            codAmount:
+              isDomestic && data.codEnabled
+                ? new Decimal(domesticCodAmount(data).toFixed(2))
+                : null,
+
+            // A domestic booking is a single door-to-door courier move, so
+            // there is no separate first leg to record.
+            pickupIncluded,
 
             // First-mile (door → hub) snapshot — only when opted in. Priced
             // with the org markup already applied by getDomesticRatesAction and
             // frozen here so later rate/markup changes don't rewrite history.
             firstMileVendorId:
-              data.pickupIncluded && data.firstMile ? data.firstMile.vendorId : null,
+              pickupIncluded && data.firstMile ? data.firstMile.vendorId : null,
             firstMileVendorName:
-              data.pickupIncluded && data.firstMile ? data.firstMile.productName : null,
+              pickupIncluded && data.firstMile ? data.firstMile.productName : null,
             firstMileCharge:
-              data.pickupIncluded && firstMileCharge > 0
+              pickupIncluded && firstMileCharge > 0
                 ? new Decimal(firstMileCharge.toFixed(2))
                 : null,
             firstMileHubLabel:
-              data.pickupIncluded ? data.firstMileHubLabel ?? null : null,
+              pickupIncluded ? data.firstMileHubLabel ?? null : null,
             firstMileChargeSnapshot:
-              data.pickupIncluded && data.firstMile
+              pickupIncluded && data.firstMile
                 ? ({ ...data.firstMile, price: firstMileCharge } as unknown as object)
                 : undefined,
 
             // Door-pickup shipments enter the first-mile leg at SCHEDULED; ops
             // advance it by hand from the booking page. Left null when there is
             // no door pickup, so the leg's UI never shows on those shipments.
-            firstMileStatus: data.pickupIncluded
+            firstMileStatus: pickupIncluded
               ? FirstMileStatus.SCHEDULED
               : null,
-            firstMileStatusUpdatedAt: data.pickupIncluded ? new Date() : null,
+            firstMileStatusUpdatedAt: pickupIncluded ? new Date() : null,
 
             pickupAddressId: pickupAddress.id,
             deliveryAddressId: deliveryAddress.id,
@@ -674,8 +781,41 @@ export async function createShipmentAction(
           select: { id: true, shipmentNumber: true },
         });
 
-        // 4e. Invoice document (upload mode only)
-        if (data.invoiceMode === "UPLOAD" && data.uploadedInvoice) {
+        // 4e. Documents.
+        //
+        // Domestic: the GST paperwork the customer attached — a tax invoice, an
+        // e-way bill, a delivery challan. Every one of them is optional to
+        // STORE (preflight above has already refused the booking if a required
+        // one was absent), so this loop simply persists whatever is there.
+        // Nothing is generated: Arena does not raise GST invoices on a
+        // customer's behalf.
+        //
+        // International: the commercial invoice, when the customer uploaded
+        // their own. In GENERATE mode the PDF is produced async by n8n, and
+        // chargesSnapshot already carries the invoice items for the generator.
+        if (isDomestic) {
+          const docRows = DOMESTIC_DOC_CONFIGS.flatMap((config) => {
+            const file = data.domesticDocs?.[config.key];
+            if (!file) return [];
+            return [
+              {
+                shipmentId: shipment.id,
+                docType: config.docType,
+                label: config.label,
+                fileUrl: file.fileUrl,
+                fileKey: file.fileKey,
+                fileName: file.fileName,
+                fileSize: file.fileSize,
+                mimeType: file.mimeType,
+                uploadedByType: "ORG" as const,
+                uploadedById: userId,
+              },
+            ];
+          });
+          if (docRows.length > 0) {
+            await tx.shipmentDocument.createMany({ data: docRows });
+          }
+        } else if (data.invoiceMode === "UPLOAD" && data.uploadedInvoice) {
           await tx.shipmentDocument.create({
             data: {
               shipmentId: shipment.id,
@@ -691,8 +831,6 @@ export async function createShipmentAction(
             },
           });
         }
-        // GENERATE mode: PDF is produced async by n8n.
-        // chargesSnapshot already contains the invoice items for the generator.
 
         // 4f. Status event — DRAFT → PENDING_PAYMENT
         await tx.shipmentStatusEvent.create({
