@@ -72,6 +72,29 @@ export interface CargoBox {
 
 export type ShipmentTypeValue = "CSB4" | "CSB5" | "COMMERCIAL";
 
+/**
+ * Which of the two booking flows the customer is in. Chosen on the wizard's
+ * first step and never changed afterwards without resetting the booking — it
+ * decides the step list, which address fields exist, which documents are asked
+ * for and which rate network is queried.
+ */
+export type ShipmentModeValue = "INTERNATIONAL" | "DOMESTIC";
+
+/**
+ * The GST paperwork a domestic shipment travels on. Unlike KYC, none of this is
+ * reusable across shipments — every document describes this consignment's goods
+ * — so it is collected fresh each time and stored against the shipment, not the
+ * party. Always empty on an international booking.
+ */
+export interface DomesticDocs {
+  /** GST tax invoice. Required when the sender is a company. */
+  taxInvoice: FileMeta | null;
+  /** For goods moving without a sale (stock transfer, branch, repair). Always optional. */
+  deliveryChallan: FileMeta | null;
+  /** Required once the declared value exceeds ₹50,000. */
+  eWayBill: FileMeta | null;
+}
+
 export interface ServiceOption {
   vendorId: string;
   vendorName: string;
@@ -98,6 +121,12 @@ export interface FileMeta {
 }
 
 export interface BookingFormData {
+  /**
+   * International or domestic. Answered on step 0, before anything else, since
+   * every step after it is shaped by the answer.
+   */
+  mode: ShipmentModeValue;
+
   shipmentOwnerMode: "SELF" | "EXISTING_CLIENT" | "OTHER_PERSON";
   selectedClient: ClientSummary | null;
 
@@ -135,15 +164,35 @@ export interface BookingFormData {
   billingSameAsDelivery: boolean;
   billing: ConsignorForm;
 
-  /** CSB4 / CSB5 / COMMERCIAL — auto-suggested from total value, then user-adjustable. */
+  /**
+   * CSB4 / CSB5 / COMMERCIAL — auto-suggested from total value, then
+   * user-adjustable. INTERNATIONAL only; a domestic shipment crosses no customs
+   * border, so this is never persisted for one.
+   */
   shipmentType: ShipmentTypeValue;
 
-  /** Door pickup opt-in — drives the first-mile (door → hub) step later. */
+  /**
+   * Door pickup opt-in — drives the first-mile (door → hub) step later.
+   * INTERNATIONAL only. A domestic booking is a single door → door courier
+   * move, so there is nothing to opt into and no separate first-mile leg.
+   */
   pickupIncluded: boolean;
 
   invoiceMode: InvoiceMode;
   uploadedInvoice: FileMeta | null;
   invoiceNumber?: string;
+
+  /** GST paperwork for a domestic shipment. See DomesticDocs. */
+  domesticDocs: DomesticDocs;
+
+  /**
+   * Cash on delivery, offered on domestic rates only. This is Shipmozo's
+   * facility, not how the customer pays Arena: the freight is still debited
+   * from the org wallet at booking exactly as on a prepaid shipment. The amount
+   * collected from the receiver is the declared goods value, so there is no
+   * separate field for it.
+   */
+  codEnabled: boolean;
 
   /** Single currency for the whole shipment — every item's unitValue is in this currency. */
   currency: string;

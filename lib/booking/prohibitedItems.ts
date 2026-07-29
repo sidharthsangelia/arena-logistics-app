@@ -157,3 +157,70 @@ export const PROHIBITED_ITEM_COUNT = PROHIBITED_GROUPS.reduce(
   (n, g) => n + g.examples.length,
   0,
 );
+
+// ---------------------------------------------------------------------------
+// Prohibited items (domestic).
+//
+// A separate, much shorter list. The one above is built from what international
+// air carriers and export controls refuse; a domestic parcel faces neither
+// customs nor an export licence, so most of those twelve rules simply do not
+// apply and showing them would train customers to skip the dialog.
+//
+// What remains is the domestic courier network's own refusal list, folded into
+// six themes on the same principle: every entry still appears, grouped under
+// the rule that explains it. Same shape as PROHIBITED_GROUPS so the dialog
+// renders either list without branching.
+//
+// Nothing here is enforced in code either. It exists so a customer recognises
+// their own goods before the parcel is stopped.
+// ---------------------------------------------------------------------------
+
+export const DOMESTIC_PROHIBITED_GROUPS: ProhibitedGroup[] = [
+  {
+    title: "Money, bullion and valuables",
+    note: "Uninsurable in an ordinary parcel and a theft risk through the whole network. High value goods need a declared valuables service booked through our team.",
+    examples: [
+      "Currency",
+      "Bullion",
+      "Precious and semi-precious items",
+      "Philately items (stamps and collections)",
+    ],
+  },
+  {
+    title: "Dangerous goods and hazardous material",
+    note: "Refused across the network whether the leg travels by air or by road, because a parcel is handled and stored alongside thousands of others.",
+    examples: [
+      "All IATA restricted items and dangerous goods",
+      "Radioactive material",
+    ],
+  },
+  {
+    title: "Liquids and semi-liquids",
+    note: "They leak, and one leaking parcel damages every other parcel in the same bag. Refused regardless of how well they are packed.",
+    examples: ["Liquids and semi-liquids of any kind"],
+  },
+  {
+    title: "Weapons and ammunition",
+    note: "Includes component parts on their own, not only a complete working weapon.",
+    examples: ["Firearms", "Parts of firearms", "Ammunition"],
+  },
+  {
+    title: "Illegal goods",
+    note: "Blocked by law rather than by the courier. Shipping these can mean seizure and prosecution, not just a returned parcel.",
+    examples: [
+      "Drugs and narcotics",
+      "Pornography",
+      "Indian postal articles",
+    ],
+  },
+  {
+    title: "Anything banned while in transit",
+    note: "The law can restrict a commodity at any time and without notice. If that happens while your parcel is moving, it stops where it is.",
+    examples: [
+      "Commodities banned by law at any given time without prior notice",
+    ],
+  },
+];
+
+export const DOMESTIC_PROHIBITED_ITEM_COUNT =
+  DOMESTIC_PROHIBITED_GROUPS.reduce((n, g) => n + g.examples.length, 0);

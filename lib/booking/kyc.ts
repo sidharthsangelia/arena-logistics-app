@@ -157,3 +157,38 @@ export function requiredKycDocTypes(
   if (waived) return WAIVED_REQUIRED_CONFIGS.map((c) => c.docType);
   return KYC_DOC_CONFIGS.filter((c) => c.requiredFor.includes(type)).map((c) => c.docType);
 }
+
+// ── Domestic KYC ───────────────────────────────────────────────────────────
+//
+// A domestic shipment clears no customs, so the export matrix above does not
+// apply to it at all: no PAN, no GST, no IEC, no LUT. What a domestic move
+// needs is GST paperwork about the GOODS (see lib/booking/domesticDocs.ts),
+// which is per-shipment, not per-party.
+//
+// The one party-level document kept is Aadhaar, and only when the sender is an
+// individual. A company sender is already identified by the tax invoice it has
+// to attach and by the GSTIN on it; an individual sender attaches nothing that
+// names them, so without this there would be no record of who handed the parcel
+// over. It is asked for once and reused from the vault forever after.
+export const DOMESTIC_INDIVIDUAL_KYC_KEYS: readonly KycDocKey[] = ["aadhaar"];
+
+/**
+ * The form keys a domestic booking requires.
+ *
+ * `senderIsCompany` comes from whether the sender filled a company name — the
+ * same signal domesticDocRequirement uses, so the two can never disagree about
+ * who is a company. Returns an empty list for a company sender, which is what
+ * makes the wizard drop the KYC step entirely for them.
+ */
+export function requiredDomesticKycKeys(senderIsCompany: boolean): KycDocKey[] {
+  return senderIsCompany ? [] : [...DOMESTIC_INDIVIDUAL_KYC_KEYS];
+}
+
+/** The Prisma docTypes a domestic booking requires (server-side check). */
+export function requiredDomesticKycDocTypes(
+  senderIsCompany: boolean,
+): KycDocType[] {
+  return requiredDomesticKycKeys(senderIsCompany).map(
+    (key) => KYC_KEY_TO_DOC_TYPE[key],
+  );
+}

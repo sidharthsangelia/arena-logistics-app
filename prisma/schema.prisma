@@ -94,9 +94,9 @@ model Org {
   postalCode   String?
   notes        String?
 
-  skipPayment Boolean @default(false)
+  skipPayment        Boolean           @default(false)
   profileCompletedAt DateTime?
-  emailEvents QuoteEmailEvent[]
+  emailEvents        QuoteEmailEvent[]
 
   // ── client-facing shipment emails (business associates only) ──
   //
@@ -565,10 +565,31 @@ enum AddressKind {
 // Drives which KYC docs are required and how customs paperwork is handled.
 // CSB4 is only valid while total declared value < ₹25,000; at/above that
 // threshold a shipment must be CSB5 or COMMERCIAL (enforced in the app layer).
+//
+// INTERNATIONAL shipments only. A DOMESTIC shipment never crosses a customs
+// border, so its shipmentType stays null — see ShipmentMode below.
 enum ShipmentType {
   CSB4
   CSB5
   COMMERCIAL
+}
+
+// Which of the two booking flows produced this shipment.
+//
+// Deliberately a COLUMN on Shipment rather than a second table. Shipment is the
+// hub for PackageItem, ShipmentDocument, ShipmentStatusEvent, WalletTransaction,
+// Invoice and PaymentCollection; splitting it would turn every one of those
+// foreign keys either into a duplicate or into a nullable polymorphic pair with
+// no referential integrity, and every list/count/search query into a UNION.
+// Ops separation is a VIEW concern and is solved by filtering on this column
+// (the arena dashboard gives domestic its own route), not by splitting storage.
+//
+// The schema already carries mode-specific nullable blocks for exactly this
+// reason: mawbNumber/hawbNumber are air-export only and the whole firstMile*
+// block is door-pickup only. The domestic* block below follows that pattern.
+enum ShipmentMode {
+  INTERNATIONAL // India → abroad, customs category + KYC matrix apply
+  DOMESTIC // India → India, GST paperwork applies instead
 }
 
 enum ShipmentStatus {
@@ -596,13 +617,16 @@ enum FirstMileStatus {
 }
 
 enum ShipmentDocType {
-  INVOICE // mandatory, fresh per shipment
+  INVOICE // mandatory, fresh per shipment — commercial invoice (export) or GST tax invoice (domestic)
   AIRWAY_BILL
   PACKING_LIST
   CUSTOMS_DECLARATION
   CERTIFICATE_OF_ORIGIN
   INSURANCE_CERT
   POD // proof of delivery
+  // ── domestic (GST) paperwork ──
+  E_WAY_BILL // required once declared value exceeds ₹50,000
+  DELIVERY_CHALLAN // goods moving without a sale (stock transfer, branch movement, repair)
   OTHER
 }
 
@@ -746,6 +770,16 @@ model Address {
   contactName  String?
   contactPhone String?
   contactEmail String? // optional — address-book entries can carry an email for notifications/invoice
+  // The party's trading name, when they gave one. Collected by the booking form
+  // on every address block but previously discarded here, which lost it for
+  // good the moment a shipment was created.
+  //
+  // It is not decoration. On a DOMESTIC booking, whether a party filled this in
+  // is exactly what decides their GST paperwork (a company sender owes a tax
+  // invoice, an individual does not) — see lib/booking/domesticDocs.ts. Without
+  // it persisted, ops cannot tell after the fact which rule a shipment was
+  // judged against. Nullable because an individual legitimately has none.
+  companyName  String?
 
   line1      String
   line2      String?
@@ -882,8 +916,14 @@ model Shipment {
   // ── package / cargo details ──
   packages PackageItem[]
 
+  // Which booking flow produced this shipment. Defaults to INTERNATIONAL so
+  // every row that existed before domestic booking was built keeps its meaning
+  // without a backfill.
+  mode ShipmentMode @default(INTERNATIONAL)
+
   // CSB4 / CSB5 / COMMERCIAL — set once packages are entered. Nullable so a
-  // half-finished DRAFT (or legacy row) can exist without it.
+  // half-finished DRAFT (or legacy row) can exist without it. Always null on a
+  // DOMESTIC shipment: there is no customs category on an India → India move.
   shipmentType ShipmentType?
 
   // True when this booking passed the KYC gate under a live KycWaiver rather
@@ -929,8 +969,8 @@ model Shipment {
   // courier → schedule pickup). The order id is Shipmozo's handle for label /
   // cancel / detail lookups; the AWB it returns is stored in
   // firstMileTrackingNumber above and drives the tracking webhook match.
-  firstMileShipmozoOrderId String? // Shipmozo order_id, once ops books the pickup
-  firstMileBookedAt        DateTime? // when ops pushed the order to Shipmozo
+  firstMileShipmozoOrderId     String? // Shipmozo order_id, once ops books the pickup
+  firstMileBookedAt            DateTime? // when ops pushed the order to Shipmozo
   // In Shipmozo a "warehouse" is the pickup point, so we register one per
   // booking from the customer's pickup address (forward order: warehouse =
   // pickup, consignee = our hub). Stored so a retry reuses it, never duplicates.
@@ -976,6 +1016,28 @@ model Shipment {
   awbUpdatedAt      DateTime? // last time it was edited
   awbAddedById      String? // ops/staff user id who added it
 
+  // ── domestic (India → India) ──
+  // All null/false on an INTERNATIONAL shipment. Kept as their own block rather
+  // than reusing the firstMile* columns because those describe a door → hub leg
+  // with its own FirstMileStatus lifecycle, whereas a domestic booking is a
+  // single door → door move whose progress IS the main ShipmentStatus.
+  //
+  // Cash on delivery is Shipmozo's own facility: the courier collects from the
+  // receiver and Shipmozo remits. It is NOT how the customer pays Arena — the
+  // freight is still debited from the org wallet at booking exactly like a
+  // prepaid shipment. codAmount is the goods value collected from the receiver.
+  codEnabled Boolean  @default(false)
+  codAmount  Decimal? @db.Decimal(14, 2)
+
+  // Shipmozo door → door order, pushed by ops from the domestic booking page
+  // (the same manual push the first-mile leg uses, never automatic at booking).
+  // Present so wiring that push later needs no migration.
+  domesticCourierOrderId     String? // Shipmozo order_id
+  domesticCourierWarehouseId String? // registered pickup point, reused across retries
+  domesticAwbNumber          String? // courier AWB, once assigned
+  domesticTrackingUrl        String? // courier's public tracking page, if any
+  domesticCourierBookedAt    DateTime? // when ops pushed the order
+
   status ShipmentStatus @default(DRAFT)
 
   walletTransactions WalletTransaction[]
@@ -997,6 +1059,11 @@ model Shipment {
   @@index([hawbNumber])
   // Drives the arena collections queue: "which deferred bookings still owe us?"
   @@index([paymentDeferred, paymentCollectionStatus])
+  // Every list in the app is now scoped to one mode: the arena dashboard gives
+  // domestic its own route, and the tenant list tabs by mode.
+  @@index([mode, status])
+  @@index([orgId, mode, status])
+  @@index([domesticAwbNumber])
 }
 
 // ─────────────────────────────────────────────
@@ -1047,10 +1114,10 @@ model PackageContentItem {
   packageItem   PackageItem @relation(fields: [packageItemId], references: [id], onDelete: Cascade)
 
   description String
-  hsCode     String? // HSN code for this specific item
-  quantity   Int     @default(1)
-  unitValue  Decimal @db.Decimal(14, 2) // price/value per unit, in `currency`
-  currency   String  @default("INR")
+  hsCode      String? // HSN code for this specific item
+  quantity    Int     @default(1)
+  unitValue   Decimal @db.Decimal(14, 2) // price/value per unit, in `currency`
+  currency    String  @default("INR")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1307,10 +1374,10 @@ model PaymentCollection {
   /// Reversal is a state, not a delete. Any arena member can record a
   /// collection; only an admin can reverse one. A reversed row is excluded from
   /// every total but stays in the history with its reason attached.
-  reversedAt     DateTime?
+  reversedAt       DateTime?
   reversedByUserId String?
-  reversedByName String?
-  reversalReason String?
+  reversedByName   String?
+  reversalReason   String?
 
   createdAt DateTime @default(now())
 
@@ -1373,11 +1440,11 @@ model Notification {
   scope NotificationScope
   /// Required for ORG scope, always null for ARENA. Enforced in lib/notifications/emit.ts.
   orgId String?
-  org   Org?   @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  org   Org?              @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
-  kind NotificationKind
+  kind     NotificationKind
   /// Reuses the notice palette so a warning looks the same everywhere in the app.
-  severity NoticeSeverity @default(INFO)
+  severity NoticeSeverity   @default(INFO)
 
   title String
   body  String?
@@ -1399,7 +1466,7 @@ model Notification {
   /// Set when the notification is about one shipment, for the link and for cleanup.
   shipmentId String?
   /// Clerk userId when a human authored this, null when the system did.
-  createdBy String?
+  createdBy  String?
 
   createdAt DateTime @default(now())
 
@@ -1452,8 +1519,8 @@ model NotificationReceipt {
 // there is no clock to keep flipping. Admins only ever set UNPAID / PAID /
 // CANCELLED; the UI shows "Overdue" on top of an unpaid, past-due row.
 model Invoice {
-  id            String        @id @default(cuid())
-  invoiceNumber String        @unique
+  id            String @id @default(cuid())
+  invoiceNumber String @unique
 
   orgId String
   org   Org    @relation(fields: [orgId], references: [id], onDelete: Cascade)
