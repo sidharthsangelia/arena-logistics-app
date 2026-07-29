@@ -887,7 +887,7 @@ model Shipment {
   orgId String
   org   Org    @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
-  shipmentNumber String @unique // human-facing tracking-style ID, e.g. "SHP-2026-00123"
+  shipmentNumber String @unique // human-facing tracking-style ID, e.g. "ARN260130748291". Rows created before the format change keep the old "SHP-2026-00123" shape — both coexist, nothing is backfilled.
 
   clientId String?
   client   Client? @relation(fields: [clientId], references: [id], onDelete: SetNull)

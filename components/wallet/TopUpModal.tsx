@@ -45,7 +45,7 @@ interface TopUpModalProps {
   onOpenChange: (open: boolean) => void;
   /** Prefilled amount, e.g. the detected shortfall during booking. Always editable — user can increase it. */
   suggestedAmount?: number;
-  /** Shown as context, e.g. "cover shipment SHP-2026-00123" */
+  /** Shown as context, e.g. "cover shipment ARN260130748291" */
   reasonLabel?: string;
   orgName?: string;
   orgEmail?: string;

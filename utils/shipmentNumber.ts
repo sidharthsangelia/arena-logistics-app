@@ -1,37 +1,58 @@
 /**
- * lib/shipmentNumber.ts
+ * utils/shipmentNumber.ts
  *
  * Generates unique, human-readable shipment numbers via a PostgreSQL sequence.
  *
- * Format:  SHP-{YEAR}-{NNNNN}
- * Example: SHP-2026-00042
+ * Format:  {PREFIX}{YYMMDD}{SQIDS}
+ * Example: ARN260130748291
  *
- * The year is cosmetic context — the underlying sequence is global and
- * never resets — so numbers are unique across all years. A shipment
- * created in 2027 gets SHP-2027-00043 (not SHP-2027-00001), which means
- * year-rollover can never produce a collision.
+ * The sequence is global and never resets, so numbers are unique across all
+ * years — the date segment is context for humans, not part of the uniqueness
+ * guarantee. Two shipments booked on the same day get different sequence
+ * values and therefore different Sqids segments.
+ *
+ * The encoding itself (prefix, date segment, Sqids alphabet) lives in
+ * ./shipmentNumber.encoding, which is free of `server-only` and Prisma so it
+ * can be unit-tested. This file owns only the sequence.
  *
  * Thread-safety / concurrency guarantee:
  *   nextval() is atomic at the PostgreSQL kernel level. Calling it from
  *   100 concurrent requests simultaneously still returns 100 distinct
- *   values. No application-level locking or retry loops are needed.
+ *   values. No application-level locking or retry loops are needed. Sqids is
+ *   a bijection, so distinct sequence values always encode to distinct
+ *   strings — the encoding cannot introduce a collision.
  *
  * Sequence gaps:
  *   If the caller uses the number but the parent DB transaction rolls back
  *   (e.g. wallet debit failed), the number is consumed and a gap appears.
- *   This is normal behaviour — DO NOT attempt to reclaim gaps.
+ *   This is normal behaviour — DO NOT attempt to reclaim gaps. Gaps are also
+ *   invisible to customers now that the sequence value is obfuscated.
+ *
+ * Legacy numbers:
+ *   Shipments booked before this format change keep their old
+ *   SHP-2026-00042 numbers. Existing rows are NEVER rewritten, so both
+ *   formats coexist in the database permanently. Anything that parses a
+ *   shipment number must go through `parseShipmentNumber`, which handles
+ *   both. Substring search (`contains`) works unchanged for either.
  */
 
 import "server-only";
 import { prisma } from "@/utils/db";
+import { encodeShipmentNumber } from "./shipmentNumber.encoding";
+
+export {
+  decodeShipmentNumber,
+  parseShipmentNumber,
+  encodeShipmentNumber,
+  PREFIX,
+  type ParsedShipmentNumber,
+} from "./shipmentNumber.encoding";
 
 // ---------------------------------------------------------------------------
 // Constants — change here, not scattered across call sites
 // ---------------------------------------------------------------------------
 
 const SEQUENCE_NAME = "shipment_number_seq";
-const PREFIX        = "SHP";
-const PAD_LENGTH    = 5; // SHP-2026-00042 → 5-digit padding; auto-expands beyond 99999
 
 // ---------------------------------------------------------------------------
 // generateShipmentNumber
@@ -66,11 +87,9 @@ export async function generateShipmentNumber(): Promise<string> {
     );
   }
 
-  const seq  = Number(rows[0].nextval); // safe: sequence values fit in JS number
-  const year = new Date().getFullYear();
-  const padded = String(seq).padStart(PAD_LENGTH, "0");
+  const seq = Number(rows[0].nextval); // safe: sequence values fit in JS number
 
-  return `${PREFIX}-${year}-${padded}`;
+  return encodeShipmentNumber(seq);
 }
 
 // ---------------------------------------------------------------------------
@@ -110,33 +129,4 @@ function wrapSequenceError(err: unknown): Error {
   }
 
   return err instanceof Error ? err : new Error(msg);
-}
-
-// ---------------------------------------------------------------------------
-// parseShipmentNumber
-//
-// Utility: extracts the numeric part from a shipment number string.
-// Useful for sorting, display, or admin tools.
-//
-// parseShipmentNumber("SHP-2026-00042") → { year: 2026, seq: 42 }
-// Returns null for strings that don't match the expected format.
-// ---------------------------------------------------------------------------
-
-export interface ParsedShipmentNumber {
-  prefix: string; // "SHP"
-  year:   number; // 2026
-  seq:    number; // 42
-}
-
-export function parseShipmentNumber(
-  value: string,
-): ParsedShipmentNumber | null {
-  const match = value.match(/^([A-Z]+)-(\d{4})-(\d+)$/);
-  if (!match) return null;
-
-  return {
-    prefix: match[1],
-    year:   parseInt(match[2], 10),
-    seq:    parseInt(match[3], 10),
-  };
 }
