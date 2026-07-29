@@ -44,7 +44,7 @@ export function getClientColumns(client = false): ColumnDef<ClientRow>[] {
       ),
       cell: ({ row }) => (
         <Link
-          href={`/arena-dashboard/business-associates/${row.original.org.id}`}
+          href={`/arena-dashboard/accounts/${row.original.org.id}`}
           className="block max-w-50 truncate text-muted-foreground hover:underline"
         >
           {row.original.org.name}
