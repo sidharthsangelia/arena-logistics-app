@@ -51,6 +51,7 @@ import { getKycDocs, saveKycDocAction, type PartyKycDoc } from "@/actions/book/k
 import {
   KYC_DOC_CONFIGS,
   requiredKycKeys,
+  requiredDomesticKycKeys,
   type KycDocConfig,
   type KycDocKey,
 } from "@/lib/booking/kyc";
@@ -72,6 +73,15 @@ interface KycStepProps {
    * shortened list this component renders.
    */
   onWaiverChange?: (waived: boolean) => void;
+  /**
+   * Domestic booking. The export matrix does not apply at all — a domestic
+   * parcel clears no customs, so there is no PAN, GST, IEC or LUT to collect.
+   * What is left is an Aadhaar for an individual sender, and nothing for a
+   * company sender (which is why the wizard drops this step for them entirely).
+   */
+  isDomestic?: boolean;
+  /** Domestic only: derived from whether the sender gave a company name. */
+  senderIsCompany?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -411,6 +421,8 @@ export default function KycStep({
   shipmentType,
   party,
   onWaiverChange,
+  isDomestic = false,
+  senderIsCompany = false,
 }: KycStepProps) {
   const kycDocs = watch("kycDocs");
 
@@ -467,12 +479,21 @@ export default function KycStep({
 
   const kycErrors = errors.kycDocs as Record<string, { message?: string }> | undefined;
 
-  // A live waiver shortens this to Aadhaar alone. Everything it drops moves
-  // into the optional collapsible below rather than disappearing — the customer
-  // can still upload a PAN today, and usually should.
+  // A live waiver shortens the export list to Aadhaar alone. Everything it
+  // drops moves into the optional collapsible below rather than disappearing —
+  // the customer can still upload a PAN today, and usually should.
+  //
+  // Domestic ignores the export matrix and the waiver alike: the list is
+  // already Aadhaar-only, and Aadhaar is the one document a waiver can never
+  // remove, so there is nothing left for a waiver to shorten.
   const requiredKeys = useMemo(
-    () => new Set(requiredKycKeys(shipmentType, kycWaived)),
-    [shipmentType, kycWaived],
+    () =>
+      new Set(
+        isDomestic
+          ? requiredDomesticKycKeys(senderIsCompany)
+          : requiredKycKeys(shipmentType, kycWaived),
+      ),
+    [isDomestic, senderIsCompany, shipmentType, kycWaived],
   );
   const requiredConfigs = KYC_DOC_CONFIGS.filter((c) => requiredKeys.has(c.key));
   const optionalConfigs = KYC_DOC_CONFIGS.filter((c) => !requiredKeys.has(c.key));
@@ -530,10 +551,14 @@ export default function KycStep({
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-lg font-semibold">Documents for customs</h2>
+        <h2 className="text-lg font-semibold">
+          {isDomestic ? "Proof of identity" : "Documents for customs"}
+        </h2>
         <p className="mt-0.5 text-sm text-muted-foreground">
-          Indian customs needs a few identity and export documents for every
-          international shipment. {forClient
+          {isDomestic
+            ? "A domestic parcel needs no customs paperwork, so we ask for one document only: an Aadhaar card identifying who is sending it. "
+            : "Indian customs needs a few identity and export documents for every international shipment. "}
+          {forClient
             ? "We read from and save to this client's vault, so you only upload each one once."
             : "We read from and save to your vault, so you only upload each one once."}
         </p>
@@ -546,7 +571,7 @@ export default function KycStep({
         Says nothing about who granted it, why, or when it lapses — that is
         Arena's record, not the customer's.
       */}
-      {kycWaived && !loadingDocs && (
+      {kycWaived && !isDomestic && !loadingDocs && (
         <div className="flex items-start gap-2.5 rounded-lg border bg-muted/30 px-3.5 py-3">
           <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
           <div className="min-w-0 text-sm">
@@ -564,7 +589,7 @@ export default function KycStep({
       <div className="rounded-lg border bg-muted/20 p-4">
         <div className="flex items-center justify-between text-sm">
           <span className="font-medium">
-            {TYPE_LABEL[shipmentType]} shipment
+            {isDomestic ? "Domestic shipment" : `${TYPE_LABEL[shipmentType]} shipment`}
           </span>
           <span className={cn("text-xs", allDone ? "text-emerald-600" : "text-muted-foreground")}>
             {allDone ? (

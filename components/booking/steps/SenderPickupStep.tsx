@@ -61,6 +61,8 @@ interface Props {
   clearErrors: UseFormClearErrors<BookingFormData>;
   errors: FieldErrors<BookingFormData>;
   clientError?: string;
+  /** True on a domestic booking: the sender and pickup are pinned to India. */
+  isDomestic?: boolean;
 }
 
 const ADDRESS_FIELD_KEYS = [
@@ -104,7 +106,14 @@ export function SenderPickupStep({
   clearErrors,
   errors,
   clientError,
+  isDomestic = false,
 }: Props) {
+  // Every shipment on the platform is sent FROM India, so the sender country is
+  // never really a free choice. The international flow still shows the picker
+  // (a sender can be registered abroad); the domestic one pins it, matching the
+  // receiver side and keeping the pincode lookup on India Post data.
+  const lockedCountry = isDomestic ? "India" : undefined;
+
   const mode = watch("shipmentOwnerMode") as OwnerMode;
   const selectedClient = watch("selectedClient");
   const pickupSameAsSender = watch("pickupSameAsSender");
@@ -230,10 +239,17 @@ export function SenderPickupStep({
       {showSender && (
         <div className="space-y-3">
           <h3 className="text-sm font-semibold">Sender</h3>
+          {/*
+            On a domestic booking the company name is not a cosmetic field: it
+            is what tells us whether a company or an individual is sending, and
+            that decides the paperwork (a company owes a GST tax invoice, an
+            individual owes an Aadhaar). Saying so here means nobody is
+            surprised two steps later by a document they did not expect.
+          */}
           <p className="rounded-md border-l-2 border-amber-400 bg-amber-50/60 px-2.5 py-1.5 text-xs leading-relaxed text-amber-800 dark:border-amber-600 dark:bg-amber-950/20 dark:text-amber-300">
-            If the sender is an individual, the address must match the Aadhaar
-            card used for KYC. If the sender is a company, the address must
-            match the GST certificate.
+            {isDomestic
+              ? "Fill in the company name if a business is sending this shipment: we will then ask for a GST tax invoice. Leave it blank if an individual is sending, and we will ask for an Aadhaar card instead."
+              : "If the sender is an individual, the address must match the Aadhaar card used for KYC. If the sender is a company, the address must match the GST certificate."}
           </p>
 
           {/* Address-book chips are redundant under "My organisation" — the
@@ -256,6 +272,7 @@ export function SenderPickupStep({
             watch={watch}
             setValue={setValue}
             errors={errors}
+            lockedCountry={lockedCountry}
           />
         </div>
       )}
@@ -318,6 +335,7 @@ export function SenderPickupStep({
                 watch={watch}
                 setValue={setValue}
                 errors={errors}
+                lockedCountry={lockedCountry}
               />
             </div>
           )}

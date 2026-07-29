@@ -10,6 +10,7 @@ import {
   CheckCircle,
   Building,
   Home,
+  Globe,
 } from "lucide-react";
 import {
   BookingFormData,
@@ -18,22 +19,25 @@ import {
 } from "@/types/booking.types";
 import type { BookingDraftPayload } from "@/actions/book/bookingDraft.action";
 import { hasSavedProfile, selfToConsignor } from "@/lib/booking/consignorPrefill";
+import { EMPTY_DOMESTIC_DOCS, isCompanyParty } from "@/lib/booking/domesticDocs";
 
 // ---------------------------------------------------------------------------
 // Step keys — the wizard is keyed by these STABLE string ids, never by raw
 // numeric indices, because the step list is DYNAMIC: the first-mile (door →
-// hub) step only exists when the customer opted into door pickup. Driving
-// everything (rendering, schema lookup, progress bar) off the key at the
-// current position keeps navigation correct whether the list has 6 or 7 steps.
+// hub) step only exists when the customer opted into door pickup, and a whole
+// different subset applies once the booking is domestic. Driving everything
+// (rendering, schema lookup, progress bar) off the key at the current position
+// keeps navigation correct whatever length the list happens to be.
 // ---------------------------------------------------------------------------
 
 export const STEP_KEY = {
+  MODE: "mode", // international or domestic — shapes every step after it
   SENDER: "sender", // merged "who's shipping" + sender address + pickup address
   CONSIGNEE: "consignee", // delivery + billing
   SHIPMENT_DETAILS: "shipment-details", // merged Invoice + Packages — self-managed, not RHF
   KYC: "kyc",
-  SERVICE: "service", // international carrier
-  FIRST_MILE: "first-mile", // door → hub domestic courier — CONDITIONAL
+  SERVICE: "service", // carrier — international network, or domestic couriers
+  FIRST_MILE: "first-mile", // door → hub domestic courier — INTERNATIONAL ONLY, CONDITIONAL
   REVIEW: "review",
 } as const;
 
@@ -43,9 +47,10 @@ interface BookingStepDef extends BookingStep {
   key: StepKey;
 }
 
-// The full ordered set. `first-mile` is filtered out unless pickup was opted
-// into (see getActiveSteps). Keep this array in the intended display order.
+// The full ordered set. Steps are filtered out per booking (see
+// getActiveSteps). Keep this array in the intended display order.
 const ALL_BOOKING_STEPS: BookingStepDef[] = [
+  { id: "mode", key: STEP_KEY.MODE, name: "Type", icon: Globe },
   { id: "sender", key: STEP_KEY.SENDER, name: "Sender", icon: Building },
   { id: "consignee", key: STEP_KEY.CONSIGNEE, name: "Receiver", icon: MapPinned },
   { id: "shipment-details", key: STEP_KEY.SHIPMENT_DETAILS, name: "Items", icon: Package },
@@ -56,18 +61,47 @@ const ALL_BOOKING_STEPS: BookingStepDef[] = [
 ];
 
 /**
- * The steps that actually apply to this booking. The first-mile step is only
- * present when door pickup was opted into on the Packages step — pickupIncluded
- * is always settled before the wizard reaches any step after SERVICE, so the
- * active list (and therefore the meaning of each index) is stable by then.
+ * The steps that actually apply to this booking.
+ *
+ * Two things are filtered out, and both are settled well before the wizard can
+ * reach them, so the active list (and therefore the meaning of each index) is
+ * stable by the time it matters:
+ *
+ *  • FIRST_MILE — international only, and only when door pickup was opted into
+ *    on the Items step. A domestic booking is a single door → door courier
+ *    move: there is no separate first leg to price.
+ *
+ *  • KYC — on a domestic booking, only when the sender is an INDIVIDUAL. A
+ *    company sender is identified by the tax invoice it has to attach, so there
+ *    is no party document left to ask for and the step would render empty.
+ *    Always present on an international booking, where the export matrix
+ *    (PAN / Aadhaar / GST / IEC / LUT) applies regardless.
  */
-export function getActiveSteps(pickupIncluded: boolean): BookingStepDef[] {
-  return ALL_BOOKING_STEPS.filter(
-    (s) => s.key !== STEP_KEY.FIRST_MILE || pickupIncluded,
-  );
+export function getActiveSteps(data: {
+  mode: BookingFormData["mode"];
+  pickupIncluded: boolean;
+  senderIsCompany: boolean;
+}): BookingStepDef[] {
+  const isDomestic = data.mode === "DOMESTIC";
+
+  return ALL_BOOKING_STEPS.filter((s) => {
+    if (s.key === STEP_KEY.FIRST_MILE) {
+      return !isDomestic && data.pickupIncluded;
+    }
+    if (s.key === STEP_KEY.KYC) {
+      return !isDomestic || !data.senderIsCompany;
+    }
+    return true;
+  });
 }
 
 const initialFormData: BookingFormData = {
+  // Deliberately NOT defaulted to a mode that lets the user skip the choice:
+  // the step is always shown and always answered. INTERNATIONAL here is just
+  // the shape the rest of the form starts in, and matches how every shipment
+  // booked before domestic existed is recorded.
+  mode: "INTERNATIONAL",
+
   shipmentOwnerMode: "SELF",
 
   selectedClient: null,
@@ -146,6 +180,9 @@ const initialFormData: BookingFormData = {
   currency: "INR",
   boxes: [],
 
+  domesticDocs: EMPTY_DOMESTIC_DOCS,
+  codEnabled: false,
+
   selectedService: null,
   firstMile: null,
   firstMileHubLabel: null,
@@ -181,10 +218,16 @@ export function useBookingWizard(
     return initialFormData;
   });
 
-  // The active step list depends on whether door pickup was opted into. Derive
-  // it every render from the current form data so toggling pickup on the
-  // Packages step immediately reshapes the wizard (and its progress bar).
-  const steps = getActiveSteps(formData.pickupIncluded);
+  // The active step list depends on the mode, on whether door pickup was opted
+  // into, and — for domestic — on whether the sender is a company. Derived
+  // every render from the current form data so choosing a mode, toggling
+  // pickup, or typing a company name into the sender immediately reshapes the
+  // wizard and its progress bar.
+  const steps = getActiveSteps({
+    mode: formData.mode,
+    pickupIncluded: formData.pickupIncluded,
+    senderIsCompany: isCompanyParty(formData.consignor),
+  });
 
   // Clamp defensively: if the list ever shrinks under a stored index (e.g. a
   // resumed draft, or pickup toggled off), never point past the end.

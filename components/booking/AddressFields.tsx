@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import {
   UseFormRegister,
   UseFormWatch,
@@ -7,7 +8,7 @@ import {
   FieldErrors,
   Path,
 } from "react-hook-form";
-import { Check, Loader2, AlertCircle } from "lucide-react";
+import { Check, Loader2, AlertCircle, Lock } from "lucide-react";
 
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -37,6 +38,14 @@ interface AddressFieldsProps {
   setValue: UseFormSetValue<BookingFormData>;
   errors: FieldErrors<BookingFormData>;
   countryLabel?: string;
+  /**
+   * Pins the country and replaces the picker with a static row. Set to "India"
+   * on a domestic booking, where offering a country to choose from would
+   * suggest a destination the flow cannot serve. The value is still written to
+   * the form field, so everything downstream (postal lookup, rate request,
+   * the persisted Address row) reads it exactly as it would a typed one.
+   */
+  lockedCountry?: string;
 }
 
 // Single, documented cast point for the dynamic field prefix — react-hook-form's
@@ -67,9 +76,23 @@ export function AddressFields({
   setValue,
   errors,
   countryLabel = "Country",
+  lockedCountry,
 }: AddressFieldsProps) {
-  const country = (watch(fieldPath(prefix, "country")) as string) ?? "";
+  const watchedCountry = (watch(fieldPath(prefix, "country")) as string) ?? "";
+  const country = lockedCountry ?? watchedCountry;
   const postalCode = (watch(fieldPath(prefix, "postalCode")) as string) ?? "";
+
+  // Write the pinned country through to the form the moment it doesn't match.
+  // Covers a draft saved before the mode was switched, and a block that mounts
+  // with the field still empty — nothing downstream should ever see a domestic
+  // address whose country is blank.
+  useEffect(() => {
+    if (lockedCountry && watchedCountry !== lockedCountry) {
+      setValue(fieldPath(prefix, "country"), lockedCountry, {
+        shouldValidate: false,
+      });
+    }
+  }, [lockedCountry, watchedCountry, prefix, setValue]);
 
   const lookupState = usePostalLookup(country, postalCode, (city, state) => {
     setValue(fieldPath(prefix, "city"), city, { shouldValidate: true });
@@ -114,31 +137,41 @@ export function AddressFields({
         </div>
       </div>
 
-      {/* Country */}
+      {/* Country — a picker, or a static row when the flow pins it */}
       <div className="space-y-1.5">
         <Label className="text-xs">{countryLabel}</Label>
-        <CountryCombobox
-          value={country}
-          label={null}
-          onChange={(name) => {
-            setValue(fieldPath(prefix, "country"), name, { shouldValidate: true });
-            // Reset dependent fields so a stale city / state can't survive a country change.
-            setValue(fieldPath(prefix, "postalCode"), "");
-            setValue(fieldPath(prefix, "city"), "");
-            setValue(fieldPath(prefix, "state"), "");
-          }}
-          error={e?.country?.message}
-        />
+        {lockedCountry ? (
+          <div className="flex h-9 items-center gap-2 rounded-md border bg-muted/40 px-3 text-sm text-muted-foreground">
+            <Lock className="h-3.5 w-3.5 shrink-0" />
+            <span className="text-foreground">{lockedCountry}</span>
+          </div>
+        ) : (
+          <CountryCombobox
+            value={country}
+            label={null}
+            onChange={(name) => {
+              setValue(fieldPath(prefix, "country"), name, { shouldValidate: true });
+              // Reset dependent fields so a stale city / state can't survive a country change.
+              setValue(fieldPath(prefix, "postalCode"), "");
+              setValue(fieldPath(prefix, "city"), "");
+              setValue(fieldPath(prefix, "state"), "");
+            }}
+            error={e?.country?.message}
+          />
+        )}
       </div>
 
       {/* Postal drives city + state, so they sit together */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <div className="space-y-1.5">
-          <Label className="text-xs">Postal / ZIP code</Label>
+          <Label className="text-xs">
+            {lockedCountry ? "Pincode" : "Postal / ZIP code"}
+          </Label>
           <div className="relative">
             <Input
               {...register(fieldPath(prefix, "postalCode"))}
-              placeholder="Postal code"
+              placeholder={lockedCountry ? "560001" : "Postal code"}
+              inputMode={lockedCountry ? "numeric" : undefined}
               className="pr-8"
             />
             {lookupState === "loading" && (
@@ -174,13 +207,15 @@ export function AddressFields({
         {lookupState === "found" && (
           <span className="flex items-center gap-1 text-xs text-green-600">
             <Check className="h-3 w-3" />
-            City and state filled in from the postal code. Edit if anything looks off.
+            City and state filled in from the {lockedCountry ? "pincode" : "postal code"}.
+            Edit if anything looks off.
           </span>
         )}
         {lookupState === "not_found" && postalCode.trim().length >= 3 && (
           <span className="flex items-center gap-1 text-xs text-amber-600">
             <AlertCircle className="h-3 w-3" />
-            We couldn&apos;t match that postal code. Please type the city and state.
+            We couldn&apos;t match that {lockedCountry ? "pincode" : "postal code"}.
+            Please type the city and state.
           </span>
         )}
       </p>

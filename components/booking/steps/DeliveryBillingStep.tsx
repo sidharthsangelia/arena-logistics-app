@@ -35,6 +35,8 @@ interface Props {
   setValue: UseFormSetValue<BookingFormData>;
   clearErrors: UseFormClearErrors<BookingFormData>;
   errors: FieldErrors<BookingFormData>;
+  /** True on a domestic booking: the destination is pinned to India. */
+  isDomestic?: boolean;
 }
 
 const ADDRESS_FIELD_KEYS = [
@@ -69,7 +71,14 @@ export function DeliveryBillingStep({
   setValue,
   clearErrors,
   errors,
+  isDomestic = false,
 }: Props) {
+  // Pinned rather than picked on a domestic booking. Billing follows it: an
+  // Indian shipment invoiced to an address abroad is not something this flow
+  // supports, and offering the choice would only produce bookings ops has to
+  // unpick later.
+  const lockedCountry = isDomestic ? "India" : undefined;
+
   const mode = watch("shipmentOwnerMode");
   const selectedClient = watch("selectedClient");
   const billingSameAsDelivery = watch("billingSameAsDelivery");
@@ -103,8 +112,9 @@ export function DeliveryBillingStep({
       <div>
         <h2 className="text-lg font-semibold">Delivery and billing</h2>
         <p className="text-sm text-muted-foreground">
-          Where is this shipment going, and who should we invoice? Accurate
-          details here keep it moving through customs.
+          {isDomestic
+            ? "Where in India is this shipment going, and who should we invoice? The pincode fills in the city and state."
+            : "Where is this shipment going, and who should we invoice? Accurate details here keep it moving through customs."}
         </p>
       </div>
 
@@ -128,6 +138,7 @@ export function DeliveryBillingStep({
           setValue={setValue}
           errors={errors}
           countryLabel="Destination country"
+          lockedCountry={lockedCountry}
         />
       </div>
 
@@ -189,6 +200,7 @@ export function DeliveryBillingStep({
               setValue={setValue}
               errors={errors}
               countryLabel="Billing country"
+              lockedCountry={lockedCountry}
             />
           </div>
         )}

@@ -1,5 +1,14 @@
 import { z } from "zod";
-import { KYC_DOC_CONFIGS, requiredKycKeys } from "@/lib/booking/kyc";
+import {
+  KYC_DOC_CONFIGS,
+  requiredKycKeys,
+  requiredDomesticKycKeys,
+} from "@/lib/booking/kyc";
+import {
+  DOMESTIC_DOC_CONFIGS,
+  domesticDocRequirement,
+  EWAY_BILL_THRESHOLD,
+} from "@/lib/booking/domesticDocs";
 
 // ---------------------------------------------------------------------------
 // Shared
@@ -73,6 +82,20 @@ export const senderPickupSchema = z
   });
 
 // ---------------------------------------------------------------------------
+// Step 0 — International or domestic.
+//
+// Its own step because everything after it is shaped by the answer: which
+// address fields exist, which documents are collected, which rate network is
+// queried, and whether there is a first-mile leg at all.
+// ---------------------------------------------------------------------------
+
+export const modeSchema = z.object({
+  mode: z.enum(["INTERNATIONAL", "DOMESTIC"], {
+    message: "Please choose whether this shipment is domestic or international.",
+  }),
+});
+
+// ---------------------------------------------------------------------------
 // Step 1 — Delivery + Billing (receiver address + optional separate billing).
 // Billing defaults to the delivery address; validated separately only when
 // billingSameAsDelivery is false.
@@ -144,6 +167,158 @@ export const shipmentDetailsSchema = z
       });
     }
   });
+
+// ---------------------------------------------------------------------------
+// Domestic delivery + billing — the receiver must be in India.
+//
+// The UI never offers a country picker on a domestic booking, so this can only
+// fail on a hand-edited payload or a draft started as international and
+// switched. Checked anyway: a non-Indian pincode would be sent to a domestic
+// courier that cannot serve it, and failing here with a clear message beats
+// failing three steps later with a vendor error.
+// ---------------------------------------------------------------------------
+
+const INDIA_COUNTRY_NAMES = new Set(["india", "in"]);
+
+function isIndia(country: unknown): boolean {
+  return (
+    typeof country === "string" &&
+    INDIA_COUNTRY_NAMES.has(country.trim().toLowerCase())
+  );
+}
+
+export const domesticDeliveryBillingSchema = deliveryBillingSchema.superRefine(
+  (data, ctx) => {
+    if (!isIndia(data.consignee?.country)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["consignee", "country"],
+        message: "Domestic shipments can only be delivered within India.",
+      });
+    }
+  },
+);
+
+// ---------------------------------------------------------------------------
+// Domestic items + documents.
+//
+// Same boxes as the export flow (they drive pricing identically), minus
+// everything customs-specific: no CSB category, no commercial invoice to
+// generate, no door-pickup opt-in. In their place, the GST paperwork the
+// consignment travels on, whose rules live in lib/booking/domesticDocs.ts so
+// the form and the server-side check read the same matrix.
+// ---------------------------------------------------------------------------
+
+const domesticDocsSchema = z.object({
+  taxInvoice: fileMetaSchema.nullable(),
+  deliveryChallan: fileMetaSchema.nullable(),
+  eWayBill: fileMetaSchema.nullable(),
+});
+
+// HSN is mandatory on an export — customs will not clear a line without one.
+// Domestically it is only mandatory for a company sender, who is raising a GST
+// tax invoice that has to carry it anyway. An individual posting clothes to
+// family has no HSN code, would have to invent one to get past this step, and
+// nothing downstream would be better for it. So the field is still offered to
+// everyone and enforced only where it means something.
+const domesticBoxContentItemSchema = boxContentItemSchema.extend({
+  hsCode: z.string().optional().default(""),
+});
+
+const domesticCargoBoxSchema = cargoBoxSchema.extend({
+  contents: z
+    .array(domesticBoxContentItemSchema)
+    .min(1, "Add at least one item to this box."),
+});
+
+export const domesticShipmentDetailsSchema = z
+  .object({
+    currency: z.string().min(1, "Currency is required"),
+    boxes: z.array(domesticCargoBoxSchema).min(1, "Add at least one box."),
+    // Read, not validated. Both addresses were already validated by their own
+    // steps; all this step needs from them is whether a company name is set,
+    // which is what decides if a tax invoice is required. Re-running the
+    // address validators here would surface the same errors a second time on a
+    // step that has no field to show them against.
+    consignor: z.any(),
+    consignee: z.any(),
+    domesticDocs: domesticDocsSchema,
+  })
+  .superRefine((data, ctx) => {
+    const { required, senderIsCompany } = domesticDocRequirement({
+      consignor: data.consignor ?? {},
+      consignee: data.consignee ?? {},
+      boxes: data.boxes as never,
+    });
+
+    // See domesticBoxContentItemSchema above: HSN matters for a company sender,
+    // whose tax invoice has to carry it, and not for an individual.
+    if (senderIsCompany) {
+      data.boxes.forEach((box, bi) => {
+        box.contents.forEach((item, ii) => {
+          if ((item.hsCode ?? "").trim().length < 4) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ["boxes", bi, "contents", ii, "hsCode"],
+              message:
+                "An HSN code is required on every item when a company is sending, because it goes on the tax invoice.",
+            });
+          }
+        });
+      });
+    }
+
+    const REASON: Record<string, string> = {
+      taxInvoice: "the sender is a company",
+      eWayBill: `the declared value is over ₹${EWAY_BILL_THRESHOLD.toLocaleString("en-IN")}`,
+    };
+
+    for (const key of required) {
+      if (!data.domesticDocs[key]) {
+        const cfg = DOMESTIC_DOC_CONFIGS.find((c) => c.key === key);
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["domesticDocs", key],
+          message: `${cfg?.label ?? key} is required because ${REASON[key] ?? "of this shipment's details"}.`,
+        });
+      }
+    }
+  });
+
+// ---------------------------------------------------------------------------
+// Domestic KYC — Aadhaar, and only when the sender is an individual.
+//
+// A company sender has no required document here at all, which is what makes
+// the wizard drop the step for them entirely (see getActiveSteps). Built
+// per-render for the same reason makeKycSchema is: what it asks for depends on
+// an answer the form has already collected.
+// ---------------------------------------------------------------------------
+
+export function makeDomesticKycSchema(senderIsCompany: boolean) {
+  return z
+    .object({
+      kycDocs: z.object({
+        companyPan: fileMetaSchema.nullable(),
+        pan: fileMetaSchema.nullable(),
+        aadhaar: fileMetaSchema.nullable(),
+        gst: fileMetaSchema.nullable(),
+        iec: fileMetaSchema.nullable(),
+        lut: fileMetaSchema.nullable(),
+      }),
+    })
+    .superRefine((data, ctx) => {
+      for (const key of requiredDomesticKycKeys(senderIsCompany)) {
+        if (!data.kycDocs[key]) {
+          const cfg = KYC_DOC_CONFIGS.find((c) => c.key === key);
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["kycDocs", key],
+            message: `${cfg?.label ?? key} is required for domestic shipments sent by an individual.`,
+          });
+        }
+      }
+    });
+}
 
 // ---------------------------------------------------------------------------
 // Step 3 — KYC

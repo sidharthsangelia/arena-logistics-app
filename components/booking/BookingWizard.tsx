@@ -22,38 +22,63 @@ import {
   type BookingDraftPayload,
 } from "@/actions/book/bookingDraft.action";
 import {
+  modeSchema,
   senderPickupSchema,
   deliveryBillingSchema,
+  domesticDeliveryBillingSchema,
   shipmentDetailsSchema,
+  domesticShipmentDetailsSchema,
   makeKycSchema,
+  makeDomesticKycSchema,
   serviceSchema,
   firstMileSchema,
 } from "@/types/booking.schema";
+import { isCompanyParty } from "@/lib/booking/domesticDocs";
 
 import ProgressSteps from "./ProgessSteps";
+import ModeStep from "./steps/ModeStep";
 import ReviewStep from "./steps/ReviewStep";
 import KycStep from "./steps/KycStep";
 import ServiceSelectionStep from "./steps/ServiceStep";
+import DomesticServiceStep from "./steps/DomesticServiceStep";
 import FirstMileStep from "./steps/FirstMileStep";
 import { SenderPickupStep } from "./steps/SenderPickupStep";
 import { DeliveryBillingStep } from "./steps/DeliveryBillingStep";
 import { createShipmentAction } from "@/actions/book/createShipment.action";
 import ShipmentDetailsStep from "./steps/ShipmentDetailStep";
+import DomesticShipmentDetailStep from "./steps/DomesticShipmentDetailStep";
 import { TopUpModal } from "@/components/wallet/TopUpModal";
 import { notifyWalletChanged } from "@/utils/wallet/events";
 
+// Steps that are SELF-MANAGED rather than backed by react-hook-form: they hold
+// arrays and file metadata that are edited through updateFormData, not
+// register(), so handleNext validates them against form data directly instead
+// of merging getValues() over it.
+const SELF_MANAGED_STEPS: string[] = [
+  STEP_KEY.MODE,
+  STEP_KEY.SHIPMENT_DETAILS,
+];
+
 // Steps validated against RHF-registered fields via getValues() + a zod schema,
 // keyed by the step's stable key (the list is dynamic — see useBookingWizard).
-// SHIPMENT_DETAILS is intentionally excluded — it's self-managed (array of
-// items via updateFormData, not RHF register) and validated separately below.
-// KYC is excluded too: its rules depend on the party's waiver, so handleNext
-// builds that schema per-attempt via makeKycSchema.
-const RHF_STEP_SCHEMAS: Record<string, any> = {
-  [STEP_KEY.SENDER]: senderPickupSchema,
-  [STEP_KEY.CONSIGNEE]: deliveryBillingSchema,
-  [STEP_KEY.SERVICE]: serviceSchema,
-  [STEP_KEY.FIRST_MILE]: firstMileSchema,
-};
+// The self-managed steps above are excluded, and so is KYC: its rules depend on
+// the party's waiver and on the mode, so handleNext builds that schema
+// per-attempt. Two entries branch on mode, because a domestic booking asks for
+// a different shape of the same step.
+function rhfSchemaFor(stepKey: string | undefined, isDomestic: boolean): any {
+  switch (stepKey) {
+    case STEP_KEY.SENDER:
+      return senderPickupSchema;
+    case STEP_KEY.CONSIGNEE:
+      return isDomestic ? domesticDeliveryBillingSchema : deliveryBillingSchema;
+    case STEP_KEY.SERVICE:
+      return serviceSchema;
+    case STEP_KEY.FIRST_MILE:
+      return firstMileSchema;
+    default:
+      return undefined;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Wallet status the Review step reports up, used to gate the submit button.
@@ -156,6 +181,17 @@ export default function BookingWizard({
 
   const [submitting, setSubmitting] = React.useState(false);
   const [submitError, setSubmitError] = React.useState<string | null>(null);
+
+  // Read straight off form data, never held in its own state: the mode is set
+  // on step 0 and every branch below is a pure consequence of it, so a second
+  // copy could only ever go stale.
+  const isDomestic = formData.mode === "DOMESTIC";
+
+  // Whether the sender is trading as a company, derived from the company-name
+  // field on the sender step. On a domestic booking this decides both the
+  // documents asked for and whether the KYC step exists at all — see
+  // lib/booking/domesticDocs.ts for why it is derived rather than asked.
+  const senderIsCompany = isCompanyParty(formData.consignor);
 
   // "Save & Next" persists the wizard state to a BookingDraft after each step
   // validates, so the user can leave and resume. `savingDraft` drives the
@@ -368,15 +404,23 @@ export default function BookingWizard({
   const handleNext = async () => {
     setSubmitError(null);
 
-    // Shipment Details is self-managed (array of items, not RHF fields) —
-    // it previously skipped validation entirely, meaning a user could
-    // advance with zero items. Validate it explicitly against the schema.
-    if (currentStepKey === STEP_KEY.SHIPMENT_DETAILS) {
-      const result = shipmentDetailsSchema.safeParse(formData);
+    // Self-managed steps hold arrays and file metadata edited through
+    // updateFormData rather than register(), so their RHF values are empty and
+    // merging getValues() over form data would wipe what the user just did.
+    // They validate against form data directly instead.
+    if (currentStepKey && SELF_MANAGED_STEPS.includes(currentStepKey)) {
+      const schema =
+        currentStepKey === STEP_KEY.MODE
+          ? modeSchema
+          : isDomestic
+            ? domesticShipmentDetailsSchema
+            : shipmentDetailsSchema;
+
+      const result = schema.safeParse(formData);
       if (!result.success) {
         setSubmitError(
           result.error.issues[0]?.message ??
-            "Please complete the shipment details.",
+            "Please complete this step before continuing.",
         );
         return;
       }
@@ -403,13 +447,18 @@ export default function BookingWizard({
     // highlighted.
     clearErrors();
 
-    // KYC is the one step whose rules are not fixed: a party with a live waiver
-    // is asked for Aadhaar only, so its schema is built from the flag KycStep
-    // resolved server-side rather than looked up in the static map.
+    // KYC is the one step whose rules are not fixed. Internationally they come
+    // from the export matrix, shortened to Aadhaar alone when the party has a
+    // live waiver (a flag KycStep resolved server-side). Domestically the
+    // export matrix does not apply at all: it is Aadhaar for an individual
+    // sender and nothing for a company one. Either way the schema is built
+    // per-attempt rather than looked up.
     const schema =
       currentStepKey === STEP_KEY.KYC
-        ? makeKycSchema(kycWaived)
-        : RHF_STEP_SCHEMAS[currentStepKey ?? ""];
+        ? isDomestic
+          ? makeDomesticKycSchema(senderIsCompany)
+          : makeKycSchema(kycWaived)
+        : rhfSchemaFor(currentStepKey, isDomestic);
     const result = schema?.safeParse(merged);
 
     if (result && !result.success) {
@@ -502,6 +551,14 @@ export default function BookingWizard({
           )}
 
           <div className="space-y-8">
+            {currentStepKey === STEP_KEY.MODE && (
+              <ModeStep
+                data={formData}
+                onChange={(partial) => updateFormData(partial)}
+                setValue={setValue}
+              />
+            )}
+
             {currentStepKey === STEP_KEY.SENDER && (
               <SenderPickupStep
                 orgContext={orgContext}
@@ -511,6 +568,7 @@ export default function BookingWizard({
                 clearErrors={clearErrors}
                 errors={errors}
                 clientError={(errors as any).selectedClient?.message}
+                isDomestic={isDomestic}
               />
             )}
 
@@ -522,18 +580,28 @@ export default function BookingWizard({
                 setValue={setValue}
                 clearErrors={clearErrors}
                 errors={errors}
+                isDomestic={isDomestic}
               />
             )}
 
-            {currentStepKey === STEP_KEY.SHIPMENT_DETAILS && (
-              <ShipmentDetailsStep
-                data={formData}
-                onChange={(partial) =>
-                  updateFormData(partial as Partial<BookingFormData>)
-                }
-                error={submitError ?? undefined}
-              />
-            )}
+            {currentStepKey === STEP_KEY.SHIPMENT_DETAILS &&
+              (isDomestic ? (
+                <DomesticShipmentDetailStep
+                  data={formData}
+                  onChange={(partial) =>
+                    updateFormData(partial as Partial<BookingFormData>)
+                  }
+                  error={submitError ?? undefined}
+                />
+              ) : (
+                <ShipmentDetailsStep
+                  data={formData}
+                  onChange={(partial) =>
+                    updateFormData(partial as Partial<BookingFormData>)
+                  }
+                  error={submitError ?? undefined}
+                />
+              ))}
 
             {currentStepKey === STEP_KEY.KYC && (
               <KycStep
@@ -551,17 +619,28 @@ export default function BookingWizard({
                     : { partyType: "ORG", orgId: orgContext.orgId }
                 }
                 onWaiverChange={setKycWaived}
+                isDomestic={isDomestic}
+                senderIsCompany={senderIsCompany}
               />
             )}
 
-            {currentStepKey === STEP_KEY.SERVICE && (
-              <ServiceSelectionStep
-                watch={watch}
-                setValue={setValue}
-                errors={errors}
-                formData={formData}
-              />
-            )}
+            {currentStepKey === STEP_KEY.SERVICE &&
+              (isDomestic ? (
+                <DomesticServiceStep
+                  watch={watch}
+                  setValue={setValue}
+                  errors={errors}
+                  formData={formData}
+                  onChange={(partial) => updateFormData(partial)}
+                />
+              ) : (
+                <ServiceSelectionStep
+                  watch={watch}
+                  setValue={setValue}
+                  errors={errors}
+                  formData={formData}
+                />
+              ))}
 
             {currentStepKey === STEP_KEY.FIRST_MILE && (
               <FirstMileStep
