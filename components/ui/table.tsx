@@ -4,11 +4,23 @@ import * as React from "react"
 
 import { cn } from "@/lib/utils"
 
-function Table({ className, ...props }: React.ComponentProps<"table">) {
+function Table({
+  className,
+  containerClassName,
+  ...props
+}: React.ComponentProps<"table"> & {
+  /**
+   * Styles the scroll container around the table. Pass "overflow-x-clip" for a
+   * table that is laid out to fit its column widths (table-fixed, truncating
+   * cells) and should never scroll sideways. Clip rather than hidden, so the
+   * vertical axis stays visible and dropdowns can still escape the container.
+   */
+  containerClassName?: string
+}) {
   return (
     <div
       data-slot="table-container"
-      className="relative w-full overflow-x-auto"
+      className={cn("relative w-full overflow-x-auto", containerClassName)}
     >
       <table
         data-slot="table"
