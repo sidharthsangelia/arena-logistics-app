@@ -33,7 +33,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { updateOrgSettings } from "@/actions/business-associates/action";
+import { updateOrgSettings } from "@/actions/accounts/accounts.action";
 
 type Props = {
   orgId: string;
