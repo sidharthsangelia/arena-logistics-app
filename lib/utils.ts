@@ -22,6 +22,20 @@ export function formatDate(date: Date | string): string {
   }).format(d);
 }
 
+/**
+ * Rupee amounts, with the grouping Indian readers expect (1,20,000 rather than
+ * 120,000). Two decimal places always, so a column of balances lines up on the
+ * point instead of ragging.
+ */
+export function formatInr(amount: number): string {
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(amount);
+}
+
 export function getInitials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return "?";

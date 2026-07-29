@@ -41,6 +41,7 @@
   --color-card: var(--card);
   --color-skeleton: var(--skeleton);
   --animate-skeleton-sheen: skeleton-sheen 2.1s ease-in-out infinite;
+  --animate-list-sweep: list-sweep 1.1s ease-in-out infinite;
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -134,6 +135,21 @@
   }
   to {
     transform: translateX(100%);
+  }
+}
+
+/*
+ * List sweep: an indeterminate bar for a list that is fetching its next set of
+ * rows while the current ones stay on screen. Faster than the skeleton sheen,
+ * because this one answers "did my click register?" rather than "is something
+ * coming?", and that question deserves an answer within a frame or two.
+ */
+@keyframes list-sweep {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(400%);
   }
 }
 
