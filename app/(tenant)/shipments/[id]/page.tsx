@@ -94,10 +94,20 @@ async function getShipment(id: string, orgId: string) {
       bookedAt: true,
       internalNotes: true,
       billingSameAsDelivery: true,
-      // The customs export category picked on the packages step. Null on drafts
-      // and on rows created before the field existed, so every read of it here
-      // has a "Not set" path.
+      // INTERNATIONAL or DOMESTIC. Decides which of the mode-specific blocks on
+      // this page render at all: a domestic shipment has no customs category
+      // and no air waybill, and an international one has no cash on delivery.
+      mode: true,
+      // The customs export category picked on the packages step. Null on drafts,
+      // on rows created before the field existed, and on every domestic
+      // shipment, so every read of it here has a "Not set" path.
       shipmentType: true,
+      // Cash on delivery — domestic only. codAmount is the goods value the
+      // courier collects from the receiver, NOT part of what was charged.
+      codEnabled: true,
+      codAmount: true,
+      domesticAwbNumber: true,
+      domesticTrackingUrl: true,
       quotedTotal: true,
       currency: true,
       markupPercentApplied: true,
@@ -638,10 +648,15 @@ async function ShipmentHeroCard({
 }) {
   const s = await shipmentPromise;
   const { totalBoxes, totalItemLines, totalDeclared } = packageTotals(s);
-  // Whichever AWB is on file — House AWB is the one we generate and hand to
-  // the customer, so it takes priority over the airline's Master AWB.
-  const trackingNumber = s.hawbNumber ?? s.mawbNumber;
-  const exportType = s.shipmentType ? SHIPMENT_TYPE_INFO[s.shipmentType] : null;
+  const isDomestic = s.mode === "DOMESTIC";
+  // Whichever waybill is on file. Domestic runs on the courier's AWB; an export
+  // has two, and the House AWB is the one we generate and hand to the customer,
+  // so it takes priority over the airline's Master AWB.
+  const trackingNumber = isDomestic
+    ? s.domesticAwbNumber
+    : (s.hawbNumber ?? s.mawbNumber);
+  const exportType =
+    !isDomestic && s.shipmentType ? SHIPMENT_TYPE_INFO[s.shipmentType] : null;
 
   return (
     <Card className="overflow-hidden">
@@ -666,10 +681,39 @@ async function ShipmentHeroCard({
                   </TooltipContent>
                 </Tooltip>
 
-                {/* Export category, chosen on the packages step. Sits next to
-                    the shipment number because it decides which paperwork the
-                    shipment travels on, so it is worth seeing without opening
-                    anything. Absent on drafts that never reached that step. */}
+                {/* Mode, then (for exports) the customs category. Both sit next
+                    to the shipment number because between them they decide
+                    which paperwork the shipment travels on, so they are worth
+                    seeing without opening anything. The category is absent on
+                    drafts that never reached the packages step, and on every
+                    domestic shipment, which has no customs category at all. */}
+                <Badge
+                  variant="secondary"
+                  className="text-[10px] font-medium"
+                >
+                  {isDomestic ? "Domestic" : "International"}
+                </Badge>
+
+                {isDomestic && s.codEnabled && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Badge
+                        variant="outline"
+                        className="cursor-help text-[10px] font-medium"
+                      >
+                        Cash on delivery
+                      </Badge>
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-56 text-xs">
+                      The courier collects{" "}
+                      {formatMoney(s.codAmount, "INR", { fallback: "the goods value" })}{" "}
+                      from the
+                      receiver on delivery and remits it to you. This is the
+                      value of your goods, not the shipping charge.
+                    </TooltipContent>
+                  </Tooltip>
+                )}
+
                 {exportType && (
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -1013,7 +1057,11 @@ async function DocumentsCard({
             ? `${s.documents.length} file${s.documents.length > 1 ? "s" : ""}`
             : undefined
         }
-        tooltip="Shipment documents such as commercial invoices, airway bills, and customs declarations."
+        tooltip={
+          s.mode === "DOMESTIC"
+            ? "Documents for this shipment, such as the GST tax invoice, e-way bill or delivery challan."
+            : "Shipment documents such as commercial invoices, airway bills, and customs declarations."
+        }
       />
       {s.documents.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-10 gap-2">
@@ -1022,8 +1070,9 @@ async function DocumentsCard({
             No documents available yet.
           </p>
           <p className="text-xs text-muted-foreground/70">
-            Documents such as AWB and invoices will appear here once
-            generated.
+            {s.mode === "DOMESTIC"
+              ? "Anything you attached at booking, plus what our team adds later, appears here."
+              : "Documents such as AWB and invoices will appear here once generated."}
           </p>
         </div>
       ) : (
@@ -1175,17 +1224,38 @@ async function BookingSummaryCard({
         </div>
       )}
 
-      {/* Export category + timestamps */}
+      {/* Mode, export category and timestamps */}
       <div className="px-4 py-1.5">
         <KVRow
-          label="Export type"
-          value={shipmentTypeLabel(s.shipmentType) ?? "Not set"}
+          label="Type"
+          value={s.mode === "DOMESTIC" ? "Domestic" : "International"}
           tooltip={
-            s.shipmentType
-              ? SHIPMENT_TYPE_INFO[s.shipmentType]?.blurb
-              : "The customs category is set when the shipment's boxes and declared value are entered."
+            s.mode === "DOMESTIC"
+              ? "Delivered within India by courier. No customs clearance is involved."
+              : "Sent from India to another country by air. Customs clearance and export paperwork apply."
           }
         />
+        {/* Only exports have a customs category, so the row is hidden rather
+            than shown as "Not set" on a domestic shipment, where it would read
+            as a missing value instead of one that does not apply. */}
+        {s.mode !== "DOMESTIC" && (
+          <KVRow
+            label="Export type"
+            value={shipmentTypeLabel(s.shipmentType) ?? "Not set"}
+            tooltip={
+              s.shipmentType
+                ? SHIPMENT_TYPE_INFO[s.shipmentType]?.blurb
+                : "The customs category is set when the shipment's boxes and declared value are entered."
+            }
+          />
+        )}
+        {s.mode === "DOMESTIC" && s.codEnabled && (
+          <KVRow
+            label="Cash on delivery"
+            value={formatMoney(s.codAmount, "INR", { fallback: "Enabled" })}
+            tooltip="Collected from the receiver on delivery and remitted to you. This is the declared value of your goods, separate from the shipping charge you already paid."
+          />
+        )}
         <KVRow
           label="Created"
           value={formatDateTime(s.createdAt)}

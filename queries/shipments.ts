@@ -1,7 +1,7 @@
 import "server-only";
 
 import { prisma } from "@/utils/db";
-import { Prisma, ShipmentStatus } from "@/generated/prisma";
+import { Prisma, ShipmentStatus, ShipmentMode } from "@/generated/prisma";
 import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 import { unstable_cache } from "next/cache";
@@ -72,6 +72,9 @@ export const SORTABLE_FIELDS: ShipmentSortField[] = [
 const SHIPMENT_SELECT = {
   id: true,
   shipmentNumber: true,
+  // Shown as a badge next to the shipment number, and used by the arena
+  // dashboard to scope its domestic route to domestic rows only.
+  mode: true,
   status: true,
   createdAt: true,
   bookedAt: true,
@@ -127,17 +130,27 @@ export interface GetShipmentsPageParams {
   statuses?: ShipmentStatus[];
   query?: string;
   client?: boolean;
+  /**
+   * Scope to one booking flow. The arena dashboard gives domestic its own
+   * route, so each of the two ops lists passes its own mode and neither ever
+   * shows the other's rows. Omitted on the tenant list, which shows both.
+   */
+  mode?: ShipmentMode;
 }
 
 type ShipmentsPageQuery = Omit<GetShipmentsPageParams, "client">;
 
 const fetchShipmentsPage = unstable_cache(
   async (orgId: string | null, params: ShipmentsPageQuery) => {
-    const { page, pageSize, sortField, sortDir, statuses, query } = params;
+    const { page, pageSize, sortField, sortDir, statuses, query, mode } = params;
     const where: Prisma.ShipmentWhereInput = {};
 
     if (orgId) {
       where.orgId = orgId;
+    }
+
+    if (mode) {
+      where.mode = mode;
     }
 
     // -----------------------------------------------------------------------
@@ -253,8 +266,12 @@ export async function getShipmentsPage({
  */
 
 const fetchShipmentStatusCounts = unstable_cache(
-  async (orgId: string | null) => {
-    const where: Prisma.ShipmentWhereInput = orgId ? { orgId } : {};
+  async (orgId: string | null, mode?: ShipmentMode) => {
+    const where: Prisma.ShipmentWhereInput = {};
+    if (orgId) where.orgId = orgId;
+    // Scoped the same way the list is, so the stat cards above a mode-specific
+    // list always add up to the rows underneath it.
+    if (mode) where.mode = mode;
 
     const counts = await prisma.shipment.groupBy({
       by: ["status"],
@@ -272,7 +289,10 @@ const fetchShipmentStatusCounts = unstable_cache(
   { revalidate: CACHE_TTL_SECONDS, tags: [SHIPMENTS_COUNTS_TAG] },
 );
 
-export async function getShipmentStatusCounts(client = false) {
+export async function getShipmentStatusCounts(
+  client = false,
+  mode?: ShipmentMode,
+) {
   const orgId = client ? await resolveClientOrgId() : null;
-  return fetchShipmentStatusCounts(orgId);
+  return fetchShipmentStatusCounts(orgId, mode);
 }
