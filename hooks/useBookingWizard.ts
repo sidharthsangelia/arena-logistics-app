@@ -7,6 +7,7 @@ import {
   Package,
   MapPinned,
   Truck,
+  Plane,
   CheckCircle,
   Building,
   Home,
@@ -92,7 +93,13 @@ export function getActiveSteps(data: {
       return !isDomestic || !data.senderIsCompany;
     }
     return true;
-  });
+  }).map((s) =>
+    // The rates step is the one leg whose icon changes with the mode: an
+    // international booking flies, a domestic one goes by road courier.
+    s.key === STEP_KEY.SERVICE
+      ? { ...s, icon: isDomestic ? Truck : Plane }
+      : s,
+  );
 }
 
 const initialFormData: BookingFormData = {
