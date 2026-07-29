@@ -95,7 +95,7 @@ export default function AdminVaultTable() {
         ),
         cell: ({ row }) => (
           <Link
-            href={`/arena-dashboard/business-associates/${row.original.org.id}`}
+            href={`/arena-dashboard/accounts/${row.original.org.id}`}
             className="group flex items-center gap-1.5"
           >
             <Building2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />

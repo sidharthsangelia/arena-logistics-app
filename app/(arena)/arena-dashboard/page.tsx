@@ -640,7 +640,9 @@ async function ArenaOverviewBody() {
             </CardDescription>
           </div>
           <Button variant="ghost" size="sm" className="gap-1 text-xs h-7" asChild>
-            <Link href="/arena-dashboard/business-associates">
+            {/* Ranks every organisation, associate or not, so it opens the
+                Accounts list rather than the associates one. */}
+            <Link href="/arena-dashboard/accounts">
               View all
               <ArrowRight className="h-3 w-3" />
             </Link>

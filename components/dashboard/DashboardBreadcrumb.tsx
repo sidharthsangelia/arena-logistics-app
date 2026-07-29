@@ -42,6 +42,7 @@ const ARENA_LABELS: Record<string, string> = {
   orgs: "Organisations",
   notices: "Dashboard Notices",
   "business-associates": "Business Associates",
+  accounts: "Accounts",
 };
 
 const LABEL_MAPS: Record<string, Record<string, string>> = {

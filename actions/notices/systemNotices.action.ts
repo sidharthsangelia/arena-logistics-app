@@ -4,7 +4,7 @@
 //
 // No auth check here: /arena-dashboard and the server actions invoked from pages
 // under it are already gated to ARENA_ORG_ID staff by clerkMiddleware in
-// proxy.ts — same reasoning as actions/business-associates/action.ts. auth() is
+// proxy.ts. auth() is
 // still called, but only to stamp createdBy/updatedBy for the audit trail.
 
 import * as Sentry from "@sentry/nextjs";

@@ -223,6 +223,12 @@ const NAV_CONFIGS: Record<string, NavConfig> = {
             description: "Requests waiting to be processed",
           },
           {
+            title: "Accounts",
+            href: "/accounts",
+            icon: Building2,
+            description: "Everyone who has signed up on the platform",
+          },
+          {
             title: "Business Associates",
             href: "/business-associates",
             icon: Handshake,
@@ -232,7 +238,7 @@ const NAV_CONFIGS: Record<string, NavConfig> = {
             title: "All Clients",
             href: "/clients",
             icon: Users,
-            description: "Every client across every account",
+            description: "Customers that business associates book for",
           },
           {
             title: "All Quotes",
