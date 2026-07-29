@@ -192,3 +192,71 @@ The form is designed to be filled in stages, matching the model boundaries above
 - **BA reapplication after rejection** — not restricted in the schema; a rejected `Org` can submit a new `BaApplication` row at any time (old rejected row stays as history). If a cooldown period is ever wanted, that's application-layer logic, not a schema change.
 - **DB-level CHECK constraints** for "exactly one of `orgId`/`clientId` is set" on `KycDocument` and `Address` — currently enforced only in the application layer. Worth adding as a raw-SQL migration later if stricter guarantees are wanted.
 - **`ClientDocument` vs `KycDocument` overlap** — both currently exist; migrating fully to `KycDocument` is a future cleanup, not urgent.
+---
+
+## 11. Domestic booking (India to India)
+
+The platform books two kinds of shipment. Everything above describes the export flow; this section covers the domestic one and, more importantly, why it is built the way it is.
+
+### One table, two views
+
+`Shipment.mode` is a `ShipmentMode` enum (`INTERNATIONAL` | `DOMESTIC`) with a default of `INTERNATIONAL`, so every row that existed before domestic booking kept its meaning without a backfill.
+
+**Domestic shipments were deliberately NOT given their own table.** `Shipment` is the hub for `PackageItem`, `ShipmentDocument`, `ShipmentStatusEvent`, `WalletTransaction`, `Invoice` and `PaymentCollection`. Splitting it would turn every one of those foreign keys either into a duplicate or into a nullable polymorphic pair with no referential integrity, and every list, count and search query into a UNION with hand rolled pagination. The wallet debit, the shipment number sequence, the milestone emails and the notification rows would all need two code paths forever.
+
+The reason a split looked attractive was so the operations team could work the two kinds separately. That is a **view** problem, and it is solved by filtering on the column: domestic gets its own arena route (`/arena-dashboard/domestic-bookings`) with its own list and detail page, and the international list is scoped to `mode: INTERNATIONAL`. Opening a domestic shipment at the international URL redirects, so every pre-existing link keeps working.
+
+The schema was already doing this. `mawbNumber` and `hawbNumber` are air export only, and the whole `firstMile*` block is door pickup only. The `codEnabled` / `codAmount` / `domestic*` block follows the same pattern.
+
+### What the domestic flow drops
+
+A domestic parcel clears no customs, so the export apparatus does not apply to it and is not rendered:
+
+- **No customs category.** `shipmentType` (CSB4 / CSB5 / COMMERCIAL) is written as `null` on every domestic row rather than defaulted, so it never reads as a shipment that clears customs.
+- **No generated commercial invoice.** Arena does not raise GST invoices on a customer's behalf. An invoice is taken as an upload when one applies, and generated never.
+- **No door pickup opt in and no first mile step.** A domestic booking is a single door to door courier move, so there is no separate first leg to price. `pickupIncluded` is forced to `false` server side rather than trusted from the payload.
+- **No country selection.** Sender, pickup, delivery and billing are all pinned to India, the pincode lookup runs against India Post data, and values are always rupees.
+- **No export KYC matrix.** No PAN, GST, IEC or LUT.
+
+### What it adds: GST paperwork, derived rather than asked
+
+The rules live in `lib/booking/domesticDocs.ts`, which the form, the wizard schema and the server side check in `createShipmentAction` all read, so what the form asks for and what the booking enforces cannot drift apart.
+
+| Sender | Receiver | Tax invoice | Delivery challan | E-way bill |
+| --- | --- | --- | --- | --- |
+| Individual | Individual | not required | optional | over the threshold |
+| Individual | Company | not required | optional | over the threshold |
+| Company | Individual | required | optional | over the threshold |
+| Company | Company | required | optional | over the threshold |
+
+The e-way bill threshold is a declared value **exceeding** 50,000 rupees, so a consignment of exactly 50,000 does not need one.
+
+**There is no "are you a company?" question.** The wizard already asks for a company name on both the sender and the receiver, and that answer is exactly what this matrix keys off: a party who filled a company name is trading as a company, one who left it blank is an individual. Asking the same thing twice in different words would let the two answers disagree with no principled way to decide which wins. The sender step says so explicitly, because a field that silently decides your paperwork should not be a surprise.
+
+The same signal decides two other things:
+
+- **HSN codes.** Mandatory on every line for a company sender, whose tax invoice has to carry them. Optional for an individual, who genuinely has no HSN code for the clothes they are posting to family and would otherwise have to invent one to get past the step.
+- **Party KYC.** A domestic booking asks an individual sender for an Aadhaar card and a company sender for nothing at all, which is why the KYC step disappears entirely for a company sender rather than rendering empty. A company is already identified by the tax invoice it has to attach; an individual attaches nothing that names them.
+
+**Known gap:** the GST rules make the tax invoice optional for a pure stock movement between a company's own branches, with a delivery challan the right document instead. That case cannot be told apart from an ordinary company sale from the addresses alone, so the tax invoice is asked for on every company sender booking and the challan sits beside it as an optional extra. Operations reconciles the rare branch transfer by hand.
+
+### Address.companyName
+
+`Address` gained a `companyName` column as part of this. The booking form collected it on every address block and then discarded it, which lost it the moment a shipment was created. It is not decoration: on a domestic booking it is the field that decided the paperwork, so without it persisted, operations cannot tell after the fact which rule a shipment was judged against.
+
+### Cash on delivery
+
+Offered on domestic rates only, and it is Shipmozo's facility rather than a change to how the customer pays Arena.
+
+- **The wallet is still debited for the freight at booking**, exactly as on a prepaid shipment. `codAmount` is never part of `chargeTotal`.
+- `codAmount` is the **declared goods value**, derived from the boxes rather than entered separately, so the figure the courier collects can never quietly disagree with the figure the shipment is declared and insured at.
+- COD is **priced, not applied afterwards**. Couriers charge a collection fee that differs between them, so toggling COD refetches the rates. Quoting prepaid and flipping the order to COD at booking would show the customer a price they never pay.
+
+### Rates and markup
+
+Domestic quotes come from Shipmozo's pincode courier network via `getDomesticRatesAction`, the same action the export flow's door to hub first mile leg uses. The org's `markupPercent` is read from the database and applied there, identically to the international flow, and snapshotted onto the shipment at booking as `markupPercentApplied`.
+
+### Not built yet
+
+- **The Shipmozo courier push.** Operations books the order by hand in the Shipmozo panel and records the AWB. The decision is that the push stays operations triggered rather than automatic at booking, matching how the export first mile leg already works, so a courier outage can never fail a paid booking. The columns it needs (`domesticCourierOrderId`, `domesticCourierWarehouseId`, `domesticAwbNumber`, `domesticTrackingUrl`, `domesticCourierBookedAt`) already exist, so wiring it needs no migration.
+- **Domestic tracking.** The Shipmozo webhook at `/api/webhooks/shipmozo/[token]` still filters on `pickupIncluded: true`, so it only advances the export first mile leg. Domestic status is moved by hand from the operations page until the push above exists to match orders against.
