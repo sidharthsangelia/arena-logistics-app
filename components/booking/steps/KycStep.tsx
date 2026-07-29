@@ -66,6 +66,12 @@ interface KycStepProps {
   shipmentType: ShipmentTypeValue;
   /** Whose vault to read/save (org, or the client for BA-for-client bookings). */
   party: Party;
+  /**
+   * Told whether this party has a live KYC waiver, as resolved server-side by
+   * getKycDocs. The wizard needs it to validate the step against the same
+   * shortened list this component renders.
+   */
+  onWaiverChange?: (waived: boolean) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -404,10 +410,18 @@ export default function KycStep({
   errors,
   shipmentType,
   party,
+  onWaiverChange,
 }: KycStepProps) {
   const kycDocs = watch("kycDocs");
 
   const [existingDocs, setExistingDocs] = useState<PartyKycDoc[]>([]);
+  // Stamped with the party it was answered for, so a BA switching from a waived
+  // client to an un-waived one can never see the shorter list for even a frame
+  // while the new answer is in flight. Read through `kycWaived` below.
+  const [waiverAnswer, setWaiverAnswer] = useState<{
+    partyKey: string;
+    waived: boolean;
+  } | null>(null);
   const [loadingDocs, startLoad] = useTransition();
   const [loadError, setLoadError] = useState<string | null>(null);
   const [consents, setConsents] = useState<Partial<Record<KycDocKey, boolean>>>({});
@@ -415,6 +429,11 @@ export default function KycStep({
   const [optionalOpen, setOptionalOpen] = useState(false);
 
   const partyKey = party.partyType === "ORG" ? party.orgId : party.clientId;
+
+  // Fails closed by construction: anything other than a fresh "yes" for THIS
+  // party — no answer yet, a failed load, a party that just changed — reads as
+  // not waived, which asks for the full document set.
+  const kycWaived = waiverAnswer?.partyKey === partyKey && waiverAnswer.waived;
 
   // Fetch existing vault docs for this party — does NOT touch RHF form state.
   // Refetches if the party changes (BA switching which client they book for).
@@ -427,9 +446,16 @@ export default function KycStep({
       }
       setLoadError(null);
       setExistingDocs(result.docs);
+      setWaiverAnswer({ partyKey, waived: result.kycWaived });
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [partyKey]);
+
+  // Keep the wizard's copy in step, so "Next" validates against the same list
+  // this step is showing.
+  useEffect(() => {
+    onWaiverChange?.(kycWaived);
+  }, [kycWaived, onWaiverChange]);
 
   const byKey = useMemo(
     () =>
@@ -441,7 +467,13 @@ export default function KycStep({
 
   const kycErrors = errors.kycDocs as Record<string, { message?: string }> | undefined;
 
-  const requiredKeys = useMemo(() => new Set(requiredKycKeys(shipmentType)), [shipmentType]);
+  // A live waiver shortens this to Aadhaar alone. Everything it drops moves
+  // into the optional collapsible below rather than disappearing — the customer
+  // can still upload a PAN today, and usually should.
+  const requiredKeys = useMemo(
+    () => new Set(requiredKycKeys(shipmentType, kycWaived)),
+    [shipmentType, kycWaived],
+  );
   const requiredConfigs = KYC_DOC_CONFIGS.filter((c) => requiredKeys.has(c.key));
   const optionalConfigs = KYC_DOC_CONFIGS.filter((c) => !requiredKeys.has(c.key));
 
@@ -506,6 +538,27 @@ export default function KycStep({
             : "We read from and save to your vault, so you only upload each one once."}
         </p>
       </div>
+
+      {/*
+        Waiver notice. Deliberately plain about what happened and what it does
+        not mean: the shorter list is a concession from ops, not a change to
+        what customs wants, and the paperwork can still be asked for later.
+        Says nothing about who granted it, why, or when it lapses — that is
+        Arena's record, not the customer's.
+      */}
+      {kycWaived && !loadingDocs && (
+        <div className="flex items-start gap-2.5 rounded-lg border bg-muted/30 px-3.5 py-3">
+          <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+          <div className="min-w-0 text-sm">
+            <p className="font-medium">KYC requirements relaxed by Arena ops</p>
+            <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+              {forClient ? "This client only needs" : "You only need"} an Aadhaar
+              card to book right now. The remaining documents are optional below,
+              and Arena may still ask for them before the shipment clears customs.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Progress */}
       <div className="rounded-lg border bg-muted/20 p-4">

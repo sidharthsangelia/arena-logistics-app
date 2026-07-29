@@ -62,9 +62,13 @@ import { KycDocsCard } from "@/components/booking/arena/KycDocsCard";
 import { PaymentCollectionCard } from "@/components/booking/arena/PaymentCollectionCard";
 import { toCollectionRow } from "@/lib/wallet/adminLedger";
 import { getArenaAuth } from "@/utils/arena-auth";
-import { KYC_DOC_CONFIGS, requiredKycDocTypes } from "@/lib/booking/kyc";
+import {
+  KYC_DOC_CONFIGS,
+  WAIVED_REQUIRED_KYC_KEYS,
+  requiredKycDocTypes,
+} from "@/lib/booking/kyc";
 import { FIRST_MILE_STAGES } from "@/lib/booking/firstMileStatus";
-import { CSB4_MAX_VALUE } from "@/lib/booking/cargo";
+import { CSB4_MAX_VALUE, SHIPMENT_TYPE_INFO } from "@/lib/booking/cargo";
 import { PartyType } from "@/generated/prisma";
 import { cn } from "@/lib/utils";
 
@@ -189,21 +193,6 @@ async function getPartyKycDocs(orgId: string, clientId: string | null) {
 // ---------------------------------------------------------------------------
 // Shipment-type reference (mirrors the KYC matrix in lib/booking/kyc.ts)
 // ---------------------------------------------------------------------------
-
-const SHIPMENT_TYPE_INFO: Record<string, { label: string; blurb: string }> = {
-  CSB4: {
-    label: "CSB-IV",
-    blurb: "Low-value exports under the CSB-IV limit. No IEC required.",
-  },
-  CSB5: {
-    label: "CSB-V",
-    blurb: "Commercial exports under IEC. GST and IEC required.",
-  },
-  COMMERCIAL: {
-    label: "Commercial",
-    blurb: "Full commercial cargo. Company KYC, IEC and LUT required.",
-  },
-};
 
 // ---------------------------------------------------------------------------
 // Formatters
@@ -681,15 +670,25 @@ function ComplianceCheck({
   shipmentType,
   totalDeclared,
   currency,
+  kycWaived = false,
 }: {
   shipmentType: string | null;
   totalDeclared: number;
   currency: string;
+  /** Shipment.kycWaivedAtBooking — this booking was let through on a waiver. */
+  kycWaived?: boolean;
 }) {
   const info = shipmentType ? SHIPMENT_TYPE_INFO[shipmentType] : null;
+  // Lists what this booking was actually required to produce. Under a waiver
+  // that is Aadhaar alone, so the panel does not tell ops to chase a GST
+  // certificate an admin already said was not needed.
   const requiredDocs = shipmentType
     ? KYC_DOC_CONFIGS.filter((c) =>
-        c.requiredFor.includes(shipmentType as "CSB4" | "CSB5" | "COMMERCIAL"),
+        kycWaived
+          ? (WAIVED_REQUIRED_KYC_KEYS as readonly string[]).includes(c.key)
+          : c.requiredFor.includes(
+              shipmentType as "CSB4" | "CSB5" | "COMMERCIAL",
+            ),
       ).map((c) => c.label)
     : [];
 
@@ -835,8 +834,11 @@ export default async function BookingDetailPage({
   const firstMileStatus = s.firstMileStatus ?? FirstMileStatus.SCHEDULED;
   const firstMileArrivedAtHub =
     firstMileStatus === FirstMileStatus.ARRIVED_AT_HUB;
+  // Judged against what this booking was actually asked for. A waived booking
+  // only ever needed an Aadhaar card, so counting it against the full matrix
+  // would put a booking ops deliberately let through into the triage banner.
   const missingKycCount = s.shipmentType
-    ? requiredKycDocTypes(s.shipmentType).filter(
+    ? requiredKycDocTypes(s.shipmentType, s.kycWaivedAtBooking).filter(
         (dt) => !kycDocs.some((d) => d.docType === dt),
       ).length
     : 0;
@@ -1013,6 +1015,7 @@ export default async function BookingDetailPage({
             shipmentType={s.shipmentType}
             totalDeclared={totalDeclared}
             currency={s.currency}
+            kycWaived={s.kycWaivedAtBooking}
           />
 
           {/* KYC documents — view / download right here */}
@@ -1020,6 +1023,7 @@ export default async function BookingDetailPage({
             docs={kycDocs}
             shipmentType={s.shipmentType}
             partyLabel={s.client?.companyName ?? s.org.name}
+            kycWaived={s.kycWaivedAtBooking}
           />
 
           {/* Parties */}

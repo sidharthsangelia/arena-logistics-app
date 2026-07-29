@@ -73,6 +73,7 @@ model Org {
 
   wallet         Wallet?
   kycDocuments   KycDocument[]
+  kycWaivers     KycWaiver[]
   addresses      Address[]
   shipments      Shipment[]
   baApplications BaApplication[]
@@ -183,6 +184,7 @@ model Client {
   emailPreference ClientEmailPreference @default(INHERIT)
 
   kycDocuments KycDocument[]
+  kycWaivers   KycWaiver[]
   addresses    Address[]
   shipments    Shipment[]
 
@@ -672,6 +674,60 @@ model KycDocument {
 }
 
 // ─────────────────────────────────────────────
+// KycWaiver — "we spoke to ops, book it anyway"
+//
+// A customer who has not finished their paperwork can still be let through
+// after a conversation with the operations team. An Arena ADMIN records that
+// conversation here, and while the waiver is live the booking wizard asks the
+// party for their Aadhaar only: PAN, Company PAN, GST, IEC and LUT all stop
+// being mandatory. Aadhaar is never waivable — it is the one identity document
+// the shipment cannot move without.
+//
+// WHY A TABLE AND NOT A BOOLEAN ON Org/Client
+// A boolean records that KYC is off. It does not record who turned it off, why,
+// or when it should stop. Those three are the whole point: a waiver is a
+// commercial exception to a compliance rule, so it has to answer to somebody
+// later. Every grant and every revoke stays on the row, so the history reads
+// years afterwards, including for parties whose waiver has long expired.
+//
+// Polymorphic, exactly like KycDocument: exactly one of orgId / clientId is set.
+// An org's waiver covers only the org's own shipments; a BA's client needs their
+// own waiver. That is deliberate — one conversation about one shipper should
+// never quietly excuse a BA's entire book of clients.
+//
+// ACTIVE means: revokedAt is null AND expiresAt is in the future. Expiry is
+// mandatory, so a waiver nobody remembers to revoke closes itself.
+// ─────────────────────────────────────────────
+
+model KycWaiver {
+  id String @id @default(cuid())
+
+  partyType PartyType
+  orgId     String?
+  org       Org?      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  clientId  String?
+  client    Client?   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  /// Why ops allowed this. Required — a waiver with no stated reason is not one.
+  reason    String
+  /// Hard stop. The full document matrix applies again from this moment on.
+  expiresAt DateTime
+
+  grantedBy     String // Clerk user id of the Arena admin
+  grantedByName String? // display name snapshot, so it survives them leaving
+  grantedAt     DateTime @default(now())
+
+  revokedAt     DateTime?
+  revokedBy     String?
+  revokedByName String?
+
+  // The hot read is "is there a live waiver for this party", run on every KYC
+  // step render and again on every booking submit. Both indexes cover it.
+  @@index([orgId, revokedAt, expiresAt])
+  @@index([clientId, revokedAt, expiresAt])
+}
+
+// ─────────────────────────────────────────────
 // Address — polymorphic, same pattern as KycDocument.
 // Reusable address-book entries for pickup/delivery/billing.
 // ─────────────────────────────────────────────
@@ -829,6 +885,13 @@ model Shipment {
   // CSB4 / CSB5 / COMMERCIAL — set once packages are entered. Nullable so a
   // half-finished DRAFT (or legacy row) can exist without it.
   shipmentType ShipmentType?
+
+  // True when this booking passed the KYC gate under a live KycWaiver rather
+  // than a complete document set. Frozen here at booking time because the
+  // waiver itself expires: without the snapshot, a shipment that ops let
+  // through on an exception becomes indistinguishable a month later from one
+  // that was fully papered. Ops sees it on the booking detail page.
+  kycWaivedAtBooking Boolean @default(false)
 
   declaredCargoType       String? // free text, or map to your existing CargoType enum if useful here too
   totalActualWeightKg     Decimal? @db.Decimal(12, 2)

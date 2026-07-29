@@ -27,6 +27,7 @@ import {
   KYC_DOC_TYPE_TO_KEY,
   type KycDocKey,
 } from "@/lib/booking/kyc";
+import { isKycWaived } from "@/lib/booking/waiver";
 import { syncOrgProfileMetadata } from "@/utils/clerk/syncProfileMetadata";
 
 // ---------------------------------------------------------------------------
@@ -64,8 +65,8 @@ export interface PartyKycDoc {
 }
 
 export type GetKycDocsResult =
-  | { success: true; docs: PartyKycDoc[] }
-  | { success: false; error: string; docs: [] };
+  | { success: true; docs: PartyKycDoc[]; kycWaived: boolean }
+  | { success: false; error: string; docs: []; kycWaived: false };
 
 // ---------------------------------------------------------------------------
 // Shared row fetch — no auth, callers have already resolved orgId/clientId
@@ -126,8 +127,22 @@ export async function getKycDocs(party: Party): Promise<GetKycDocsResult> {
     const org = await getCurrentOrg();
     const { orgId, clientId } = await resolveParty(party, org.id);
     const docType = party.partyType === "ORG" ? PartyType.ORG : PartyType.CLIENT;
-    const docs = await fetchKycDocsForParty(orgId, clientId, docType);
-    return { success: true, docs };
+
+    // resolveParty has already proved the caller owns this party, so the waiver
+    // read rides along on the request the step was making anyway.
+    //
+    // A BOOLEAN, AND ONLY A BOOLEAN. The waiver row also holds the reason ops
+    // typed and the name of the admin who granted it; neither belongs in a
+    // customer's browser, and neither is fetched here. What the tenant learns
+    // is exactly what the form has to know: fewer documents are required.
+    // Nothing downstream trusts this value either — createShipment re-reads the
+    // waiver from the database before it accepts the booking.
+    const [docs, kycWaived] = await Promise.all([
+      fetchKycDocsForParty(orgId, clientId, docType),
+      isKycWaived(party),
+    ]);
+
+    return { success: true, docs, kycWaived };
   } catch (err) {
     console.error("[getKycDocs]", err);
     Sentry.captureException(err, { tags: { action: "getKycDocs" } });
@@ -136,6 +151,7 @@ export async function getKycDocs(party: Party): Promise<GetKycDocsResult> {
       error:
         err instanceof Error ? err.message : "Failed to fetch KYC documents.",
       docs: [],
+      kycWaived: false,
     };
   }
 }

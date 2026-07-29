@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { KYC_DOC_CONFIGS } from "@/lib/booking/kyc";
+import { KYC_DOC_CONFIGS, requiredKycKeys } from "@/lib/booking/kyc";
 
 // ---------------------------------------------------------------------------
 // Shared
@@ -155,29 +155,45 @@ export const shipmentDetailsSchema = z
 // step, which always runs before KYC).
 // ---------------------------------------------------------------------------
 
-export const kycSchema = z
-  .object({
-    shipmentType: z.enum(["CSB4", "CSB5", "COMMERCIAL"]),
-    kycDocs: z.object({
-      companyPan: fileMetaSchema.nullable(),
-      pan: fileMetaSchema.nullable(),
-      aadhaar: fileMetaSchema.nullable(),
-      gst: fileMetaSchema.nullable(),
-      iec: fileMetaSchema.nullable(),
-      lut: fileMetaSchema.nullable(),
-    }),
-  })
-  .superRefine((data, ctx) => {
-    for (const cfg of KYC_DOC_CONFIGS) {
-      if (cfg.requiredFor.includes(data.shipmentType) && !data.kycDocs[cfg.key]) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["kycDocs", cfg.key],
-          message: `${cfg.label} is required for ${data.shipmentType} shipments.`,
-        });
+/**
+ * Built per-render rather than exported as one fixed schema, because what the
+ * step requires depends on whether the party has a live KYC waiver (see the
+ * KycWaiver model). `waived` is resolved server-side by getKycDocs and passed
+ * down; it only decides what this form asks for. The booking submit re-reads the
+ * waiver from the database, so a browser claiming `waived` gets nowhere.
+ */
+export function makeKycSchema(waived = false) {
+  return z
+    .object({
+      shipmentType: z.enum(["CSB4", "CSB5", "COMMERCIAL"]),
+      kycDocs: z.object({
+        companyPan: fileMetaSchema.nullable(),
+        pan: fileMetaSchema.nullable(),
+        aadhaar: fileMetaSchema.nullable(),
+        gst: fileMetaSchema.nullable(),
+        iec: fileMetaSchema.nullable(),
+        lut: fileMetaSchema.nullable(),
+      }),
+    })
+    .superRefine((data, ctx) => {
+      const required = new Set(requiredKycKeys(data.shipmentType, waived));
+
+      for (const cfg of KYC_DOC_CONFIGS) {
+        if (required.has(cfg.key) && !data.kycDocs[cfg.key]) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["kycDocs", cfg.key],
+            message: waived
+              ? `${cfg.label} is still required.`
+              : `${cfg.label} is required for ${data.shipmentType} shipments.`,
+          });
+        }
       }
-    }
-  });
+    });
+}
+
+/** The un-waived matrix — the default every caller gets unless told otherwise. */
+export const kycSchema = makeKycSchema(false);
 
 // ---------------------------------------------------------------------------
 // Step 5 — Service selection

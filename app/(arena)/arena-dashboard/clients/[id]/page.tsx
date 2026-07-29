@@ -8,6 +8,9 @@ import ClientEditSheet from "@/components/clients/clientDetailPage/ClientEditShe
 import ClientDetailStats from "@/components/clients/clientDetailPage/ClientDetailStats";
 import ClientQuoteHistory from "@/components/clients/clientDetailPage/ClientQuoteHistory";
 import KycVault from "@/components/clients/clientDetailPage/KycVault";
+import KycWaiverCard from "@/components/kyc/KycWaiverCard";
+import { getArenaAuth } from "@/utils/arena-auth";
+import { getActiveKycWaiver } from "@/lib/booking/waiver";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   HeaderSkeleton,
@@ -283,6 +286,48 @@ async function ClientQuotes({
   );
 }
 
+/**
+ * The KYC waiver control for a BA's client — the same card the account page
+ * shows for an org, pointed at a client instead.
+ *
+ * ADMIN ONLY, and the check is made here rather than by the caller so no future
+ * placement of this section can forget it. Ops members simply do not see the
+ * card; grantKycWaiver / revokeKycWaiver re-check the role for themselves, so
+ * this is presentation, not the gate.
+ */
+async function ClientKycWaiver({
+  clientPromise,
+}: {
+  clientPromise: ReturnType<typeof fetchClient>;
+}) {
+  const [client, arena] = await Promise.all([clientPromise, getArenaAuth()]);
+
+  if (!arena.isArenaAdmin) return null;
+
+  const waiver = await getActiveKycWaiver({
+    partyType: "CLIENT",
+    clientId: client.id,
+  });
+
+  return (
+    <KycWaiverCard
+      party={{ partyType: "CLIENT", clientId: client.id }}
+      partyName={client.companyName}
+      waiver={
+        waiver
+          ? {
+              id: waiver.id,
+              reason: waiver.reason,
+              expiresAt: waiver.expiresAt.toISOString(),
+              grantedByName: waiver.grantedByName,
+              grantedAt: waiver.grantedAt.toISOString(),
+            }
+          : null
+      }
+    />
+  );
+}
+
 async function ClientDocuments({
   clientPromise,
 }: {
@@ -361,6 +406,12 @@ export default async function ClientDetailPage({ params }: Props) {
 
           <Suspense fallback={<KycVaultSkeleton />}>
             <ClientDocuments clientPromise={clientPromise} />
+          </Suspense>
+
+          {/* Waiver sits under the vault: you look at what is on file first,
+              then decide whether to let them book without the rest. */}
+          <Suspense fallback={<Skeleton className="h-52 w-full rounded-lg" />}>
+            <ClientKycWaiver clientPromise={clientPromise} />
           </Suspense>
         </div>
       </div>

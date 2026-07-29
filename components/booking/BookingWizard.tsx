@@ -25,7 +25,7 @@ import {
   senderPickupSchema,
   deliveryBillingSchema,
   shipmentDetailsSchema,
-  kycSchema,
+  makeKycSchema,
   serviceSchema,
   firstMileSchema,
 } from "@/types/booking.schema";
@@ -46,10 +46,11 @@ import { notifyWalletChanged } from "@/utils/wallet/events";
 // keyed by the step's stable key (the list is dynamic — see useBookingWizard).
 // SHIPMENT_DETAILS is intentionally excluded — it's self-managed (array of
 // items via updateFormData, not RHF register) and validated separately below.
+// KYC is excluded too: its rules depend on the party's waiver, so handleNext
+// builds that schema per-attempt via makeKycSchema.
 const RHF_STEP_SCHEMAS: Record<string, any> = {
   [STEP_KEY.SENDER]: senderPickupSchema,
   [STEP_KEY.CONSIGNEE]: deliveryBillingSchema,
-  [STEP_KEY.KYC]: kycSchema,
   [STEP_KEY.SERVICE]: serviceSchema,
   [STEP_KEY.FIRST_MILE]: firstMileSchema,
 };
@@ -186,6 +187,12 @@ export default function BookingWizard({
     amountRupees: number;
     finalData: BookingFormData;
   } | null>(null);
+
+  // Reported up by KycStep once it has asked the server whether this party has
+  // a live KYC waiver. Only decides which documents the KYC step is validated
+  // against — createShipmentAction re-reads the waiver itself, so a tampered
+  // value here buys nothing beyond a rejected booking.
+  const [kycWaived, setKycWaived] = React.useState(false);
 
   // Reported up by ReviewStep's WalletPaymentSummary. Drives whether the
   // "Pay & Place Booking" button is enabled on the last step.
@@ -369,15 +376,21 @@ export default function BookingWizard({
         ...currentValues,
       });
 
-    // KYC requirements now branch by shipmentType (read straight off the
-    // merged form via kycSchema) — no injected value needed.
+    // KYC requirements branch by shipmentType (read straight off the merged
+    // form) and by the party's waiver — see the schema choice below.
 
     // Re-validate from a clean slate so a field the user just corrected
     // doesn't keep a stale red line: only fields that fail *this* pass stay
     // highlighted.
     clearErrors();
 
-    const schema = RHF_STEP_SCHEMAS[currentStepKey ?? ""];
+    // KYC is the one step whose rules are not fixed: a party with a live waiver
+    // is asked for Aadhaar only, so its schema is built from the flag KycStep
+    // resolved server-side rather than looked up in the static map.
+    const schema =
+      currentStepKey === STEP_KEY.KYC
+        ? makeKycSchema(kycWaived)
+        : RHF_STEP_SCHEMAS[currentStepKey ?? ""];
     const result = schema?.safeParse(merged);
 
     if (result && !result.success) {
@@ -515,6 +528,7 @@ export default function BookingWizard({
                       }
                     : { partyType: "ORG", orgId: orgContext.orgId }
                 }
+                onWaiverChange={setKycWaived}
               />
             )}
 

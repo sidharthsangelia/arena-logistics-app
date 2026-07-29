@@ -34,6 +34,9 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { updateOrgSettings } from "@/actions/accounts/accounts.action";
+import KycWaiverControl, {
+  type KycWaiverSummary,
+} from "@/components/kyc/KycWaiverControl";
 
 type Props = {
   orgId: string;
@@ -41,6 +44,12 @@ type Props = {
   initialMarkupPercent: number;
   initialIsBusinessAssociate: boolean;
   initialSkipPayment: boolean;
+  /**
+   * The org's live KYC waiver, or null. Not an "initial" like the fields above:
+   * the waiver control saves on confirm rather than through this card's Save
+   * button, so this is the current value rather than a starting point for one.
+   */
+  kycWaiver: KycWaiverSummary | null;
 };
 
 // What the dialog is confirming — null means closed
@@ -55,6 +64,7 @@ export default function OrgSettingsCard({
   initialMarkupPercent,
   initialIsBusinessAssociate,
   initialSkipPayment,
+  kycWaiver,
 }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -179,8 +189,9 @@ export default function OrgSettingsCard({
           <CardTitle className="text-base">Business settings</CardTitle>
           <CardDescription>
             Controls how quotes are priced and billed for{" "}
-            <span className="font-medium text-foreground">{orgName}</span>.
-            Changes take effect immediately on save.
+            <span className="font-medium text-foreground">{orgName}</span>, and
+            which documents they must provide. Changes take effect immediately
+            on save.
           </CardDescription>
         </CardHeader>
 
@@ -287,6 +298,19 @@ export default function OrgSettingsCard({
               disabled={isPending}
             />
           </div>
+
+          {/* ── Skip KYC ────────────────────────────────────────────────────
+              The odd one out on this card: it saves on confirm rather than
+              through the Save button below, because a waiver carries a reason
+              and an expiry that are collected in its own dialog. Staging that
+              would invent a half-waived state. Passed `disabled` while the rest
+              of the card is saving so the two writes cannot race. */}
+          <KycWaiverControl
+            party={{ partyType: "ORG", orgId }}
+            partyName={orgName}
+            waiver={kycWaiver}
+            disabled={isPending}
+          />
         </CardContent>
 
         <CardFooter className="justify-end gap-2 border-t pt-4">

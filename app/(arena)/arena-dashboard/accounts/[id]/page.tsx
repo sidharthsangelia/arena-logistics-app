@@ -22,7 +22,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 
-import { canSeeMoney } from "@/utils/arena-auth";
+import { canSeeMoney, getArenaAuth } from "@/utils/arena-auth";
+import { getActiveKycWaiver } from "@/lib/booking/waiver";
 import {
   getAccountActivity,
   getAccountDetail,
@@ -48,7 +49,11 @@ type PageProps = {
 };
 
 export default async function AccountDetailPage({ params }: PageProps) {
-  const [{ id }, viewerCanSeeMoney] = await Promise.all([params, canSeeMoney()]);
+  const [{ id }, viewerCanSeeMoney, arena] = await Promise.all([
+    params,
+    canSeeMoney(),
+    getArenaAuth(),
+  ]);
 
   return (
     <div className="space-y-6 px-4 py-6 sm:px-6 lg:px-8">
@@ -61,7 +66,11 @@ export default async function AccountDetailPage({ params }: PageProps) {
       </Link>
 
       <Suspense fallback={<AccountOverviewSkeleton />}>
-        <AccountOverview id={id} canSeeMoney={viewerCanSeeMoney} />
+        <AccountOverview
+          id={id}
+          canSeeMoney={viewerCanSeeMoney}
+          isArenaAdmin={arena.isArenaAdmin}
+        />
       </Suspense>
     </div>
   );
@@ -70,11 +79,20 @@ export default async function AccountDetailPage({ params }: PageProps) {
 async function AccountOverview({
   id,
   canSeeMoney: viewerCanSeeMoney,
+  isArenaAdmin,
 }: {
   id: string;
   canSeeMoney: boolean;
+  isArenaAdmin: boolean;
 }) {
-  const account = await getAccountDetail(id, viewerCanSeeMoney);
+  // The waiver read is one indexed row and only an admin can see the control it
+  // feeds, so it rides alongside the account read rather than after it.
+  const [account, kycWaiver] = await Promise.all([
+    getAccountDetail(id, viewerCanSeeMoney),
+    isArenaAdmin
+      ? getActiveKycWaiver({ partyType: "ORG", orgId: id })
+      : Promise.resolve(null),
+  ]);
 
   if (!account) {
     notFound();
@@ -92,6 +110,11 @@ async function AccountOverview({
             Members still get everything else on this page; they simply cannot
             change the commercial terms. updateOrgSettings re-checks the role
             itself, so hiding the card is presentation, not the gate.
+
+            The KYC waiver rides in the same card for the same reason: waiving
+            KYC sets aside a compliance requirement on Arena's own licence to
+            move goods, which belongs with margin and payment rather than in
+            ops' hands. Its own actions re-check the role too.
           */}
           {viewerCanSeeMoney && account.markupPercent !== null && (
             <OrgSettingsCard
@@ -100,6 +123,17 @@ async function AccountOverview({
               initialMarkupPercent={account.markupPercent}
               initialIsBusinessAssociate={account.isBusinessAssociate}
               initialSkipPayment={account.skipPayment}
+              kycWaiver={
+                kycWaiver
+                  ? {
+                      id: kycWaiver.id,
+                      reason: kycWaiver.reason,
+                      expiresAt: kycWaiver.expiresAt.toISOString(),
+                      grantedByName: kycWaiver.grantedByName,
+                      grantedAt: kycWaiver.grantedAt.toISOString(),
+                    }
+                  : null
+              }
             />
           )}
 

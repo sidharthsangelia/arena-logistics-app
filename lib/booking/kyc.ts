@@ -118,12 +118,42 @@ export const KYC_DOC_TYPE_TO_KEY = Object.fromEntries(
   KYC_DOC_CONFIGS.map((c) => [c.docType, c.key]),
 ) as Record<string, KycDocKey>;
 
-/** The form keys required for a given shipment type. */
-export function requiredKycKeys(type: ShipmentTypeValue): KycDocKey[] {
+// ── KYC waivers ────────────────────────────────────────────────────────────
+// An Arena admin can waive KYC for a party after an offline conversation (see
+// the KycWaiver model). A waiver collapses the matrix to Aadhaar and nothing
+// else, for every shipment type: PAN, Company PAN, GST, IEC and LUT all become
+// optional. Aadhaar itself is never waivable — it is the one document that
+// identifies who is actually shipping, so there is no version of this feature
+// that lets a shipment move without it.
+//
+// Waived docs stay visible in the KYC step as optional uploads. Ops routinely
+// collects them later, and hiding them would make that harder, not safer.
+export const WAIVED_REQUIRED_KYC_KEYS: readonly KycDocKey[] = ["aadhaar"];
+
+const WAIVED_REQUIRED_CONFIGS = KYC_DOC_CONFIGS.filter((c) =>
+  WAIVED_REQUIRED_KYC_KEYS.includes(c.key),
+);
+
+/**
+ * The form keys required for a given shipment type.
+ *
+ * `waived` must come from a server-side read of the party's live waiver. The
+ * client passes it only to decide what the form asks for; the booking submit
+ * re-reads the waiver from the database and never trusts this argument.
+ */
+export function requiredKycKeys(
+  type: ShipmentTypeValue,
+  waived = false,
+): KycDocKey[] {
+  if (waived) return WAIVED_REQUIRED_CONFIGS.map((c) => c.key);
   return KYC_DOC_CONFIGS.filter((c) => c.requiredFor.includes(type)).map((c) => c.key);
 }
 
 /** The Prisma docTypes required for a given shipment type (server-side check). */
-export function requiredKycDocTypes(type: ShipmentTypeValue): KycDocType[] {
+export function requiredKycDocTypes(
+  type: ShipmentTypeValue,
+  waived = false,
+): KycDocType[] {
+  if (waived) return WAIVED_REQUIRED_CONFIGS.map((c) => c.docType);
   return KYC_DOC_CONFIGS.filter((c) => c.requiredFor.includes(type)).map((c) => c.docType);
 }

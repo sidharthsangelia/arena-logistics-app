@@ -10,7 +10,11 @@ import {
 import { KycDocType } from "@/generated/prisma";
 import { Card, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { KYC_DOC_CONFIGS, KYC_KEY_TO_DOC_TYPE } from "@/lib/booking/kyc";
+import {
+  KYC_DOC_CONFIGS,
+  KYC_KEY_TO_DOC_TYPE,
+  WAIVED_REQUIRED_KYC_KEYS,
+} from "@/lib/booking/kyc";
 
 // ---------------------------------------------------------------------------
 // KYC documents for a shipment's party, rendered right on the booking detail
@@ -115,19 +119,33 @@ export function KycDocsCard({
   docs,
   shipmentType,
   partyLabel,
+  kycWaived = false,
 }: {
   docs: KycDocRow[];
   shipmentType: string | null;
   partyLabel: string;
+  /**
+   * Shipment.kycWaivedAtBooking — this booking cleared KYC on an admin waiver
+   * rather than a full document set. Read from the shipment, not from the
+   * party's waiver today, so it still reads correctly once that has expired.
+   */
+  kycWaived?: boolean;
 }) {
   // docs arrive newest-per-type already; index by type for lookups.
   const byType = new Map(docs.map((d) => [d.docType, d]));
 
-  const requiredConfigs = shipmentType
+  // Under a waiver the booking was only ever asked for Aadhaar, so judging it
+  // against the full matrix would light the card up with "missing" documents
+  // ops deliberately let through. It still lists what came in.
+  const requiredConfigs = kycWaived
     ? KYC_DOC_CONFIGS.filter((c) =>
-        c.requiredFor.includes(shipmentType as "CSB4" | "CSB5" | "COMMERCIAL"),
+        (WAIVED_REQUIRED_KYC_KEYS as readonly string[]).includes(c.key),
       )
-    : [];
+    : shipmentType
+      ? KYC_DOC_CONFIGS.filter((c) =>
+          c.requiredFor.includes(shipmentType as "CSB4" | "CSB5" | "COMMERCIAL"),
+        )
+      : [];
   const requiredTypes = new Set(
     requiredConfigs.map((c) => KYC_KEY_TO_DOC_TYPE[c.key]),
   );
@@ -151,6 +169,11 @@ export function KycDocsCard({
             · {partyLabel}
           </span>
           <span className="ml-auto flex items-center gap-2">
+            {kycWaived && (
+              <Badge variant="outline" className="text-[11px] font-medium">
+                KYC waived
+              </Badge>
+            )}
             {missing.length > 0 ? (
               <Badge
                 variant="outline"
@@ -168,11 +191,19 @@ export function KycDocsCard({
         </summary>
 
         <div className="space-y-3 border-t px-4 py-3">
+          {kycWaived && (
+            <p className="rounded-md border bg-muted/40 px-2.5 py-2 text-xs leading-relaxed text-muted-foreground">
+              An Arena admin waived KYC for this party when the booking was
+              placed, so only an Aadhaar card was required. Anything else below
+              was supplied voluntarily.
+            </p>
+          )}
+
           {/* Required for this shipment type */}
           {requiredConfigs.length > 0 && (
             <div className="space-y-1.5">
               <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                Required for {typeLabel}
+                {kycWaived ? "Required" : `Required for ${typeLabel}`}
               </p>
               <div className="space-y-1.5">
                 {requiredConfigs.map((c) => {

@@ -53,6 +53,7 @@ import {
   boxDeclaredValue,
 } from "@/lib/booking/cargo";
 import { requiredKycDocTypes, KYC_DOC_CONFIGS } from "@/lib/booking/kyc";
+import { isKycWaived } from "@/lib/booking/waiver";
 import {
   debitWalletForShipment,
   InsufficientFundsError,
@@ -286,16 +287,34 @@ class KycIncompleteError extends Error {
   }
 }
 
+/**
+ * Returns whether the booking passed under a KYC waiver, so the shipment row can
+ * record it. Throws KycIncompleteError when documents are genuinely missing.
+ */
 async function assertKycComplete(params: {
   orgId: string;
   clientId: string | null;
   shipmentType: ShipmentTypeValue;
-}): Promise<void> {
+}): Promise<boolean> {
   const { orgId, clientId, shipmentType } = params;
 
-  // Required docs branch by shipment type (shared matrix). When booking for a
-  // client (clientId set), the docs live in the CLIENT's vault, not the org's.
-  const required = requiredKycDocTypes(shipmentType);
+  // THE WAIVER IS READ HERE, FROM THE DATABASE.
+  //
+  // The wizard was told about it too, but only so the form could ask for the
+  // right documents. Nothing in the submitted payload can turn this on: a
+  // browser that lies about being waived arrives at exactly this query and is
+  // told which documents it is still missing. Same reason the document check
+  // below queries the vault instead of trusting the FileMeta in the form.
+  const waived = await isKycWaived(
+    clientId
+      ? { partyType: "CLIENT", clientId }
+      : { partyType: "ORG", orgId },
+  );
+
+  // Required docs branch by shipment type (shared matrix), collapsing to
+  // Aadhaar alone under a live waiver. When booking for a client (clientId
+  // set), the docs live in the CLIENT's vault, not the org's.
+  const required = requiredKycDocTypes(shipmentType, waived);
 
   const where = clientId
     ? { clientId, partyType: PartyType.CLIENT, docType: { in: required } }
@@ -315,6 +334,8 @@ async function assertKycComplete(params: {
     ) as Record<string, string>;
     throw new KycIncompleteError(missing.map((t) => labels[t] ?? t).join(", "));
   }
+
+  return waived;
 }
 
 // ---------------------------------------------------------------------------
@@ -441,12 +462,17 @@ export async function createShipmentAction(
     // ── 3. KYC check ─────────────────────────────────────────────────────
     Sentry.addBreadcrumb({ message: "KYC document check", level: "info" });
 
+    // Set when the booking cleared KYC on a waiver rather than a full document
+    // set. Snapshotted onto the shipment below, because the waiver expires and
+    // ops still needs to know afterwards which shipments went out on one.
+    let kycWaivedAtBooking = false;
+
     try {
       const kycClientId =
         data.shipmentOwnerMode === "EXISTING_CLIENT" && data.selectedClient
           ? data.selectedClient.id
           : null;
-      await assertKycComplete({
+      kycWaivedAtBooking = await assertKycComplete({
         orgId: dbOrgId,
         clientId: kycClientId,
         shipmentType: data.shipmentType,
@@ -583,6 +609,7 @@ export async function createShipmentAction(
             senderName,
 
             shipmentType: data.shipmentType,
+            kycWaivedAtBooking,
             pickupIncluded: data.pickupIncluded,
 
             // First-mile (door → hub) snapshot — only when opted in. Priced
