@@ -17,38 +17,82 @@ import {
 import {
   PROHIBITED_GROUPS,
   PROHIBITED_ITEM_COUNT,
+  DOMESTIC_PROHIBITED_GROUPS,
+  DOMESTIC_PROHIBITED_ITEM_COUNT,
+  type ProhibitedGroup,
 } from "@/lib/booking/prohibitedItems";
+import type { ShipmentModeValue } from "@/types/booking.types";
 
 // ---------------------------------------------------------------------------
-// The prohibited items reference the customer opens from the packages step.
+// The prohibited items reference the customer opens from the review step.
 //
-// The point is a quick "is my thing in here?" check, so the carrier list is
-// read as twelve rules (see lib/booking/prohibitedItems.ts) with a search box
-// over every underlying entry. Search matches the examples as well as the
-// rule titles, so typing "perfume" or "note 7" lands on the right rule even
-// though neither word is a heading.
+// The point is a quick "is my thing in here?" check, so each list is read as a
+// handful of rules (see lib/booking/prohibitedItems.ts) with a search box over
+// every underlying entry. Search matches the examples as well as the rule
+// titles, so typing "perfume" or "note 7" lands on the right rule even though
+// neither word is a heading.
+//
+// Two lists, chosen by `mode`. A domestic parcel faces neither customs nor an
+// export licence, so most of the international rules do not apply to it —
+// showing them anyway would train customers to skip the dialog on the very
+// bookings where the short list is easy to actually read.
 // ---------------------------------------------------------------------------
+
+interface ListConfig {
+  groups: ProhibitedGroup[];
+  itemCount: number;
+  title: string;
+  intro: string;
+  footnote: string;
+}
+
+const LISTS: Record<ShipmentModeValue, ListConfig> = {
+  INTERNATIONAL: {
+    groups: PROHIBITED_GROUPS,
+    itemCount: PROHIBITED_ITEM_COUNT,
+    title: "What you cannot send by air",
+    intro:
+      "items every major carrier refuses. Some are simply returned to you at your cost; others are illegal to export and can be seized.",
+    footnote:
+      "Destination countries add their own restrictions. When in doubt, ask us before packing.",
+  },
+  DOMESTIC: {
+    groups: DOMESTIC_PROHIBITED_GROUPS,
+    itemCount: DOMESTIC_PROHIBITED_ITEM_COUNT,
+    title: "What you cannot send within India",
+    intro:
+      "items our courier network refuses. Some are simply returned to you at your cost; others are illegal to move at all and can be seized.",
+    footnote:
+      "The law can restrict a commodity at any time and without notice. When in doubt, ask us before packing.",
+  },
+};
 
 export function ProhibitedItemsDialog({
   open,
   onOpenChange,
+  mode = "INTERNATIONAL",
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Which list to show. Defaults to the international one. */
+  mode?: ShipmentModeValue;
 }) {
   const [query, setQuery] = useState("");
+  const list = LISTS[mode] ?? LISTS.INTERNATIONAL;
 
   const groups = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return PROHIBITED_GROUPS;
-    return PROHIBITED_GROUPS.map((g) => {
-      const titleHit = g.title.toLowerCase().includes(q);
-      const examples = titleHit
-        ? g.examples
-        : g.examples.filter((e) => e.toLowerCase().includes(q));
-      return examples.length ? { ...g, examples } : null;
-    }).filter((g): g is (typeof PROHIBITED_GROUPS)[number] => g !== null);
-  }, [query]);
+    if (!q) return list.groups;
+    return list.groups
+      .map((g) => {
+        const titleHit = g.title.toLowerCase().includes(q);
+        const examples = titleHit
+          ? g.examples
+          : g.examples.filter((e) => e.toLowerCase().includes(q));
+        return examples.length ? { ...g, examples } : null;
+      })
+      .filter((g): g is ProhibitedGroup => g !== null);
+  }, [query, list]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -56,13 +100,11 @@ export function ProhibitedItemsDialog({
         <DialogHeader className="space-y-1.5 border-b p-6 pb-4 text-left">
           <DialogTitle className="flex items-center gap-2">
             <ShieldAlert className="h-4 w-4 text-muted-foreground" />
-            What you cannot send by air
+            {list.title}
           </DialogTitle>
           <DialogDescription>
-            {PROHIBITED_ITEM_COUNT} items every major carrier refuses, grouped
-            into {PROHIBITED_GROUPS.length} rules. Some are simply returned to
-            you at your cost; others are illegal to export and can be seized.
-            Check your packing list here before you continue.
+            {list.itemCount} {list.intro} Grouped into {list.groups.length}{" "}
+            rules. Check your packing list here before you continue.
           </DialogDescription>
           <div className="relative mt-2">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -116,10 +158,7 @@ export function ProhibitedItemsDialog({
         </div>
 
         <DialogFooter className="items-center gap-3 border-t p-4 sm:justify-between">
-          <p className="text-xs text-muted-foreground">
-            Destination countries add their own restrictions. When in doubt,
-            ask us before packing.
-          </p>
+          <p className="text-xs text-muted-foreground">{list.footnote}</p>
           <DialogClose asChild>
             <Button type="button" variant="outline" size="sm">
               Close

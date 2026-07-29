@@ -5,7 +5,7 @@ import {
   User, Building2, MapPinned, Shield, FileText,
   ShieldAlert, FileCheck2, Clock3,
   MapPin, ArrowRight, Scale, Wallet, Home, PackageCheck,
-  Plane,
+  Plane, Truck, Banknote, ReceiptText, AlertCircle,
 } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
@@ -21,13 +21,25 @@ import type {
 import { WalletPaymentSummary } from "../WalletPaymentSummary";
 import { useIsArenaOrg } from "@/hooks/useIsArenaOrg";
 import { brandServiceName } from "@/lib/branding/serviceName";
-import { KYC_DOC_CONFIGS, requiredKycKeys } from "@/lib/booking/kyc";
+import {
+  KYC_DOC_CONFIGS,
+  requiredKycKeys,
+  requiredDomesticKycKeys,
+} from "@/lib/booking/kyc";
 import {
   totalChargeableWeight,
   totalBoxCount,
   totalDeclaredValue,
   boxDeclaredValue,
 } from "@/lib/booking/cargo";
+import {
+  DOMESTIC_DOC_CONFIGS,
+  DOMESTIC_DOC_LABEL_BY_KEY,
+  domesticDocRequirement,
+  isCompanyParty,
+  missingDomesticDocs,
+} from "@/lib/booking/domesticDocs";
+import { domesticCodAmount } from "@/lib/booking/domesticRequest";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -112,13 +124,17 @@ const SHIPMENT_TYPE_LABELS: Record<ShipmentTypeValue, string> = {
 };
 
 /**
- * KYC completeness for the current shipment type. `required` is the set of doc
- * keys the shipment type demands; `missing` are the ones not yet on the form.
- * The server re-verifies against the vault at submit — this is the friendly
- * heads-up so the user isn't surprised by a rejection on the last click.
+ * KYC completeness for this booking. `required` is the set of doc keys it
+ * demands — the export matrix keyed by shipment type internationally, Aadhaar
+ * for an individual sender domestically — and `missing` are the ones not yet on
+ * the form. The server re-verifies against the vault at submit; this is the
+ * friendly heads-up so the user isn't surprised by a rejection on the last click.
  */
 function kycStatusOf(data: BookingFormData) {
-  const required = requiredKycKeys(data.shipmentType);
+  const required =
+    data.mode === "DOMESTIC"
+      ? requiredDomesticKycKeys(isCompanyParty(data.consignor))
+      : requiredKycKeys(data.shipmentType);
   const missing = required.filter((k) => !data.kycDocs[k]);
   return { required, missing, complete: missing.length === 0 };
 }
@@ -165,6 +181,104 @@ function KycBlock({ data }: { data: BookingFormData }) {
         <p className="text-xs text-amber-700">
           Still needed for {SHIPMENT_TYPE_LABELS[data.shipmentType]}:{" "}
           {missing.map((k) => KYC_LABELS[k] ?? k).join(", ")}
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Domestic GST paperwork — the counterpart to KycBlock above.
+//
+// It lists what this consignment needs and why, because both answers are
+// DERIVED (from the company-name fields and the declared value) rather than
+// chosen. A customer who sees "Tax invoice — required" without being told it is
+// because the sender is a company has no way to know they typed a company name
+// by accident three steps back.
+// ---------------------------------------------------------------------------
+
+function DomesticDocsStatusBadge({ data }: { data: BookingFormData }) {
+  const { required } = domesticDocRequirement(data);
+  const missing = missingDomesticDocs(data);
+
+  if (required.length === 0) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full border bg-muted/50 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+        None required
+      </span>
+    );
+  }
+  if (missing.length === 0) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-400">
+        <PackageCheck className="h-3 w-3" />
+        {required.length}/{required.length} ready
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">
+      <Clock3 className="h-3 w-3" />
+      {missing.length} still needed
+    </span>
+  );
+}
+
+function DomesticDocsBlock({ data }: { data: BookingFormData }) {
+  const { required, senderIsCompany, receiverIsCompany } =
+    domesticDocRequirement(data);
+  const missing = missingDomesticDocs(data);
+  const docs = data.domesticDocs;
+
+  const attached = DOMESTIC_DOC_CONFIGS.filter((c) => docs?.[c.key]);
+
+  return (
+    <div className="space-y-2">
+      <p className="text-xs text-muted-foreground">
+        Worked out from a{" "}
+        <span className="font-medium text-foreground">
+          {senderIsCompany ? "company" : "individual"}
+        </span>{" "}
+        sender and a{" "}
+        <span className="font-medium text-foreground">
+          {receiverIsCompany ? "company" : "individual"}
+        </span>{" "}
+        receiver.
+      </p>
+
+      {attached.length > 0 ? (
+        <div className="grid gap-2 sm:grid-cols-2">
+          {attached.map((config) => (
+            <div
+              key={config.key}
+              className="flex items-center gap-2 rounded-md border bg-muted/30 px-3 py-2 text-xs"
+            >
+              <FileCheck2 className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
+              <div className="min-w-0">
+                <p className="font-medium text-foreground">
+                  {config.label}
+                  {required.includes(config.key) ? "" : " (optional)"}
+                </p>
+                <p className="truncate text-muted-foreground">
+                  {docs[config.key]!.fileName}
+                </p>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="text-sm text-muted-foreground">
+          {required.length === 0
+            ? "No documents are required for this shipment."
+            : "No documents attached yet."}
+        </p>
+      )}
+
+      {missing.length > 0 && (
+        <p className="flex items-start gap-1.5 text-xs text-amber-700">
+          <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          Still needed:{" "}
+          {missing.map((k) => DOMESTIC_DOC_LABEL_BY_KEY[k] ?? k).join(", ")}
         </p>
       )}
     </div>
@@ -253,10 +367,11 @@ function ServiceBlock({ service }: { service: BookingFormData["selectedService"]
     return <p className="text-sm text-destructive">No service selected.</p>;
   }
 
-  // `selectedService` is always the international leg (this wizard only books
-  // CSB4/CSB5/COMMERCIAL exports; the domestic first-mile lives in its own
-  // block). White-label Shipmozo own-brand names as "Arena" for customers so
-  // the review screen matches the service card they just picked. Display-only.
+  // The main leg: the international carrier on an export booking, the
+  // door-to-door courier on a domestic one. (The intl door → hub first mile is
+  // a separate block below.) White-label Shipmozo own-brand names as "Arena"
+  // for customers so the review screen matches the service card they just
+  // picked. Display-only.
   const displayName = isArena
     ? service.productName
     : brandServiceName(service.productName);
@@ -318,19 +433,44 @@ function FirstMileBlock({ data }: { data: BookingFormData }) {
 }
 
 function RouteBar({ data }: { data: BookingFormData }) {
+  const isDomestic = data.mode === "DOMESTIC";
+
   return (
     <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-muted/30 px-4 py-3 text-sm">
       <MapPin className="h-4 w-4 shrink-0 text-muted-foreground" />
-      <span className="font-medium text-foreground">{data.consignor.city || "Origin"}</span>
+      <span className="font-medium text-foreground">
+        {data.consignor.city || "Origin"}
+        {isDomestic && data.consignor.postalCode
+          ? ` ${data.consignor.postalCode}`
+          : ""}
+      </span>
       <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground" />
       <span className="font-medium text-foreground">
-        {data.consignee.city || "Destination"}, {data.consignee.country}
+        {data.consignee.city || "Destination"}
+        {isDomestic
+          ? data.consignee.postalCode
+            ? ` ${data.consignee.postalCode}`
+            : ""
+          : `, ${data.consignee.country}`}
       </span>
       <div className="ml-auto flex flex-wrap items-center gap-1.5">
-        <Badge variant="secondary" className="text-[11px]">
-          {SHIPMENT_TYPE_LABELS[data.shipmentType]}
+        <Badge variant="secondary" className="gap-1 text-[11px]">
+          {isDomestic ? (
+            <>
+              <Truck className="h-3 w-3" />
+              Domestic
+            </>
+          ) : (
+            SHIPMENT_TYPE_LABELS[data.shipmentType]
+          )}
         </Badge>
-        {data.pickupIncluded && (
+        {isDomestic && data.codEnabled && (
+          <Badge variant="outline" className="gap-1 text-[11px]">
+            <Banknote className="h-3 w-3" />
+            Cash on delivery
+          </Badge>
+        )}
+        {!isDomestic && data.pickupIncluded && (
           <Badge variant="outline" className="gap-1 text-[11px]">
             <Home className="h-3 w-3" />
             Door pickup
@@ -348,13 +488,14 @@ function RouteBar({ data }: { data: BookingFormData }) {
 function ChargeBreakdown({ data }: { data: BookingFormData }) {
   const service = data.selectedService;
   if (!service) return null;
+  const isDomestic = data.mode === "DOMESTIC";
   const firstMile = firstMileChargeOf(data);
   const total = service.price + firstMile;
 
   return (
     <div className="rounded-lg border bg-muted/30 px-4 py-3 text-sm">
       <div className="flex justify-between text-muted-foreground">
-        <span>International shipping</span>
+        <span>{isDomestic ? "Courier delivery" : "International shipping"}</span>
         <span className="text-foreground">{fmt(service.price, service.currency)}</span>
       </div>
       {data.pickupIncluded && data.firstMile && (
@@ -368,6 +509,24 @@ function ChargeBreakdown({ data }: { data: BookingFormData }) {
         <span>Total payable</span>
         <span>{fmt(total, service.currency)}</span>
       </div>
+
+      {/* COD sits BELOW the total on purpose. It is not part of what the
+          customer pays Arena — it is money the courier collects from the
+          receiver and remits onward — and folding it into the total would
+          read as a charge. */}
+      {isDomestic && data.codEnabled && (
+        <div className="mt-3 flex items-start gap-2 border-t pt-3 text-xs text-muted-foreground">
+          <Banknote className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>
+            Separately, the courier collects{" "}
+            <span className="font-semibold text-foreground">
+              {fmt(domesticCodAmount(data), "INR")}
+            </span>{" "}
+            from the receiver on delivery and remits it to you. It is not part
+            of the total above.
+          </span>
+        </div>
+      )}
     </div>
   );
 }
@@ -447,6 +606,7 @@ export default function ReviewStep({
   onAcceptedChange,
 }: ReviewStepProps) {
   const [prohibitedOpen, setProhibitedOpen] = useState(false);
+  const isDomestic = data.mode === "DOMESTIC";
 
   const ownerLabel: Record<string, string> = {
     SELF: "My saved profile",
@@ -502,28 +662,61 @@ export default function ReviewStep({
       {/* What */}
       <Section
         icon={FileText}
-        title="Items and invoice"
+        title={isDomestic ? "Items" : "Items and invoice"}
         aside={
-          <span className="text-xs text-muted-foreground">
-            {data.invoiceMode === "UPLOAD" ? "Invoice uploaded" : "Invoice generated"}
-          </span>
+          isDomestic ? undefined : (
+            <span className="text-xs text-muted-foreground">
+              {data.invoiceMode === "UPLOAD" ? "Invoice uploaded" : "Invoice generated"}
+            </span>
+          )
         }
       >
         <ShipmentItemsBlock data={data} />
       </Section>
 
-      <Section icon={Shield} title="Customs documents" aside={<KycStatusBadge data={data} />}>
-        <KycBlock data={data} />
-      </Section>
+      {isDomestic ? (
+        <Section
+          icon={ReceiptText}
+          title="GST documents"
+          aside={<DomesticDocsStatusBadge data={data} />}
+        >
+          <DomesticDocsBlock data={data} />
+        </Section>
+      ) : (
+        <Section
+          icon={Shield}
+          title="Customs documents"
+          aside={<KycStatusBadge data={data} />}
+        >
+          <KycBlock data={data} />
+        </Section>
+      )}
+
+      {/* Domestic still collects an Aadhaar from an individual sender. Shown as
+          its own short section rather than folded into the GST documents above,
+          because it belongs to the PARTY and is reused across their shipments,
+          while everything above belongs to this one consignment. */}
+      {isDomestic && requiredDomesticKycKeys(isCompanyParty(data.consignor)).length > 0 && (
+        <Section
+          icon={Shield}
+          title="Proof of identity"
+          aside={<KycStatusBadge data={data} />}
+        >
+          <KycBlock data={data} />
+        </Section>
+      )}
 
       <Separator />
 
       {/* Service */}
-      <Section icon={Plane} title="Shipping service">
+      <Section
+        icon={isDomestic ? Truck : Plane}
+        title={isDomestic ? "Courier" : "Shipping service"}
+      >
         <ServiceBlock service={data.selectedService} />
       </Section>
 
-      {data.pickupIncluded && (
+      {!isDomestic && data.pickupIncluded && (
         <Section icon={Home} title="Door pickup (first mile)">
           <FirstMileBlock data={data} />
         </Section>
@@ -576,9 +769,9 @@ export default function ReviewStep({
               I have checked this booking
             </Label>
             <p className="text-sm text-muted-foreground">
-              The pickup and delivery addresses are right, the service and
-              total are what I want, and nothing in my boxes is on the
-              prohibited items list.
+              {isDomestic
+                ? "The pickup and delivery addresses are right, the items and their declared value are correct, the courier and total are what I want, and nothing in my boxes is on the prohibited items list."
+                : "The pickup and delivery addresses are right, the service and total are what I want, and nothing in my boxes is on the prohibited items list."}
             </p>
             <Button
               type="button"
@@ -588,7 +781,9 @@ export default function ReviewStep({
               onClick={() => setProhibitedOpen(true)}
             >
               <ShieldAlert className="mr-1.5 h-3.5 w-3.5" />
-              See what you cannot send by air
+              {isDomestic
+                ? "See what you cannot send within India"
+                : "See what you cannot send by air"}
             </Button>
             <p className="text-xs text-muted-foreground">
               Placing the booking also means you accept the carrier&apos;s
@@ -601,6 +796,7 @@ export default function ReviewStep({
       <ProhibitedItemsDialog
         open={prohibitedOpen}
         onOpenChange={setProhibitedOpen}
+        mode={data.mode}
       />
     </div>
   );
