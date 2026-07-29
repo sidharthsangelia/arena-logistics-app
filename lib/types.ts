@@ -47,6 +47,15 @@ export interface Shipment {
   packages?: ShipmentPackage[];
   /** Declared goods value (shipment currency) — needed by Shipmozo for duty. */
   declaredValue?: number;
+
+  /**
+   * Cash on delivery, domestic only. Couriers charge a collection fee that
+   * varies by courier, so a COD shipment has to be priced as COD rather than
+   * quoted prepaid and switched afterwards. Defaults to prepaid when omitted.
+   */
+  paymentType?: "PREPAID" | "COD";
+  /** What the courier collects from the receiver. Only read when paymentType is "COD". */
+  codAmount?: number;
 }
 
 /** Body sent to POST /api/rates */

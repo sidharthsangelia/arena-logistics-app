@@ -59,6 +59,15 @@ export interface CanonicalShipmentDetails {
   packageType?: "SPS" | "MPS" | "B2B";
   /** Defaults to "SCSB4" if omitted. */
   shipmentPurpose?: "DCSB4" | "SCSB4" | "CSB5";
+
+  // ── Cash on delivery (Shipmozo domestic only) ──
+  // Couriers charge a COD collection fee, and it varies by courier, so a COD
+  // shipment must be PRICED as COD rather than quoted prepaid and switched at
+  // booking. Defaults to prepaid when omitted, which is every existing caller.
+  /** "COD" prices the collection fee into every quote. Defaults to "PREPAID". */
+  paymentType?: "PREPAID" | "COD";
+  /** Amount the courier collects from the receiver. Only read when paymentType is "COD". */
+  codAmount?: number;
 }
 
 /**

@@ -86,15 +86,25 @@ export class ShipmozoDomesticAdapter extends BaseVendorAdapter<
       height: Math.ceil(pkg.heightCm),
     }));
 
+    // Cash on delivery is priced, not bolted on: couriers charge a collection
+    // fee that differs between them, so quoting prepaid and flipping the order
+    // to COD at booking would show the customer a price they never pay. When
+    // no COD amount is given we fall back to the declared goods value, which is
+    // what the courier would be collecting anyway.
+    const isCod = input.shipment.paymentType === "COD";
+    const codAmount = isCod
+      ? (input.shipment.codAmount ?? this.resolveOrderValue(input))
+      : 0;
+
     return {
       pickup_pincode: input.origin.pincode,
       delivery_pincode: input.destination.pincode,
-      payment_type: "PREPAID",
+      payment_type: isCod ? "COD" : "PREPAID",
       shipment_type: "FORWARD",
       order_amount: String(this.resolveOrderValue(input)),
       type_of_package: this.resolvePackageType(input, weights.totalPieces),
       rov_type: "ROV_OWNER",
-      cod_amount: "",
+      cod_amount: isCod ? String(Math.max(0, Math.round(codAmount))) : "",
       // Shipmozo wants weight in GRAM; canonical weight is always KG.
       weight: String(Math.round(weights.totalActualKg * 1000)),
       dimensions,
