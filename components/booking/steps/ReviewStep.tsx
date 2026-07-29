@@ -1,13 +1,18 @@
 "use client";
 
+import { useState } from "react";
 import {
   User, Building2, MapPinned, Shield, FileText,
-  CheckCircle2, FileCheck2, Clock3,
+  ShieldAlert, FileCheck2, Clock3,
   MapPin, ArrowRight, Scale, Wallet, Home, PackageCheck,
   Plane,
 } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
+import { ProhibitedItemsDialog } from "../ProhibitedItemsDialog";
 import type {
   BookingFormData,
   FileMeta,
@@ -427,6 +432,10 @@ interface ReviewStepProps {
    * auto-submit the booking so the user doesn't have to click Pay twice.
    */
   onTopUpSuccess?: () => void;
+  /** Whether the final declaration at the bottom of this step is ticked. */
+  accepted?: boolean;
+  /** Ticking it enables the booking button in the wizard's footer. */
+  onAcceptedChange?: (accepted: boolean) => void;
 }
 
 export default function ReviewStep({
@@ -434,7 +443,11 @@ export default function ReviewStep({
   skipPayment = false,
   onWalletStatusChange,
   onTopUpSuccess,
+  accepted = false,
+  onAcceptedChange,
 }: ReviewStepProps) {
+  const [prohibitedOpen, setProhibitedOpen] = useState(false);
+
   const ownerLabel: Record<string, string> = {
     SELF: "My saved profile",
     EXISTING_CLIENT: data.selectedClient?.companyName ?? "Existing client",
@@ -544,14 +557,51 @@ export default function ReviewStep({
         )}
       </Section>
 
-      <div className="flex items-start gap-3 rounded-lg border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
-        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
-        <p>
-          By clicking{" "}
-          <strong className="text-foreground">{skipPayment ? "Place Booking" : "Pay & Place Booking"}</strong>{" "}
-          you confirm these details are correct and agree to the carrier&apos;s terms of service.
-        </p>
+      {/* ── Final declaration ── the booking button stays disabled until this
+          is ticked (see BookingWizard). Deliberately the last thing on the
+          page, so it is read after the details it refers to. */}
+      <div className="rounded-lg border p-4 has-data-[state=checked]:border-primary has-data-[state=checked]:bg-primary/5">
+        <div className="flex items-start gap-3">
+          <Checkbox
+            id="booking-declaration"
+            checked={accepted}
+            onCheckedChange={(checked) => onAcceptedChange?.(checked === true)}
+            className="mt-0.5"
+          />
+          <div className="space-y-1.5">
+            <Label
+              htmlFor="booking-declaration"
+              className="cursor-pointer text-sm font-medium"
+            >
+              I have checked this booking
+            </Label>
+            <p className="text-sm text-muted-foreground">
+              The pickup and delivery addresses are right, the service and
+              total are what I want, and nothing in my boxes is on the
+              prohibited items list.
+            </p>
+            <Button
+              type="button"
+              variant="link"
+              size="sm"
+              className="h-auto p-0 text-xs"
+              onClick={() => setProhibitedOpen(true)}
+            >
+              <ShieldAlert className="mr-1.5 h-3.5 w-3.5" />
+              See what you cannot send by air
+            </Button>
+            <p className="text-xs text-muted-foreground">
+              Placing the booking also means you accept the carrier&apos;s
+              terms of service.
+            </p>
+          </div>
+        </div>
       </div>
+
+      <ProhibitedItemsDialog
+        open={prohibitedOpen}
+        onOpenChange={setProhibitedOpen}
+      />
     </div>
   );
 }

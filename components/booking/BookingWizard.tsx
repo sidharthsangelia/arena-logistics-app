@@ -194,6 +194,13 @@ export default function BookingWizard({
   // value here buys nothing beyond a rejected booking.
   const [kycWaived, setKycWaived] = React.useState(false);
 
+  // The Review step's final declaration: addresses, service and contents
+  // checked, nothing prohibited in the boxes. Deliberately wizard state rather
+  // than a BookingFormData field — it must be given on the screen that shows
+  // the details it refers to, so it should NOT survive a resumed draft, and it
+  // can't be clobbered by the RHF merge in handleNext.
+  const [declarationAccepted, setDeclarationAccepted] = React.useState(false);
+
   // Reported up by ReviewStep's WalletPaymentSummary. Drives whether the
   // "Pay & Place Booking" button is enabled on the last step.
   const [walletStatus, setWalletStatus] = React.useState<WalletStatus>(
@@ -202,10 +209,13 @@ export default function BookingWizard({
 
   // Reset to "unknown" every time Review is (re-)entered, so a stale
   // `sufficient: true` from a previous visit to this step can never enable
-  // Pay before a fresh balance check completes.
+  // Pay before a fresh balance check completes. The declaration is cleared for
+  // the same reason: someone who goes Back to fix an address is confirming a
+  // different booking when they return, so they tick again.
   React.useEffect(() => {
     if (currentStepKey === STEP_KEY.REVIEW) {
       setWalletStatus(WALLET_STATUS_UNKNOWN);
+      setDeclarationAccepted(false);
     }
   }, [currentStepKey]);
 
@@ -242,6 +252,15 @@ export default function BookingWizard({
 
   // ── Submit ───────────────────────────────────────────────────────────────
   const handleSubmit = async (finalData: BookingFormData) => {
+    // Nothing books without the declaration, including the paths that submit
+    // on their own (auto-submit after an inline top-up, retry after the
+    // shortfall modal) rather than through the gated button.
+    if (!declarationAccepted) {
+      setSubmitError(
+        "Please confirm the declaration above before placing your booking.",
+      );
+      return;
+    }
     if (submitLockRef.current) return;
     submitLockRef.current = true;
 
@@ -460,6 +479,9 @@ export default function BookingWizard({
     !!formData.selectedService &&
     (walletStatus.loading || !walletStatus.sufficient);
 
+  // The declaration gates the booking on every org, paid or deferred.
+  const declarationBlocking = isLastStep && !declarationAccepted;
+
   // ── Main render ──────────────────────────────────────────────────────────
   return (
     <div className="mx-auto max-w-6xl py-8">
@@ -554,6 +576,8 @@ export default function BookingWizard({
               <ReviewStep
                 data={formData}
                 skipPayment={orgContext.skipPayment}
+                accepted={declarationAccepted}
+                onAcceptedChange={setDeclarationAccepted}
                 onWalletStatusChange={(info) =>
                   setWalletStatus({
                     loading: info.loading,
@@ -596,7 +620,12 @@ export default function BookingWizard({
               <div className="flex flex-col items-end gap-1.5">
                 <Button
                   type="button"
-                  disabled={submitting || savingDraft || walletBlocking}
+                  disabled={
+                    submitting ||
+                    savingDraft ||
+                    walletBlocking ||
+                    declarationBlocking
+                  }
                   onClick={handleNext}
                 >
                   {submitting ? (
@@ -622,10 +651,17 @@ export default function BookingWizard({
                     </>
                   )}
                 </Button>
-                {walletBlocking && !walletStatus.loading && (
+                {declarationBlocking ? (
                   <p className="text-xs text-muted-foreground">
-                    Top up your wallet above to continue.
+                    Tick the confirmation above to place your booking.
                   </p>
+                ) : (
+                  walletBlocking &&
+                  !walletStatus.loading && (
+                    <p className="text-xs text-muted-foreground">
+                      Top up your wallet above to continue.
+                    </p>
+                  )
                 )}
               </div>
             </div>
