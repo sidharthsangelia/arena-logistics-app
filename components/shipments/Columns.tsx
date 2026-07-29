@@ -32,9 +32,26 @@ export function getShipmentColumns(client = false): ColumnDef<ShipmentRow>[] {
       enableHiding: false,
       header: ({ column }) => <DataTableColumnHeader column={column} title="Shipment" />,
       cell: ({ row }) => (
-        <Link href={client ? `/shipments/${row.original.id}` : `/arena-dashboard/bookings/${row.original.id}`} className="block">
-          <p className="font-mono text-xs font-semibold text-foreground hover:underline">
+        <Link
+          href={
+            client
+              ? `/shipments/${row.original.id}`
+              : row.original.mode === "DOMESTIC"
+                ? `/arena-dashboard/domestic-bookings/${row.original.id}`
+                : `/arena-dashboard/bookings/${row.original.id}`
+          }
+          className="block"
+        >
+          <p className="flex items-center gap-1.5 font-mono text-xs font-semibold text-foreground hover:underline">
             {row.original.shipmentNumber}
+            {/* Domestic is the exception, so only it is marked. Badging both
+                would double the ink on every row to say what is usually
+                obvious from the route column beside it. */}
+            {row.original.mode === "DOMESTIC" && (
+              <span className="rounded bg-muted px-1 py-px text-[9px] font-medium uppercase tracking-wide text-muted-foreground">
+                Dom
+              </span>
+            )}
           </p>
           <p className="mt-0.5 text-[10px] text-muted-foreground">
             {formatDate(row.original.createdAt)}

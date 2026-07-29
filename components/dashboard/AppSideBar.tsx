@@ -28,6 +28,7 @@ import {
   Settings,
   SquareSigma,
   PackageCheck,
+  Truck,
   Users,
   ChevronsUpDown,
   User,
@@ -217,10 +218,16 @@ const NAV_CONFIGS: Record<string, NavConfig> = {
             description: "Today's activity across every account",
           },
           {
-            title: "Bookings",
+            title: "International",
             href: "/bookings",
             icon: PackageCheck,
-            description: "Requests waiting to be processed",
+            description: "Export shipments waiting to be processed",
+          },
+          {
+            title: "Domestic",
+            href: "/domestic-bookings",
+            icon: Truck,
+            description: "India to India courier shipments",
           },
           {
             title: "Accounts",

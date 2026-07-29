@@ -120,6 +120,7 @@ export function KycDocsCard({
   shipmentType,
   partyLabel,
   kycWaived = false,
+  requiredKeys,
 }: {
   docs: KycDocRow[];
   shipmentType: string | null;
@@ -130,6 +131,14 @@ export function KycDocsCard({
    * party's waiver today, so it still reads correctly once that has expired.
    */
   kycWaived?: boolean;
+  /**
+   * Overrides what this card judges the vault against. Passed by the DOMESTIC
+   * booking page, where the export matrix does not apply at all and the answer
+   * comes from whether the sender was an individual. Without it a domestic
+   * booking has a null shipmentType and every document on file would be listed
+   * as an unasked-for extra.
+   */
+  requiredKeys?: readonly string[];
 }) {
   // docs arrive newest-per-type already; index by type for lookups.
   const byType = new Map(docs.map((d) => [d.docType, d]));
@@ -137,15 +146,17 @@ export function KycDocsCard({
   // Under a waiver the booking was only ever asked for Aadhaar, so judging it
   // against the full matrix would light the card up with "missing" documents
   // ops deliberately let through. It still lists what came in.
-  const requiredConfigs = kycWaived
-    ? KYC_DOC_CONFIGS.filter((c) =>
-        (WAIVED_REQUIRED_KYC_KEYS as readonly string[]).includes(c.key),
-      )
-    : shipmentType
+  const requiredConfigs = requiredKeys
+    ? KYC_DOC_CONFIGS.filter((c) => requiredKeys.includes(c.key))
+    : kycWaived
       ? KYC_DOC_CONFIGS.filter((c) =>
-          c.requiredFor.includes(shipmentType as "CSB4" | "CSB5" | "COMMERCIAL"),
+          (WAIVED_REQUIRED_KYC_KEYS as readonly string[]).includes(c.key),
         )
-      : [];
+      : shipmentType
+        ? KYC_DOC_CONFIGS.filter((c) =>
+            c.requiredFor.includes(shipmentType as "CSB4" | "CSB5" | "COMMERCIAL"),
+          )
+        : [];
   const requiredTypes = new Set(
     requiredConfigs.map((c) => KYC_KEY_TO_DOC_TYPE[c.key]),
   );

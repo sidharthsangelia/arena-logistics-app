@@ -50,6 +50,12 @@ const DOC_TYPES = [
   "CERTIFICATE_OF_ORIGIN",
   "INSURANCE_CERT",
   "POD",
+  // Domestic (GST) paperwork. Listed for every shipment rather than gated on
+  // mode: ops occasionally attaches an e-way bill to an export's domestic
+  // first-mile leg too, and a select that hides a type ops needs is worse than
+  // one with two extra rows.
+  "E_WAY_BILL",
+  "DELIVERY_CHALLAN",
   "OTHER",
 ] as const;
 
