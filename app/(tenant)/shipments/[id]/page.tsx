@@ -46,6 +46,7 @@ import {
   formatFileSize,
 } from "@/utils/format";
 import { formatEnumLabel } from "@/utils/helpers";
+import { SHIPMENT_TYPE_INFO, shipmentTypeLabel } from "@/lib/booking/cargo";
 import {
   HeroSkeleton,
   FirstMileSkeleton,
@@ -93,6 +94,10 @@ async function getShipment(id: string, orgId: string) {
       bookedAt: true,
       internalNotes: true,
       billingSameAsDelivery: true,
+      // The customs export category picked on the packages step. Null on drafts
+      // and on rows created before the field existed, so every read of it here
+      // has a "Not set" path.
+      shipmentType: true,
       quotedTotal: true,
       currency: true,
       markupPercentApplied: true,
@@ -636,6 +641,7 @@ async function ShipmentHeroCard({
   // Whichever AWB is on file — House AWB is the one we generate and hand to
   // the customer, so it takes priority over the airline's Master AWB.
   const trackingNumber = s.hawbNumber ?? s.mawbNumber;
+  const exportType = s.shipmentType ? SHIPMENT_TYPE_INFO[s.shipmentType] : null;
 
   return (
     <Card className="overflow-hidden">
@@ -647,7 +653,7 @@ async function ShipmentHeroCard({
               <Package className="h-4 w-4 text-muted-foreground" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <h1 className="font-mono text-lg font-bold tracking-tight text-foreground">
                   {s.shipmentNumber}
                 </h1>
@@ -659,6 +665,26 @@ async function ShipmentHeroCard({
                     Your unique shipment reference number.
                   </TooltipContent>
                 </Tooltip>
+
+                {/* Export category, chosen on the packages step. Sits next to
+                    the shipment number because it decides which paperwork the
+                    shipment travels on, so it is worth seeing without opening
+                    anything. Absent on drafts that never reached that step. */}
+                {exportType && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Badge
+                        variant="outline"
+                        className="cursor-help text-[10px] font-medium"
+                      >
+                        {exportType.label}
+                      </Badge>
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-52 text-xs">
+                      {exportType.blurb}
+                    </TooltipContent>
+                  </Tooltip>
+                )}
               </div>
               <p className="text-xs text-muted-foreground">
                 Created {formatDate(s.createdAt)}
@@ -1149,8 +1175,17 @@ async function BookingSummaryCard({
         </div>
       )}
 
-      {/* Timestamps */}
+      {/* Export category + timestamps */}
       <div className="px-4 py-1.5">
+        <KVRow
+          label="Export type"
+          value={shipmentTypeLabel(s.shipmentType) ?? "Not set"}
+          tooltip={
+            s.shipmentType
+              ? SHIPMENT_TYPE_INFO[s.shipmentType]?.blurb
+              : "The customs category is set when the shipment's boxes and declared value are entered."
+          }
+        />
         <KVRow
           label="Created"
           value={formatDateTime(s.createdAt)}

@@ -98,3 +98,45 @@ export const CSB4_MAX_VALUE = 25_000;
 export function isCsb4Allowed(totalValue: number): boolean {
   return totalValue < CSB4_MAX_VALUE;
 }
+
+// ---------------------------------------------------------------------------
+// Export category — how the customer's choice on the packages step is named and
+// explained everywhere it is shown afterwards.
+//
+// The stored value (CSB4 / CSB5 / COMMERCIAL) is not what anyone calls these:
+// customs says CSB-IV and CSB-V. Both the tenant's shipment page and the ops
+// booking page read from here so a shipment is never described one way to the
+// customer and another way to the team handling it.
+// ---------------------------------------------------------------------------
+
+export interface ShipmentTypeInfo {
+  /** How customs names it: "CSB-IV", not "CSB4". */
+  label: string;
+  /** One line on what the category means, for a tooltip or a panel. */
+  blurb: string;
+}
+
+export const SHIPMENT_TYPE_INFO: Record<string, ShipmentTypeInfo> = {
+  CSB4: {
+    label: "CSB-IV",
+    blurb: "Low-value exports under the CSB-IV limit. No IEC required.",
+  },
+  CSB5: {
+    label: "CSB-V",
+    blurb: "Commercial exports under IEC. GST and IEC required.",
+  },
+  COMMERCIAL: {
+    label: "Commercial",
+    blurb: "Full commercial cargo. Company KYC, IEC and LUT required.",
+  },
+};
+
+/**
+ * Display name for a stored shipment type. Null in, null out: a draft row can
+ * legitimately have no type yet, and callers show their own placeholder rather
+ * than being handed an invented one.
+ */
+export function shipmentTypeLabel(type: string | null | undefined): string | null {
+  if (!type) return null;
+  return SHIPMENT_TYPE_INFO[type]?.label ?? type;
+}
