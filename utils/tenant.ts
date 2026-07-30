@@ -3,7 +3,23 @@ import { cache } from "react";
 import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 import { prisma } from "@/utils/db";
-import { unstable_cache, revalidateTag } from "next/cache";
+import { unstable_cache, revalidateTag, updateTag } from "next/cache";
+
+// ---------------------------------------------------------------------------
+// Cache tags
+//
+// Two separate tags, because the two facets have different freshness needs and
+// should not invalidate each other:
+//
+//   org:<clerkOrgId>          { id, isBusinessAssociate }. Access control.
+//   org-pricing:<clerkOrgId>  markupPercent. Money, but not access.
+//
+// Both are written by exactly one code path (applyOrgSettings in
+// actions/accounts/accounts.action.ts) which invalidates them on save.
+// ---------------------------------------------------------------------------
+
+const orgTag = (clerkOrgId: string) => `org:${clerkOrgId}`;
+const orgPricingTag = (clerkOrgId: string) => `org-pricing:${clerkOrgId}`;
 
 // ---------------------------------------------------------------------------
 // OrgShell
@@ -32,11 +48,17 @@ export interface OrgShell {
 // after its write). That is what makes it safe to serve the tenant layout from
 // cache instead of a DB round trip on every navigation.
 //
-// The TTL is a safety ceiling, not the refresh mechanism: 60s means a write
-// that somehow skipped invalidation self-heals in a minute rather than lingering
-// for five. It stays deliberately small — a bigger row would mean caching
-// mutable, sensitive fields (balance, markupPercent), which is exactly what
-// getCurrentOrg below refuses to do.
+// The TTL is a safety ceiling, not the refresh mechanism: invalidateOrgCache
+// expires this entry the instant an admin saves, so 60s only governs the case
+// where that invalidation never ran at all (a direct SQL edit against Neon, or a
+// bug in the write path). It stays deliberately small BECAUSE this row backs an
+// authorisation decision — see requireBusinessAssociateOrg. Anything longer
+// widens the window in which a demoted org keeps reaching BA-only routes.
+//
+// Do not widen the selection either. `markupPercent` is cached separately (see
+// resolveOrgMarkup) precisely so it can carry a much longer TTL without dragging
+// this security-critical entry along with it, and `wallet.balance` is not cached
+// at all — that is what getCurrentOrg below refuses to do.
 //
 // Throws on DB error (Neon timeout, connection failure) so unstable_cache
 // does NOT store the failure — next request retries fresh against the DB.
@@ -68,10 +90,70 @@ const resolveOrgShell = (clerkOrgId: string) =>
     // "org:" so existing invalidation callers keep working unchanged.
     [`org-shell:${clerkOrgId}`],
     {
-      tags:       [`org:${clerkOrgId}`],
+      tags:       [orgTag(clerkOrgId)],
       revalidate: 60,
     }
   )();
+
+// ---------------------------------------------------------------------------
+// resolveOrgMarkup
+//
+// Arena's margin on this org's rates. Split out of the shell above rather than
+// folded into it because the two answer to different clocks:
+//
+//   - The shell gates routes, so its TTL is kept tight as a backstop.
+//   - Markup only decides what price is displayed. An admin moves it once or
+//     twice a month, through applyOrgSettings, which expires this entry on save.
+//     So the TTL can be an hour, and the rate calculators stop issuing their own
+//     `findUnique` on every single quote request.
+//
+// Returns null when the org row is missing so callers keep owning the default
+// (both rate actions fall back to 30%, matching the Prisma column default).
+//
+// Number() is not cosmetic: markupPercent is a Prisma Decimal, and unstable_cache
+// stores JSON. A Decimal does not survive that round trip as a usable number, so
+// it MUST be converted before it crosses the cache boundary, not after.
+//
+// Throws on DB error for the same reason as resolveOrgShell: a failure must not
+// be written into the cache.
+// ---------------------------------------------------------------------------
+
+const resolveOrgMarkup = (clerkOrgId: string) =>
+  unstable_cache(
+    async (): Promise<number | null> => {
+      const org = await prisma.org.findUnique({
+        where: { clerkOrgId },
+        select: { markupPercent: true },
+      }).catch((error) => {
+        Sentry.captureException(error, {
+          tags:  { location: "resolveOrgMarkup" },
+          extra: { clerkOrgId },
+        });
+        throw error;
+      });
+
+      return org ? Number(org.markupPercent) : null;
+    },
+    [`org-markup:${clerkOrgId}`],
+    {
+      tags:       [orgPricingTag(clerkOrgId)],
+      revalidate: 3600,
+    }
+  )();
+
+// ---------------------------------------------------------------------------
+// getOrgMarkupPercent
+//
+// Takes the Clerk org id rather than calling auth() itself, so the cache
+// boundary stays free of request-scoped state — same shape as resolveOrgShell.
+// Callers already hold the id from their own auth() call.
+// ---------------------------------------------------------------------------
+
+export async function getOrgMarkupPercent(
+  clerkOrgId: string,
+): Promise<number | null> {
+  return resolveOrgMarkup(clerkOrgId);
+}
 
 // ---------------------------------------------------------------------------
 // getDbOrgId
@@ -176,13 +258,41 @@ export async function requireBusinessAssociateOrg(): Promise<OrgShell> {
 }
 
 // ---------------------------------------------------------------------------
-// invalidateOrgCache
+// invalidateOrgCache / invalidateOrgPricingCache
 //
-// Call this if an org's clerkOrgId ever changes (extremely rare),
-// or during testing to force a fresh DB lookup.
+// updateTag, NOT revalidateTag("max").
+//
+// The two are not interchangeable here. `revalidateTag(tag, "max")` marks the
+// entry stale and then keeps SERVING the stale value while it refreshes behind
+// the scenes, for up to the "max" profile's five minute stale window. For the
+// org shell that is a real hole: an admin demotes a Business Associate, and that
+// org can carry on loading /clients and /quotes off the stale entry for the next
+// five minutes. `updateTag` expires immediately, so the very next request blocks
+// on a fresh read and sees the new standing.
+//
+// The catch: updateTag throws outside a Server Action. Both callers today are
+// server actions (applyOrgSettings). The fallback below is there so that if one
+// of these is ever reached from a route handler or a webhook, a cache concern
+// cannot fail a write that has ALREADY committed to the database — it degrades
+// to stale-while-revalidate and reports itself rather than surfacing as "could
+// not save" to an admin whose change actually went through.
 // ---------------------------------------------------------------------------
 
+function expireTag(tag: string, location: string) {
+  try {
+    updateTag(tag);
+  } catch (error) {
+    Sentry.captureException(error, { tags: { location }, extra: { tag } });
+    revalidateTag(tag, "max");
+  }
+}
+
+/** Access control: { id, isBusinessAssociate }. Call after changing BA standing. */
 export function invalidateOrgCache(clerkOrgId: string) {
-  // Next 16 requires the two-arg form; "max" gives stale-while-revalidate.
-  revalidateTag(`org:${clerkOrgId}`, "max");
+  expireTag(orgTag(clerkOrgId), "invalidateOrgCache");
+}
+
+/** Pricing: markupPercent. Call after an admin changes the markup. */
+export function invalidateOrgPricingCache(clerkOrgId: string) {
+  expireTag(orgPricingTag(clerkOrgId), "invalidateOrgPricingCache");
 }

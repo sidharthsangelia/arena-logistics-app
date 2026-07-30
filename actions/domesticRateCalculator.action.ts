@@ -15,7 +15,7 @@
 
 import { auth } from "@clerk/nextjs/server";
 
-import { prisma } from "@/utils/db";
+import { getOrgMarkupPercent } from "@/utils/tenant";
 import { getRates } from "@/lib/services/rate-calculator.service";
 import { domesticAdapterRegistry } from "@/lib/rate-adapters/vendors/domestic.index";
 
@@ -61,12 +61,9 @@ export async function getDomesticRatesAction(
       };
     }
 
-    const org = await prisma.org.findUnique({
-      where: { clerkOrgId: orgId },
-      select: { markupPercent: true },
-    });
-
-    const markupPercent = org?.markupPercent ?? 30;
+    // Same cached read as the international calculator, so both flows share one
+    // entry per org instead of each running its own query. See utils/tenant.ts.
+    const markupPercent = (await getOrgMarkupPercent(orgId)) ?? 30;
 
     const result = await getRates(request, {
       vendorIds: sanitisedVendorIds,

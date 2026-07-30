@@ -2,7 +2,7 @@
 
 import { auth } from "@clerk/nextjs/server";
 
-import { prisma } from "@/utils/db";
+import { getOrgMarkupPercent } from "@/utils/tenant";
 import { getRates } from "@/lib/services/rate-calculator.service";
 import { rateLimit } from "@/lib/rateLimit";
 
@@ -100,16 +100,10 @@ export async function getRatesAction(
     // Pricing configuration
     // -----------------------------------------------------------------------
 
-    const org = await prisma.org.findUnique({
-      where: {
-        clerkOrgId: orgId,
-      },
-      select: {
-        markupPercent: true,
-      },
-    });
-
-    const markupPercent = org?.markupPercent ?? 30;
+    // Cached (utils/tenant.ts) rather than queried per request: this used to be a
+    // Neon round trip in front of every rate search, for a number an admin edits
+    // about once a month. The cache is dropped the moment they do.
+    const markupPercent = (await getOrgMarkupPercent(orgId)) ?? 30;
 
     // -----------------------------------------------------------------------
     // Fetch rates

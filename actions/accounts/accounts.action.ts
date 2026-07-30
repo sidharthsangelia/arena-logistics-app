@@ -24,7 +24,7 @@ import * as Sentry from "@sentry/nextjs";
 
 import { prisma } from "@/utils/db";
 import { syncOrgTypeMetadata } from "@/lib/org-type.server";
-import { invalidateOrgCache } from "@/utils/tenant";
+import { invalidateOrgCache, invalidateOrgPricingCache } from "@/utils/tenant";
 import { ArenaForbiddenError, requireArenaAdmin } from "@/utils/arena-auth";
 import {
   setBusinessAssociateStatusSchema,
@@ -81,10 +81,23 @@ async function applyOrgSettings(
 
   await syncOrgTypeMetadata(org.clerkOrgId, updated.isBusinessAssociate);
 
+  // This is the ONLY path that writes any of these fields, so it is also the only
+  // place their caches get dropped. Both entries carry a TTL purely as a backstop
+  // for the case where this line never ran; the invalidation below is what
+  // actually keeps them correct.
+  //
   // The tenant layout renders its sidebar from a cached { id, isBusinessAssociate }
-  // shell (utils/tenant.ts). Drop it here so a converted account sees its new
-  // routes on the next navigation rather than waiting out that cache's TTL.
+  // shell (utils/tenant.ts), and requireBusinessAssociateOrg gates /clients and
+  // /quotes on the same entry. Drop it so a converted account gets its new routes
+  // on the very next request.
   invalidateOrgCache(org.clerkOrgId);
+
+  // Markup is cached separately with a much longer TTL, since it moves once or
+  // twice a month. Only drop it when this save actually touched it, so a BA
+  // promotion from the accounts list does not throw away a still-valid entry.
+  if (patch.markupPercent !== undefined) {
+    invalidateOrgPricingCache(org.clerkOrgId);
+  }
 
   revalidateAccount(orgId);
 
