@@ -10,8 +10,8 @@ import {
   ArrowRight,
 } from "lucide-react";
 
-import { prisma } from "@/utils/db";
 import { isOrgAddressComplete, getOrgKycBaselineStatus } from "@/lib/booking/profile";
+import { getOnboardingCounts } from "@/lib/dashboard/tenantOverview";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
@@ -46,22 +46,15 @@ interface ChecklistItem {
  * anything — it simply disappears once every applicable item is done.
  */
 export async function OnboardingChecklist({ org }: { org: Org }) {
-  const [kyc, savedAddressCount, clientCount, wallet] = await Promise.all([
+  // The counts sit behind a 30s cache: these are one-time setup steps, and
+  // ticking one is a deliberate act the user then navigates away from, so a
+  // few seconds of staleness is never something they are staring at.
+  const [kyc, counts] = await Promise.all([
     getOrgKycBaselineStatus(org.id),
-    // BAs keep addresses per client (no org-wide book), so count those instead.
-    org.isBusinessAssociate
-      ? prisma.address.count({ where: { deletedAt: null, client: { orgId: org.id } } })
-      : prisma.address.count({ where: { orgId: org.id, deletedAt: null } }),
-    org.isBusinessAssociate
-      ? prisma.client.count({ where: { orgId: org.id, deletedAt: null } })
-      : Promise.resolve(0),
-    org.skipPayment
-      ? Promise.resolve(null)
-      : prisma.wallet.findUnique({
-          where: { orgId: org.id },
-          select: { balance: true },
-        }),
+    getOnboardingCounts(org.id, org.isBusinessAssociate, org.skipPayment),
   ]);
+
+  const { savedAddressCount, clientCount, walletBalance } = counts;
 
   const items: ChecklistItem[] = [
     {
@@ -102,7 +95,7 @@ export async function OnboardingChecklist({ org }: { org: Org }) {
       description: "Top up so you can confirm bookings without interruption.",
       href: "/wallet",
       icon: Wallet,
-      done: wallet != null && Number(wallet.balance) > 0,
+      done: walletBalance != null && Number(walletBalance) > 0,
     });
   }
 

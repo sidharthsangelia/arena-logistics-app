@@ -56,21 +56,40 @@ import {
   FileSearch,
 } from "lucide-react";
 import { STATUS_CONFIG } from "@/utils/statusConfigColors";
+// Still used by ClientsCard below, which is currently commented out of the page
+// but kept intact — see the note at its call site.
 import { prisma } from "@/utils/db";
-import { getCurrentOrg } from "@/utils/tenant";
+import { getCurrentOrg, getOrgShell } from "@/utils/tenant";
+import { getCachedWalletBalance } from "@/lib/wallet/queries";
 import { resolveLowBalanceThreshold } from "@/utils/wallet/config";
 import { OnboardingChecklist } from "@/components/onboarding/OnboardingChecklist";
+import {
+  getDashboardAlerts,
+  getQuotesSummary,
+  getRecentShipments,
+  getRecentWalletActivity,
+  getShipmentStats,
+} from "@/lib/dashboard/tenantOverview";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Data flow / streaming model
 // ─────────────────────────────────────────────────────────────────────────────
-// The dashboard is intentionally NOT cached: it shows the wallet balance and
-// live shipment/quote counts, all of which must be real-time. Instead of
-// blocking the whole page on ~9 queries (the old behaviour), each section is an
-// independent async server component behind its own <Suspense> boundary, so the
-// page shell + header render instantly and every card streams in the moment its
-// own query resolves. The wallet balance is the one number that arrives with the
-// initial org fetch, so it renders immediately with no skeleton.
+// Each section is an independent async server component behind its own
+// <Suspense> boundary, so the page shell renders immediately and every card
+// streams in the moment its own data resolves. Nothing on this page blocks the
+// shell: the only thing the page body itself awaits is getOrgShell(), a cached
+// two-column read that does not go to the database on a warm cache.
+//
+// The queries behind the cards live in lib/dashboard/tenantOverview.ts, each
+// with a TTL picked for how fast that particular card's data actually moves
+// (10s for shipment counts, 60s for document-expiry alerts, and so on — the
+// reasoning is written up per-fetcher there). The wallet balance is the one
+// number with no TTL at all: it is cached until a balance write invalidates it,
+// so it is both instant and never stale. See lib/wallet/queries.ts.
+//
+// The greeting needs the full org row (company name), which is deliberately
+// uncached because that row carries mutable, sensitive fields. So it streams
+// too, rather than holding up the header it sits in.
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -281,57 +300,32 @@ function ListCardSkeleton({ rows = 3 }: { rows?: number }) {
 // Streamed sections — each owns its own query and its own Suspense boundary.
 // ─────────────────────────────────────────────────────────────────────────────
 
-async function DashboardAlerts({
-  orgId,
-  walletBalance,
-  walletCurrency,
-  hasWallet,
-}: {
-  orgId: string;
-  walletBalance: number;
-  walletCurrency: string;
-  hasWallet: boolean;
-}) {
-  const thirtyDaysOut = new Date();
-  thirtyDaysOut.setDate(thirtyDaysOut.getDate() + 30);
-
-  const [latestBaApplication, expiringDocs] = await Promise.all([
-    prisma.baApplication.findFirst({
-      where: { orgId },
-      orderBy: { createdAt: "desc" },
-      select: { status: true, createdAt: true },
-    }),
-    prisma.kycDocument.findMany({
-      where: {
-        orgId,
-        partyType: "ORG",
-        expiresAt: { not: null, lte: thirtyDaysOut },
-      },
-      orderBy: { expiresAt: "asc" },
-      take: 3,
-      select: { id: true, label: true, expiresAt: true },
-    }),
+async function DashboardAlerts({ orgId }: { orgId: string }) {
+  // Both reads are cached — the alerts on a 60s TTL (application status and
+  // document expiry dates move on the order of days) and the balance until a
+  // wallet write invalidates it.
+  const [alerts, wallet] = await Promise.all([
+    getDashboardAlerts(orgId),
+    getCachedWalletBalance(orgId),
   ]);
 
-  const lowBalance = hasWallet && walletBalance < resolveLowBalanceThreshold();
+  const { pendingBaApplicationAt, expiringDocs } = alerts;
+  const walletBalance = Number(wallet.balance);
+  const lowBalance = wallet.exists && walletBalance < resolveLowBalanceThreshold();
 
-  if (
-    latestBaApplication?.status !== "PENDING" &&
-    !lowBalance &&
-    expiringDocs.length === 0
-  ) {
+  if (!pendingBaApplicationAt && !lowBalance && expiringDocs.length === 0) {
     return null;
   }
 
   return (
     <div className="space-y-3">
-      {latestBaApplication?.status === "PENDING" && (
+      {pendingBaApplicationAt && (
         <Alert>
           <ShieldCheck className="h-4 w-4" />
           <AlertTitle>Business Associate application in review</AlertTitle>
           <AlertDescription>
-            Submitted on {formatDate(latestBaApplication.createdAt)}. We&apos;ll notify you
-            once it&apos;s been reviewed.
+            Submitted on {formatDate(new Date(pendingBaApplicationAt))}. We&apos;ll notify
+            you once it&apos;s been reviewed.
           </AlertDescription>
         </Alert>
       )}
@@ -342,8 +336,8 @@ async function DashboardAlerts({
           <AlertTitle>Wallet balance is running low</AlertTitle>
           <AlertDescription className="flex flex-wrap items-center justify-between gap-3">
             <span>
-              Your balance is {formatMoney(walletBalance, walletCurrency)}. Top up to avoid
-              delays booking new shipments.
+              Your balance is {formatMoney(walletBalance, wallet.currency)}. Top up to
+              avoid delays booking new shipments.
             </span>
             <Button size="sm" variant="outline" asChild>
               <Link href="/wallet">Top up now</Link>
@@ -371,59 +365,43 @@ async function DashboardAlerts({
   );
 }
 
+async function WalletBalanceCard({ orgId }: { orgId: string }) {
+  const wallet = await getCachedWalletBalance(orgId);
+
+  return (
+    <StatCard
+      label="Wallet Balance"
+      value={formatMoney(wallet.balance, wallet.currency)}
+      sub={wallet.exists ? "Available to spend" : "Wallet not set up yet"}
+      icon={Wallet}
+      tooltip="Funds used to pay for shipments and services booked through your account."
+    />
+  );
+}
+
 async function ShipmentStatCards({ orgId }: { orgId: string }) {
-  const startOfMonth = new Date();
-  startOfMonth.setDate(1);
-  startOfMonth.setHours(0, 0, 0, 0);
-
-  const [statusGroups, deliveredThisMonth] = await Promise.all([
-    prisma.shipment.groupBy({
-      by: ["status"],
-      where: { orgId },
-      _count: { _all: true },
-    }),
-    prisma.shipment.count({
-      where: { orgId, status: "DELIVERED", updatedAt: { gte: startOfMonth } },
-    }),
-  ]);
-
-  const statusCountMap = Object.fromEntries(
-    statusGroups.map((g) => [g.status, g._count._all])
-  ) as Partial<Record<ShipmentStatus, number>>;
-
-  const sumStatuses = (statuses: ShipmentStatus[]) =>
-    statuses.reduce((total, s) => total + (statusCountMap[s] ?? 0), 0);
-
-  const activeShipmentsCount = sumStatuses([
-    "BOOKED",
-    "PROCESSING",
-    "IN_TRANSIT",
-    "CUSTOMS_HOLD",
-    "OUT_FOR_DELIVERY",
-  ]);
-  const needsAttentionCount = sumStatuses(["DRAFT", "PENDING_PAYMENT", "DOCUMENTS_PENDING"]);
-  const totalShipments = Object.values(statusCountMap).reduce((a, b) => a + (b ?? 0), 0);
+  const stats = await getShipmentStats(orgId);
 
   return (
     <>
       <StatCard
         label="Active Shipments"
-        value={activeShipmentsCount}
+        value={stats.activeCount}
         sub="Booked through out-for-delivery"
         icon={Truck}
         tooltip="Shipments currently in progress: booked, processing, in transit, on customs hold, or out for delivery."
       />
       <StatCard
         label="Needs Your Attention"
-        value={needsAttentionCount}
+        value={stats.needsAttentionCount}
         sub="Drafts, payments & documents"
         icon={Clock}
         tooltip="Shipments that are drafted, awaiting payment, or waiting on documents from you."
       />
       <StatCard
         label="Delivered This Month"
-        value={deliveredThisMonth}
-        sub={`${totalShipments} shipments all time`}
+        value={stats.deliveredThisMonth}
+        sub={`${stats.totalCount} shipments all time`}
         icon={PackageCheck}
         tooltip="Shipments marked delivered since the 1st of this month."
       />
@@ -432,24 +410,7 @@ async function ShipmentStatCards({ orgId }: { orgId: string }) {
 }
 
 async function RecentShipments({ orgId }: { orgId: string }) {
-  const recentShipments = await prisma.shipment.findMany({
-    where: { orgId },
-    orderBy: { createdAt: "desc" },
-    take: 5,
-    select: {
-      id: true,
-      shipmentNumber: true,
-      status: true,
-      quotedTotal: true,
-      currency: true,
-      createdAt: true,
-      hawbNumber: true,
-      carrierAirline: true,
-      client: { select: { companyName: true } },
-      pickupAddress: { select: { city: true } },
-      deliveryAddress: { select: { city: true } },
-    },
-  });
+  const recentShipments = await getRecentShipments(orgId);
 
   return (
     <Card className="lg:col-span-2">
@@ -525,12 +486,12 @@ async function RecentShipments({ orgId }: { orgId: string }) {
                       {s.shipmentNumber}
                     </p>
                     <p className="text-xs text-muted-foreground mt-0.5">
-                      {s.client?.companyName ?? "For your organisation"} ·{" "}
-                      {formatDate(s.createdAt)}
+                      {s.clientName ?? "For your organisation"} ·{" "}
+                      {formatDate(new Date(s.createdAt))}
                     </p>
                   </TableCell>
                   <TableCell className="px-3 py-3 font-mono text-xs">
-                    {s.pickupAddress.city} → {s.deliveryAddress.city}
+                    {s.fromCity} → {s.toCity}
                   </TableCell>
                   <TableCell className="px-3 py-3">
                     {s.hawbNumber ? (
@@ -553,7 +514,7 @@ async function RecentShipments({ orgId }: { orgId: string }) {
                     )}
                   </TableCell>
                   <TableCell className=" py-3 text-sm tabular-nums font-medium">
-                    {s.quotedTotal ? formatMoney(s.quotedTotal.toString(), s.currency) : "—"}
+                    {s.quotedTotal ? formatMoney(s.quotedTotal, s.currency) : "—"}
                   </TableCell>
                   <TableCell className="pr-6 py-3">
                     <div className="flex items-center justify-between gap-2">
@@ -571,14 +532,8 @@ async function RecentShipments({ orgId }: { orgId: string }) {
   );
 }
 
-async function WalletActivity({ walletId }: { walletId: string | null }) {
-  const recentWalletTxns = walletId
-    ? await prisma.walletTransaction.findMany({
-        where: { walletId },
-        orderBy: { createdAt: "desc" },
-        take: 2,
-      })
-    : [];
+async function WalletActivity({ orgId }: { orgId: string }) {
+  const recentWalletTxns = await getRecentWalletActivity(orgId);
 
   return (
     <Card>
@@ -632,7 +587,7 @@ async function WalletActivity({ walletId }: { walletId: string | null }) {
                         </TooltipContent>
                       </Tooltip>
                       <p className="text-xs text-muted-foreground mt-0.5">
-                        {formatDate(txn.createdAt)}
+                        {formatDate(new Date(txn.createdAt))}
                       </p>
                     </div>
                   </div>
@@ -642,7 +597,7 @@ async function WalletActivity({ walletId }: { walletId: string | null }) {
                     }`}
                   >
                     {isCredit ? "+" : "-"}
-                    {formatMoney(txn.amount.toString(), txn.currency)}
+                    {formatMoney(txn.amount, txn.currency)}
                   </span>
                 </div>
                 {i < recentWalletTxns.length - 1 && <Separator className="mt-3" />}
@@ -656,34 +611,8 @@ async function WalletActivity({ walletId }: { walletId: string | null }) {
 }
 
 async function QuotesCard({ orgId }: { orgId: string }) {
-  const [quoteGroups, recentQuotes] = await Promise.all([
-    prisma.quote.groupBy({
-      by: ["status"],
-      where: { orgId },
-      _count: { _all: true },
-    }),
-    prisma.quote.findMany({
-      where: { orgId },
-      orderBy: { createdAt: "desc" },
-      take: 2,
-      select: {
-        id: true,
-        quoteNumber: true,
-        status: true,
-        vendorName: true,
-        quotedTotal: true,
-        currency: true,
-        validUntil: true,
-        pdfUrl: true,
-        client: { select: { companyName: true } },
-      },
-    }),
-  ]);
-
-  const quoteCountMap = Object.fromEntries(
-    quoteGroups.map((g) => [g.status, g._count._all])
-  ) as Partial<Record<QuoteStatus, number>>;
-  const openQuotesCount = (quoteCountMap.DRAFT ?? 0) + (quoteCountMap.SENT ?? 0);
+  const { openCount: openQuotesCount, recent: recentQuotes } =
+    await getQuotesSummary(orgId);
 
   return (
     <Card>
@@ -708,7 +637,8 @@ async function QuotesCard({ orgId }: { orgId: string }) {
           <p className="text-xs text-muted-foreground">No quotes generated yet.</p>
         ) : (
           recentQuotes.map((q, i) => {
-            const remaining = daysUntil(q.validUntil);
+            const validUntil = new Date(q.validUntil);
+            const remaining = daysUntil(validUntil);
             const expiringSoon =
               (q.status === "SENT" || q.status === "DRAFT") && remaining <= 3;
             const hasPdf = Boolean(q.pdfUrl);
@@ -745,7 +675,7 @@ async function QuotesCard({ orgId }: { orgId: string }) {
                         )}
                       </p>
                       <p className="text-xs text-muted-foreground mt-0.5 truncate">
-                        {q.client?.companyName ?? "Unassigned"}
+                        {q.clientName ?? "Unassigned"}
                       </p>
                       <Tooltip>
                         <TooltipTrigger asChild>
@@ -761,13 +691,13 @@ async function QuotesCard({ orgId }: { orgId: string }) {
                           </p>
                         </TooltipTrigger>
                         <TooltipContent className="text-xs">
-                          Valid until {formatDate(q.validUntil)}
+                          Valid until {formatDate(validUntil)}
                         </TooltipContent>
                       </Tooltip>
                     </div>
                     <div className="text-right shrink-0">
                       <p className="text-sm tabular-nums font-medium">
-                        {formatMoney(q.quotedTotal.toString(), q.currency)}
+                        {formatMoney(q.quotedTotal, q.currency)}
                       </p>
                       <QuoteStatusBadge status={q.status} />
                     </div>
@@ -905,22 +835,39 @@ async function ClientsCard({ orgId }: { orgId: string }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Page — fetches only the org (fast, single query) then streams every section.
+// Greeting — the only thing on this page that needs the full (uncached) org row,
+// so it streams on its own rather than holding the header back. The date beside
+// it is pure computation and renders with the shell.
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function Greeting() {
+  const org = await getCurrentOrg();
+  if (!org) redirect("/onboarding");
+
+  return <>Welcome back, {org.companyName || org.name}</>;
+}
+
+async function OnboardingChecklistSection() {
+  // Resolves the same memoised org row the greeting does, so the two boundaries
+  // share one query rather than issuing two.
+  const org = await getCurrentOrg();
+  if (!org) return null;
+
+  return <OnboardingChecklist org={org} />;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Page — awaits only the cached org shell, then streams every section.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default async function DashboardOverviewPage() {
-  // Shared with the tenant layout via per-request memoisation — the layout and
-  // this page resolve the same org row from a single query.
-  const org = await getCurrentOrg();
+  // Two columns, from cache — this is what the layout above already read, so on
+  // a warm cache the page shell reaches the browser without touching Postgres.
+  const org = await getOrgShell();
 
   // No matching Org row yet — send them through onboarding rather than 404.
   if (!org) redirect("/onboarding");
 
-  // Wallet balance arrives with the org fetch, so it renders immediately.
-  const walletBalance = org.wallet ? Number(org.wallet.balance) : 0;
-  const walletCurrency = org.wallet?.currency ?? "INR";
-
-  const displayName = org.companyName || org.name;
   const todayLabel = new Intl.DateTimeFormat("en-IN", {
     weekday: "long",
     day: "2-digit",
@@ -935,7 +882,11 @@ export default async function DashboardOverviewPage() {
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <h1 className="text-xl font-semibold tracking-tight">
-              Welcome back, {displayName}
+              {/* Sized to a typical company name so the line does not reflow
+                  when the real greeting lands. */}
+              <Suspense fallback={<Skeleton className="h-6 w-64" />}>
+                <Greeting />
+              </Suspense>
             </h1>
             <p className="text-sm text-muted-foreground mt-0.5">{todayLabel}</p>
           </div>
@@ -958,29 +909,22 @@ export default async function DashboardOverviewPage() {
 
         {/* ── Alerts (streams; renders nothing until known) ───────────── */}
         <Suspense fallback={null}>
-          <DashboardAlerts
-            orgId={org.id}
-            walletBalance={walletBalance}
-            walletCurrency={walletCurrency}
-            hasWallet={org.wallet != null}
-          />
+          <DashboardAlerts orgId={org.id} />
         </Suspense>
 
         {/* ── Onboarding checklist (auto-hides once complete) ─────────── */}
         <Suspense fallback={null}>
-          <OnboardingChecklist org={org} />
+          <OnboardingChecklistSection />
         </Suspense>
 
         {/* ── Stat cards ──────────────────────────────────────────────── */}
         <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-          {/* Wallet balance is already loaded — show it instantly. */}
-          <StatCard
-            label="Wallet Balance"
-            value={formatMoney(walletBalance, walletCurrency)}
-            sub={org.wallet ? "Available to spend" : "Wallet not set up yet"}
-            icon={Wallet}
-            tooltip="Funds used to pay for shipments and services booked through your account."
-          />
+          {/* Balance is cached until a wallet write invalidates it, so this
+              lands effectively instantly — but it is still a read, so it gets
+              its own boundary rather than blocking the three cards beside it. */}
+          <Suspense fallback={<StatCardSkeleton />}>
+            <WalletBalanceCard orgId={org.id} />
+          </Suspense>
           <Suspense
             fallback={
               <>
@@ -1023,7 +967,7 @@ export default async function DashboardOverviewPage() {
                 </Card>
               }
             >
-              <WalletActivity walletId={org.wallet?.id ?? null} />
+              <WalletActivity orgId={org.id} />
             </Suspense>
 
             {/* Quotes are generated for Business Associates booking on behalf

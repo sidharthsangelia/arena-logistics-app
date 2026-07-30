@@ -1,5 +1,8 @@
+import { Suspense } from "react";
+
 import ClientsTable from "@/components/clients/ClientsTable";
 import ClientsToolbar from "@/components/clients/toolbar/ClientsToolbar";
+import ClientsTableSkeleton from "@/components/clients/ClientTableSkeleton";
 
 import {
   CLIENT_PAGE_SIZE_OPTIONS,
@@ -50,10 +53,35 @@ type PageProps = {
   searchParams: Promise<RawSearchParams>;
 };
 
+// The page itself awaits only the search params, so the toolbar — which is the
+// heading, the search box and the New Client button, and needs no data — paints
+// on the first flush. The table is the part behind a database round trip, so it
+// streams in underneath with a skeleton the same shape as its rows.
 export default async function ClientsPage({ searchParams }: PageProps) {
   const sp = await searchParams;
   const params = parseSearchParams(sp);
 
+  return (
+    <>
+      <ClientsToolbar client={true} />
+
+      <Suspense
+        // Keyed on the query so changing a filter swaps to the skeleton rather
+        // than leaving the previous page's rows up while the new ones load.
+        key={JSON.stringify(params)}
+        fallback={<ClientsTableSkeleton />}
+      >
+        <ClientsTableSection params={params} />
+      </Suspense>
+    </>
+  );
+}
+
+async function ClientsTableSection({
+  params,
+}: {
+  params: ReturnType<typeof parseSearchParams>;
+}) {
   const [{ rows, totalRows, pageCount }, orgOptions] = await Promise.all([
     getClientsPage({
       page: params.page,
@@ -62,28 +90,24 @@ export default async function ClientsPage({ searchParams }: PageProps) {
       sortDir: params.sortDir,
       query: params.query,
       orgIds: params.orgIds,
-      client: true, 
+      client: true,
     }),
     getClientOrgOptions(),
   ]);
 
   return (
-    <>
-      <ClientsToolbar client={true}/>
-
-      <ClientsTable
-        clients={rows}
-        page={params.page}
-        pageSize={params.pageSize}
-        totalRows={totalRows}
-        pageCount={pageCount}
-        sortField={params.sortField}
-        sortDir={params.sortDir}
-        orgIds={params.orgIds}
-        orgOptions={orgOptions}
-        query={params.query}
-        client={true}
-      />
-    </>
+    <ClientsTable
+      clients={rows}
+      page={params.page}
+      pageSize={params.pageSize}
+      totalRows={totalRows}
+      pageCount={pageCount}
+      sortField={params.sortField}
+      sortDir={params.sortDir}
+      orgIds={params.orgIds}
+      orgOptions={orgOptions}
+      query={params.query}
+      client={true}
+    />
   );
 }
