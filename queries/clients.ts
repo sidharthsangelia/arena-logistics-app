@@ -1,9 +1,10 @@
 import "server-only";
 
-import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
+import { unstable_cache } from "next/cache";
 
 import { prisma } from "@/utils/db";
+import { getOrgShell } from "@/utils/tenant";
 import type { Client, Org, Prisma } from "@/generated/prisma";
 
 // ---------------------------------------------------------------------------
@@ -34,21 +35,12 @@ export type ClientRow = Client & {
 // Helpers
 // ---------------------------------------------------------------------------
 
+// Resolves through the shared cached org shell rather than issuing its own
+// findUnique. The /clients route calls this twice per load (once for the page of
+// rows, once for the filter options) and it used to be an uncached round trip
+// each time. The redirect stays here, outside the cache boundary.
 async function getCurrentOrgId(): Promise<string> {
-  const { orgId: clerkOrgId } = await auth();
-
-  if (!clerkOrgId) {
-    redirect("/sign-in");
-  }
-
-  const org = await prisma.org.findUnique({
-    where: {
-      clerkOrgId,
-    },
-    select: {
-      id: true,
-    },
-  });
+  const org = await getOrgShell();
 
   if (!org) {
     redirect("/sign-in");
@@ -93,6 +85,14 @@ export interface GetClientsPageParams {
   client?: boolean;
 }
 
+// NOTE ON CACHING
+// This one is deliberately uncached. It returns whole Prisma Client rows, and
+// the table's "Created" column calls Intl.DateTimeFormat on row.createdAt —
+// unstable_cache round-trips its value as JSON, so a cache hit would hand that
+// column a string and throw. Caching it means introducing a DTO layer first.
+// It is also the read most likely to be wrong when stale: someone who just added
+// a client expects to see it. The route streams instead (see the page), so the
+// shell is instant even though this query is live.
 export async function getClientsPage({
   page,
   pageSize,
@@ -208,39 +208,42 @@ export async function getClientsPage({
  *   Returns only the current organisation.
  */
 export async function getClientOrgOptions(client = false) {
-  if (client) {
-    const orgId = await getCurrentOrgId();
+  const orgId = client ? await getCurrentOrgId() : null;
+  return fetchClientOrgOptions(orgId);
+}
 
-    const orgs = await prisma.org.findMany({
+// Cached for 60s. These are organisation names for a filter dropdown: renaming
+// an org is rare, and on the tenant side the list is a single row — the caller's
+// own org — which cannot change at all within a session. Safe to cache as-is
+// because the shape is plain strings, with no Date or Decimal to survive the
+// JSON round trip.
+const fetchClientOrgOptions = unstable_cache(
+  async (orgId: string | null) => {
+    if (orgId) {
+      return prisma.org.findMany({
+        where: { id: orgId },
+        select: { id: true, name: true },
+      });
+    }
+
+    return prisma.org.findMany({
       where: {
-        id: orgId,
+        clients: {
+          some: {
+            deletedAt: null,
+          },
+        },
       },
       select: {
         id: true,
         name: true,
       },
-    });
-
-    return orgs;
-  }
-
-  const orgs = await prisma.org.findMany({
-    where: {
-      clients: {
-        some: {
-          deletedAt: null,
-        },
+      orderBy: {
+        name: "asc",
       },
-    },
-    select: {
-      id: true,
-      name: true,
-    },
-    orderBy: {
-      name: "asc",
-    },
-    take: 500,
-  });
-
-  return orgs;
-}
+      take: 500,
+    });
+  },
+  ["client-org-options"],
+  { revalidate: 60 },
+);

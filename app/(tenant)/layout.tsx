@@ -6,7 +6,7 @@ import {
   SidebarProvider,
   SidebarTrigger,
 } from "@/components/ui/sidebar";
-import { getCurrentOrg } from "@/utils/tenant";
+import { getOrgShell } from "@/utils/tenant";
 import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
@@ -34,9 +34,11 @@ export default async function DashboardLayout({
   // Arena staff should never be here
   if (orgId === ARENA_ORG_ID) redirect("/arena-dashboard");
 
-  // Verify their org exists in your DB. Shared (per-request memoised) with the
-  // page below, so the layout + page don't each fire their own org query.
-  const org = await getCurrentOrg();
+  // Verify their org exists in your DB. Only the id + BA flag, served from a
+  // cross-request cache, so the shell below is not sitting behind a Neon round
+  // trip on every navigation. The page underneath fetches the full org row when
+  // it actually needs one.
+  const org = await getOrgShell();
   if (!org) redirect("/onboarding");
 
   return (

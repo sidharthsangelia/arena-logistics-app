@@ -24,6 +24,7 @@ import * as Sentry from "@sentry/nextjs";
 
 import { prisma } from "@/utils/db";
 import { syncOrgTypeMetadata } from "@/lib/org-type.server";
+import { invalidateOrgCache } from "@/utils/tenant";
 import { ArenaForbiddenError, requireArenaAdmin } from "@/utils/arena-auth";
 import {
   setBusinessAssociateStatusSchema,
@@ -79,6 +80,11 @@ async function applyOrgSettings(
   });
 
   await syncOrgTypeMetadata(org.clerkOrgId, updated.isBusinessAssociate);
+
+  // The tenant layout renders its sidebar from a cached { id, isBusinessAssociate }
+  // shell (utils/tenant.ts). Drop it here so a converted account sees its new
+  // routes on the next navigation rather than waiting out that cache's TTL.
+  invalidateOrgCache(org.clerkOrgId);
 
   revalidateAccount(orgId);
 

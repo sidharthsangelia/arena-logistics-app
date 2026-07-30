@@ -2,9 +2,9 @@ import "server-only";
 
 import { prisma } from "@/utils/db";
 import { Prisma, ShipmentStatus, ShipmentMode } from "@/generated/prisma";
-import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 import { unstable_cache } from "next/cache";
+import { getOrgShell } from "@/utils/tenant";
 
 // ---------------------------------------------------------------------------
 // Cache tags — mutation sites call revalidateTag with these so a booking or
@@ -28,14 +28,11 @@ const CACHE_TTL_SECONDS = 8;
 // the cache key, scoping the cache correctly per tenant).
 // ---------------------------------------------------------------------------
 
+// Reads the shared cached org shell rather than issuing its own findUnique. The
+// shipments route resolves this once per section (list + counts), and it used to
+// be an uncached round trip every time. The redirect stays outside the cache.
 async function resolveClientOrgId(): Promise<string> {
-  const { orgId: clerkOrgId } = await auth();
-  if (!clerkOrgId) redirect("/sign-in");
-
-  const org = await prisma.org.findUnique({
-    where: { clerkOrgId },
-    select: { id: true },
-  });
+  const org = await getOrgShell();
   if (!org) redirect("/sign-in");
 
   return org.id;
