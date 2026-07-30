@@ -1,3 +1,12 @@
+"use client";
+
+// Client, because these rows take their icon as a component reference the same
+// way the real rows do, and a function cannot be passed from a server component
+// to a client one. Keeping the two APIs identical is the point: a skeleton and
+// the row it stands in for have to be the same shape, and they will not stay
+// that way if one of them has to pass its icons differently. Nothing here reads
+// data, so there is nothing to lose by resolving it in the client graph.
+
 import {
   CornerUpLeft,
   FolderOpen,
