@@ -19,6 +19,7 @@ import { revalidatePath } from "next/cache";
 
 import { prisma } from "@/utils/db";
 import { getCurrentOrg } from "@/utils/tenant";
+import { getClientEmailRoster, type ClientEmailRoster } from "@/lib/email/queries";
 import {
   clientEmailPreferenceSchema,
   clientEmailSettingsSchema,
@@ -27,7 +28,9 @@ import {
   type ClientEmailSettingsResult,
 } from "@/lib/email/schema";
 
-const SETTINGS_PATH = "/settings/client-emails";
+// One hub route now, with the client-email half on a tab. revalidatePath takes
+// the pathname only, so the tab is not part of it.
+const SETTINGS_PATH = "/settings";
 
 // zod 4 types `path` as PropertyKey[], which includes symbol. Nothing here uses a
 // symbol key, but the signature has to admit one for the call to typecheck.
@@ -85,6 +88,53 @@ export async function saveClientEmailSettings(
       tags: { location: "saveClientEmailSettings" },
     });
     return { ok: false, error: "Could not save your settings. Please try again." };
+  }
+}
+
+/**
+ * Reads a page of the client roster for the exceptions dialog.
+ *
+ * A read behind a server action rather than a page prop, because the roster now
+ * lives in a dialog: nobody should pay for a paginated query, on every settings
+ * load, for a list most people never open. Search and paging happen inside the
+ * dialog and never touch the URL, so this is what they call.
+ *
+ * Same BA gate as the mutations. The org comes from the session, so a caller
+ * cannot read another account's clients by asking nicely.
+ */
+export async function fetchClientEmailRoster(input: {
+  page: number;
+  query?: string;
+  exceptionsOnly?: boolean;
+}): Promise<
+  { ok: true; roster: ClientEmailRoster } | { ok: false; error: string }
+> {
+  try {
+    const org = await getCurrentOrg();
+    if (!org) return { ok: false, error: "We could not find your organisation." };
+    if (!org.isBusinessAssociate) {
+      return {
+        ok: false,
+        error: "This setting only applies to business associate accounts.",
+      };
+    }
+
+    const page =
+      Number.isFinite(input.page) && input.page > 0 ? Math.floor(input.page) : 1;
+
+    const roster = await getClientEmailRoster({
+      orgId: org.id,
+      page,
+      query: input.query?.trim() || undefined,
+      exceptionsOnly: input.exceptionsOnly === true,
+    });
+
+    return { ok: true, roster };
+  } catch (error) {
+    Sentry.captureException(error, {
+      tags: { location: "fetchClientEmailRoster" },
+    });
+    return { ok: false, error: "Could not load your clients. Please try again." };
   }
 }
 

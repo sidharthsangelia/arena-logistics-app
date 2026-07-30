@@ -9,6 +9,26 @@ const nextConfig: NextConfig = {
   images: {
     remotePatterns: [{ protocol: "https", hostname: "img.clerk.com" }],
   },
+
+  // /settings/profile and /settings/client-emails were folded into one hub with
+  // tabs. Both paths are still out in the world: bookmarks, the onboarding
+  // checklist, and the footer of every shipment email we have already sent, which
+  // we cannot go back and edit. Handled here rather than in a page so they never
+  // render anything on the way through.
+  //
+  // Deliberately not `permanent`. A 308 is cached by browsers indefinitely, and
+  // these are internal routes we may want back. A 307 costs a redirect and stays
+  // reversible.
+  async redirects() {
+    return [
+      { source: "/settings/profile", destination: "/settings", permanent: false },
+      {
+        source: "/settings/client-emails",
+        destination: "/settings?tab=emails",
+        permanent: false,
+      },
+    ];
+  },
 };
 
 export default withSentryConfig(nextConfig, {

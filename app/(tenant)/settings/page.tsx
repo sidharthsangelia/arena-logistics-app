@@ -1,126 +1,196 @@
-import { Settings, Palette } from "lucide-react";
+import { Suspense } from "react";
+import { redirect } from "next/navigation";
+
+import { getOrgShell } from "@/utils/tenant";
+import { getCurrentOrgContext } from "@/actions/book/getOrgs";
+import { getKycDocs } from "@/actions/book/kyc";
+import { computeOrgProfileStatus } from "@/lib/booking/profile";
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Button } from "@/components/ui/button";
-import { Separator } from "@/components/ui/separator";
-import { ThemeToggler } from "@/components/ui/themeToggler";
+  getClientEmailRosterSummary,
+  getClientEmailSettings,
+} from "@/lib/email/queries";
+import {
+  SettingValue,
+  SettingValueSkeleton,
+} from "@/components/settings/SettingRow";
+import { SettingsTabs, type SettingsTabKey } from "@/components/settings/SettingsTabs";
+import {
+  ClientEmailsTabSkeleton,
+  ProfileTabSkeleton,
+  SettingsTabStripSkeleton,
+} from "@/components/settings/SettingsSkeletons";
+import { ProfileTab } from "@/components/settings/profile/ProfileTab";
+import { ClientEmailsTab } from "@/components/settings/client-emails/ClientEmailsTab";
 
+/**
+ * SETTINGS
+ * -----------------------------------------------------------------------------
+ * One route, two tabs. It used to be three screens: a placeholder /settings with
+ * hardcoded values and a disabled Save, plus two real ones a level down that
+ * nothing linked to each other. Somebody looking for "can I stop Arena emailing
+ * my clients" had to already know the answer lived under a nav item called
+ * Settings, and a different one to the Settings they were on.
+ *
+ * The client emails tab is for business associates only. A standard org ships for
+ * itself, so there is no third party to decide about, and it sees the profile tab
+ * on its own with no tab strip at all rather than a strip it cannot use.
+ *
+ * Loading is deliberately granular. The heading is static and paints first. Each
+ * tab's data sits in its own boundary, and inside a tab the row labels are real
+ * while only the values wait. Nothing here is served from cache: this is the
+ * screen people edit these values on, and a stale one would read as a lost save.
+ */
 
-export default function SettingsPage() {
+export const metadata = {
+  title: "Settings",
+};
+
+type RawSearchParams = Record<string, string | string[] | undefined>;
+
+export default async function SettingsPage({
+  searchParams,
+}: {
+  searchParams: Promise<RawSearchParams>;
+}) {
+  // Params only, no data fetch, so the header below is never held up by them.
+  const sp = await searchParams;
+  const requestedTab: SettingsTabKey = sp.tab === "emails" ? "emails" : "profile";
+
   return (
-    <div className="max-w-2xl mx-auto px-6 py-8 space-y-8">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">
-          Settings
-        </h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Manage your account and preferences.
+    <div className="mx-auto max-w-3xl space-y-6 px-6 py-8">
+      <header>
+        <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
+        <p className="mt-1 max-w-prose text-sm text-muted-foreground">
+          Your details, your documents, and who hears about your shipments.
         </p>
-      </div>
+      </header>
 
-      {/* Profile */}
-      <Card className="shadow-sm">
-        <CardHeader>
-          <div className="flex items-center gap-2">
-            <Settings className="h-4 w-4 text-muted-foreground" />
-            <CardTitle className="text-base">Profile</CardTitle>
-          </div>
-          <CardDescription>Your account information</CardDescription>
-        </CardHeader>
-        <Separator />
-        <CardContent className="pt-5 space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="name">Full Name</Label>
-              <Input id="name" defaultValue="Admin" />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="email">Email</Label>
-              <Input id="email" type="email" defaultValue="arena@cargo.com" />
-            </div>
-          </div>
+      <Suspense fallback={<SettingsShellSkeleton />}>
+        <SettingsShell requestedTab={requestedTab} />
+      </Suspense>
+    </div>
+  );
+}
 
-          <div className="space-y-1.5">
-            <Label htmlFor="company">Company Name</Label>
-            <Input id="company" defaultValue="Arena Cargo And Logistics" />
-          </div>
+async function SettingsShell({
+  requestedTab,
+}: {
+  requestedTab: SettingsTabKey;
+}) {
+  // Two columns, served from the same cross-request cache the tenant layout
+  // already read this request, so gating the tab strip costs nothing.
+  const shell = await getOrgShell();
+  if (!shell) redirect("/onboarding");
 
-          <Button disabled className="mt-2">
-            Save Changes
-          </Button>
-        </CardContent>
-      </Card>
+  const isBusinessAssociate = shell.isBusinessAssociate;
 
-      {/* Appearance */}
-      {/* <Card className="shadow-sm">
-        <CardHeader>
-          <div className="flex items-center gap-2">
-            <Palette className="h-4 w-4 text-muted-foreground" />
-            <CardTitle className="text-base">Appearance</CardTitle>
-          </div>
-          <CardDescription>
-            Customize how Arena looks on your device
-          </CardDescription>
-        </CardHeader>
+  return (
+    <SettingsTabs
+      showClientEmails={isBusinessAssociate}
+      // A standard org landing on a bookmarked ?tab=emails gets the profile tab
+      // rather than an empty panel.
+      defaultTab={isBusinessAssociate ? requestedTab : "profile"}
+      profile={
+        <Suspense fallback={<ProfileTabSkeleton />}>
+          <ProfilePanel />
+        </Suspense>
+      }
+      clientEmails={
+        isBusinessAssociate ? (
+          <Suspense fallback={<ClientEmailsTabSkeleton />}>
+            <ClientEmailsPanel orgId={shell.id} />
+          </Suspense>
+        ) : null
+      }
+    />
+  );
+}
 
-        <Separator />
+async function ProfilePanel() {
+  const { org } = await getCurrentOrgContext();
+  const [status, kycResult] = await Promise.all([
+    computeOrgProfileStatus(org),
+    getKycDocs({ partyType: "ORG", orgId: org.id }),
+  ]);
 
-        <CardContent className="pt-5">
-          <div className="flex items-center justify-between">
-            <div>
-              <Label>Theme</Label>
-              <p className="text-sm text-muted-foreground mt-1">
-                Switch between light, dark, and system theme.
-              </p>
-            </div>
+  return (
+    <ProfileTab
+      orgId={org.id}
+      addressComplete={status.addressComplete}
+      initialDocs={kycResult.success ? kycResult.docs : []}
+      profile={{
+        contactName: org.contactName ?? "",
+        // Pre-filled from the workspace name chosen at onboarding (kept in sync
+        // with Clerk) so the user rarely retypes it. Edits flow back to Clerk.
+        companyName: org.companyName ?? org.name ?? "",
+        email: org.email ?? "",
+        phone: org.phone ?? "",
+        addressLine1: org.addressLine1 ?? "",
+        city: org.city ?? "",
+        state: org.state ?? "",
+        postalCode: org.postalCode ?? "",
+        country: org.country ?? "India",
+      }}
+    />
+  );
+}
 
-            <ThemeToggler />
-          </div>
-        </CardContent>
-      </Card> */}
+async function ClientEmailsPanel({ orgId }: { orgId: string }) {
+  const settings = await getClientEmailSettings(orgId);
 
-      {/* API Keys */}
-      <Card className="shadow-sm">
-        <CardHeader>
-          <CardTitle className="text-base">Carrier API Keys</CardTitle>
-          <CardDescription>
-            Credentials used to fetch live rates from carriers
-          </CardDescription>
-        </CardHeader>
+  // getOrgShell just resolved this org, so a miss here means it was deleted
+  // between the two reads. Rare enough to handle plainly.
+  if (!settings) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        We could not load your settings. Please refresh the page.
+      </p>
+    );
+  }
 
-        <Separator />
+  return (
+    <ClientEmailsTab
+      settings={settings}
+      // Suspended on its own so counting clients never holds up the switch, which
+      // is what most people opened this tab to move.
+      exceptionsValue={
+        <Suspense fallback={<SettingValueSkeleton className="w-20" />}>
+          <ExceptionsValue orgId={orgId} />
+        </Suspense>
+      }
+    />
+  );
+}
 
-        <CardContent className="pt-5 space-y-4">
-          <div className="space-y-1.5">
-            <Label htmlFor="aramex-key">Aramex API Key</Label>
-            <Input
-              id="aramex-key"
-              type="password"
-              placeholder="••••••••••••••••"
-            />
-          </div>
+async function ExceptionsValue({ orgId }: { orgId: string }) {
+  const { totalClients, exceptionCount } =
+    await getClientEmailRosterSummary(orgId);
 
-          <div className="space-y-1.5">
-            <Label htmlFor="skart-key">Skart API Key</Label>
-            <Input
-              id="skart-key"
-              type="password"
-              placeholder="••••••••••••••••"
-            />
-          </div>
+  if (totalClients === 0) {
+    return <SettingValue>No clients yet</SettingValue>;
+  }
 
-          <p className="text-xs text-muted-foreground">
-            Keys are stored server-side as environment variables.
-          </p>
-        </CardContent>
-      </Card>
+  if (exceptionCount === 0) {
+    return <SettingValue>None</SettingValue>;
+  }
+
+  return (
+    <SettingValue tone="set">
+      {exceptionCount} of {totalClients}
+    </SettingValue>
+  );
+}
+
+/**
+ * Shown while the org's BA flag resolves, which decides whether there is a tab
+ * strip at all. The profile tab is the default and the only one a standard org
+ * ever sees, so its shape is the honest guess to hold the space with.
+ */
+function SettingsShellSkeleton() {
+  return (
+    <div className="space-y-6">
+      <SettingsTabStripSkeleton />
+      <ProfileTabSkeleton />
     </div>
   );
 }

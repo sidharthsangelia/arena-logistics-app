@@ -53,6 +53,28 @@ export async function getClientEmailSettings(
   };
 }
 
+/**
+ * Just the two numbers the settings row shows before anyone opens the dialog:
+ * how many clients there are, and how many are pinned away from the default.
+ *
+ * Split out from getClientEmailRoster because the row does not need a page of
+ * rows to say "3 of 24 set differently", and the roster itself is now loaded
+ * lazily when the dialog opens. Two counts, no joins, no ordering.
+ */
+export async function getClientEmailRosterSummary(orgId: string): Promise<{
+  totalClients: number;
+  exceptionCount: number;
+}> {
+  const [totalClients, exceptionCount] = await Promise.all([
+    prisma.client.count({ where: { orgId, deletedAt: null } }),
+    prisma.client.count({
+      where: { orgId, deletedAt: null, emailPreference: { not: "INHERIT" } },
+    }),
+  ]);
+
+  return { totalClients, exceptionCount };
+}
+
 export interface ClientEmailRosterRow {
   id: string;
   companyName: string;
