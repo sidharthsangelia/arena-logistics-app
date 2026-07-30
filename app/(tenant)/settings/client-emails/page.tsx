@@ -1,6 +1,8 @@
 import { Suspense } from "react";
-import { MailQuestion } from "lucide-react";
+import { Mail, MailQuestion, Users } from "lucide-react";
 
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { requireBusinessAssociateOrg } from "@/utils/tenant";
 import {
@@ -152,24 +154,69 @@ async function RosterPanel({
   );
 }
 
+/**
+ * These skeletons deliberately render the real card chrome, headings and
+ * explanatory copy, and grey out only the parts that genuinely depend on the
+ * query: the master switch's position, which milestones are ticked, the reply-to
+ * address, and the roster rows.
+ *
+ * All that prose is static — it is the same on every load for every account, and
+ * it is the part of this screen that does the explaining. Hiding it behind grey
+ * boxes for the length of a query means the page arrives saying nothing, then
+ * rearranges itself. Showing it immediately means the user starts reading while
+ * the two or three actual values land underneath.
+ */
 function SettingsSkeleton() {
   return (
     <div className="space-y-6">
-      <Skeleton className="h-24 w-full rounded-xl" />
-      <div className="space-y-3 rounded-xl border p-6">
-        <Skeleton className="h-5 w-40" />
-        <Skeleton className="h-4 w-full max-w-md" />
-        <div className="space-y-2 pt-3">
+      {/* Master toggle — the sentence that states who currently gets emailed is
+          the one thing here that really is data, so it is the only skeleton. */}
+      <Card className="shadow-sm">
+        <CardHeader className="flex flex-row items-start justify-between gap-4">
+          <div className="space-y-2">
+            <CardTitle className="text-base">Emails to your clients</CardTitle>
+            <Skeleton className="h-4 w-72 max-w-full" />
+          </div>
+          <Skeleton className="h-6 w-11 shrink-0 rounded-full" />
+        </CardHeader>
+      </Card>
+
+      <Card className="shadow-sm">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Which updates they get</CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Pick the moments worth an email. Anything you leave unticked comes to
+            you instead, so you always know where a shipment is.
+          </p>
+        </CardHeader>
+        <Separator />
+        <CardContent className="space-y-3 pt-5">
           {Array.from({ length: 5 }).map((_, i) => (
-            <Skeleton key={i} className="h-10 w-full" />
+            <div key={i} className="flex items-center gap-3">
+              <Skeleton className="h-4 w-4 shrink-0 rounded" />
+              <Skeleton className="h-4 w-44" />
+            </div>
           ))}
-        </div>
-      </div>
-      <div className="space-y-3 rounded-xl border p-6">
-        <Skeleton className="h-5 w-32" />
-        <Skeleton className="h-4 w-full max-w-sm" />
-        <Skeleton className="h-9 w-full max-w-md" />
-      </div>
+        </CardContent>
+      </Card>
+
+      <Card className="shadow-sm">
+        <CardHeader className="pb-3">
+          <div className="flex items-center gap-2">
+            <Mail className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-base">Where replies go</CardTitle>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            When a client replies to one of these emails, this is the inbox it
+            lands in. They never see an Arena address.
+          </p>
+        </CardHeader>
+        <Separator />
+        <CardContent className="pt-5">
+          <Skeleton className="h-9 w-full max-w-md" />
+        </CardContent>
+      </Card>
+
       <RosterSkeleton />
     </div>
   );
@@ -177,14 +224,23 @@ function SettingsSkeleton() {
 
 function RosterSkeleton() {
   return (
-    <div className="space-y-3 rounded-xl border p-6">
-      <Skeleton className="h-5 w-48" />
-      <Skeleton className="h-4 w-full max-w-md" />
-      <div className="space-y-2 pt-3">
+    <Card className="shadow-sm">
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          <Users className="h-4 w-4 text-muted-foreground" />
+          <CardTitle className="text-base">Exceptions by client</CardTitle>
+        </div>
+        <p className="mt-1 max-w-prose text-sm text-muted-foreground">
+          Most clients should follow your setting above. Use this when one of them
+          needs the opposite: a client who wants updates directly, or one who
+          would rather hear only from you.
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-2">
         {Array.from({ length: Math.min(4, ROSTER_PAGE_SIZE) }).map((_, i) => (
           <Skeleton key={i} className="h-12 w-full" />
         ))}
-      </div>
-    </div>
+      </CardContent>
+    </Card>
   );
 }
