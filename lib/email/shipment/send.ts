@@ -31,7 +31,7 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 const EMAIL_RX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /** Where the BA is sent to change the setting that diverted their copy. */
-const CLIENT_EMAIL_SETTINGS_PATH = "/settings/client-emails";
+const CLIENT_EMAIL_SETTINGS_PATH = "/settings?tab=emails";
 
 /**
  * Outcome of an email attempt.

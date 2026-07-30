@@ -24,10 +24,11 @@ export function ProfileCompletionBanner() {
       <div className="flex items-center gap-2">
         <AlertCircle className="h-4 w-4 shrink-0" />
         <span>
-          Complete your profile to speed up future bookings —{" "}
-          <Link href="/settings/profile" className="font-medium underline">
-            add your address &amp; KYC docs
-          </Link>.
+          Complete your profile and every booking pre-fills.{" "}
+          <Link href="/settings" className="font-medium underline">
+            Add your address and documents
+          </Link>
+          .
         </span>
       </div>
       <button

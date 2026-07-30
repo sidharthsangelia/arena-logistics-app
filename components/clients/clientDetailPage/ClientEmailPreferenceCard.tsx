@@ -17,7 +17,7 @@ import {
  * Whether this one client hears from us, shown where the decision naturally comes
  * up: on the client's own record, next to the address the email would go to.
  *
- * The same choice exists in bulk on /settings/client-emails. Both are worth having.
+ * The same choice exists in bulk on the Settings screen, under Client emails. Both are worth having.
  * That screen is where you set things up; this is where you are when a client says
  * "please stop emailing me" and you want it done in one click without leaving them.
  *
@@ -156,7 +156,7 @@ export function ClientEmailPreferenceCard({
 
         <p className="text-xs text-muted-foreground">
           <Link
-            href="/settings/client-emails"
+            href="/settings?tab=emails"
             className="underline hover:text-foreground"
           >
             Account setting

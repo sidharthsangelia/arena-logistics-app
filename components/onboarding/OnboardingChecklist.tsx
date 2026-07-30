@@ -61,7 +61,7 @@ export async function OnboardingChecklist({ org }: { org: Org }) {
       key: "address",
       label: "Add your contact & address details",
       description: "Used to pre-fill the sender on every booking.",
-      href: "/settings/profile",
+      href: "/settings",
       icon: MapPin,
       done: isOrgAddressComplete(org),
     },
