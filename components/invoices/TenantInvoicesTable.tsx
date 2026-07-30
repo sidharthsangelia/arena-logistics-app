@@ -15,7 +15,7 @@ import { DataTable } from "@/components/data-table/DataTable";
 import { DataTableColumnHeader } from "@/components/data-table/DataTableColumnHeader";
 import { listOrgInvoicesAction } from "@/actions/invoices/invoices.action";
 import { formatDate, formatMoney } from "@/utils/format";
-import type { InvoiceRow } from "@/lib/invoices/config";
+import type { InvoicePage, InvoiceRow } from "@/lib/invoices/config";
 
 import { InvoiceStatusBadge } from "./InvoiceStatusBadge";
 import { InvoiceSummaryCards } from "./InvoiceSummaryCards";
@@ -27,11 +27,20 @@ import { useInvoicesQuery } from "./useInvoicesQuery";
 /**
  * The customer's own invoices. Read-only: view the PDF in a modal or download
  * it. Everything (issuing, status) is controlled by Arena.
+ *
+ * `initialData` is the first page, already fetched on the server by the route.
+ * It means the summary cards and the rows are correct on first paint instead of
+ * appearing a round trip after hydration.
  */
-export function TenantInvoicesTable() {
+export function TenantInvoicesTable({
+  initialData,
+}: {
+  initialData?: InvoicePage;
+}) {
   const t = useInvoicesQuery({
     queryKey: "org-invoices",
     fetcher: listOrgInvoicesAction,
+    initialData,
   });
 
   const [preview, setPreview] = React.useState<InvoiceRow | null>(null);

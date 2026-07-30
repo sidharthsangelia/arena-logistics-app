@@ -16,7 +16,7 @@
  * live in lib/invoices/config.ts.
  */
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath, updateTag } from "next/cache";
 import * as Sentry from "@sentry/nextjs";
 
 import { prisma } from "@/utils/db";
@@ -34,6 +34,7 @@ import {
   type InvoicePage,
 } from "@/lib/invoices/config";
 import {
+  INVOICES_TAG,
   getAllInvoicesPage,
   getOrgInvoicesPage,
 } from "@/lib/invoices/queries";
@@ -146,6 +147,10 @@ export async function listOrgShipmentsForInvoiceAction(
 function revalidateInvoiceViews() {
   revalidatePath(ARENA_PATH);
   revalidatePath(TENANT_PATH);
+  // The invoice lists are also cached by unstable_cache, which revalidatePath
+  // does not reach. Without this an issued invoice could sit invisible for the
+  // cache's TTL even though the pages above were rebuilt.
+  updateTag(INVOICES_TAG);
 }
 
 /** Issue a new invoice for an org (optionally attached to one of its shipments). */

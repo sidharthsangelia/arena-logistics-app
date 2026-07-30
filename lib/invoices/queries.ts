@@ -9,6 +9,8 @@
 
 import "server-only";
 
+import { unstable_cache } from "next/cache";
+
 import { Prisma } from "@/generated/prisma";
 import { prisma } from "@/utils/db";
 import {
@@ -239,9 +241,33 @@ async function fetchPage(opts: {
   };
 }
 
-/** Tenant view: hard-locked to the caller's org. */
+/**
+ * Revalidation tag for every cached invoice read. Issuing, editing, marking
+ * paid/unpaid, voiding and deleting all funnel through revalidateInvoiceViews()
+ * in actions/invoices/invoices.action.ts, which drops this tag — so the TTL
+ * below is only a ceiling for changes made outside the app.
+ */
+export const INVOICES_TAG = "invoices";
+
+/**
+ * Tenant view: hard-locked to the caller's org.
+ *
+ * Cached for 15s. An org's invoice list only changes when Arena issues one or
+ * marks one paid, which is a human action happening maybe a few times a week —
+ * so this is close to a permanent cache in practice, and every one of those
+ * actions invalidates the tag anyway. orgId is a cache-key argument, which is
+ * what scopes the entry per tenant.
+ *
+ * Safe to cache as-is: InvoicePage is already a flat DTO (dates are ISO strings,
+ * amounts are numbers), so nothing here depends on a Date or Decimal surviving
+ * the JSON round trip.
+ */
 export function getOrgInvoicesPage(orgId: string, params: InvoiceListParams) {
-  return fetchPage({ forcedOrgId: orgId, params });
+  return unstable_cache(
+    (o: string, p: InvoiceListParams) => fetchPage({ forcedOrgId: o, params: p }),
+    ["org-invoices-page"],
+    { revalidate: 15, tags: [INVOICES_TAG] },
+  )(orgId, params);
 }
 
 /** Arena view: every org, optionally filtered to one via params.orgId. */
