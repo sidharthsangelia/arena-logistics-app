@@ -1,6 +1,6 @@
 "use client";
 
-import * as XLSX from "xlsx";
+import type * as XLSXType from "xlsx";
 import {
   buildInstructionSheetRows,
   matchHeader,
@@ -17,15 +17,33 @@ export type ParseResult =
   | { ok: false; error: string };
 
 /**
+ * xlsx is ~420 KB of client JavaScript and it used to be a static import here,
+ * which put all of it in the /clients bundle: the toolbar imports the Import
+ * dialog, the dialog imports this module. Every visit to the clients list paid
+ * for a parser that only matters once somebody actually opens Import.
+ *
+ * Loading it on first use instead. Both entry points below are already async or
+ * fired from a click, so nothing has to wait on it before the list renders. The
+ * promise is memoised so a user who imports twice does not fetch it twice.
+ */
+let xlsxPromise: Promise<typeof XLSXType> | null = null;
+
+function loadXlsx(): Promise<typeof XLSXType> {
+  xlsxPromise ??= import("xlsx");
+  return xlsxPromise;
+}
+
+/**
  * Read a CSV/XLSX File into field-keyed rows using the shared header map.
  * Unrecognised columns are ignored; recognised ones are matched loosely by
  * header name (not position), so a misaligned file surfaces in the preview
  * rather than silently writing data into the wrong field.
  */
 export async function parseClientFile(file: File): Promise<ParseResult> {
+  const XLSX = await loadXlsx();
   const arrayBuffer = await file.arrayBuffer();
 
-  let workbook: XLSX.WorkBook;
+  let workbook: XLSXType.WorkBook;
   try {
     workbook = XLSX.read(arrayBuffer, { type: "array" });
   } catch {
@@ -63,7 +81,8 @@ export async function parseClientFile(file: File): Promise<ParseResult> {
 }
 
 /** Build and download the .xlsx template (Instructions + Clients sheets). */
-export function downloadClientTemplate() {
+export async function downloadClientTemplate() {
+  const XLSX = await loadXlsx();
   const workbook = XLSX.utils.book_new();
 
   const instructions = XLSX.utils.aoa_to_sheet(buildInstructionSheetRows());

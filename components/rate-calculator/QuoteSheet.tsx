@@ -68,11 +68,9 @@ import {
   MapPin,
   Save,
 } from "lucide-react";
-import { pdf } from "@react-pdf/renderer";
 import { toast } from "sonner";
 
 import type { RateQuote } from "@/lib/types";
-import QuoteDocument from "./QuoteDocument";
 import ClientSelector from "./ClientSelector";
 import AddClientForm from "./AddClientForm";
 import { useAppStore } from "@/store";
@@ -277,6 +275,19 @@ useEffect(() => {
     setIsSaved(false);
 
     try {
+      // @react-pdf/renderer is ~1.4 MB of client JavaScript (it ships the
+      // yoga-layout WASM layout engine). It used to be a static import, which
+      // meant every visit to the rate calculator downloaded and parsed all of it
+      // up front — on a page whose whole job is to feel instant, for a feature
+      // most visits never touch. Loading it here instead ties that cost to the
+      // one action that actually needs it, under a spinner that is already
+      // showing. Both modules are imported together so the two chunks are
+      // requested in parallel rather than waterfalled.
+      const [{ pdf }, { default: QuoteDocument }] = await Promise.all([
+        import("@react-pdf/renderer"),
+        import("./QuoteDocument"),
+      ]);
+
       const blob = await pdf(
         <QuoteDocument
           quote={quote}

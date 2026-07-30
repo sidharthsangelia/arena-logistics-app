@@ -254,7 +254,13 @@ function UploadStep({
             Includes an instructions sheet and example rows.
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={downloadClientTemplate}>
+        {/* downloadClientTemplate is async now (it loads the xlsx parser on
+            demand), so the click handler kicks it off rather than awaiting it. */}
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => void downloadClientTemplate()}
+        >
           <Download className="mr-2 h-4 w-4" />
           Template
         </Button>
