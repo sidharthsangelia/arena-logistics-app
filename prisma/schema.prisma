@@ -121,6 +121,25 @@ model Org {
 
   invoices Invoice[]
 
+  // ── GST identity (goes on every tax invoice Arena raises to this org) ──
+  //
+  // Nullable because plenty of customers are individuals with no registration
+  // at all, and an invoice to them is perfectly valid printed "Unregistered".
+  // What is NOT acceptable is guessing: an invoice carrying the wrong GSTIN is
+  // useless to the customer's accountant and a correction we have to issue a
+  // credit note for.
+  //
+  // gstStateCode is the 2-digit GST state code that decides place of supply,
+  // and therefore whether the invoice carries IGST or a CGST/SGST split. It is
+  // stored separately from `state` above because that field is free text and
+  // always has been, so it cannot be relied on to resolve to a code. When a
+  // GSTIN is present its first two digits ARE the state code and win, since
+  // they are the registered value rather than something typed into a form.
+  gstin        String?
+  gstStateCode String?
+
+  shipmentInvoices ShipmentInvoice[]
+
   @@index([slug])
   @@index([deletedAt])
 }
@@ -1044,6 +1063,10 @@ model Shipment {
   documents          ShipmentDocument[]
   statusHistory      ShipmentStatusEvent[]
   invoices           Invoice[]
+  // The GST tax invoice Arena raises for this booking (and, later, its credit
+  // note). Distinct from `invoices` above, which is Arena's manually issued
+  // accounting bill. See the ShipmentInvoice model for why they are separate.
+  taxInvoices        ShipmentInvoice[]
 
   internalNotes String? // free-form ops notes, separate from customer-facing status
 
@@ -1566,4 +1589,175 @@ enum InvoiceStatus {
   UNPAID
   PAID
   CANCELLED // voided by an admin; kept for the record, never deleted
+}
+
+// ---------------------------------------------------------------------------
+// ShipmentInvoice — the GST tax invoice Arena raises for a booking
+// ---------------------------------------------------------------------------
+//
+// Deliberately NOT the Invoice model above. That one is an admin uploading a
+// PDF from Arena's accounting system, with a number typed in by hand. This one
+// is minted by the platform the moment a shipment is booked, and every rule
+// about it is different: the number comes from a gapless counter, the row is
+// never edited, and it is never deleted. Sharing a table would mean every
+// action in the invoice layer branching on which kind it was holding.
+//
+// One row per (shipment, docType), which is also the idempotency key: the
+// background job that renders the PDF can run twice and produce one invoice.
+//
+// EVERYTHING PRINTED IS SNAPSHOTTED. A tax invoice is a statement about a
+// moment. If the org renames itself, corrects its GSTIN or edits an address
+// next month, the document it already holds must not silently disagree with
+// the copy we can regenerate. So seller, buyer, shipment and line items are
+// frozen as JSON at issue time and the PDF is rendered from those, never from
+// a live join.
+//
+// NO deletedAt. An issued tax invoice cannot be withdrawn from existence; the
+// correction path is a credit note (docType CREDIT_NOTE, relatedInvoiceId set),
+// which is why those two columns exist before the credit-note template does.
+model ShipmentInvoice {
+  id String @id @default(cuid())
+
+  // Null until the background job allocates it. Nothing is legally issued
+  // without a number, so this staying null is exactly what "not yet issued"
+  // means. Allocation happens as late as possible so a render that fails on
+  // every retry cannot burn a serial and leave a hole in the series.
+  invoiceNumber String? @unique
+
+  docType TaxDocType @default(TAX_INVOICE)
+
+  // Only set on a CREDIT_NOTE: the invoice it reverses.
+  relatedInvoiceId String?
+  relatedInvoice   ShipmentInvoice?  @relation("InvoiceCorrection", fields: [relatedInvoiceId], references: [id], onDelete: Restrict)
+  corrections      ShipmentInvoice[] @relation("InvoiceCorrection")
+
+  orgId String
+  org   Org    @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  // Required, unlike Invoice.shipmentId. This document only exists because a
+  // shipment was booked; there is no standalone case. Restrict rather than
+  // Cascade: deleting a shipment must not take an issued tax document with it.
+  shipmentId String
+  shipment   Shipment @relation(fields: [shipmentId], references: [id], onDelete: Restrict)
+
+  // The tax point: when the booking was committed, not when the PDF finished
+  // rendering. The financial year of the invoice number is derived from THIS,
+  // so a job that runs a few seconds past midnight on 1 April still numbers
+  // the invoice into the year the money actually moved.
+  issueDate     DateTime @default(now())
+  financialYear String? // "26-27", stamped alongside the number
+
+  // ── money (INR, 2dp — the currency a GST invoice is raised in) ──
+  // total ALWAYS equals the amount debited from the wallet for this booking
+  // (service price + first-mile charge). Everything else is derived from it:
+  // the prices customers see are tax-inclusive, so taxableValue is
+  // back-computed and the line items are reconciled to sum to it exactly.
+  // See lib/invoices/money.ts for the arithmetic and its invariants.
+  taxableValue   Decimal @db.Decimal(14, 2)
+  cgstAmount     Decimal @default(0) @db.Decimal(14, 2)
+  sgstAmount     Decimal @default(0) @db.Decimal(14, 2)
+  igstAmount     Decimal @default(0) @db.Decimal(14, 2)
+  totalTax       Decimal @default(0) @db.Decimal(14, 2)
+  total          Decimal @db.Decimal(14, 2)
+  taxRatePercent Decimal @default(0) @db.Decimal(5, 2)
+  currency       String  @default("INR")
+  /// Printed when no tax is charged, e.g. an export exemption citation.
+  taxNote        String?
+
+  // ── place of supply (2-digit GST state code + name, both printed) ──
+  placeOfSupplyCode String
+  placeOfSupplyName String
+
+  // ── frozen document content ──
+  /// Arena's issuer block: legal name, address, GSTIN, PAN, bank details.
+  sellerSnapshot   Json
+  /// Bill-to block: org legal name, address, GSTIN or "Unregistered".
+  buyerSnapshot    Json
+  /// Route, packages, weight, service, and the consignor when a BA booked.
+  shipmentSnapshot Json
+  /// The reconciled charge lines, each with description, SAC and amounts.
+  lineItems        Json
+
+  status ShipmentInvoiceStatus @default(UNPAID)
+  paidAt DateTime?
+
+  // ── PDF generation (the background job's own state) ──
+  // Kept on the row rather than inferred from fileUrl being null, so a job
+  // that has exhausted its retries is distinguishable from one still queued
+  // and an admin can find and re-drive exactly the broken ones.
+  generationStatus   InvoiceGenerationStatus @default(PENDING)
+  generationError    String?
+  generationAttempts Int                     @default(0)
+  generatedAt        DateTime?
+
+  // Null until the render lands. Same column shape as ShipmentDocument and
+  // Invoice so the download UI treats all three identically.
+  fileUrl  String?
+  fileKey  String?
+  fileName String?
+  fileSize Int?
+  mimeType String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // One tax invoice and at most one credit note per shipment. This is what
+  // makes the generation job safe to retry.
+  @@unique([shipmentId, docType])
+  @@index([orgId])
+  @@index([orgId, status])
+  @@index([orgId, issueDate(sort: Desc)])
+  @@index([shipmentId])
+  // Drives the admin "which invoices are stuck?" view and the repair path.
+  @@index([generationStatus])
+  @@index([financialYear])
+}
+
+enum ShipmentInvoiceStatus {
+  PAID // wallet was debited at booking
+  UNPAID // Org.skipPayment booking, collected at the hub later
+  CANCELLED // booking voided; the PDF and number survive for the record
+}
+
+enum InvoiceGenerationStatus {
+  PENDING // row committed with the booking, PDF not rendered yet
+  READY // numbered, rendered, uploaded
+  FAILED // retries exhausted; an admin can re-drive it
+}
+
+enum TaxDocType {
+  TAX_INVOICE
+  CREDIT_NOTE
+}
+
+// ---------------------------------------------------------------------------
+// InvoiceCounter — the gapless serial behind every invoice number
+// ---------------------------------------------------------------------------
+//
+// GST wants a consecutive serial, unique within a financial year. A Postgres
+// sequence cannot provide that: nextval() is deliberately non-transactional, so
+// any rollback after it is called leaves a permanent hole in the series, which
+// is the first thing an auditor asks about. shipment_number_seq accepts that
+// trade for speed because a missing shipment number costs nothing.
+//
+// This is a plain row taken with SELECT ... FOR UPDATE inside the issuing
+// transaction. Concurrent bookings serialise on it and a rollback returns the
+// number to the pool. The lock is held for microseconds and only against other
+// invoice issues, so the contention is irrelevant at any volume Arena will see.
+//
+// One row per (series, financialYear). Rows are created on demand by an upsert,
+// so the first booking of a new financial year needs no migration or seeding.
+model InvoiceCounter {
+  id String @id @default(cuid())
+
+  /// Matches TaxDocType. Tax invoices and credit notes number independently.
+  series        String
+  /// Indian financial year, April to March, formatted "26-27".
+  financialYear String
+
+  lastNumber Int @default(0)
+
+  updatedAt DateTime @updatedAt
+
+  @@unique([series, financialYear])
 }
