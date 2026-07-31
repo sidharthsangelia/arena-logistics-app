@@ -63,7 +63,7 @@ export function useUploadQuotePdf() {
 
         // Exponential backoff: 1s, 2s, 4s
         const delay = BASE_DELAY_MS * Math.pow(2, attempt - 1);
-        toast.warning(`Upload attempt ${attempt} failed — retrying in ${delay / 1000}s…`);
+        toast.warning(`Upload attempt ${attempt} failed. Retrying in ${delay / 1000}s…`);
         await sleep(delay);
       }
     }

@@ -558,8 +558,8 @@ export function DocumentManager({
                         </TooltipTrigger>
                         <TooltipContent>
                           {doc.visibleToClient
-                            ? "Visible to client — click to hide"
-                            : "Hidden from client — click to show"}
+                            ? "Visible to client. Click to hide"
+                            : "Hidden from client. Click to show"}
                         </TooltipContent>
                       </Tooltip>
                       <Tooltip>

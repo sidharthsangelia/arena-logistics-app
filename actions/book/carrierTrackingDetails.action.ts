@@ -46,8 +46,8 @@ export async function updateCarrierAwb(input: z.infer<typeof awbSchema>) {
         fromStatus: shipment.status,
         toStatus: shipment.status, // AWB update doesn't change status, just logs the event
         note: isFirstTime
-          ? `AWB details added — MAWB: ${data.mawbNumber || "—"}, HAWB: ${data.hawbNumber || "—"}`
-          : `AWB details updated — MAWB: ${data.mawbNumber || "—"}, HAWB: ${data.hawbNumber || "—"}`,
+          ? `AWB details added. MAWB: ${data.mawbNumber || "—"}, HAWB: ${data.hawbNumber || "—"}`
+          : `AWB details updated. MAWB: ${data.mawbNumber || "—"}, HAWB: ${data.hawbNumber || "—"}`,
         changedByType: "OPS",
         changedById: userId,
       },

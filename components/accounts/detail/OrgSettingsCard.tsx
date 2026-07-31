@@ -175,7 +175,7 @@ export default function OrgSettingsCard({
     confirmDialog?.type === "ba-off"
       ? {
           title: "Revoke Business Associate status?",
-          description: `${orgName} will lose access to the /clients route immediately on save. Their markup percentage will not change automatically — update it above if needed.`,
+          description: `${orgName} will lose access to the /clients route immediately on save. Their markup percentage will not change automatically. Update it above if needed.`,
         }
       : {
           title: "Enable skip payment?",

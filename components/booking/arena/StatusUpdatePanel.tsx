@@ -106,7 +106,7 @@ export function StatusUpdatePanel({ shipmentId, currentStatus, allStatuses }: Pr
         <div className="space-y-1.5">
           <Label className="text-xs text-muted-foreground">
             Note{" "}
-            <span className="text-muted-foreground/60">(optional — saved to timeline)</span>
+            <span className="text-muted-foreground/60">(optional, saved to timeline)</span>
           </Label>
           <Textarea
             value={note}

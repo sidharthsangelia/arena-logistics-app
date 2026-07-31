@@ -49,7 +49,7 @@ export const COLUMN_SPECS: readonly ClientColumnSpec[] = [
     required: false,
     aliases: ["company", "organisation", "organization", "business", "business name", "firm"],
     description:
-      "Legal / business name. Optional — leave blank for an individual and we'll use the Contact Name automatically.",
+      "Legal / business name. Optional. Leave blank for an individual and we'll use the Contact Name automatically.",
     example: "Acme Exports Pvt Ltd",
   },
   {
@@ -81,7 +81,7 @@ export const COLUMN_SPECS: readonly ClientColumnSpec[] = [
     header: "Type",
     required: false,
     aliases: ["client type", "company kind", "category", "kind"],
-    description: "Either \"Individual\" or \"Company\". Optional — defaults to Individual.",
+    description: "Either \"Individual\" or \"Company\". Optional. Defaults to Individual.",
     example: "Company",
   },
   {
@@ -250,11 +250,11 @@ export function buildInstructionSheetRows(): string[][] {
   const rows: string[][] = [
     ["How to import your clients"],
     [""],
-    ["1. Fill in your clients on the \"Clients\" sheet — one client per row."],
+    ["1. Fill in your clients on the \"Clients\" sheet, one client per row."],
     ["2. Keep the header row (row 1) as-is. Column order does not matter, and headers are"],
     ["   matched loosely (e.g. \"Phone\", \"Mobile\" and \"Contact Number\" all work)."],
     ["3. Columns marked REQUIRED must have a value in every row, or that row is skipped."],
-    ["4. Delete these example rows before importing, or leave them — example emails are"],
+    ["4. Delete these example rows before importing, or leave them. Example emails are"],
     ["   fictional and will import as normal clients if you keep them."],
     ["5. Save as .xlsx or .csv and upload it. You'll see a preview to confirm before anything is saved."],
     [""],

@@ -70,14 +70,14 @@ export const KYC_DOC_CONFIGS: KycDocConfig[] = [
     key: "iec",
     label: "IEC Certificate",
     docType: KycDocType.IEC_CODE,
-    hint: "Import Export Code — required for CSB-V and commercial exports.",
+    hint: "Import Export Code, required for CSB-V and commercial exports.",
     requiredFor: ["CSB5", "COMMERCIAL"],
   },
   {
     key: "lut",
     label: "LUT",
     docType: KycDocType.LUT,
-    hint: "Letter of Undertaking — required for commercial exports.",
+    hint: "Letter of Undertaking, required for commercial exports.",
     requiredFor: ["COMMERCIAL"],
   },
 ];

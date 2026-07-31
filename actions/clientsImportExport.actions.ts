@@ -194,7 +194,7 @@ export async function importClientsAction(
       if (EMAIL_RE.test(rawEmail)) {
         email = rawEmail.toLowerCase();
       } else {
-        warnings.push(`Email "${rawEmail}" is invalid — imported without an email`);
+        warnings.push(`Email "${rawEmail}" is invalid, so it was imported without an email`);
       }
     }
 
@@ -202,7 +202,7 @@ export async function importClientsAction(
     if (!companyName) {
       companyName = contactName;
       companyKind = CompanyKind.INDIVIDUAL;
-      warnings.push("Company Name was blank — using Contact Name (Individual)");
+      warnings.push("Company Name was blank, so Contact Name was used (Individual)");
     }
 
     // --- de-dupe within this file (last write wins is not needed; first wins) ---

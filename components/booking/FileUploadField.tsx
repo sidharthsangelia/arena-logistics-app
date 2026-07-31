@@ -51,7 +51,7 @@ export function FileUploadField({
   value,
   onChange,
   label = "Click to upload or drag and drop",
-  hint = "PDF, PNG, JPEG or WEBP — max 10 MB",
+  hint = "PDF, PNG, JPEG or WEBP, max 10 MB",
   disabled = false,
   className,
 }: FileUploadFieldProps) {

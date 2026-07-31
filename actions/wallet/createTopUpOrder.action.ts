@@ -92,7 +92,7 @@ export async function createTopUpOrderAction(input: CreateTopUpOrderInput) {
     if (err?.statusCode === 401) {
       const hint =
         process.env.NODE_ENV === "development"
-          ? " (Razorpay rejected your API key/secret pair — check RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET in .env.local, confirm they're from the same mode/account, and restart the dev server after any change.)"
+          ? " (Razorpay rejected your API key/secret pair. Check RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET in .env.local, confirm they're from the same mode/account, and restart the dev server after any change.)"
           : "";
       return {
         success: false as const,

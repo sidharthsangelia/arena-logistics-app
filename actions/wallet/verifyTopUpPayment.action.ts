@@ -62,6 +62,6 @@ export async function verifyTopUpPaymentAction(input: {
   return {
     success: false as const,
     pending: true as const,
-    error: "Payment is being confirmed — this can take a few seconds.",
+    error: "Payment is being confirmed. This can take a few seconds.",
   };
 }

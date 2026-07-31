@@ -361,7 +361,7 @@ export default function SendQuoteDialog({
               >
                 {hasPdf
                   ? `Quote-${quote.quoteNumber}.pdf`
-                  : "No PDF — generate one first"}
+                  : "No PDF, generate one first"}
               </p>
               {hasPdf && (
                 <p className="text-[11px] text-muted-foreground">

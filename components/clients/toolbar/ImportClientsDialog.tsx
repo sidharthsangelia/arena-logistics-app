@@ -157,7 +157,7 @@ export default function ImportClientsDialog() {
           <DialogDescription>
             {step === "upload"
               ? "Bulk-add clients from a CSV or Excel file. You'll review everything before anything is saved."
-              : `Reviewing ${fileName} — nothing is saved until you confirm.`}
+              : `Reviewing ${fileName}. Nothing is saved until you confirm.`}
           </DialogDescription>
         </DialogHeader>
 
@@ -286,7 +286,7 @@ function UploadStep({
         </div>
         <Separator className="my-1" />
         <ul className="space-y-1 text-xs text-muted-foreground">
-          <li>• Headers are matched loosely — order doesn&apos;t matter and common variants (Phone / Mobile) work.</li>
+          <li>• Headers are matched loosely, so order doesn&apos;t matter and common variants (Phone / Mobile) work.</li>
           <li>• Rows missing a required field are skipped and listed for you.</li>
           <li>• Clients that already exist are skipped, never overwritten.</li>
           <li>• Blank <span className="font-medium text-foreground">Company Name</span> is treated as an individual (uses Contact Name).</li>
@@ -390,14 +390,14 @@ function PreviewStep({ analysis }: { analysis: ImportAnalysis }) {
         <TabsContent value="skipped">
           <IssueTable
             rows={[...analysis.duplicateExistingRows, ...analysis.duplicateInFileRows]}
-            emptyLabel="No duplicates — every row is new."
+            emptyLabel="No duplicates. Every row is new."
           />
         </TabsContent>
 
         <TabsContent value="errors">
           <IssueTable
             rows={analysis.invalidRows}
-            emptyLabel="No errors — every row has the required fields."
+            emptyLabel="No errors. Every row has the required fields."
           />
         </TabsContent>
       </Tabs>

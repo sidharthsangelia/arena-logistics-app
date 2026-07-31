@@ -47,7 +47,7 @@ export async function parseClientFile(file: File): Promise<ParseResult> {
   try {
     workbook = XLSX.read(arrayBuffer, { type: "array" });
   } catch {
-    return { ok: false, error: "Couldn't read that file — is it a valid CSV or Excel file?" };
+    return { ok: false, error: "Couldn't read that file. Is it a valid CSV or Excel file?" };
   }
 
   const sheetName = workbook.SheetNames[0];
