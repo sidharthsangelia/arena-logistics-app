@@ -9,6 +9,7 @@ const isPublicRoute = createRouteMatcher([
   "/activate-org",
   "/api/uploadthing",
   "/api/cron(.*)",
+  "/api/inngest(.*)"
 ]);
 
 const isArenaRoute = createRouteMatcher(["/arena-dashboard(.*)"]);
