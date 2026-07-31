@@ -95,6 +95,20 @@ export interface DomesticDocs {
   eWayBill: FileMeta | null;
 }
 
+/**
+ * One component of a quote's price, org markup already applied. Mirrors
+ * CanonicalChargeBreakdown from the rate adapters.
+ */
+export interface ServiceCharge {
+  name: string;
+  amount: number;
+  currency?: string;
+  taxAmount?: number;
+  igst?: number;
+  cgst?: number;
+  sgst?: number;
+}
+
 export interface ServiceOption {
   vendorId: string;
   vendorName: string;
@@ -110,6 +124,17 @@ export interface ServiceOption {
    * international services and legacy rows.
    */
   courierId?: string | null;
+  /**
+   * The quote's charge breakdown, carried through the wizard so the tax invoice
+   * can print what the customer actually paid for rather than one lump line.
+   * Markup is already inside these amounts (lib/pricing/markup.ts scales every
+   * charge by the same factor), so they sum to `price`.
+   *
+   * Optional: bookings made before this was added, and any quote whose vendor
+   * returned no breakdown, simply have nothing here. The invoice falls back to
+   * a single service line in that case rather than failing.
+   */
+  charges?: ServiceCharge[];
 }
 
 export interface FileMeta {

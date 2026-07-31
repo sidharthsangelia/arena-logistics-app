@@ -68,6 +68,17 @@ export function quoteToServiceOption(q: RateQuote): ServiceOption {
     price: q.totalWithTax,
     currency: q.currency ?? "INR",
     courierId: q.courierId ?? null,
+
+    // The breakdown travels with the selection. It ends up in
+    // Shipment.chargesSnapshot and is what the tax invoice itemises; without
+    // it every invoice prints one lump service line for the whole total.
+    // Markup is already inside these amounts.
+    charges: (q.charges ?? []).map((c) => ({
+      name: c.name,
+      amount: c.amount,
+      currency: c.currency,
+      taxAmount: c.taxAmount,
+    })),
   };
 }
 

@@ -374,6 +374,26 @@ export const kycSchema = makeKycSchema(false);
 // Step 5 — Service selection
 // ---------------------------------------------------------------------------
 
+/**
+ * One component of the quoted price, org markup already inside the amount.
+ *
+ * Carried through the wizard so the tax invoice can show a real breakdown. It
+ * is display data only: the invoice engine treats the wallet debit as the
+ * authoritative total and reconciles these components to it, so a tampered
+ * breakdown cannot change what anyone is charged or what tax is stated. Being
+ * permissive here is therefore safe, and being strict would only mean a vendor
+ * adding a field breaks bookings.
+ */
+const serviceChargeShape = z.object({
+  name: z.string(),
+  amount: z.number(),
+  currency: z.string().optional(),
+  taxAmount: z.number().optional(),
+  igst: z.number().optional(),
+  cgst: z.number().optional(),
+  sgst: z.number().optional(),
+});
+
 const serviceOptionShape = z.object({
   vendorId: z.string(),
   vendorName: z.string(),
@@ -382,6 +402,7 @@ const serviceOptionShape = z.object({
   transitDays: z.number(),
   price: z.number(),
   currency: z.string(),
+  charges: z.array(serviceChargeShape).optional(),
 });
 
 export const serviceSchema = z.object({
