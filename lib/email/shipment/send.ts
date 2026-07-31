@@ -50,6 +50,21 @@ export type ShipmentEmailResult = {
 
 const NOT_SENT: ShipmentEmailResult = { sent: false, audience: "none" };
 
+/**
+ * A file to ride along with the email. Today this is only ever the shipment's
+ * tax invoice, attached to the booking confirmation.
+ *
+ * `url` rather than bytes: the PDF is already stored on UploadThing at a public
+ * URL by the time the email goes out, and Resend will fetch it itself. That
+ * keeps a few hundred kilobytes out of the background job's step state and out
+ * of this process's memory, which is the difference between a light job and one
+ * that carries the document twice.
+ */
+export interface ShipmentEmailAttachment {
+  filename: string;
+  url: string;
+}
+
 function locationLabel(
   city: string | null | undefined,
   country: string | null | undefined,
@@ -261,6 +276,7 @@ async function dispatchShipmentEmail(
   ctx: ShipmentEmailContext,
   typeTag: string,
   statusTag: string,
+  attachments?: ShipmentEmailAttachment[],
 ): Promise<ShipmentEmailResult> {
   // The associate's own copy keeps the client-facing subject line, prefixed so
   // it is obvious in a crowded inbox that this one was not sent onward.
@@ -271,6 +287,14 @@ async function dispatchShipmentEmail(
     from: target.identity.fromHeader,
     to: target.to,
     ...(target.identity.replyTo ? { replyTo: target.identity.replyTo } : {}),
+    ...(attachments?.length
+      ? {
+          attachments: attachments.map((a) => ({
+            filename: a.filename,
+            path: a.url,
+          })),
+        }
+      : {}),
     subject,
     html: renderShipmentEmailHtml(copy, ctx, target.identity, target.notice),
     text: renderShipmentEmailText(copy, ctx, target.identity, target.notice),
@@ -318,6 +342,7 @@ async function dispatchShipmentEmail(
 export async function sendShipmentMilestoneEmail(
   shipmentId: string,
   status: ShipmentStatus,
+  attachments?: ShipmentEmailAttachment[],
 ): Promise<ShipmentEmailResult> {
   try {
     if (!isEmailMilestone(status)) return NOT_SENT;
@@ -343,6 +368,7 @@ export async function sendShipmentMilestoneEmail(
       target.ctx,
       "shipment_status",
       status,
+      attachments,
     );
   } catch (err) {
     // Absolute guarantee: never let an email failure bubble into the caller.

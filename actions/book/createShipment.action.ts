@@ -93,6 +93,12 @@ import {
   ShipmentNumberSequenceError,
 } from "@/utils/shipmentNumber";
 import { sendShipmentMilestoneEmail } from "@/lib/email/shipment/send";
+import { inngest } from "@/lib/inngest/client";
+import { shipmentBookedEvent } from "@/lib/inngest/functions/generateShipmentInvoice";
+import {
+  INVOICE_SHIPMENT_SELECT,
+  buildInvoiceForShipment,
+} from "@/lib/invoices/tax/build";
 import { after } from "next/server";
 import { notifyBookingPlaced } from "@/lib/notifications/emit";
 
@@ -884,11 +890,43 @@ export async function createShipmentAction(
             fromStatus: ShipmentStatus.PENDING_PAYMENT,
             toStatus: ShipmentStatus.BOOKED,
             note: skipPayment
-              ? "Booked with payment deferred — to be collected at hub."
+              ? "Booked with payment deferred, to be collected at hub."
               : "Wallet debit successful.",
             changedByType: "SYSTEM",
           },
         });
+
+        // 4i. Stage the tax invoice.
+        //
+        // The row is written here, inside the booking transaction, so the money
+        // on the invoice is frozen from the same committed state that the
+        // wallet was debited against. It has no number and no PDF yet: those
+        // are the background job's business, and a serial is not spent until
+        // the document is genuinely about to exist.
+        //
+        // WRAPPED, AND DELIBERATELY SO. Nothing about invoicing may fail a
+        // booking. The customer has paid, the shipment is real, and an invoice
+        // is a document we owe them afterwards. If this throws, the booking
+        // still commits and the background job builds the row from scratch
+        // instead, which it is written to do.
+        try {
+          const built = buildInvoiceForShipment(
+            await tx.shipment.findUniqueOrThrow({
+              where: { id: shipment.id },
+              select: INVOICE_SHIPMENT_SELECT,
+            }),
+          );
+
+          await tx.shipmentInvoice.create({ data: built.row });
+        } catch (invoiceErr) {
+          Sentry.captureException(invoiceErr, {
+            level: "warning",
+            tags: { step: "stageInvoice", shipmentId: shipment.id },
+            extra: {
+              note: "Booking unaffected; the invoice job will rebuild this row.",
+            },
+          });
+        }
 
         return {
           shipmentId: shipment.id,
@@ -914,10 +952,39 @@ export async function createShipmentAction(
       updateTag(SHIPMENTS_LIST_TAG);
       updateTag(SHIPMENTS_COUNTS_TAG);
 
-      // Booking confirmation email to the sender. Fired only after the booking
-      // is durably committed. sendShipmentMilestoneEmail never throws, so a
-      // failed send can never turn a successful booking into an error.
-      await sendShipmentMilestoneEmail(txResult.shipmentId, ShipmentStatus.BOOKED);
+      // Hand the rest of the booking's tail to the background.
+      //
+      // The confirmation email USED TO BE SENT HERE. It moved into the invoice
+      // job so the customer receives one email with their tax invoice attached,
+      // rather than a confirmation now and the document they were promised a
+      // few minutes later. See lib/inngest/functions/generateShipmentInvoice.ts,
+      // where the email step runs whether or not the PDF succeeded.
+      //
+      // The trade-off is stated plainly: the confirmation email now depends on
+      // Inngest. So the send below is guarded rather than awaited into the
+      // response, and a failure to even queue the job falls back to sending the
+      // confirmation directly. The customer gets an email either way.
+      try {
+        await inngest.send(
+          shipmentBookedEvent({
+            shipmentId: txResult.shipmentId,
+            shipmentNumber: txResult.shipmentNumber,
+            orgId: dbOrgId,
+          }),
+        );
+      } catch (queueErr) {
+        Sentry.captureException(queueErr, {
+          level: "warning",
+          tags: { step: "queueInvoiceJob", shipmentId: txResult.shipmentId },
+        });
+
+        // Inngest is unreachable. The invoice can be re-driven by an admin
+        // later, but the confirmation cannot wait on that.
+        await sendShipmentMilestoneEmail(
+          txResult.shipmentId,
+          ShipmentStatus.BOOKED,
+        );
+      }
 
       // Ops needs to know work has arrived. Scheduled with `after` rather than
       // awaited, because the customer waiting on their booking confirmation should
