@@ -49,6 +49,13 @@ const FIELDS: {
   { name: "state", label: "State", autoComplete: "address-level1" },
   { name: "postalCode", label: "Postal code", autoComplete: "postal-code" },
   { name: "country", label: "Country", autoComplete: "country-name" },
+  {
+    name: "gstin",
+    label: "GSTIN",
+    span: "full",
+    optional: true,
+    hint: "Goes on the tax invoice for every booking, so your accountant can claim the input credit. Leave blank if you are not registered.",
+  },
 ];
 
 export function OrgProfileForm({

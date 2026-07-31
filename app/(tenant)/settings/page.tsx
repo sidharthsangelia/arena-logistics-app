@@ -130,6 +130,7 @@ async function ProfilePanel() {
         state: org.state ?? "",
         postalCode: org.postalCode ?? "",
         country: org.country ?? "India",
+        gstin: org.gstin ?? "",
       }}
     />
   );
