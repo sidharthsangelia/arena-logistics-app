@@ -102,7 +102,7 @@ export class ShipmozoDomesticAdapter extends BaseVendorAdapter<
       payment_type: isCod ? "COD" : "PREPAID",
       shipment_type: "FORWARD",
       order_amount: String(this.resolveOrderValue(input)),
-      type_of_package: this.resolvePackageType(input, weights.totalPieces),
+      type_of_package: this.resolvePackageType(input),
       rov_type: "ROV_OWNER",
       cod_amount: isCod ? String(Math.max(0, Math.round(codAmount))) : "",
       // Shipmozo wants weight in GRAM; canonical weight is always KG.
@@ -254,12 +254,30 @@ export class ShipmozoDomesticAdapter extends BaseVendorAdapter<
     return SHIPMOZO_FALLBACK_ORDER_VALUE;
   }
 
-  /** SPS (single) vs MPS (multi-piece); honours an explicit override. */
+  /**
+   * Package type. Honours an explicit override, otherwise always SPS.
+   *
+   * This deliberately does NOT auto-select MPS on a multi-box shipment, which
+   * is what it used to do. On Shipmozo's domestic calculator `type_of_package`
+   * is a COURIER FILTER, not a pricing input: sending MPS drops every courier
+   * not enrolled for multi-piece bookings and leaves only a handful of
+   * Delhivery products (verified live: the same Delhi → Mumbai 2-box, 10 kg
+   * consignment returns 15 couriers as SPS and 3 as MPS).
+   *
+   * Multi-piece pricing comes from the `dimensions` array, which we always send
+   * per box — and it is unaffected by this flag. The same courier quotes the
+   * same price both ways (Delhivery Surface 10 Kg: ₹510.94 as SPS and as MPS),
+   * so quoting SPS shows the customer more couriers at an identical price
+   * rather than a cheaper, wrong one.
+   *
+   * It also matches how the shipment is actually placed: push-order (see
+   * lib/shipmozo/types.ts) takes one total weight and one L/W/H with no
+   * multi-piece concept at all, so every Arena order is single-piece to
+   * Shipmozo whatever the rate step asked for.
+   */
   private resolvePackageType(
     input: CanonicalRateRequest,
-    totalPieces: number,
   ): ShipmozoDomesticPackageType {
-    if (input.shipment.packageType) return input.shipment.packageType;
-    return totalPieces > 1 ? "MPS" : "SPS";
+    return input.shipment.packageType ?? "SPS";
   }
 }
