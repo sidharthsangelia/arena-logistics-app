@@ -22,11 +22,14 @@ async function main() {
     {
       totalCharged: 23200,
       charges: [
+        // Vendor-shaped names, as they actually arrive in chargesSnapshot.
         { name: "FREIGHT", amount: 19_500.37 },
-        { name: "Fuel surcharge", amount: 1_940.12 },
+        { name: "FUEL_SURCHARGE", amount: 1_940.12 },
         { name: "Overhead charges", amount: 742.5 },
+        { name: "Peak Surcharge", amount: 310.25 },
+        { name: "War risk surcharge", amount: 118 },
         { name: "GST", amount: 3_100 },
-        { name: "some-new-vendor-charge", amount: 220 },
+        { name: "SHIPMOZO_HANDLING_2", amount: 220 },
       ],
       firstMileCharge: 1017,
       firstMileLabel: "Dwarka, New Delhi",
@@ -54,7 +57,7 @@ async function main() {
     status: "PAID",
     seller: {
       version: INVOICE_SNAPSHOT_VERSION,
-      legalName: "Arena Cargo Logistics Private Limited",
+      legalName: "Arena Cargo And Logistics India Private Limited",
       tradeName: "Arena Cargo Logistics",
       addressLines: ["Unit 402, Vipul Trade Centre", "Sector 48, Sohna Road"],
       city: "Gurugram",
@@ -68,7 +71,7 @@ async function main() {
       phone: "+91 98100 00000",
       website: "arenalogistics.co.in",
       bank: {
-        accountName: "Arena Cargo Logistics Private Limited",
+        accountName: "Arena Cargo And Logistics India Private Limited",
         accountNumber: "50200012345678",
         ifsc: "HDFC0001234",
         bankName: "HDFC Bank",
@@ -76,6 +79,8 @@ async function main() {
       },
       declaration:
         "We declare that this invoice shows the actual price of the services described and that all particulars are true and correct.",
+      jurisdiction: "Delhi and Gurgaon",
+      billingEmail: "info@arenalogistics.co.in",
     },
     buyer: {
       version: INVOICE_SNAPSHOT_VERSION,
