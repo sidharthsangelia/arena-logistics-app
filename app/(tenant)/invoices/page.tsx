@@ -6,6 +6,8 @@ import { InvoiceSummaryCards } from "@/components/invoices/InvoiceSummaryCards";
 import { getDbOrgId } from "@/utils/tenant";
 import { getOrgInvoicesPage } from "@/lib/invoices/queries";
 import { DEFAULT_INVOICE_PAGE_SIZE } from "@/lib/invoices/config";
+import { getOrgTaxInvoices } from "@/lib/invoices/tax/queries";
+import { TaxInvoicesTable } from "@/components/invoices/TaxInvoicesTable";
 
 export const metadata = {
   title: "Invoices",
@@ -29,15 +31,49 @@ export default function InvoicesPage() {
           Invoices
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Bills from Arena for your shipments. View or download any invoice.
+          Your tax invoices and any bills Arena has raised. View or download any
+          of them.
         </p>
       </div>
 
-      <Suspense fallback={<InvoicesPanelSkeleton />}>
-        <InvoicesPanel />
-      </Suspense>
+      {/* Two lists, deliberately not merged.
+
+          Booking invoices are issued automatically, one per shipment, and are
+          the document a customer is looking for when they want proof of a
+          booking. Account bills are raised by hand for everything else. They
+          have different numbering, different lifecycles and different reasons
+          to exist, and a single table with a type column would make the
+          customer work out which kind they were looking at. */}
+      <section className="mb-10">
+        <h2 className="mb-1 text-sm font-semibold">Booking invoices</h2>
+        <p className="mb-4 text-sm text-muted-foreground">
+          A tax invoice for every shipment you book.
+        </p>
+
+        <Suspense fallback={<InvoicesTableSkeleton columns={5} />}>
+          <TaxInvoicesPanel />
+        </Suspense>
+      </section>
+
+      <section>
+        <h2 className="mb-1 text-sm font-semibold">Account bills</h2>
+        <p className="mb-4 text-sm text-muted-foreground">
+          Invoices Arena has raised to your account directly.
+        </p>
+
+        <Suspense fallback={<InvoicesPanelSkeleton />}>
+          <InvoicesPanel />
+        </Suspense>
+      </section>
     </div>
   );
+}
+
+async function TaxInvoicesPanel() {
+  const orgId = await getDbOrgId();
+  const rows = await getOrgTaxInvoices(orgId);
+
+  return <TaxInvoicesTable rows={rows} />;
 }
 
 async function InvoicesPanel() {

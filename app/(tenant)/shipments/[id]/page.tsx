@@ -23,10 +23,13 @@ import {
   CheckCircle2,
   CircleDot,
   Circle,
+  Download,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { getShipmentTaxInvoiceAction } from "@/actions/invoices/taxInvoices.action";
 import { PackageBoxList } from "@/components/booking/PackageBoxList";
 import { FirstMilePickupCard } from "@/components/booking/FirstMilePickupCard";
 import {
@@ -1040,6 +1043,72 @@ async function PricingCard({
   );
 }
 
+/**
+ * The GST tax invoice Arena raised for this booking.
+ *
+ * Rendered as its own card rather than a row inside Documents, because those
+ * are the customer's own paperwork (their commercial invoice, packing list,
+ * customs forms) and this is a document Arena issued TO them. Filing ours among
+ * theirs would make it harder to find, not easier.
+ *
+ * Absent for shipments booked before this feature existed, and briefly absent
+ * for a booking whose background job has not finished. Both cases render
+ * nothing at all: an empty card explaining why there is no invoice is worse
+ * than no card.
+ */
+async function TaxInvoiceCard({
+  shipmentPromise,
+}: {
+  shipmentPromise: ShipmentPromise;
+}) {
+  const s = await shipmentPromise;
+  const invoice = await getShipmentTaxInvoiceAction(s.id);
+
+  if (!invoice) return null;
+
+  const ready = invoice.generationStatus === "READY" && !!invoice.fileUrl;
+
+  return (
+    <Card className="overflow-hidden">
+      <SectionHeader
+        icon={Receipt}
+        title="Tax invoice"
+        description="Arena's GST invoice for this booking."
+      />
+
+      <div className="flex items-center justify-between px-5 py-4">
+        <div className="min-w-0">
+          <p className="text-sm font-medium tabular-nums">
+            {invoice.invoiceNumber ?? "Being prepared"}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            {formatMoney(invoice.total, invoice.currency)}
+            {invoice.status === "UNPAID" && " · Unpaid"}
+          </p>
+        </div>
+
+        {ready ? (
+          <Button asChild variant="outline" size="sm">
+            <a
+              href={invoice.fileUrl as string}
+              target="_blank"
+              rel="noopener noreferrer"
+              download={invoice.fileName ?? undefined}
+            >
+              <Download className="mr-1.5 h-4 w-4" aria-hidden />
+              Download
+            </a>
+          </Button>
+        ) : (
+          <span className="text-xs text-muted-foreground">
+            Usually ready within a minute of booking.
+          </span>
+        )}
+      </div>
+    </Card>
+  );
+}
+
 async function DocumentsCard({
   shipmentPromise,
 }: {
@@ -1428,6 +1497,13 @@ export default async function ShipmentDetailPage({
 
               <Suspense fallback={<PricingSkeleton />}>
                 <PricingCard shipmentPromise={shipmentPromise} />
+              </Suspense>
+
+              {/* No skeleton: this card renders nothing at all for a shipment
+                  with no invoice, and a placeholder that resolves to nothing is
+                  worse than a section that simply appears. */}
+              <Suspense fallback={null}>
+                <TaxInvoiceCard shipmentPromise={shipmentPromise} />
               </Suspense>
 
               <Suspense fallback={<DocumentsSkeleton />}>

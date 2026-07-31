@@ -1,7 +1,13 @@
+import { Suspense } from "react";
 import { redirect } from "next/navigation";
 
 import { getArenaAuth } from "@/utils/arena-auth";
 import { AdminInvoicesTable } from "@/components/invoices/AdminInvoicesTable";
+import { TaxInvoiceHealthPanel } from "@/components/invoices/TaxInvoiceHealthPanel";
+import {
+  getShipmentsMissingInvoices,
+  getStuckTaxInvoices,
+} from "@/lib/invoices/tax/queries";
 
 export const metadata = {
   title: "Invoices",
@@ -26,7 +32,23 @@ export default async function ArenaInvoicesPage() {
         </p>
       </div>
 
+      {/* Automatic booking invoices are healthy or they are not; this is the
+          only place that difference is visible. Streamed separately so two
+          extra queries never hold up the table people actually came for. */}
+      <Suspense fallback={null}>
+        <TaxInvoiceHealth />
+      </Suspense>
+
       <AdminInvoicesTable />
     </div>
   );
+}
+
+async function TaxInvoiceHealth() {
+  const [stuck, missing] = await Promise.all([
+    getStuckTaxInvoices(),
+    getShipmentsMissingInvoices(),
+  ]);
+
+  return <TaxInvoiceHealthPanel stuck={stuck} missing={missing} />;
 }
