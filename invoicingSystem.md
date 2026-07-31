@@ -80,11 +80,51 @@ wallet at their own rate. The client appears in the shipment block as the
 shipper, and nowhere else. The BA can forward the document without it exposing
 anything about how they price their own clients.
 
-**Vendor charge names never print.** `carrierBranding.md` is explicit that
-sourcing vendors are not disclosed, and charge names are a side door: the skart
-adapter passes `charge_name` straight through from its API. So the mapping in
-`chargeNames.ts` is an allowlist, and anything unrecognised collapses into
-"Handling and surcharges" rather than being tidied up and printed.
+**The breakdown reaches the invoice through the booking form.** This is the
+part that broke first, so it is worth knowing the whole chain:
+
+```
+adapter → RateQuote.charges       (vendor breakdown)
+  → applyMarkup()                 (every amount scaled, breakdown stays consistent)
+  → quoteToServiceOption()        (RateOptionPicker.tsx)
+  → BookingFormData.selectedService.charges
+  → Shipment.chargesSnapshot      ({...service, price}, so `.charges` sits inside)
+  → readCharges()                 (build.ts)
+  → buildInvoiceMoney()
+```
+
+`quoteToServiceOption` originally dropped `charges`, because `ServiceOption` was
+a deliberately slim projection of a quote. Nothing failed: `readCharges` found
+no `charges` key, returned `[]`, and the money engine's degenerate branch put
+the whole total on one line. Every invoice was arithmetically perfect and
+showed no breakdown at all. If breakdowns disappear again, check this chain
+before suspecting the naming rules below.
+
+The amounts carried here are display data. The invoice engine treats the wallet
+debit as authoritative and reconciles the components to it, so a tampered
+breakdown cannot change what anyone is charged or what tax is stated.
+
+**Every charge the customer paid for is shown, and no vendor name is.** These
+pull against each other. `carrierBranding.md` is explicit that sourcing vendors
+are not disclosed, and charge names are a side door: the skart adapter passes
+`charge_name` straight through from its API and shipmozo passes
+`overhead_charges_details[].name`.
+
+The first version of `chargeNames.ts` was a strict allowlist, and everything
+unrecognised collapsed into one shared generic line. That is airtight on
+disclosure and useless as a breakdown, because vendors invent surcharge names
+constantly and each new one silently merged into the same bucket.
+
+So the check is now on the shape of the label rather than on membership of a
+list. The branding guard is a forbidden-token list: vendor and carrier names,
+plus the words for Arena's own economics ("cost", "margin", "markup"). Beyond
+that a label prints, tidied to sentence case, as long as it contains real words
+rather than a bare code. Known names still get curated wording, and anything
+suppressed prints as "Other charges". No charge is ever dropped, and the
+invoice totals the same either way.
+
+`utils/invoiceChargeNames.test.ts` holds both halves of this: real vendor
+charges must survive, vendor identity must not.
 
 **The confirmation email moved into the background job.** It used to be awaited
 at the end of `createShipmentAction`. It moved so the customer gets one email
@@ -109,6 +149,7 @@ lib/invoices/tax/
   queries.ts       the read side, tenant and Arena scopes
   pdf/
     TaxInvoiceDocument.tsx   the document itself
+    logo.ts                  the Arena mark as an embedded data URI
     render.tsx               render to buffer, upload to UploadThing
 
 lib/inngest/
@@ -119,7 +160,33 @@ actions/invoices/taxInvoices.action.ts   reads and the admin retry
 components/invoices/TaxInvoicesTable.tsx      tenant list
 components/invoices/TaxInvoiceHealthPanel.tsx admin repair view
 utils/invoiceMoney.test.ts               the money engine's tests
+utils/invoiceChargeNames.test.ts         what may and may not print on a line
+
+types/booking.types.ts    ServiceOption.charges, the breakdown's route in
+types/booking.schema.ts   its zod shape
+components/booking/RateOptionPicker.tsx   quoteToServiceOption, where it is set
 ```
+
+### Notes on the PDF
+
+Run `npx tsx scripts/renderSampleInvoice.tsx` to write `sample-invoice.pdf`
+from fixed sample data. Use it whenever the template changes; the layout is
+tuned to fit a seven line breakdown on one page and it is easy to push it onto
+a second without noticing.
+
+**The logo is embedded, not loaded.** `pdf/logo.ts` holds the mark as a base64
+data URI. `public/arena_logo.png` is not readable from a serverless function,
+and a remote URL means an invoice can render without its letterhead because a
+fetch timed out, which `@react-pdf/renderer` would swallow silently. The
+embedded copy is cropped and downscaled from the original; regenerate it the
+same way if the brand mark changes.
+
+**Two things in `@react-pdf/renderer` fail silently on a full page.** A `fixed`
+wrapper `View` holding the page footer as children renders as nothing, and so
+does any `Text` using the `render` callback. Both work in isolation, which is
+what makes it worth writing down. The footer is therefore three separately
+positioned `fixed` elements with static text. If something you add to the
+document does not appear, and there is no error, suspect this first.
 
 ---
 
@@ -264,6 +331,10 @@ GSTIN belongs leaves a hole no later fix can close.
 
 `INVOICE_ISSUER_STATE_CODE` must match the first two digits of
 `INVOICE_ISSUER_GSTIN`. It decides IGST versus CGST/SGST on every invoice.
+
+`INVOICE_ISSUER_JURISDICTION` and `INVOICE_ISSUER_BILLING_EMAIL` are printed at
+the foot of every page. The jurisdiction is read as "SUBJECT TO `<value>`
+JURISDICTION", so give it the places only.
 
 ### Database
 
