@@ -110,6 +110,14 @@ export interface InvoiceIssuer {
   };
   /** Printed above the signature line. */
   declaration: string;
+  /**
+   * Where a dispute over this invoice is heard. Printed at the foot of the
+   * document because a jurisdiction clause that is not on the paper is not a
+   * jurisdiction clause.
+   */
+  jurisdiction: string;
+  /** Where a customer takes a billing question. Printed beside the clause. */
+  billingEmail: string;
 }
 
 /**
@@ -151,6 +159,12 @@ const ISSUER: InvoiceIssuer = {
   declaration:
     "We declare that this invoice shows the actual price of the services " +
     "described and that all particulars are true and correct.",
+  jurisdiction:
+    process.env.INVOICE_ISSUER_JURISDICTION ?? "Delhi and Gurgaon",
+  billingEmail:
+    process.env.INVOICE_ISSUER_BILLING_EMAIL ??
+    process.env.INVOICE_ISSUER_EMAIL ??
+    "info@arenalogistics.co.in",
 };
 
 export function getInvoiceIssuer(): InvoiceIssuer {
