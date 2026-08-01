@@ -39,12 +39,19 @@ export interface ShipmozoTrackData {
 
 // --- push-order --------------------------------------------------------------
 
+// Callers may omit anything optional here. They are filled in with Shipmozo's
+// own empty defaults before the request goes out, because Shipmozo reads these
+// keys unguarded and a missing one refuses the order outright. See
+// lib/shipmozo/pushOrderDefaults.ts.
 export interface ShipmozoProductDetail {
   name: string;
   quantity: number;
   unit_price: number;
   hsn?: string;
   sku_number?: string;
+  /** Their schema says number, their example sends "". Either is accepted. */
+  discount?: number | string;
+  product_category?: string;
 }
 
 export interface ShipmozoPushOrderPayload {
@@ -52,6 +59,7 @@ export interface ShipmozoPushOrderPayload {
   order_date: string; // yyyy-mm-dd
   consignee_name: string;
   consignee_phone: string;
+  consignee_alternate_phone?: string;
   consignee_email?: string;
   consignee_address_line_one: string;
   consignee_address_line_two?: string;
@@ -68,6 +76,8 @@ export interface ShipmozoPushOrderPayload {
   height: string;
   warehouse_id: string;
   shipment_type?: "FORWARD" | "REVERSE";
+  gst_ewaybill_number?: string;
+  gstin_number?: string;
 }
 
 export interface ShipmozoPushOrderData {
@@ -85,6 +95,20 @@ export interface ShipmozoAssignData {
   courier?: string;
   courier_company?: string;
   courier_company_service?: string;
+}
+
+// --- get-order-detail --------------------------------------------------------
+
+// Shipmozo documents no schema for this endpoint, so only the fields we
+// actually read are typed, all optional. It is used as a "does this order
+// already exist?" probe, never as a source of truth.
+export interface ShipmozoOrderDetailData {
+  order_id?: string;
+  refrence_id?: string;
+  awb_number?: string;
+  courier?: string;
+  courier_company?: string;
+  status?: string;
 }
 
 // --- warehouses (pickup points) ---------------------------------------------
