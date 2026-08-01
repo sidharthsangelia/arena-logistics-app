@@ -265,8 +265,8 @@ export default function DomesticServiceStep({
             Pick your courier
           </h2>
           <p className="mt-0.5 text-sm text-muted-foreground">
-            Live quotes for a door-to-door delivery. Open any card to see
-            exactly what makes up the price.
+            Live quotes for a door-to-door delivery. Surface and air sit on
+            separate tabs; open any card to see what makes up the price.
           </p>
         </div>
         <Button
@@ -333,6 +333,7 @@ export default function DomesticServiceStep({
             })
           }
           showCarrierLogo
+          splitByMode
         />
       )}
 

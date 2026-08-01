@@ -3,8 +3,10 @@
 /**
  * RateOptionPicker
  *
- * Interactive carrier picker shared by the international service step and the
- * domestic first-mile step. Takes the raw RateQuote list (which carries the
+ * Interactive carrier picker shared by the international service step, the
+ * domestic first-mile step and the domestic service step (which additionally
+ * splits the list into Surface and Air tabs via `splitByMode` — see
+ * lib/booking/serviceMode.ts). Takes the raw RateQuote list (which carries the
  * full charge breakdown) so it can show sortable, filterable, squarish cards
  * with an expandable "what am I paying for" breakdown — while the parent step
  * still persists the slim ServiceOption on select.
@@ -24,7 +26,9 @@ import {
   LayoutGrid,
   List,
   Layers,
+  Plane,
   SearchX,
+  Truck,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -41,12 +45,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import type { RateQuote } from "@/lib/types";
 import type { ServiceOption } from "@/types/booking.types";
 import { useIsArenaOrg } from "@/hooks/useIsArenaOrg";
 import { carrierLogo } from "@/lib/carrierLogo";
 import { brandServiceName } from "@/lib/branding/serviceName";
+import { classifyServiceMode, type ServiceMode } from "@/lib/booking/serviceMode";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -113,6 +119,9 @@ const SORT_LABEL: Record<SortKey, string> = {
   "tat-asc": "Fastest first",
 };
 
+/** Surface/air tabs, plus the combined view for comparing across both. */
+type ModeTab = ServiceMode | "all";
+
 // ---------------------------------------------------------------------------
 // Card
 // ---------------------------------------------------------------------------
@@ -124,6 +133,7 @@ function RateOptionCard({
   isFastest,
   tatSuffix,
   showCarrierLogo,
+  mode,
   onSelect,
 }: {
   quote: RateQuote;
@@ -132,6 +142,8 @@ function RateOptionCard({
   isFastest: boolean;
   tatSuffix?: string;
   showCarrierLogo?: boolean;
+  /** Set only where surface/air applies (domestic). Renders the mode chip. */
+  mode?: ServiceMode;
   onSelect: () => void;
 }) {
   const tax = quote.totalWithTax - quote.totalWithoutTax;
@@ -168,8 +180,25 @@ function RateOptionCard({
       >
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 space-y-1.5">
-            {(isCheapest || isFastest) && (
+            {(isCheapest || isFastest || mode) && (
               <div className="flex flex-wrap gap-1.5">
+                {mode && (
+                  <span
+                    className={cn(
+                      "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold",
+                      mode === "air"
+                        ? "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-800 dark:bg-sky-950/30 dark:text-sky-400"
+                        : "border-border bg-muted text-muted-foreground",
+                    )}
+                  >
+                    {mode === "air" ? (
+                      <Plane className="h-2.5 w-2.5" />
+                    ) : (
+                      <Truck className="h-2.5 w-2.5" />
+                    )}
+                    {mode === "air" ? "Air" : "Surface"}
+                  </span>
+                )}
                 {isCheapest && (
                   <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-400">
                     <TrendingDown className="h-2.5 w-2.5" />
@@ -302,6 +331,12 @@ interface Props {
   tatSuffix?: string;
   /** International only. The domestic first-mile step shows no carrier logo. */
   showCarrierLogo?: boolean;
+  /**
+   * Domestic only. Splits the list into Surface and Air tabs and puts a mode
+   * chip on every card. A domestic route returns 15-16 products in one list,
+   * and the mode is the axis people actually choose on.
+   */
+  splitByMode?: boolean;
 }
 
 export function RateOptionPicker({
@@ -310,6 +345,7 @@ export function RateOptionPicker({
   onSelect,
   tatSuffix,
   showCarrierLogo,
+  splitByMode,
 }: Props) {
   const [sortBy, setSortBy] = useState<SortKey>("price-asc");
   const [hidden, setHidden] = useState<Set<string>>(new Set());
@@ -338,8 +374,45 @@ export function RateOptionPicker({
     return quoteKey(withTat.reduce((a, b) => (a.tatDays <= b.tatDays ? a : b)));
   }, [quotes]);
 
+  // Mode per quote, resolved once. Off entirely for international, where every
+  // option flies and the split would say nothing.
+  const modeByKey = useMemo(() => {
+    if (!splitByMode) return null;
+    return new Map(
+      quotes.map((q) => [quoteKey(q), classifyServiceMode(q.productName)]),
+    );
+  }, [quotes, splitByMode]);
+
+  const modeCounts = useMemo(() => {
+    const counts: Record<ServiceMode, number> = { surface: 0, air: 0 };
+    if (!modeByKey) return counts;
+    for (const mode of modeByKey.values()) counts[mode] += 1;
+    return counts;
+  }, [modeByKey]);
+
+  // Tabs only earn their space when both modes are actually on offer.
+  const showModeTabs = Boolean(modeByKey) && modeCounts.surface > 0 && modeCounts.air > 0;
+
+  // Open on the tab holding the current selection (someone stepping back into
+  // the wizard should see what they picked), otherwise on Surface — the
+  // cheaper, far more common half of a domestic list.
+  const [modeTab, setModeTab] = useState<ModeTab>(() => {
+    const selectedMode = selectedKey ? modeByKey?.get(selectedKey) : undefined;
+    return selectedMode ?? "surface";
+  });
+
+  // A refetch (COD toggle, refresh) can return a list with nothing in the open
+  // tab. Derive the shown tab rather than correcting state after the fact, so
+  // the combined view stands in for an empty one without an extra render.
+  const activeTab: ModeTab =
+    modeTab !== "all" && modeCounts[modeTab] === 0 ? "all" : modeTab;
+
   const processed = useMemo(() => {
-    const result = quotes.filter((q) => !hidden.has(q.vendorId));
+    const result = quotes.filter((q) => {
+      if (hidden.has(q.vendorId)) return false;
+      if (!modeByKey || !showModeTabs || activeTab === "all") return true;
+      return modeByKey.get(quoteKey(q)) === activeTab;
+    });
     result.sort((a, b) => {
       switch (sortBy) {
         case "price-asc":
@@ -353,7 +426,7 @@ export function RateOptionPicker({
       }
     });
     return result;
-  }, [quotes, hidden, sortBy]);
+  }, [quotes, hidden, sortBy, modeByKey, showModeTabs, activeTab]);
 
   const toggleCarrier = (id: string) =>
     setHidden((prev) => {
@@ -363,8 +436,10 @@ export function RateOptionPicker({
       return next;
     });
 
-  return (
-    <div className="space-y-4">
+  // Toolbar + cards + footer. Rendered on its own when there is nothing to
+  // split, or inside the Surface/Air tab panel when there is.
+  const results = (
+    <>
       {/* Toolbar */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
@@ -436,7 +511,11 @@ export function RateOptionPicker({
         <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed py-10 text-center">
           <SearchX className="h-6 w-6 text-muted-foreground" />
           <p className="text-sm font-medium">No carriers match your filters</p>
-          <p className="text-xs text-muted-foreground">Turn a carrier back on to see its rates.</p>
+          <p className="text-xs text-muted-foreground">
+            {showModeTabs && activeTab !== "all"
+              ? "Try the other tab, or turn a carrier back on to see its rates."
+              : "Turn a carrier back on to see its rates."}
+          </p>
         </div>
       ) : (
         <div className={cn(viewMode === "grid" ? "grid gap-3 sm:grid-cols-2" : "flex flex-col gap-3")}>
@@ -451,6 +530,7 @@ export function RateOptionPicker({
                 isFastest={key === fastestKey}
                 tatSuffix={tatSuffix}
                 showCarrierLogo={showCarrierLogo}
+                mode={modeByKey?.get(key)}
                 onSelect={() => onSelect(quote)}
               />
             );
@@ -461,6 +541,46 @@ export function RateOptionPicker({
       <p className="text-center text-xs text-muted-foreground">
         {processed.length} of {quotes.length} option{quotes.length !== 1 ? "s" : ""} shown · Prices include GST
       </p>
-    </div>
+    </>
+  );
+
+  if (!showModeTabs) return <div className="space-y-4">{results}</div>;
+
+  return (
+    <Tabs
+      value={activeTab}
+      onValueChange={(v) => setModeTab(v as ModeTab)}
+      className="w-full gap-3"
+    >
+      <TabsList className="h-9 w-full sm:w-fit">
+        <TabsTrigger value="surface" className="gap-1.5">
+          <Truck aria-hidden />
+          Surface
+          <span className="text-xs text-muted-foreground">{modeCounts.surface}</span>
+        </TabsTrigger>
+        <TabsTrigger value="air" className="gap-1.5">
+          <Plane aria-hidden />
+          Air
+          <span className="text-xs text-muted-foreground">{modeCounts.air}</span>
+        </TabsTrigger>
+        <TabsTrigger value="all" className="gap-1.5">
+          All
+          <span className="text-xs text-muted-foreground">{quotes.length}</span>
+        </TabsTrigger>
+      </TabsList>
+
+      <p className="text-xs text-muted-foreground">
+        {activeTab === "air"
+          ? "Air services fly between hubs. Fastest, and priced accordingly."
+          : activeTab === "surface"
+            ? "Surface services move by road. Slower, and the cheaper option on most routes."
+            : "Surface and air together, so you can weigh speed against price."}
+      </p>
+
+      {/* value tracks the active tab, so the panel is always the live one. */}
+      <TabsContent value={activeTab} className="space-y-4">
+        {results}
+      </TabsContent>
+    </Tabs>
   );
 }
