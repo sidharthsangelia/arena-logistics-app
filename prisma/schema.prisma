@@ -1048,14 +1048,34 @@ model Shipment {
   codEnabled Boolean  @default(false)
   codAmount  Decimal? @db.Decimal(14, 2)
 
-  // Shipmozo door → door order, pushed by ops from the domestic booking page
-  // (the same manual push the first-mile leg uses, never automatic at booking).
-  // Present so wiring that push later needs no migration.
-  domesticCourierOrderId     String? // Shipmozo order_id
+  // The door → door courier order, pushed automatically the moment the booking
+  // commits (lib/inngest/functions/bookDomesticCourier.ts). Every external id is
+  // written the instant the vendor returns it, so a retry after a mid-flow
+  // failure resumes rather than pushing a second order.
+  domesticCourierOrderId     String? // vendor's order handle
   domesticCourierWarehouseId String? // registered pickup point, reused across retries
   domesticAwbNumber          String? // courier AWB, once assigned
   domesticTrackingUrl        String? // courier's public tracking page, if any
-  domesticCourierBookedAt    DateTime? // when ops pushed the order
+  domesticCourierBookedAt    DateTime? // when the order was pushed to the vendor
+
+  // Which booking adapter owns this order (lib/booking-adapters). Recorded so a
+  // later label fetch, cancel or retry goes back to the vendor that actually
+  // holds the order, rather than to whichever adapter happens to be default
+  // once there is more than one domestic vendor.
+  domesticCourierVendorId String?
+  // The courier the vendor assigned, e.g. "Delhivery". Distinct from
+  // selectedProductName, which is what the customer chose and paid for; they
+  // agree on a normal booking and disagree only when ops force an auto-assign.
+  domesticCourierName     String?
+  domesticCourierStatus   DomesticCourierStatus @default(NOT_REQUIRED)
+  // Why the last attempt failed, surfaced on the ops booking page. Cleared on
+  // every fresh attempt so it never describes a run that has since succeeded.
+  domesticCourierError    String?
+  domesticCourierAttempts Int                   @default(0)
+  // The AIRWAY_BILL ShipmentDocument holding the label PDF. Pointed at from here
+  // rather than found by docType, because ops can upload their own airway bill
+  // and the two must not be mistaken for each other.
+  domesticLabelDocumentId String?
 
   status ShipmentStatus @default(DRAFT)
 
@@ -1087,6 +1107,21 @@ model Shipment {
   @@index([mode, status])
   @@index([orgId, mode, status])
   @@index([domesticAwbNumber])
+  // "Which domestic bookings have no AWB yet, or failed to get one?" — the
+  // question the ops domestic queue exists to answer.
+  @@index([mode, domesticCourierStatus])
+}
+
+// How far a domestic booking has got with the courier vendor. Separate from
+// ShipmentStatus because they answer different questions: ShipmentStatus is
+// where the parcel is, this is whether we hold a waybill for it at all. A
+// booking can be BOOKED and paid while its courier order is still PENDING.
+enum DomesticCourierStatus {
+  NOT_REQUIRED // international shipment, or a domestic row booked before this existed
+  PENDING // queued with the vendor, no AWB yet
+  BOOKED // AWB assigned
+  FAILED // every retry spent; needs a human
+  CANCELLED // order cancelled with the vendor
 }
 
 // ─────────────────────────────────────────────
@@ -1451,6 +1486,7 @@ enum NotificationKind {
   COLLECTION_OVERDUE // a deferred payment nobody has collected
   SHIPMENT_STUCK // sat in the same status past the tolerance
   QUOTE_EXPIRING // a sent quote about to lapse
+  COURIER_BOOKING_FAILED // a paid domestic booking the courier vendor would not take
 
   // ── Tenant side ──
   SHIPMENT_STATUS // their shipment moved
