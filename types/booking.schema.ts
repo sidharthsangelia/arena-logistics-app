@@ -9,6 +9,7 @@ import {
   domesticDocRequirement,
   EWAY_BILL_THRESHOLD,
 } from "@/lib/booking/domesticDocs";
+import { isIndianMobile } from "@/lib/booking/phone";
 
 // ---------------------------------------------------------------------------
 // Shared
@@ -38,6 +39,50 @@ const addressFormSchema = z.object({
   postalCode: z.string().min(2, "Postal code is required"),
   country: z.string().min(2, "Country is required"),
 });
+
+// ---------------------------------------------------------------------------
+// Indian phone numbers
+//
+// The length check above is not enough for an address a courier has to visit.
+// A nine-digit consignee number passed it, was stored, and was refused by the
+// courier hours after the customer had paid, with the message "Error". The
+// person who could have fixed it in two seconds was long gone by then.
+//
+// Applied per address and only when that address is in India, so an
+// international consignee keeps whatever format their country uses. It fires
+// on both modes, because an export's PICKUP is Indian too and goes to the same
+// courier API for the first-mile leg.
+// ---------------------------------------------------------------------------
+
+const INDIA_COUNTRY_NAMES = new Set(["india", "in"]);
+
+function isIndia(country: unknown): boolean {
+  return (
+    typeof country === "string" &&
+    INDIA_COUNTRY_NAMES.has(country.trim().toLowerCase())
+  );
+}
+
+function checkIndianPhone(
+  ctx: z.RefinementCtx,
+  address: unknown,
+  path: (string | number)[],
+) {
+  if (!address || typeof address !== "object") return;
+
+  const { phone, country } = address as { phone?: unknown; country?: unknown };
+  if (!isIndia(country)) return;
+  if (typeof phone !== "string" || !phone.trim()) return; // absence is the base schema's job
+
+  if (!isIndianMobile(phone)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: [...path, "phone"],
+      message:
+        "Enter a 10-digit Indian mobile number. The courier calls this number to collect and deliver.",
+    });
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Step 0 — Sender + Pickup (merged "who's shipping" + sender address +
@@ -78,6 +123,13 @@ export const senderPickupSchema = z
           });
         });
       }
+    }
+
+    // The number the courier rings on the doorstep. Checked on whichever
+    // address they will actually visit.
+    checkIndianPhone(ctx, data.consignor, ["consignor"]);
+    if (!data.pickupSameAsSender) {
+      checkIndianPhone(ctx, data.pickup, ["pickup"]);
     }
   });
 
@@ -120,6 +172,9 @@ export const deliveryBillingSchema = z
         });
       }
     }
+
+    // Only fires on an Indian consignee, so an export to Dubai is unaffected.
+    checkIndianPhone(ctx, data.consignee, ["consignee"]);
   });
 
 // ---------------------------------------------------------------------------
@@ -177,15 +232,6 @@ export const shipmentDetailsSchema = z
 // courier that cannot serve it, and failing here with a clear message beats
 // failing three steps later with a vendor error.
 // ---------------------------------------------------------------------------
-
-const INDIA_COUNTRY_NAMES = new Set(["india", "in"]);
-
-function isIndia(country: unknown): boolean {
-  return (
-    typeof country === "string" &&
-    INDIA_COUNTRY_NAMES.has(country.trim().toLowerCase())
-  );
-}
 
 export const domesticDeliveryBillingSchema = deliveryBillingSchema.superRefine(
   (data, ctx) => {
