@@ -62,6 +62,26 @@ export function mapShipmozoStatusToFirstMile(
 ): FirstMileStatus | null {
   const s = (status ?? "").toLowerCase().trim();
   if (!s) return null;
+
+  // Checked BEFORE the rules, because these lines contain the very words the
+  // rules match on. "Undelivered - consignee not available" and "RTO Delivered"
+  // both contain "delivered", and the first rule would read either as the
+  // parcel having reached our hub — which is also the moment a pay-on-arrival
+  // booking becomes collectable. A returning parcel would bill the customer for
+  // arriving somewhere it never got to.
+  if (
+    s.includes("rto") ||
+    s.includes("return") ||
+    s.includes("undelivered") ||
+    s.includes("not delivered") ||
+    s.includes("cancel") ||
+    s.includes("exception") ||
+    s.includes("failed") ||
+    s.includes("attempt")
+  ) {
+    return null;
+  }
+
   for (const rule of RULES) {
     if (rule.match(s)) return rule.stage;
   }
