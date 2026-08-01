@@ -36,6 +36,7 @@ export function InvoiceToolbar({
   status,
   onStatusChange,
   isFetching,
+  leading,
   children,
 }: {
   search: string;
@@ -44,6 +45,8 @@ export function InvoiceToolbar({
   status: InvoiceStatusFilter;
   onStatusChange: (value: InvoiceStatusFilter) => void;
   isFetching?: boolean;
+  /** Controls that belong BEFORE the status filter (the tenant kind switch). */
+  leading?: React.ReactNode;
   children?: React.ReactNode;
 }) {
   return (
@@ -71,7 +74,8 @@ export function InvoiceToolbar({
         )}
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
+        {leading}
         <Select
           value={status}
           onValueChange={(v) => onStatusChange(v as InvoiceStatusFilter)}

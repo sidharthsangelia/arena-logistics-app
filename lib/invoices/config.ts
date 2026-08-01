@@ -17,6 +17,20 @@ import { InvoiceStatus } from "@/generated/prisma";
 export const INVOICE_PAGE_SIZE_OPTIONS = [10, 20, 30, 50] as const;
 export const DEFAULT_INVOICE_PAGE_SIZE = 20;
 
+/** Page number, floored to a positive integer. */
+export function coerceInvoicePage(value: number | undefined): number {
+  return Number.isFinite(value) && (value as number) > 0
+    ? Math.floor(value as number)
+    : 1;
+}
+
+/** Page size, restricted to the sizes the picker offers. */
+export function coerceInvoicePageSize(value: number | undefined): number {
+  return (INVOICE_PAGE_SIZE_OPTIONS as readonly number[]).includes(value as number)
+    ? (value as number)
+    : DEFAULT_INVOICE_PAGE_SIZE;
+}
+
 export type InvoiceSortField =
   | "issueDate"
   | "dueDate"
@@ -101,6 +115,108 @@ export interface InvoiceListParams {
   search?: string;
   /** Arena only: narrow to a single org. Tenant scope is forced separately. */
   orgId?: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// The tenant feed — booking invoices and account bills in one list
+// ---------------------------------------------------------------------------
+//
+// A customer has two kinds of document from Arena: a tax invoice raised
+// automatically for every shipment, and a bill raised by hand for anything
+// else. They live in different tables (ShipmentInvoice / Invoice) with their
+// own numbering and lifecycles, but from the customer's side they are one
+// question — "what has Arena billed me?" — so /invoices shows one list with the
+// kind as a tag, and the two tables are merged at read time.
+
+export type InvoiceKind = "BOOKING" | "ACCOUNT";
+
+export const INVOICE_KIND_FILTERS = ["ALL", "BOOKING", "ACCOUNT"] as const;
+export type InvoiceKindFilter = (typeof INVOICE_KIND_FILTERS)[number];
+
+export function coerceInvoiceKindFilter(value: unknown): InvoiceKindFilter {
+  return (INVOICE_KIND_FILTERS as readonly string[]).includes(value as string)
+    ? (value as InvoiceKindFilter)
+    : "ALL";
+}
+
+/**
+ * Sortable columns in the merged list.
+ *
+ * Deliberately short. Rows come from two tables and are merged in memory, so a
+ * sort is only safe on a field where the JS comparator and the database agree
+ * exactly — a date and a number do; a string under a database collation does
+ * not, and a row would land on the wrong page. Finding one invoice by number is
+ * what the search box is for.
+ */
+export type InvoiceFeedSortField = "issueDate" | "amount";
+
+export function coerceInvoiceFeedSortField(value: unknown): InvoiceFeedSortField {
+  return value === "amount" ? "amount" : "issueDate";
+}
+
+export interface InvoiceFeedRow {
+  /** Kind-prefixed, because the two source tables number their ids separately. */
+  id: string;
+  kind: InvoiceKind;
+  /** A booking document can be a credit note rather than an invoice. */
+  isCreditNote: boolean;
+
+  /** Null on a booking invoice the job has not numbered yet. */
+  invoiceNumber: string | null;
+  /** Already derived, so OVERDUE is decided once, on the server. */
+  status: InvoiceViewStatus;
+
+  amount: number;
+  currency: string;
+  issueDate: string;
+  /** Account bills only. Booking invoices are settled at booking. */
+  dueDate: string | null;
+
+  shipmentId: string | null;
+  shipmentNumber: string | null;
+
+  fileUrl: string | null;
+  fileName: string | null;
+  /** Booking invoices only: numbered and rendered, or still being prepared. */
+  preparing: boolean;
+}
+
+export interface InvoiceFeedPage {
+  rows: InvoiceFeedRow[];
+  total: number;
+  pageCount: number;
+  page: number;
+  pageSize: number;
+  summary: InvoiceSummary;
+  /**
+   * How many rows each kind holds under the CURRENT status filter and search,
+   * so the kind switch can show what you would get before you click it.
+   */
+  kindCounts: Record<InvoiceKind, number>;
+}
+
+/**
+ * Where the Download button points.
+ *
+ * Not the storage URL: the PDFs sit on another origin, where the browser
+ * ignores `download` and shows the file instead of saving it. This route
+ * streams the same bytes from our origin with an attachment disposition — see
+ * app/api/invoices/[kind]/[id]/download/route.ts.
+ */
+export function invoiceDownloadHref(row: InvoiceFeedRow): string {
+  const rawId = row.id.slice(row.id.indexOf(":") + 1);
+  const kind = row.kind === "BOOKING" ? "booking" : "account";
+  return `/api/invoices/${kind}/${encodeURIComponent(rawId)}/download`;
+}
+
+export interface InvoiceFeedParams {
+  page?: number;
+  pageSize?: number;
+  sortField?: InvoiceFeedSortField;
+  sortDir?: "asc" | "desc";
+  statusFilter?: InvoiceStatusFilter;
+  kindFilter?: InvoiceKindFilter;
+  search?: string;
 }
 
 // ---------------------------------------------------------------------------

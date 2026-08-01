@@ -18,13 +18,14 @@ export default function InvoicesLoading() {
           Invoices
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Bills from Arena for your shipments. View or download any invoice.
+          Everything Arena has billed you: a tax invoice for every shipment,
+          plus any bills raised to your account. Open or download any of them.
         </p>
       </div>
 
       <div className="space-y-5">
         <InvoiceSummaryCards summary={undefined} isLoading />
-        <InvoicesTableSkeleton columns={7} />
+        <InvoicesTableSkeleton columns={8} />
       </div>
     </div>
   );

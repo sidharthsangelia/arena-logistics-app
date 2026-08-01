@@ -30,6 +30,8 @@ import { InvoiceStatus } from "@/generated/prisma";
 import {
   createInvoiceSchema,
   updateInvoiceSchema,
+  type InvoiceFeedPage,
+  type InvoiceFeedParams,
   type InvoiceListParams,
   type InvoicePage,
 } from "@/lib/invoices/config";
@@ -38,6 +40,7 @@ import {
   getAllInvoicesPage,
   getOrgInvoicesPage,
 } from "@/lib/invoices/queries";
+import { getOrgInvoiceFeed } from "@/lib/invoices/feed";
 
 const TENANT_PATH = "/invoices";
 const ARENA_PATH = "/arena-dashboard/invoices";
@@ -60,6 +63,18 @@ export async function listOrgInvoicesAction(
 ): Promise<InvoicePage> {
   const orgId = await getDbOrgId();
   return getOrgInvoicesPage(orgId, params);
+}
+
+/**
+ * Tenant: booking invoices and account bills in one list — what /invoices
+ * renders. Same org lock as above: the id comes from the session, never the
+ * params.
+ */
+export async function listOrgInvoiceFeedAction(
+  params: InvoiceFeedParams,
+): Promise<InvoiceFeedPage> {
+  const orgId = await getDbOrgId();
+  return getOrgInvoiceFeed(orgId, params);
 }
 
 /** Arena admin: every org's invoices, optionally filtered to one. */

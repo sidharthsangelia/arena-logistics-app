@@ -14,8 +14,8 @@ import { unstable_cache } from "next/cache";
 import { Prisma } from "@/generated/prisma";
 import { prisma } from "@/utils/db";
 import {
-  DEFAULT_INVOICE_PAGE_SIZE,
-  INVOICE_PAGE_SIZE_OPTIONS,
+  coerceInvoicePage,
+  coerceInvoicePageSize,
   coerceInvoiceSortField,
   coerceInvoiceStatusFilter,
   type InvoiceListParams,
@@ -29,18 +29,6 @@ import {
 // ---------------------------------------------------------------------------
 // Where builder
 // ---------------------------------------------------------------------------
-
-function coercePage(value: number | undefined): number {
-  return Number.isFinite(value) && (value as number) > 0
-    ? Math.floor(value as number)
-    : 1;
-}
-
-function coercePageSize(value: number | undefined): number {
-  return (INVOICE_PAGE_SIZE_OPTIONS as readonly number[]).includes(value as number)
-    ? (value as number)
-    : DEFAULT_INVOICE_PAGE_SIZE;
-}
 
 /**
  * Build the `where` for a scope. `forcedOrgId` is the tenant's own org (never
@@ -195,8 +183,8 @@ async function fetchPage(opts: {
   params: InvoiceListParams;
 }): Promise<InvoicePage> {
   const now = new Date();
-  const page = coercePage(opts.params.page);
-  const pageSize = coercePageSize(opts.params.pageSize);
+  const page = coerceInvoicePage(opts.params.page);
+  const pageSize = coerceInvoicePageSize(opts.params.pageSize);
   const sortField = coerceInvoiceSortField(opts.params.sortField);
   const sortDir = opts.params.sortDir === "asc" ? "asc" : "desc";
   const statusFilter = coerceInvoiceStatusFilter(opts.params.statusFilter);
