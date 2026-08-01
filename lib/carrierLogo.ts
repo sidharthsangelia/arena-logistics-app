@@ -51,10 +51,11 @@ const CARRIER_RULES: { pattern: RegExp; logo: CarrierLogo }[] = [
  * IMPORTANT — pass the name the viewer actually SEES, not the raw vendor
  * string. Callers resolve `displayServiceName` / `brandServiceName` first and
  * hand the result to `carrierLogo`, which makes the logo follow the label for
- * free: the day NEXT_PUBLIC_SHIPGLOBAL_WHITELABEL is switched on, customers see
- * "Arena Direct" and this rule stops matching, so the card shows the Arena logo
- * instead. A ShipGlobal logo next to an Arena-branded name would leak the
- * vendor by picture, which is exactly what carrierBranding.md exists to prevent.
+ * free: a customer's white-labelled "Arena Direct" no longer matches this rule,
+ * so the card falls through to the Arena logo, while the raw "ShipGlobal Direct"
+ * an Arena staffer sees still gets the ShipGlobal one. A ShipGlobal logo next to
+ * an Arena-branded name would leak the vendor by picture, which is exactly what
+ * carrierBranding.md exists to prevent.
  */
 const VENDOR_LOGO_RULES: { pattern: RegExp; logo: CarrierLogo }[] = [
   {

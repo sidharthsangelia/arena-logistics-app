@@ -67,7 +67,7 @@ change one without sign-off.
 | D14 | Vendor errors | Hidden entirely from customers. Arena staff keep full per-vendor detail. | A partial-failure banner naming "sKart Express" leaks the vendor. |
 | D15 | Domestic calculator | Unchanged for now. Build the layer vendor-agnostic so domestic can be switched on later. | Smallest blast radius on the revenue path. |
 | D16 | Production safety | Env kill switch, fail **closed**, pinned unit tests. | This is the main revenue path. See section 11. |
-| D17 | ShipGlobal own-brand services | Shown under their own name **for now**, with the Arena swap already built and held behind `NEXT_PUBLIC_SHIPGLOBAL_WHITELABEL`. Flip it the day ShipGlobal grants white-label permission. | Same position sKart is in (D9), but we expect permission, so the provision ships now rather than as a later code change across six render surfaces. |
+| D17 | ShipGlobal own-brand services | **Arena-branded**, same treatment as Shipmozo (D7). `ShipGlobal Direct` reads as `Arena Direct` on every customer-facing surface. Not behind a flag. | Owner decision. The earlier env switch (`NEXT_PUBLIC_SHIPGLOBAL_WHITELABEL`) is removed: an unset variable in production fails open and leaks the vendor on the main revenue path. |
 
 ---
 
@@ -214,26 +214,32 @@ Arena branding. `carrierCode = "OTHER"`, `carrierLabel = productName`.
 
 ### Case 3b: no carrier detected, vendor is `shipglobal`
 
-Show the raw `productName` (`ShipGlobal Direct`, `ShipGlobal First Class`,
-`ShipGlobal Premium`) until white-label permission arrives (D17).
-`carrierCode = "OTHER"`, `carrierLabel = productName`.
-
-The swap itself is already written. `WHITE_LABEL_RULES` in
-[lib/branding/serviceName.ts](lib/branding/serviceName.ts) carries one row per
-vendor we may rebrand, and ShipGlobal's row is disabled by default:
+Swap the brand token for "Arena" and keep the rest of the service name verbatim
+(D17), exactly as Shipmozo is handled:
 
 ```
-NEXT_PUBLIC_SHIPGLOBAL_WHITELABEL = "true"   →  "ShipGlobal Direct" reads as "Arena Direct"
-unset / anything else                        →  "ShipGlobal Direct" reads verbatim
+"ShipGlobal Direct"       -> "Arena Direct"
+"ShipGlobal First Class"  -> "Arena First Class"
+"ShipGlobal Premium"      -> "Arena Premium"
 ```
+
+Only the brand token goes. The tier word is the customer-meaningful part and is
+never touched. `carrierCode = "OTHER"`, `carrierLabel` = the swapped name.
+
+The swap lives in `WHITE_LABEL_RULES` in
+[lib/branding/serviceName.ts](lib/branding/serviceName.ts), which carries one
+row per vendor we may rebrand. ShipGlobal's row is enabled unconditionally: no
+env flag, because a missing variable would fail open. Both spellings
+(`ShipGlobal`, `Ship Global`) match. ShipGlobal rows that name a big-4 carrier
+(`UPS Promotional`, `Fedex`) are untouched, as always.
 
 The logo follows the label automatically. `VENDOR_LOGO_RULES` in
 [lib/carrierLogo.ts](lib/carrierLogo.ts) holds `/shipglobal.png`, and every
 caller resolves the displayed name **first** and passes that to `carrierLogo`.
-So a customer reading "ShipGlobal Direct" sees the ShipGlobal logo, and the
-moment the flag flips they read "Arena Direct" and the rule stops matching, so
-they see the Arena logo. A vendor logo beside an Arena-branded name would leak
-the vendor by picture, which is the same disclosure by a different door.
+A customer reading "Arena Direct" no longer matches that rule, so they get the
+Arena logo; an Arena staffer reading the raw "ShipGlobal Direct" still gets the
+ShipGlobal one. A vendor logo beside an Arena-branded name would leak the vendor
+by picture, which is the same disclosure by a different door.
 
 Own-brand vendor logos are deliberately kept OUT of the big-4 rule list.
 That list is also the "never rebrand" set (`isBigFourCarrier`) and the

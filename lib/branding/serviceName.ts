@@ -9,12 +9,10 @@ import { isBigFourCarrier } from "@/lib/carrierLogo";
  * because the swap is what a customer reads on a quote and an invoice.
  *
  *   - Shipmozo: written permission held (carrierBranding.md D7). ON.
- *   - ShipGlobal: no permission yet. OFF by default, so "ShipGlobal Direct"
- *     currently reaches customers verbatim. Set
- *     NEXT_PUBLIC_SHIPGLOBAL_WHITELABEL=true the day they sign off and every
- *     surface switches to "Arena Direct" at once — no code change, no deploy of
- *     the rendering components, and nothing to remember to update in six
- *     different files.
+ *   - ShipGlobal: ON (carrierBranding.md D17). "ShipGlobal Direct" reads as
+ *     "Arena Direct" on every customer-facing surface. Deliberately NOT behind
+ *     an env flag any more: a missing or mistyped variable in production would
+ *     fail open and leak the vendor name on the main revenue path.
  *   - sKart: deliberately absent (D9). No permission, and adding a row here is
  *     the whole change if that ever comes.
  *
@@ -25,10 +23,7 @@ import { isBigFourCarrier } from "@/lib/carrierLogo";
 const WHITE_LABEL_RULES: { token: string; enabled: boolean }[] = [
   { token: "\\bshipmozo\\b", enabled: true },
   // "ShipGlobal" and the spaced "Ship Global" both count as their brand token.
-  {
-    token: "\\bship\\s?global\\b",
-    enabled: process.env.NEXT_PUBLIC_SHIPGLOBAL_WHITELABEL === "true",
-  },
+  { token: "\\bship\\s?global\\b", enabled: true },
 ];
 
 /**
