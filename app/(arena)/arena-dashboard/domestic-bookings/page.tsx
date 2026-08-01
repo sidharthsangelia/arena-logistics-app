@@ -1,7 +1,11 @@
 import { AlertCircle, Banknote, Clock, Package } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
-import { ShipmentMode, ShipmentStatus } from "@/generated/prisma";
+import {
+  DomesticCourierStatus,
+  ShipmentMode,
+  ShipmentStatus,
+} from "@/generated/prisma";
 import { prisma } from "@/utils/db";
 import {
   DEFAULT_PAGE_SIZE,
@@ -60,16 +64,30 @@ function parseSearchParams(sp: RawSearchParams) {
 }
 
 /**
- * How many domestic bookings still owe a courier push, and how many are
- * carrying a cash collection. Both are the questions ops opens this page to
- * answer, and neither exists on the international list.
+ * How many live domestic bookings still have no waybill, how many of those the
+ * courier refused outright, and how many are carrying a cash collection. All
+ * three are questions ops opens this page to answer, and none exists on the
+ * international list.
+ *
+ * "Awaiting" counts the absence of an AWB rather than the absence of an order,
+ * because since the booking became automatic an order existing is not the
+ * milestone — a waybill in the customer's hands is.
  */
 async function getDomesticOpsCounts() {
-  const [awaitingPush, codOpen] = await Promise.all([
+  const [awaitingAwb, failedCourier, codOpen] = await Promise.all([
     prisma.shipment.count({
       where: {
         mode: ShipmentMode.DOMESTIC,
-        domesticCourierOrderId: null,
+        domesticAwbNumber: null,
+        status: {
+          in: [ShipmentStatus.BOOKED, ShipmentStatus.PROCESSING],
+        },
+      },
+    }),
+    prisma.shipment.count({
+      where: {
+        mode: ShipmentMode.DOMESTIC,
+        domesticCourierStatus: DomesticCourierStatus.FAILED,
         status: {
           in: [ShipmentStatus.BOOKED, ShipmentStatus.PROCESSING],
         },
@@ -84,7 +102,7 @@ async function getDomesticOpsCounts() {
     }),
   ]);
 
-  return { awaitingPush, codOpen };
+  return { awaitingAwb, failedCourier, codOpen };
 }
 
 export default async function ArenaDomesticBookingsPage({
@@ -132,10 +150,14 @@ export default async function ArenaDomesticBookingsPage({
       {/* ── Summary stats (unfiltered — always the full picture) ── */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <StatCard
-          label="Awaiting courier"
-          value={opsCounts.awaitingPush}
+          label="Awaiting AWB"
+          value={opsCounts.awaitingAwb}
           icon={Clock}
-          sub="Not pushed yet"
+          sub={
+            opsCounts.failedCourier > 0
+              ? `${opsCounts.failedCourier} the courier refused`
+              : "Usually clears in a minute"
+          }
         />
         <StatCard label="In transit" value={totalInTransit} icon={Package} />
         <StatCard

@@ -39,6 +39,7 @@ import { cn } from "@/lib/utils";
 
 import { STATUS_CONFIG } from "@/utils/statusConfigColors";
 import { StatusUpdatePanel } from "@/components/booking/arena/StatusUpdatePanel";
+import { DomesticCourierPanel } from "@/components/booking/arena/DomesticCourierPanel";
 import { InternalNotesPanel } from "@/components/booking/arena/InternalNotesPanel";
 import { DocumentManager } from "@/components/booking/arena/DocumentManager";
 import { KycDocsCard } from "@/components/booking/arena/KycDocsCard";
@@ -307,6 +308,12 @@ export default async function DomesticBookingDetailPage({
 
   const pushedToCourier = Boolean(s.domesticCourierOrderId);
   const hasAwb = Boolean(s.domesticAwbNumber);
+  // The label the booking job filed, if it got that far. Found by id rather
+  // than by docType because ops can upload an airway bill of their own and the
+  // two must not be confused for one another.
+  const labelDocument = s.domesticLabelDocumentId
+    ? (s.documents.find((d) => d.id === s.domesticLabelDocumentId) ?? null)
+    : null;
 
   const allStatuses = Object.entries(STATUS_CONFIG).map(([value, c]) => ({
     value: value as ShipmentStatus,
@@ -350,18 +357,30 @@ export default async function DomesticBookingDetailPage({
       text: `${fmtMoney(collection.owed, s.currency)} still to collect from the customer.`,
     });
   }
-  if (isOpen && !pushedToCourier) {
+  // The courier order places itself when the booking is paid for, so the only
+  // thing worth flagging is when that did not happen. A booking still in flight
+  // is normal for a minute and says so quietly in the courier panel instead.
+  if (isOpen && s.domesticCourierStatus === "FAILED") {
+    attention.push({
+      tone: "danger",
+      icon: Truck,
+      text: `The courier would not take this booking${
+        s.domesticCourierError ? `: ${s.domesticCourierError}` : "."
+      } The customer has paid and holds no waybill.`,
+    });
+  }
+  if (isOpen && s.domesticCourierStatus === "CANCELLED") {
     attention.push({
       tone: "warn",
       icon: Truck,
-      text: "Not pushed to the courier yet. The customer picked and paid for a service, but no order exists with Shipmozo.",
+      text: "The courier order was cancelled. The shipment itself is still open.",
     });
   }
-  if (isOpen && pushedToCourier && !hasAwb) {
+  if (isOpen && pushedToCourier && !hasAwb && s.domesticCourierStatus !== "FAILED") {
     attention.push({
       tone: "info",
       icon: Truck,
-      text: "Order pushed, but no AWB has come back yet.",
+      text: "Order placed with the courier, no AWB back yet.",
     });
   }
   if (missingKycCount > 0) {
@@ -699,46 +718,28 @@ export default async function DomesticBookingDetailPage({
             </CardContent>
           </Card>
 
-          {/* Courier. The push itself is not wired up yet — this panel reports
-              what the customer bought and what exists at Shipmozo, so ops can
-              act on it by hand in the meantime and so there is somewhere
-              obvious for the push button to land when it is built. */}
+          {/* Courier. The order is placed automatically when the booking is
+              paid for, so this is a read-out most of the time; the controls are
+              for the runs that failed. */}
           <Card>
             <CardContent className="space-y-3">
               <SectionLabel>Courier</SectionLabel>
-              <InfoRow
-                icon={Truck}
-                label="Service"
-                value={s.selectedProductName ?? "Not selected"}
+              <DomesticCourierPanel
+                shipmentId={s.id}
+                state={{
+                  status: s.domesticCourierStatus,
+                  vendorName: s.selectedVendorName,
+                  selectedProductName: s.selectedProductName,
+                  courierName: s.domesticCourierName,
+                  orderId: s.domesticCourierOrderId,
+                  awbNumber: s.domesticAwbNumber,
+                  trackingUrl: s.domesticTrackingUrl,
+                  labelUrl: labelDocument?.fileUrl ?? null,
+                  error: s.domesticCourierError,
+                  attempts: s.domesticCourierAttempts,
+                  bookedAt: s.domesticCourierBookedAt?.toISOString() ?? null,
+                }}
               />
-              <InfoRow
-                icon={Truck}
-                label="Order id"
-                value={s.domesticCourierOrderId}
-                copyLabel="Courier order id"
-              />
-              <InfoRow
-                icon={Truck}
-                label="AWB"
-                value={s.domesticAwbNumber}
-                copyLabel="AWB"
-              />
-              {!pushedToCourier && (
-                <p className="rounded-md border-l-2 border-amber-400 bg-amber-50/60 px-2.5 py-1.5 text-xs leading-relaxed text-amber-800 dark:border-amber-600 dark:bg-amber-950/20 dark:text-amber-300">
-                  No order exists with the courier yet. Book it in the Shipmozo
-                  panel and record the AWB here.
-                </p>
-              )}
-              {s.domesticTrackingUrl && (
-                <a
-                  href={s.domesticTrackingUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-xs text-primary underline-offset-2 hover:underline"
-                >
-                  Open courier tracking
-                </a>
-              )}
             </CardContent>
           </Card>
 
