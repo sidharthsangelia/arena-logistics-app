@@ -18,10 +18,15 @@ import { adapterRegistry } from "../core/registry";
 import { SkartAdapter } from "./skart/skart.adapter";
 import { AramexAdapter } from "./aramex/aramex.adapter";
 import { ShipmozoAdapter } from "./shipmozo/shipmozo.adapter";
+import { ShipGlobalAdapter } from "./shipglobal/shipglobal.adapter";
 
 adapterRegistry.register(new SkartAdapter());
 adapterRegistry.register(new AramexAdapter());
 adapterRegistry.register(new ShipmozoAdapter());
+// Registered unconditionally even before credentials are set: an unconfigured
+// ShipGlobal returns one readable vendorError (see its transformRequest), which
+// is easier to diagnose than a vendor that silently is not being queried.
+adapterRegistry.register(new ShipGlobalAdapter());
 
 // ↓ Future vendors — uncomment / add as needed
 // import { FedExAdapter } from "./fedex/fedex.adapter";

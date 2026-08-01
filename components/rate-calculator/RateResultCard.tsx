@@ -91,7 +91,6 @@ export default function RateResultCard({
   canGenerateQuote = true,
 }: Props) {
   const { showCarrierLogo, brandServiceNames } = RATE_VARIANTS[variant];
-  const logo = carrierLogo(quote.productName);
 
   // Ring / border highlight logic. Emerald cue = best price (savings);
   // primary ring = selected for compare.
@@ -115,13 +114,19 @@ export default function RateResultCard({
 
   const isArena = useIsArenaOrg();
 
-  // White-label Shipmozo's own-brand services as "Arena" for customers on
+  // White-label a vendor's own-brand services as "Arena" for customers on
   // variants that opt in (international). Arena staff keep the raw name.
   // Display-only — never affects the persisted quote.
   const displayName =
     brandServiceNames && !isArena
       ? brandServiceName(quote.productName)
       : quote.productName;
+
+  // Resolved from the DISPLAYED name, not the raw one, so the logo can never
+  // contradict the label it sits next to: a white-labelled "Arena Direct" gets
+  // the Arena logo, while the raw "ShipGlobal Direct" an Arena staffer sees
+  // gets the ShipGlobal one.
+  const logo = carrierLogo(displayName);
 
   return (
     <Card

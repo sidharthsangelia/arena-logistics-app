@@ -137,9 +137,8 @@ function RateOptionCard({
   const tax = quote.totalWithTax - quote.totalWithoutTax;
   const hasCharges = quote.charges.length > 0;
   const isArena = useIsArenaOrg();
-  const logo = carrierLogo(quote.productName);
 
-  // White-label Shipmozo's own-brand services as "Arena" for customers on the
+  // White-label a vendor's own-brand services as "Arena" for customers on the
   // international service step. Arena staff and the domestic first-mile step
   // (no carrier logo) keep the raw name. Display-only — the persisted
   // ServiceOption still carries the raw productName.
@@ -147,6 +146,10 @@ function RateOptionCard({
     showCarrierLogo && !isArena
       ? brandServiceName(quote.productName)
       : quote.productName;
+
+  // Resolved from the DISPLAYED name so the logo always matches the label. A
+  // white-labelled "Arena Direct" must not sit next to a ShipGlobal logo.
+  const logo = carrierLogo(displayName);
 
   return (
     <div

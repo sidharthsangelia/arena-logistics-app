@@ -1,18 +1,28 @@
 /**
  * carrierLogo / carrier detection
  *
- * `carrierLogo` maps a rate's product name to one of the big-4 carrier logos,
- * purely as a lightweight visual cue on international rate cards. When none of
- * the four is detected, it falls back to the Arena logo.
+ * `carrierLogo` maps a rate's product name to a logo, purely as a lightweight
+ * visual cue on international rate cards. When nothing is detected, it falls
+ * back to the Arena logo.
  *
- * `isBigFourCarrier` exposes the same detection (minus the logo) so other
- * presentation-layer code — e.g. white-labelling Shipmozo's own-brand services
+ * `isBigFourCarrier` exposes the big-4 detection (minus the logo) so other
+ * presentation-layer code — e.g. white-labelling a vendor's own-brand services
  * as "Arena" (see lib/branding/serviceName.ts) — can share one source of truth
  * for "is this actually a DHL/FedEx/UPS/Aramex service".
  *
  * Detection rules and their order mirror carrierBranding.md §5: Aramex is
  * matched first (it is also a vendor name), and UPS is case-sensitive on
  * purpose so a lowercase "ups" inside another word never matches.
+ *
+ * ── WHY THERE ARE TWO LISTS ─────────────────────────────────────────────────
+ * The big-4 list is not just "logos we have". It is also the set of carriers we
+ * must NEVER rebrand and the set that gets its own brand-filter chip. A vendor's
+ * own-brand logo (ShipGlobal) belongs in neither of those: putting it in the
+ * big-4 list would make `isBigFourCarrier("ShipGlobal Direct")` true, which
+ * makes `brandServiceName` bail out early and silently disables the ShipGlobal
+ * white-label switch. So own-brand vendor logos live in their own list that
+ * feeds `carrierLogo` only.
+ * ────────────────────────────────────────────────────────────────────────────
  *
  * Logos live in /public and are served from the site root. Each entry carries
  * its intrinsic pixel dimensions so `next/image` can compute the aspect ratio
@@ -30,6 +40,29 @@ const CARRIER_RULES: { pattern: RegExp; logo: CarrierLogo }[] = [
   { pattern: /\bUPS\b/, logo: { src: "/ups.png", alt: "UPS", width: 300, height: 355 } },
 ];
 
+/**
+ * Own-brand logos for sourcing vendors whose service names we are currently
+ * allowed to show. Checked only after the big-4, so a ShipGlobal row named
+ * "ShipGlobal UPS" still gets the UPS logo.
+ *
+ * These are NOT big-4 carriers and must not be treated as such: they carry no
+ * chip in the brand filter, and they stay eligible for white-labelling.
+ *
+ * IMPORTANT — pass the name the viewer actually SEES, not the raw vendor
+ * string. Callers resolve `displayServiceName` / `brandServiceName` first and
+ * hand the result to `carrierLogo`, which makes the logo follow the label for
+ * free: the day NEXT_PUBLIC_SHIPGLOBAL_WHITELABEL is switched on, customers see
+ * "Arena Direct" and this rule stops matching, so the card shows the Arena logo
+ * instead. A ShipGlobal logo next to an Arena-branded name would leak the
+ * vendor by picture, which is exactly what carrierBranding.md exists to prevent.
+ */
+const VENDOR_LOGO_RULES: { pattern: RegExp; logo: CarrierLogo }[] = [
+  {
+    pattern: /\bship\s?global\b/i,
+    logo: { src: "/shipglobal.png", alt: "ShipGlobal", width: 901, height: 230 },
+  },
+];
+
 export const ARENA_LOGO: CarrierLogo = {
   src: "/arena_logo.png",
   alt: "Arena",
@@ -39,7 +72,11 @@ export const ARENA_LOGO: CarrierLogo = {
 
 export function carrierLogo(productName: string | null | undefined): CarrierLogo {
   const name = productName ?? "";
-  return CARRIER_RULES.find((r) => r.pattern.test(name))?.logo ?? ARENA_LOGO;
+  return (
+    CARRIER_RULES.find((r) => r.pattern.test(name))?.logo ??
+    VENDOR_LOGO_RULES.find((r) => r.pattern.test(name))?.logo ??
+    ARENA_LOGO
+  );
 }
 
 /**

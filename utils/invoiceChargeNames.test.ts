@@ -108,6 +108,7 @@ describe("vendor identity never reaches the customer", () => {
   // side door, because skart passes charge_name straight through from its API.
   const suppressed = [
     "SHIPMOZO_HANDLING",
+    "shipglobal logistic fee",
     "skart surcharge",
     "Aramex handling",
     "DHL fuel surcharge",

@@ -106,6 +106,7 @@ export const AVAILABLE_VENDORS = [
   { id: "skart",  label: "sKart Express" },
   { id: "aramex", label: "Aramex"        },
   { id: "shipmozo", label: "Shipmozo"      },
+  { id: "shipglobal", label: "ShipGlobal"  },
 ] as const;
 
 export type VendorId = (typeof AVAILABLE_VENDORS)[number]["id"];

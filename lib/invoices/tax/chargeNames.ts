@@ -62,6 +62,9 @@ const CHARGE_DESCRIPTIONS: Record<string, string> = {
   "shipping charges": "Freight charges",
   shipping: "Freight charges",
   "forward charges": "Freight charges",
+  // ShipGlobal's `price.logistic_fee` — their word for the freight line.
+  "logistic fee": "Freight charges",
+  "logistic charges": "Freight charges",
 
   // Fuel.
   "fuel surcharge": "Fuel surcharge",
@@ -139,6 +142,7 @@ const CHARGE_DESCRIPTIONS: Record<string, string> = {
 const FORBIDDEN_TOKENS = new Set([
   // Sourcing vendors and the carriers behind them.
   "shipmozo",
+  "shipglobal",
   "skart",
   "aramex",
   "dhl",
