@@ -8,12 +8,14 @@ import Link from "next/link";
 import {
   ArrowLeft,
   ArrowRight,
+  ChevronDown,
   Clock,
   ExternalLink,
   FileCheck2,
   FileText,
   MapPin,
   Package,
+  Printer,
   Receipt,
   Wallet,
   Mail,
@@ -111,6 +113,12 @@ async function getShipment(id: string, orgId: string) {
       codAmount: true,
       domesticAwbNumber: true,
       domesticTrackingUrl: true,
+      // The courier booking behind a domestic shipment. Read so the label card
+      // can tell "still being issued" apart from "something went wrong", which
+      // are the same blank space to a customer otherwise.
+      domesticCourierStatus: true,
+      domesticCourierName: true,
+      domesticLabelDocumentId: true,
       quotedTotal: true,
       currency: true,
       markupPercentApplied: true,
@@ -997,115 +1005,185 @@ async function PricingCard({
   } | null;
   const lineItems = charges?.charges ?? [];
 
+  // Collapsed by default. Most visits are about where the parcel is or which
+  // paperwork to print, and the price is already settled: the total stays on
+  // the summary row so nothing is hidden, and only the line items fold away.
+  // Native <details> keeps this a server component, same as the first-mile card.
   return (
     <Card className="overflow-hidden">
-      <SectionHeader
-        icon={Receipt}
-        title="Pricing breakdown"
-        tooltip="Full charge breakdown as quoted at time of booking. This price is locked in."
-        description="Locked in at booking. The total won't change even if rates move afterward."
-      />
+      <details className="group">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-4 border-b bg-muted/20 px-5 py-3.5 transition-colors hover:bg-muted/30 [&::-webkit-details-marker]:hidden">
+          <div className="flex min-w-0 items-center gap-2">
+            <Receipt className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            <span className="text-sm font-semibold text-foreground">
+              Pricing breakdown
+            </span>
+            <span className="truncate text-xs text-muted-foreground">
+              {lineItems.length > 0
+                ? `${lineItems.length} charge${lineItems.length > 1 ? "s" : ""}`
+                : "Locked in at booking"}
+            </span>
+          </div>
 
-      {/* Service — metadata line, not a charge, styled a step down from the
-          amounts below so it reads as context rather than another line item */}
-      <div className="flex items-center justify-between px-5 py-3 border-b border-border/50">
-        <span className="text-xs text-muted-foreground">Service</span>
-        <span className="text-sm font-medium text-foreground">
-          {s.selectedProductName ?? "Not assigned"}
-        </span>
-      </div>
-
-      {lineItems.length > 0 && (
-        <div className="divide-y divide-border/40">
-          {lineItems.map((c, i) => (
-            <div
-              key={i}
-              className="flex items-center justify-between px-5 py-3"
-            >
-              <span className="text-sm text-muted-foreground">{c.name}</span>
-              <span className="text-sm font-medium tabular-nums text-foreground">
-                {formatMoney(c.amount, c.currency, { fallback: "Not set" })}
+          <div className="flex shrink-0 items-center gap-3">
+            <span className="text-lg font-bold tabular-nums text-foreground">
+              {formatMoney(s.quotedTotal, s.currency, { fallback: "Not set" })}
+            </span>
+            <span className="flex items-center gap-1 text-xs text-muted-foreground">
+              <span className="hidden sm:inline">
+                <span className="group-open:hidden">Show</span>
+                <span className="hidden group-open:inline">Hide</span>
               </span>
-            </div>
-          ))}
-        </div>
-      )}
+              <ChevronDown className="h-4 w-4 transition-transform duration-200 group-open:rotate-180" />
+            </span>
+          </div>
+        </summary>
 
-      {/* Total — the bottom line, given clearly more visual weight than the
-          rows above so it reads at a glance, same as the hero card's total */}
-      <div className="flex items-center justify-between border-t bg-muted/30 px-5 py-4">
-        <span className="text-sm font-semibold text-foreground">Total</span>
-        <span className="text-xl font-bold tabular-nums text-foreground">
-          {formatMoney(s.quotedTotal, s.currency, { fallback: "Not set" })}
-        </span>
-      </div>
+        <p className="px-5 pt-3 text-xs text-muted-foreground/70">
+          Locked in at booking. The total will not change even if rates move
+          afterward.
+        </p>
+
+        {/* Service — metadata line, not a charge, styled a step down from the
+            amounts below so it reads as context rather than another line item */}
+        <div className="mt-3 flex items-center justify-between border-y border-border/50 px-5 py-3">
+          <span className="text-xs text-muted-foreground">Service</span>
+          <span className="text-sm font-medium text-foreground">
+            {s.selectedProductName ?? "Not assigned"}
+          </span>
+        </div>
+
+        {lineItems.length > 0 && (
+          <div className="divide-y divide-border/40">
+            {lineItems.map((c, i) => (
+              <div
+                key={i}
+                className="flex items-center justify-between px-5 py-3"
+              >
+                <span className="text-sm text-muted-foreground">{c.name}</span>
+                <span className="text-sm font-medium tabular-nums text-foreground">
+                  {formatMoney(c.amount, c.currency, { fallback: "Not set" })}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Total repeated at the foot of the list, where the eye lands after
+            reading the charges. The summary row above carries it when closed. */}
+        <div className="flex items-center justify-between border-t bg-muted/30 px-5 py-3.5">
+          <span className="text-sm font-semibold text-foreground">Total</span>
+          <span className="text-base font-bold tabular-nums text-foreground">
+            {formatMoney(s.quotedTotal, s.currency, { fallback: "Not set" })}
+          </span>
+        </div>
+      </details>
     </Card>
   );
 }
 
-/**
- * The GST tax invoice Arena raised for this booking.
- *
- * Rendered as its own card rather than a row inside Documents, because those
- * are the customer's own paperwork (their commercial invoice, packing list,
- * customs forms) and this is a document Arena issued TO them. Filing ours among
- * theirs would make it harder to find, not easier.
- *
- * Absent for shipments booked before this feature existed, and briefly absent
- * for a booking whose background job has not finished. Both cases render
- * nothing at all: an empty card explaining why there is no invoice is worse
- * than no card.
- */
-async function TaxInvoiceCard({
-  shipmentPromise,
+// ---------------------------------------------------------------------------
+// Paperwork — one card, three groups
+//
+// The shipping label, Arena's tax invoice and the file list used to be three
+// separate cards stacked on top of each other, which meant a customer looking
+// for "my paperwork" had to work out which of three boxes owned the thing they
+// wanted. They are one card now, split into labelled groups in the order they
+// actually get used: print the label, keep the invoice, then everything else.
+//
+// Each group renders only when it has something to say, and the card itself
+// renders an empty state only when all three are empty.
+// ---------------------------------------------------------------------------
+
+/** A labelled run of rows inside the paperwork card. */
+function DocGroup({
+  label,
+  hint,
+  meta,
+  children,
 }: {
-  shipmentPromise: ShipmentPromise;
+  label: string;
+  /** One line saying what this group is for, in the customer's words. */
+  hint: string;
+  meta?: string;
+  children: React.ReactNode;
 }) {
-  const s = await shipmentPromise;
-  const invoice = await getShipmentTaxInvoiceAction(s.id);
-
-  if (!invoice) return null;
-
-  const ready = invoice.generationStatus === "READY" && !!invoice.fileUrl;
-
   return (
-    <Card className="overflow-hidden">
-      <SectionHeader
-        icon={Receipt}
-        title="Tax invoice"
-        description="Arena's GST invoice for this booking."
-      />
-
-      <div className="flex items-center justify-between px-5 py-4">
+    <section className="border-b last:border-0">
+      <div className="flex items-baseline justify-between gap-4 bg-muted/10 px-5 py-2.5">
         <div className="min-w-0">
-          <p className="text-sm font-medium tabular-nums">
-            {invoice.invoiceNumber ?? "Being prepared"}
-          </p>
-          <p className="text-xs text-muted-foreground">
-            {formatMoney(invoice.total, invoice.currency)}
-            {invoice.status === "UNPAID" && " · Unpaid"}
-          </p>
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-foreground/80">
+            {label}
+          </h3>
+          <p className="mt-0.5 text-xs text-muted-foreground/70">{hint}</p>
         </div>
-
-        {ready ? (
-          <Button asChild variant="outline" size="sm">
-            <a
-              href={invoice.fileUrl as string}
-              target="_blank"
-              rel="noopener noreferrer"
-              download={invoice.fileName ?? undefined}
-            >
-              <Download className="mr-1.5 h-4 w-4" aria-hidden />
-              Download
-            </a>
-          </Button>
-        ) : (
-          <span className="text-xs text-muted-foreground">
-            Usually ready within a minute of booking.
-          </span>
+        {meta && (
+          <span className="shrink-0 text-xs text-muted-foreground">{meta}</span>
         )}
       </div>
-    </Card>
+      {children}
+    </section>
+  );
+}
+
+/**
+ * One downloadable thing. `title` is what the customer would call it, `subtitle`
+ * is the small print, and `action` is either a download button or a plain line
+ * explaining why there is nothing to download yet.
+ */
+function DocRow({
+  icon: Icon,
+  title,
+  titleMono,
+  subtitle,
+  action,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  title: string;
+  titleMono?: boolean;
+  subtitle: React.ReactNode;
+  action: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-center gap-3 px-5 py-3.5">
+      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border bg-background">
+        <Icon className="h-4 w-4 text-muted-foreground" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <p
+          className={cn(
+            "truncate text-sm font-medium text-foreground",
+            titleMono && "font-mono",
+          )}
+        >
+          {title}
+        </p>
+        <p className="mt-0.5 text-xs text-muted-foreground">{subtitle}</p>
+      </div>
+      <div className="shrink-0">{action}</div>
+    </div>
+  );
+}
+
+function DownloadButton({
+  href,
+  fileName,
+}: {
+  href: string;
+  fileName?: string | null;
+}) {
+  return (
+    <Button asChild variant="outline" size="sm">
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        download={fileName ?? undefined}
+      >
+        <Download className="mr-1.5 h-4 w-4" aria-hidden />
+        Download
+      </a>
+    </Button>
   );
 }
 
@@ -1115,62 +1193,165 @@ async function DocumentsCard({
   shipmentPromise: ShipmentPromise;
 }) {
   const s = await shipmentPromise;
+  const invoice = await getShipmentTaxInvoiceAction(s.id);
+
+  // The courier label gets its own group at the top, so it is filtered out of
+  // the file list below. The same download in two places on one card just makes
+  // the customer wonder which of them is the real one.
+  const documents = s.documents.filter(
+    (d) => d.id !== s.domesticLabelDocumentId,
+  );
+
+  const labelDoc = s.domesticLabelDocumentId
+    ? (s.documents.find((d) => d.id === s.domesticLabelDocumentId) ?? null)
+    : null;
+
+  // A label group exists only for a domestic booking that goes out on a courier
+  // we booked. International shipments and legacy domestic rows have none.
+  const showLabel =
+    s.mode === "DOMESTIC" && s.domesticCourierStatus !== "NOT_REQUIRED";
+
+  const invoiceReady =
+    !!invoice && invoice.generationStatus === "READY" && !!invoice.fileUrl;
+
+  const isEmpty = !showLabel && !invoice && documents.length === 0;
 
   return (
     <Card className="overflow-hidden">
       <SectionHeader
         icon={FileText}
-        title="Documents"
+        title="Documents and paperwork"
         meta={
-          s.documents.length > 0
-            ? `${s.documents.length} file${s.documents.length > 1 ? "s" : ""}`
+          documents.length > 0
+            ? `${documents.length} file${documents.length > 1 ? "s" : ""} attached`
             : undefined
         }
-        tooltip={
-          s.mode === "DOMESTIC"
-            ? "Documents for this shipment, such as the GST tax invoice, e-way bill or delivery challan."
-            : "Shipment documents such as commercial invoices, airway bills, and customs declarations."
-        }
+        description="Everything you can print or download for this shipment, in one place."
       />
-      {s.documents.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-10 gap-2">
+
+      {isEmpty ? (
+        <div className="flex flex-col items-center justify-center gap-2 py-10">
           <FileText className="h-7 w-7 text-muted-foreground/30" />
-          <p className="text-sm text-muted-foreground">
-            No documents available yet.
-          </p>
-          <p className="text-xs text-muted-foreground/70">
+          <p className="text-sm text-muted-foreground">Nothing to download yet</p>
+          <p className="max-w-xs text-center text-xs text-muted-foreground/70">
             {s.mode === "DOMESTIC"
-              ? "Anything you attached at booking, plus what our team adds later, appears here."
-              : "Documents such as AWB and invoices will appear here once generated."}
+              ? "Anything you attached at booking, plus what our team adds later, shows up here."
+              : "Your airway bill, invoices and customs paperwork show up here as they are issued."}
           </p>
         </div>
       ) : (
-        <div className="divide-y divide-border/40">
-          {s.documents.map((doc) => (
-            <a
-              key={doc.id}
-              href={doc.fileUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="group flex items-center gap-3 px-5 py-3.5 transition-colors hover:bg-muted/30"
+        <>
+          {/* 1. The one thing that has to leave the screen and go on the box. */}
+          {showLabel && (
+            <DocGroup
+              label="Shipping label"
+              hint="Print this and attach it to the parcel before the courier arrives."
             >
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border bg-background">
-                <FileCheck2 className="h-4 w-4 text-muted-foreground" />
+              <DocRow
+                icon={Printer}
+                title={s.domesticAwbNumber ?? "Being issued"}
+                titleMono
+                subtitle={
+                  s.domesticCourierName
+                    ? `Waybill · ${s.domesticCourierName}`
+                    : "Courier waybill"
+                }
+                action={
+                  labelDoc ? (
+                    <DownloadButton
+                      href={labelDoc.fileUrl}
+                      fileName={labelDoc.fileName}
+                    />
+                  ) : s.domesticCourierStatus === "FAILED" ? (
+                    <span className="block max-w-40 text-right text-xs text-muted-foreground">
+                      Our team is arranging this. Your booking and payment are
+                      safe.
+                    </span>
+                  ) : (
+                    <span className="block max-w-40 text-right text-xs text-muted-foreground">
+                      Usually ready within a minute of booking.
+                    </span>
+                  )
+                }
+              />
+            </DocGroup>
+          )}
+
+          {/* 2. What Arena issued to the customer, as opposed to the customer's
+                own paperwork in the group below. Absent on shipments booked
+                before invoicing existed, and for the minute it takes the
+                background job to finish. */}
+          {invoice && (
+            <DocGroup
+              label="Tax invoice"
+              hint="Arena's GST invoice for this booking. Keep it for your records."
+            >
+              <DocRow
+                icon={Receipt}
+                title={invoice.invoiceNumber ?? "Being prepared"}
+                subtitle={
+                  <>
+                    {formatMoney(invoice.total, invoice.currency)}
+                    {invoice.status === "UNPAID" && " · Unpaid"}
+                  </>
+                }
+                action={
+                  invoiceReady ? (
+                    <DownloadButton
+                      href={invoice.fileUrl as string}
+                      fileName={invoice.fileName}
+                    />
+                  ) : (
+                    <span className="block max-w-40 text-right text-xs text-muted-foreground">
+                      Usually ready within a minute of booking.
+                    </span>
+                  )
+                }
+              />
+            </DocGroup>
+          )}
+
+          {/* 3. Everything else on file: what the customer uploaded at booking
+                and what ops added afterwards. */}
+          {documents.length > 0 && (
+            <DocGroup
+              label="Supporting documents"
+              hint={
+                s.mode === "DOMESTIC"
+                  ? "Files attached to this booking, such as an e-way bill or delivery challan."
+                  : "Files attached to this booking, such as the commercial invoice, packing list and customs forms."
+              }
+              meta={`${documents.length} file${documents.length > 1 ? "s" : ""}`}
+            >
+              <div className="divide-y divide-border/40">
+                {documents.map((doc) => (
+                  <a
+                    key={doc.id}
+                    href={doc.fileUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="group flex items-center gap-3 px-5 py-3.5 transition-colors hover:bg-muted/30"
+                  >
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border bg-background">
+                      <FileCheck2 className="h-4 w-4 text-muted-foreground" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium text-foreground">
+                        {doc.label}
+                      </p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        {formatEnumLabel(doc.docType)} · {doc.fileName} ·{" "}
+                        {formatFileSize(doc.fileSize)} ·{" "}
+                        {formatDate(doc.uploadedAt)}
+                      </p>
+                    </div>
+                    <ExternalLink className="h-3.5 w-3.5 shrink-0 text-muted-foreground/30 transition-colors group-hover:text-muted-foreground" />
+                  </a>
+                ))}
               </div>
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium text-foreground">
-                  {doc.label}
-                </p>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  {formatEnumLabel(doc.docType)} · {doc.fileName} ·{" "}
-                  {formatFileSize(doc.fileSize)} ·{" "}
-                  {formatDate(doc.uploadedAt)}
-                </p>
-              </div>
-              <ExternalLink className="h-3.5 w-3.5 shrink-0 text-muted-foreground/30 group-hover:text-muted-foreground transition-colors" />
-            </a>
-          ))}
-        </div>
+            </DocGroup>
+          )}
+        </>
       )}
     </Card>
   );
@@ -1495,19 +1676,15 @@ export default async function ShipmentDetailPage({
                 <PackagesCard shipmentPromise={shipmentPromise} />
               </Suspense>
 
-              <Suspense fallback={<PricingSkeleton />}>
-                <PricingCard shipmentPromise={shipmentPromise} />
-              </Suspense>
-
-              {/* No skeleton: this card renders nothing at all for a shipment
-                  with no invoice, and a placeholder that resolves to nothing is
-                  worse than a section that simply appears. */}
-              <Suspense fallback={null}>
-                <TaxInvoiceCard shipmentPromise={shipmentPromise} />
-              </Suspense>
-
+              {/* Paperwork sits above pricing: it is the thing customers come
+                  back to this page for, and the price is already locked in and
+                  shown in the hero. */}
               <Suspense fallback={<DocumentsSkeleton />}>
                 <DocumentsCard shipmentPromise={shipmentPromise} />
+              </Suspense>
+
+              <Suspense fallback={<PricingSkeleton />}>
+                <PricingCard shipmentPromise={shipmentPromise} />
               </Suspense>
 
               <Suspense fallback={<WalletTransactionsSkeleton />}>

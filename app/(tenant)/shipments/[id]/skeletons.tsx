@@ -1,4 +1,13 @@
-import { ArrowRight, Clock, FileText, MapPin, Package, Receipt, Wallet } from "lucide-react";
+import {
+  ArrowRight,
+  ChevronDown,
+  Clock,
+  FileText,
+  MapPin,
+  Package,
+  Receipt,
+  Wallet,
+} from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -181,31 +190,23 @@ export function PackagesSkeleton() {
 
 // ─── Pricing ────────────────────────────────────────────────────────────────
 
+// The real card starts collapsed, so the skeleton is just the summary row it
+// collapses to: title, total, chevron. Anything taller would collapse away the
+// moment the data lands, which is a worse jump than a slightly short placeholder.
 export function PricingSkeleton() {
   return (
     <Card className="overflow-hidden">
-      <StaticHeader icon={Receipt} title="Pricing breakdown" />
-
-      {/* Service row — label is static, only the value is dynamic */}
-      <div className="flex items-center justify-between px-5 py-3 border-b border-border/50">
-        <span className="text-xs text-muted-foreground">Service</span>
-        <Skeleton className="h-4 w-28" />
-      </div>
-
-      {/* Charge line items */}
-      <div className="divide-y divide-border/40">
-        {Array.from({ length: 3 }).map((_, i) => (
-          <div key={i} className="flex items-center justify-between px-5 py-3">
-            <Skeleton className="h-3 w-28" />
-            <Skeleton className="h-4 w-16" />
-          </div>
-        ))}
-      </div>
-
-      {/* Total — label is static, value is large to match the real total */}
-      <div className="flex items-center justify-between border-t bg-muted/30 px-5 py-4">
-        <span className="text-sm font-semibold text-foreground">Total</span>
-        <Skeleton className="h-6 w-24" />
+      <div className="flex items-center justify-between gap-4 border-b bg-muted/20 px-5 py-3.5">
+        <div className="flex items-center gap-2">
+          <Receipt className="h-3.5 w-3.5 text-muted-foreground" />
+          <span className="text-sm font-semibold text-foreground">
+            Pricing breakdown
+          </span>
+        </div>
+        <div className="flex items-center gap-3">
+          <Skeleton className="h-5 w-24" />
+          <ChevronDown className="h-4 w-4 text-muted-foreground/40" />
+        </div>
       </div>
     </Card>
   );
@@ -213,21 +214,33 @@ export function PricingSkeleton() {
 
 // ─── Documents ──────────────────────────────────────────────────────────────
 
+// One card, grouped: shipping label, tax invoice, then the file list. The
+// skeleton keeps the group bands so the card does not reshuffle when the real
+// groups land, and blocks out only the labels, since which groups apply depends
+// on the shipment.
 export function DocumentsSkeleton() {
   return (
     <Card className="overflow-hidden">
-      <StaticHeader icon={FileText} title="Documents" />
-      <div className="divide-y divide-border/40">
-        {Array.from({ length: 3 }).map((_, i) => (
-          <div key={i} className="flex items-center gap-3 px-5 py-3.5">
-            <Skeleton className="h-9 w-9 shrink-0 rounded-lg" />
-            <div className="flex-1 space-y-1.5">
-              <Skeleton className="h-4 w-40" />
-              <Skeleton className="h-3 w-56" />
-            </div>
+      <StaticHeader icon={FileText} title="Documents and paperwork" />
+      {Array.from({ length: 2 }).map((_, group) => (
+        <div key={group} className="border-b last:border-0">
+          <div className="space-y-1 bg-muted/10 px-5 py-2.5">
+            <Skeleton className="h-3 w-28" />
+            <Skeleton className="h-3 w-56" />
           </div>
-        ))}
-      </div>
+          <div className="divide-y divide-border/40">
+            {Array.from({ length: group === 0 ? 1 : 2 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-3 px-5 py-3.5">
+                <Skeleton className="h-9 w-9 shrink-0 rounded-lg" />
+                <div className="flex-1 space-y-1.5">
+                  <Skeleton className="h-4 w-40" />
+                  <Skeleton className="h-3 w-56" />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
     </Card>
   );
 }
