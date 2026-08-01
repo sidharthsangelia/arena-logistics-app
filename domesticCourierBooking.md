@@ -129,14 +129,60 @@ the manual re-drives.
 
 ---
 
-## 6. Gotchas
+## 6. Tracking
 
-- **Domestic tracking posts arrive at the first-mile webhook.** Domestic orders
-  push with `order_id = shipment.id` to the same Shipmozo account, so their
-  tracking payloads reach `/api/webhooks/shipmozo/[token]` carrying our id. The
-  handler is scoped to `mode: INTERNATIONAL` and acknowledges them as unmatched.
-  Wiring domestic tracking means removing that scope deliberately, not by
-  accident.
+Two directions, one vendor body, and both are live.
+
+**Push.** `/api/webhooks/shipmozo/[token]` matches a payload against every
+identifier Shipmozo echoes, across both modes, then branches on the matched
+shipment's `mode`:
+
+- `DOMESTIC` → `applyDomesticCourierStatus` moves the shipment's own status.
+  Their "Delivered" is a real delivery, so it sends the milestone email and
+  posts to the tenant inbox.
+- `INTERNATIONAL` → `applyFirstMileTransition` moves only the door → hub leg.
+  Their "Delivered" means the parcel reached Arena.
+
+Both are forward-only, and both refuse to touch a shipment a person parked off
+the happy path (`ON_HOLD`, `CANCELLED`, `CUSTOMS_HOLD`, `DOCUMENTS_PENDING`).
+Shipmozo re-sends the entire scan history on every post, so without that the
+same delivery email would go out repeatedly.
+
+**Pull.** `/track` and `/arena-dashboard/track` accept either number a customer
+holds: `ARN260130748291` or the carrier AWB. `lib/tracking/shipmentResolve.ts`
+matches it against `shipmentNumber` and all four waybill columns, then
+`lib/services/shipmentTracking.service.ts` tracks the legs it finds and merges
+them into one timeline. A booking with no waybill yet falls back to its own
+status history, so a number always tracks. A number that resolves to nothing and
+is not ARN-shaped is passed to the vendor fan-out, because a customer may hold
+a carrier AWB for a shipment Arena never booked.
+
+Scope comes from the session, never the request: a tenant resolves shipment
+numbers only within their own org, Arena staff resolve any.
+
+---
+
+## 7. Gotchas
+
+- **The webhook and `GET /track-order` are not the same body.** The webhook
+  posts `status_feed.scan[]` and calls the courier `carrier`; the pull endpoint
+  answers `scan_detail[]` and calls it `courier`, plus an `order_status` the
+  webhook never sends. An adapter written against the webhook shape returns a
+  successful track with an empty timeline for every live lookup. Everything goes
+  through `lib/shipmozo/trackShape.ts`.
+- **`order_status` and `current_status` disagree, and both are true.** A
+  cancelled order keeps reporting its last movement status: live traffic shows
+  `order_status: "CANCELLED"` alongside `current_status: "Pickup Pending"`.
+  Reading only the second tells a customer to expect a pickup that is not coming.
+- **"Undelivered" contains "delivered".** So does "RTO Delivered". Every status
+  map here tests the unhappy words FIRST. A substring match in the obvious
+  order announces a delivery on the day a parcel was refused, and on the
+  first-mile leg it also triggers pay-on-arrival collection for a parcel that
+  never reached the hub. Pinned in `utils/shipmozoTracking.test.ts`.
+- **An unknown AWB is not an error to Shipmozo.** It answers HTTP 200 with
+  `result: "0"` and "The selected awb number is invalid", and in other cases
+  `result: "1"` with an empty body. The adapter treats an empty body as a miss,
+  otherwise it wins the vendor fan-out race with nothing.
 - **Phone numbers are validated, not just present.** A nine-digit consignee
   number passed the form's old `min(8)` rule, reached Shipmozo, and was refused
   five times with the message "Error". `lib/booking/phone.ts` now holds one rule
