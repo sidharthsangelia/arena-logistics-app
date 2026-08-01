@@ -36,6 +36,7 @@ import {
   Handshake,
   Wallet,
   Megaphone,
+  FolderOpen,
 } from "lucide-react";
 
 import {
@@ -132,7 +133,7 @@ const NAV_CONFIGS: Record<string, NavConfig> = {
           {
             title: "Document Vault",
             href: "/document-vault",
-            icon: Shield,
+            icon: FolderOpen,
             description: "All your shipping paperwork in one place",
           },
         ],
@@ -249,7 +250,7 @@ const NAV_CONFIGS: Record<string, NavConfig> = {
           {
             title: "Document Vault",
             href: "/document-vault",
-            icon: Shield,
+            icon: FolderOpen,
             description: "Shipping paperwork uploaded by accounts",
           },
         ],
