@@ -10,6 +10,7 @@ import {
   Megaphone,
   PackageCheck,
   PackagePlus,
+  Truck,
   type LucideIcon,
 } from "lucide-react";
 
@@ -36,6 +37,7 @@ export const KIND_ICONS: Record<NotificationKindKey, LucideIcon> = {
   COLLECTION_OVERDUE: HandCoins,
   SHIPMENT_STUCK: Clock,
   QUOTE_EXPIRING: FileClock,
+  COURIER_BOOKING_FAILED: Truck,
   SHIPMENT_STATUS: PackageCheck,
   ARENA_MESSAGE: Megaphone,
 };

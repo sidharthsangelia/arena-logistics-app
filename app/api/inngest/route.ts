@@ -20,6 +20,7 @@
 import { serve } from "inngest/next";
 
 import { inngest } from "@/lib/inngest/client";
+import { bookDomesticCourier } from "@/lib/inngest/functions/bookDomesticCourier";
 import { generateShipmentInvoice } from "@/lib/inngest/functions/generateShipmentInvoice";
 
 export const runtime = "nodejs";
@@ -27,5 +28,5 @@ export const maxDuration = 60;
 
 export const { GET, POST, PUT } = serve({
   client: inngest,
-  functions: [generateShipmentInvoice],
+  functions: [generateShipmentInvoice, bookDomesticCourier],
 });

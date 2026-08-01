@@ -53,6 +53,51 @@ export const invoiceRetryRequested = eventType("invoice/retry.requested", {
   }),
 });
 
+/**
+ * Fired for a DOMESTIC shipment that is booked and paid for, to get it a
+ * waybill from the courier vendor.
+ *
+ * Separate from shipment/booked rather than a second subscriber to it, because
+ * the two carry different retry semantics and different blast radii: an invoice
+ * that fails is a document we owe, a courier booking that fails is a parcel
+ * nobody has collected. Keeping them apart also means an admin can re-drive one
+ * without re-running the other.
+ */
+export const domesticCourierRequested = eventType(
+  "shipment/domestic-courier.requested",
+  {
+    schema: z.object({
+      shipmentId: z.string(),
+      shipmentNumber: z.string(),
+      orgId: z.string(),
+      /**
+       * Ship on whatever courier the vendor picks when the paid-for one cannot
+       * be identified. Never true on the automatic path: the customer chose a
+       * service, and substituting another is a decision only a person makes.
+       */
+      allowAutoAssign: z.boolean().optional(),
+    }),
+  },
+);
+
+/**
+ * Re-drive a courier booking an Arena admin has looked at and decided to try
+ * again. Manual by design, exactly like the invoice retry: if the first run
+ * failed for a reason nobody has fixed, an automatic retry just fails later.
+ */
+export const domesticCourierRetryRequested = eventType(
+  "shipment/domestic-courier.retry.requested",
+  {
+    schema: z.object({
+      shipmentId: z.string(),
+      shipmentNumber: z.string(),
+      orgId: z.string(),
+      requestedByUserId: z.string(),
+      allowAutoAssign: z.boolean().optional(),
+    }),
+  },
+);
+
 export const inngest = new Inngest({
   id: "arena-cargo-logistics",
 

@@ -444,6 +444,30 @@ export async function notifyShipmentStuck(params: {
   });
 }
 
+/**
+ * A paid domestic booking the courier vendor would not take, after every retry.
+ *
+ * No dedupeKey on purpose. Retries are exhausted before this is written, so one
+ * notification means one exhausted attempt — including the manual re-drives ops
+ * fire themselves. Suppressing the second one would hide the fact that a fix
+ * did not work.
+ */
+export async function notifyCourierBookingFailed(params: {
+  shipmentId: string;
+  shipmentNumber: string;
+  orgName: string;
+  reason: string;
+}): Promise<boolean> {
+  return emitNotification({
+    kind: "COURIER_BOOKING_FAILED",
+    title: `${params.shipmentNumber} has no waybill`,
+    body: `${params.orgName} has paid and the courier would not take the order: ${params.reason}`,
+    severity: "CRITICAL",
+    linkHref: `/arena-dashboard/domestic-bookings/${params.shipmentId}`,
+    shipmentId: params.shipmentId,
+  });
+}
+
 export async function notifyQuoteExpiring(params: {
   quoteId: string;
   quoteNumber: string;

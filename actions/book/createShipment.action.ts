@@ -51,6 +51,7 @@ import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/utils/db";
 
 import {
+  DomesticCourierStatus,
   ShipmentStatus,
   ShipmentDocType,
   ShipmentMode,
@@ -95,6 +96,7 @@ import {
 import { sendShipmentMilestoneEmail } from "@/lib/email/shipment/send";
 import { inngest } from "@/lib/inngest/client";
 import { shipmentBookedEvent } from "@/lib/inngest/functions/generateShipmentInvoice";
+import { domesticCourierRequestedEvent } from "@/lib/inngest/functions/bookDomesticCourier";
 import {
   INVOICE_SHIPMENT_SELECT,
   buildInvoiceForShipment,
@@ -775,6 +777,15 @@ export async function createShipmentAction(
 
             status: ShipmentStatus.PENDING_PAYMENT,
 
+            // A domestic booking goes to the courier vendor the moment this
+            // commits, so it is PENDING from the start rather than from
+            // whenever the background job first gets to it. Ops looking at a
+            // booking one second after it lands see "waiting on the courier",
+            // not a blank. Nothing to book on an export: ops place those.
+            domesticCourierStatus: isDomestic
+              ? DomesticCourierStatus.PENDING
+              : DomesticCourierStatus.NOT_REQUIRED,
+
             // Orgs with payments turned off (Org.skipPayment) book without a
             // wallet debit; ops collect the charge when the parcel reaches the
             // hub. The flag lets ops filter these "payment pending" bookings.
@@ -984,6 +995,37 @@ export async function createShipmentAction(
           txResult.shipmentId,
           ShipmentStatus.BOOKED,
         );
+      }
+
+      // A domestic booking is a single door → door courier move, so the waybill
+      // can be raised the moment the money is in: the customer sees their label
+      // on the shipment page within a minute of paying, rather than whenever
+      // ops next open the Shipmozo panel.
+      //
+      // Sent separately from shipment/booked rather than as a second subscriber
+      // to it, because the two jobs fail differently and must be re-drivable
+      // independently. Guarded for the same reason as the invoice send: a
+      // booking that is paid for and committed must not be reported as failed
+      // because a queue was unreachable. The shipment is left PENDING and the
+      // ops retry button covers it.
+      if (isDomestic) {
+        try {
+          await inngest.send(
+            domesticCourierRequestedEvent({
+              shipmentId: txResult.shipmentId,
+              shipmentNumber: txResult.shipmentNumber,
+              orgId: dbOrgId,
+            }),
+          );
+        } catch (queueErr) {
+          Sentry.captureException(queueErr, {
+            level: "warning",
+            tags: {
+              step: "queueDomesticCourierJob",
+              shipmentId: txResult.shipmentId,
+            },
+          });
+        }
       }
 
       // Ops needs to know work has arrived. Scheduled with `after` rather than

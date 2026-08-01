@@ -20,12 +20,7 @@ import type {
 } from "@/lib/shipmozo/types";
 import { FIRST_MILE_HUBS } from "@/lib/booking/firstMile";
 import type { BookFirstMileResult } from "@/lib/booking/firstMilePickup";
-import { getRates } from "@/lib/services/rate-calculator.service";
-import { domesticAdapterRegistry } from "@/lib/rate-adapters/vendors/domestic.index";
-import type {
-  CanonicalPackage,
-  CanonicalRateRequest,
-} from "@/lib/rate-adapters/core/types";
+import { resolveExactCourierId } from "@/lib/booking/domesticCourierResolve";
 
 // ---------------------------------------------------------------------------
 // Book the door → hub pickup with Shipmozo (forward model)
@@ -43,95 +38,6 @@ function num(v: unknown): number {
   if (typeof v === "object" && "toNumber" in (v as object))
     return (v as { toNumber(): number }).toNumber();
   return Number(v) || 0;
-}
-
-/**
- * Recovers the Shipmozo courier id for the exact service the customer selected
- * and paid for. Prefers the id snapshotted at booking time; when that is missing
- * (legacy rows, or a rate response that carried no id) it re-quotes the same
- * door → hub leg and matches the stored product name. Returns null only when the
- * paid courier can no longer be resolved — the caller must NOT silently swap in
- * a different courier, since the customer has already been charged for this one.
- */
-async function resolveExactCourierId(s: {
-  firstMileVendorName: string | null;
-  pickupPin: string;
-  pickupCity: string;
-  pickupLine1: string;
-  hubCity: string;
-  hubPin: string;
-  hubLine1: string;
-  packages: {
-    quantity: number;
-    weightKg: unknown;
-    lengthCm: unknown;
-    widthCm: unknown;
-    heightCm: unknown;
-    declaredValue: unknown;
-  }[];
-  snapshotCourierId: string | null;
-}): Promise<string | null> {
-  if (s.snapshotCourierId) return s.snapshotCourierId;
-
-  const productName = s.firstMileVendorName?.trim().toLowerCase();
-  if (!productName) return null;
-
-  const boxes: CanonicalPackage[] = s.packages.map((p) => ({
-    quantity: Math.max(1, p.quantity),
-    weightKg: num(p.weightKg),
-    lengthCm: num(p.lengthCm),
-    widthCm: num(p.widthCm),
-    heightCm: num(p.heightCm),
-  }));
-  if (!boxes.length) return null;
-
-  const totalWeight = boxes.reduce((a, b) => a + b.weightKg * b.quantity, 0);
-  const totalDeclared = s.packages.reduce(
-    (a, p) => a + num(p.declaredValue) * Math.max(1, p.quantity),
-    0,
-  );
-  const first = boxes[0];
-
-  const request: CanonicalRateRequest = {
-    origin: {
-      city: s.pickupCity,
-      pincode: s.pickupPin,
-      countryCode: "IN",
-      country: "India",
-      line1: s.pickupLine1,
-    },
-    destination: {
-      city: s.hubCity,
-      pincode: s.hubPin,
-      countryCode: "IN",
-      country: "India",
-      line1: s.hubLine1,
-    },
-    shipment: {
-      packages: boxes,
-      weight: totalWeight || 0.5,
-      quantity: boxes.reduce((a, b) => a + b.quantity, 0) || 1,
-      dimensions: {
-        length: Math.max(1, first.lengthCm),
-        width: Math.max(1, first.widthCm),
-        height: Math.max(1, first.heightCm),
-        unit: "cm",
-      },
-      declaredValue: totalDeclared || undefined,
-    },
-  };
-
-  // Markup is irrelevant to which courier id we get, so quote at 0%.
-  const res = await getRates(request, {
-    vendorIds: ["shipmozo"],
-    markupPercent: 0,
-    registry: domesticAdapterRegistry,
-  });
-
-  const match = res.quotes.find(
-    (q) => q.productName?.trim().toLowerCase() === productName,
-  );
-  return match?.courierId ?? null;
 }
 
 export async function bookFirstMilePickup(
@@ -237,15 +143,23 @@ export async function bookFirstMilePickup(
     // be resolved we stop here (no orphan order) unless ops explicitly allow an
     // auto-assign — the customer has already been charged for a specific service.
     const courierId = await resolveExactCourierId({
-      firstMileVendorName: s.firstMileVendorName,
-      pickupPin: pin,
-      pickupCity: addr.city ?? "",
-      pickupLine1: addr.line1 ?? "",
-      hubCity: hub.city,
-      hubPin: hub.postalCode,
-      hubLine1: hub.line1,
-      packages: s.packages,
+      vendorId: "shipmozo",
+      productName: s.firstMileVendorName,
       snapshotCourierId: snapshot.courierId?.trim() || null,
+      origin: { city: addr.city ?? "", pincode: pin, line1: addr.line1 ?? "" },
+      destination: {
+        city: hub.city,
+        pincode: hub.postalCode,
+        line1: hub.line1,
+      },
+      packages: s.packages.map((p) => ({
+        quantity: p.quantity,
+        weightKg: num(p.weightKg),
+        lengthCm: num(p.lengthCm),
+        widthCm: num(p.widthCm),
+        heightCm: num(p.heightCm),
+        declaredValue: num(p.declaredValue),
+      })),
     });
 
     if (!courierId && !opts?.allowAutoAssign) {

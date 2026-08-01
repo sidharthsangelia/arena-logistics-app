@@ -21,6 +21,7 @@ export const NOTIFICATION_KINDS = [
   "COLLECTION_OVERDUE",
   "SHIPMENT_STUCK",
   "QUOTE_EXPIRING",
+  "COURIER_BOOKING_FAILED",
   "SHIPMENT_STATUS",
   "ARENA_MESSAGE",
 ] as const;
@@ -49,6 +50,11 @@ export const NOTIFICATION_KIND_META: Record<
   COLLECTION_OVERDUE: { label: "Uncollected payments", scope: "ARENA", money: true },
   SHIPMENT_STUCK: { label: "Stuck shipments", scope: "ARENA", money: false },
   QUOTE_EXPIRING: { label: "Quotes about to lapse", scope: "ARENA", money: false },
+  COURIER_BOOKING_FAILED: {
+    label: "Courier bookings that failed",
+    scope: "ARENA",
+    money: false,
+  },
   SHIPMENT_STATUS: { label: "Shipment updates", scope: "ORG", money: false },
   ARENA_MESSAGE: { label: "Messages from Arena", scope: "ORG", money: false },
 };
@@ -68,6 +74,7 @@ export const ARENA_INBOX_FILTERS = {
     kinds: [
       "PAYMENT_FAILED",
       "COLLECTION_OVERDUE",
+      "COURIER_BOOKING_FAILED",
       "SHIPMENT_STUCK",
       "QUOTE_EXPIRING",
     ],

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import * as Sentry from "@sentry/nextjs";
 
 import { prisma } from "@/utils/db";
+import { ShipmentMode } from "@/generated/prisma";
 import { furthestFirstMileStage } from "@/lib/shipmozo/firstMileStatusMap";
 import { applyFirstMileTransition } from "@/lib/booking/firstMileTransition";
 import type { ShipmozoTrackData } from "@/lib/shipmozo/types";
@@ -60,8 +61,16 @@ export async function POST(
 
     // Match the shipment by any identifier Shipmozo echoes. We set order_id =
     // shipment.id at push time, so `refrence_id` comes back as our id.
+    //
+    // Scoped to INTERNATIONAL on purpose. Domestic bookings now push their own
+    // door → door orders to the same Shipmozo account and their tracking posts
+    // arrive here carrying OUR shipment id, so without this a domestic parcel
+    // would be advanced through a first-mile lifecycle it does not have. Those
+    // payloads are acknowledged as unmatched until domestic tracking is wired
+    // up through lib/tracking-adapters.
     const shipment = await prisma.shipment.findFirst({
       where: {
+        mode: ShipmentMode.INTERNATIONAL,
         pickupIncluded: true,
         OR: [
           awb ? { firstMileTrackingNumber: awb } : undefined,
