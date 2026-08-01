@@ -308,11 +308,21 @@ function extractLabelString(data: unknown): string | null {
 
 // --- Tracking ----------------------------------------------------------------
 
-export function trackOrder(awb: string): Promise<ShipmozoTrackData> {
-  return get<ShipmozoTrackData>(
+/**
+ * GET /track-order?awb_number=… — the pull counterpart of the tracking webhook,
+ * and the same body shape.
+ *
+ * Shipmozo answers an AWB it does not recognise with `result: 1` and an empty
+ * body, so a resolved promise here is NOT proof the shipment exists. The
+ * tracking adapter is what decides that; this only unwraps.
+ */
+export async function trackOrder(awb: string): Promise<ShipmozoTrackData> {
+  const data = await get<ShipmozoTrackData | ShipmozoTrackData[]>(
     `/track-order?awb_number=${encodeURIComponent(awb)}`,
     "track-order",
   );
+  // Like get-order-label, they sometimes wrap a single record in a list.
+  return Array.isArray(data) ? (data[0] ?? ({} as ShipmozoTrackData)) : data;
 }
 
 // --- Warehouses (pickup points) ---------------------------------------------

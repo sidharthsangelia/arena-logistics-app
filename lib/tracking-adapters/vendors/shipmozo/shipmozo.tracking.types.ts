@@ -4,7 +4,7 @@
  * Shipmozo lib. This file only names the request the adapter builds internally.
  */
 
-export type { ShipmozoTrackData } from "@/lib/shipmozo/types";
+export type { ShipmozoTrackData, ShipmozoScanEntry } from "@/lib/shipmozo/types";
 
 export interface ShipmozoTrackRequest {
   awb: string;

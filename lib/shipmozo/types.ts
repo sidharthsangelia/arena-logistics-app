@@ -23,18 +23,49 @@ export interface ShipmozoScanEntry {
   date?: string; // "2025-07-14 09:12:16" (IST, no zone)
   status?: string;
   location?: string;
+  // GET /track-order labels the same three fields differently from the webhook,
+  // and not consistently between couriers. Read through readScanEntry() in the
+  // tracking adapter rather than off these keys directly.
+  status_date?: string;
+  scan_date?: string;
+  status_name?: string;
+  remark?: string;
+  scan_location?: string;
+  city?: string;
 }
 
+/**
+ * The tracking body. Shared by the webhook and GET /track-order — but NOT
+ * identical between them, which is the trap:
+ *
+ *   webhook          status_feed: { scan: [...] }
+ *   GET /track-order scan_detail: [...]        plus order_status, rto_awb_number
+ *
+ * Both are declared here and both are read, because an adapter that knows only
+ * the webhook's shape returns an empty timeline for every live lookup while
+ * reporting success.
+ */
 export interface ShipmozoTrackData {
   order_id?: string;
   refrence_id?: string; // our order_id echoed back (Shipmozo's spelling)
   awb_number?: string;
+  /** Set once a parcel is being returned; the RTO leg gets its own waybill. */
+  rto_awb_number?: string;
+  /** Webhook spelling of who is carrying it. */
   carrier?: string;
+  /** GET /track-order spelling of the same field. Read via readShipmozoCarrier. */
+  courier?: string;
   current_status?: string;
   status_time?: string;
-  expected_delivery_date?: string;
+  /** Null, not absent, when the courier has not committed to a date. */
+  expected_delivery_date?: string | null;
   shipment_type?: string; // "Forward" | "Reverse"
+  /** Order-level state, e.g. "CANCELLED". Distinct from the parcel's movement. */
+  order_status?: string;
+  /** Webhook shape. */
   status_feed?: { scan?: ShipmozoScanEntry[] };
+  /** GET /track-order shape. */
+  scan_detail?: ShipmozoScanEntry[];
 }
 
 // --- push-order --------------------------------------------------------------
