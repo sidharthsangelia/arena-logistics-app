@@ -19,11 +19,19 @@
  * was actually issued rather than guessing.
  */
 
-import type { ShipmentMode } from "@/generated/prisma";
+import type { ShipmentMode, ShipmentType } from "@/generated/prisma";
 import type { InvoiceIssuer } from "./config";
 import type { InvoiceLineItem } from "./money";
 
-export const INVOICE_SNAPSHOT_VERSION = 1;
+/**
+ * 1 → 2 added the cargo (boxes and their contents), the customs category, the
+ * waybill and the door-pickup flags to ShipmentSnapshot. Every one of those is
+ * optional on the type for exactly that reason: invoices issued at version 1
+ * are still in the table, still downloadable, and must render without them
+ * rather than crashing or printing "undefined". Nothing is backfilled; a v1
+ * invoice is a true record of what was issued.
+ */
+export const INVOICE_SNAPSHOT_VERSION = 2;
 
 /** Who the invoice is from. A frozen copy of the issuer config. */
 export type SellerSnapshot = InvoiceIssuer & { version: number };
@@ -58,8 +66,47 @@ export interface PartySnapshot {
 }
 
 /**
+ * One line packed inside a box: what it is, its HSN, how many, what it is worth.
+ *
+ * Declared values are the SHIPPER's statement of what the goods are worth, for
+ * customs and for carriage liability. They are not money Arena charged, which is
+ * why they never touch the charges table or the total. The document says so in
+ * as many words, because a value column on an invoice that is not part of the
+ * invoice total is precisely the thing an accountant will otherwise query.
+ */
+export interface PackageContentSnapshot {
+  description: string;
+  /** HSN of this item. Domestic bookings often carry none. */
+  hsCode: string | null;
+  quantity: number;
+  /** Value of ONE unit, in `currency`. */
+  unitValue: number;
+  currency: string;
+}
+
+/**
+ * One physical box. `quantity` is how many identical boxes: same dimensions,
+ * same weight, same contents. Weight, dimensions and declared value are all
+ * PER BOX, so a two-box row weighs twice `weightKg` in total. The document does
+ * that multiplication where it shows a total and says "each" where it does not.
+ */
+export interface PackageSnapshot {
+  description: string;
+  quantity: number;
+  lengthCm: number;
+  widthCm: number;
+  heightCm: number;
+  weightKg: number;
+  /** Value of one box's contents. Null when the shipper declared none. */
+  declaredValue: number | null;
+  declaredCurrency: string | null;
+  contents: PackageContentSnapshot[];
+}
+
+/**
  * What was actually shipped. Enough for the customer to match this invoice to
- * a booking without opening the app.
+ * a booking without opening the app, and enough for their accountant to see
+ * what the freight was charged on.
  */
 export interface ShipmentSnapshot {
   version: number;
@@ -73,6 +120,30 @@ export interface ShipmentSnapshot {
   packageCount: number;
   actualWeightKg: number | null;
   chargeableWeightKg: number | null;
+
+  /**
+   * The boxes, in the order they were entered, with their contents. Absent on
+   * snapshots taken before version 2; the cargo section is simply not printed
+   * in that case, which is honest about what the invoice knew.
+   */
+  packages?: PackageSnapshot[];
+
+  /** Customs category. CSB4 / CSB5 / COMMERCIAL on an export, null domestic. */
+  shipmentType?: ShipmentType | null;
+
+  /** Shipper's word for the cargo, when the booking recorded one. */
+  declaredCargoType?: string | null;
+
+  /**
+   * The waybill the customer tracks by, once the carrier has issued one. Often
+   * absent: the invoice is raised the moment the booking commits, and the AWB
+   * arrives from the vendor seconds to minutes later.
+   */
+  awbNumber?: string | null;
+
+  /** Door pickup was bought, and the hub the parcel was routed to. */
+  pickupIncluded?: boolean;
+  firstMileHubLabel?: string | null;
 
   /** Already white-labelled. The sourcing vendor is never named. */
   serviceName: string | null;

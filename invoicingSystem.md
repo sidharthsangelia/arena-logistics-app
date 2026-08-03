@@ -126,6 +126,20 @@ invoice totals the same either way.
 `utils/invoiceChargeNames.test.ts` holds both halves of this: real vendor
 charges must survive, vendor identity must not.
 
+**The cargo is snapshotted with everything else, and the snapshot is
+versioned.** `INVOICE_SNAPSHOT_VERSION` is 2. Version 2 added the boxes and
+their contents, the customs category, the waybill and the door pickup flags to
+`ShipmentSnapshot`. Every one of those fields is optional on the type, and the
+template guards each one, because version 1 invoices are still in the table and
+still downloadable: they render without the sections they never knew about.
+Nothing is backfilled. A version 1 invoice is a true record of what was issued,
+and rewriting it to look like a version 2 one would be the opposite.
+
+**Terms are chosen by mode.** `invoiceTermsFor(mode)` in `config.ts`. The
+destination duty clause is meaningless on an India to India move, and a term
+that cannot apply to the shipment it is printed on teaches the reader to skip
+the whole block.
+
 **The confirmation email moved into the background job.** It used to be awaited
 at the end of `createShipmentAction`. It moved so the customer gets one email
 with the invoice attached rather than a confirmation now and the document later.
@@ -144,7 +158,7 @@ lib/invoices/tax/
   money.ts         the arithmetic. Pure, heavily tested
   chargeNames.ts   vendor charge label to customer-facing description
   numbering.ts     the gapless counter
-  types.ts         the shapes stored in the JSON snapshot columns
+  types.ts         the shapes stored in the JSON snapshot columns, and their version
   build.ts         shipment to invoice content
   queries.ts       the read side, tenant and Arena scopes
   pdf/
@@ -167,12 +181,96 @@ types/booking.schema.ts   its zod shape
 components/booking/RateOptionPicker.tsx   quoteToServiceOption, where it is set
 ```
 
+### What is on the document
+
+One A4 sheet, and that is a constraint rather than a preference. In order down
+the page:
+
+1. **Masthead.** The mark, then the issuer's full identity as letterhead:
+   legal name, registered address, GSTIN and PAN. Opposite it the document's
+   own identity: title, `ORIGINAL FOR RECIPIENT`, serial, date, and the UNPAID
+   or CANCELLED mark. There is no second "from" block further down; putting the
+   issuer here is what buys the page room for the cargo.
+2. **Invoice details.** One panel, two columns. Billed to on the left with the
+   buyer's GSTIN and the place of supply; the shipment on the right: reference,
+   route on a single line, service, waybill, booking date with the customs
+   category, and the client a business associate booked for. Anything absent is
+   not printed rather than printed empty.
+3. **Cargo.** Metrics, then a table with one row per box.
+4. **Charges.** The breakdown, unchanged: description, SAC, taxable value, GST
+   and tax-inclusive amount.
+5. **Payment and terms beside the total.** Bank details, reverse charge, terms
+   and any cash on delivery note on the left; the totals panel on the right.
+   The charges table leaves the bottom left of the page empty, and this is
+   where an invoice reader looks for both anyway.
+6. **Declaration and signature**, sharing the last row.
+
+The two blocks a reader looks for first are the two with a fill behind them:
+who is billed and for what shipment, and the total. That count is the design
+rule. A third filled panel would make both ordinary, so anything new gets air
+and a hairline instead.
+
+**The route is one line, not a diagram.** It was a two-ended panel with the
+place names set large, and it was both loud and expensive: it read as the
+headline of a document whose headline is the total. Domestic routes print city
+and state, exports print city and country, because "Gurugram, India to Jaipur,
+India" says India twice and locates nothing.
+
+**Cargo is metrics plus one row per box.** The metrics are package count,
+actual weight, chargeable weight and, when the shipper declared one, total
+declared value. The table then gives each box its description, size, count,
+weight and value, with its contents on a grey line beneath:
+`Cotton shirts x 40 (HSN 610510) · Denim jeans x 20 (HSN 620462)`.
+
+An earlier version nested a second table of item rows inside the first, with
+its own HSN, quantity, unit value and value columns. It was accurate and hard
+to read, and it cost half a page. This says the same thing in half the height.
+Columns that would be empty for the whole shipment are not printed at all: a
+domestic booking shows no BOXES column when every row is a single box, and no
+VALUE column when nothing was declared.
+
+Sizes are per box; weight and value are for the row, so a row standing for two
+identical boxes weighs twice one box. The header says `SIZE PER BOX, CM`
+whenever any row holds more than one. Contents quantities are multiplied by the
+box count for the same reason: contents are stored per box, and a row standing
+for two boxes would otherwise state a quantity the reader cannot reconcile with
+the value beside it.
+
+Declared values are the **shipper's** statement for customs and carriage. They
+are printed, totalled in the metrics, and never added to anything Arena
+charged; the note beside the section label says exactly that. An accountant
+seeing a value on an invoice that is not part of the invoice total will
+otherwise ask, every time.
+
 ### Notes on the PDF
 
-Run `npx tsx scripts/renderSampleInvoice.tsx` to write `sample-invoice.pdf`
-from fixed sample data. Use it whenever the template changes; the layout is
-tuned to fit a seven line breakdown on one page and it is easy to push it onto
-a second without noticing.
+Run `npx tsx scripts/renderSampleInvoice.tsx` to write `sample-invoice.pdf` and
+`sample-invoice-domestic.pdf` from fixed sample data. Use both whenever the
+template changes: the export exercises HSN codes, declared values, a customs
+category and IGST; the domestic one exercises a shipment with none of those, an
+unregistered buyer, CGST plus SGST and a cash on delivery note. A template
+change that looks right on one is easily wrong on the other.
+
+**Check the page count on both samples after any change.** One page is the
+target and the layout has roughly twenty points of slack at the sample sizes,
+which is about two table rows. A real shipment with many boxes or a long
+breakdown will still flow onto a second page, and that is correct. What matters
+is where the break falls, and that is controlled rather than left to chance:
+
+- the invoice details band, the terms and totals row, and the signature row are
+  `wrap={false}`, so a section label is never stranded at the foot of a page,
+- each box travels with its own contents,
+- the charges table is kept whole when it has ten lines or fewer, because a
+  table split across a break loses its column heads on the second half and a
+  column of unlabelled figures on a tax invoice is worse than a page that ends
+  early. Longer tables are allowed to wrap: a block taller than a page is
+  clipped, not moved,
+- the invoice and shipment numbers are repeated in the page footer, so a second
+  sheet separated from the first still belongs to an invoice.
+
+To review a page other than the first, note that macOS `qlmanage` renders only
+page one. `osascript -l JavaScript` with PDFKit will dump per-page text and
+export every page as a PNG.
 
 **The logo is embedded, not loaded.** `pdf/logo.ts` holds the mark as a base64
 data URI. `public/arena_logo.png` is not readable from a serverless function,
@@ -187,6 +285,11 @@ does any `Text` using the `render` callback. Both work in isolation, which is
 what makes it worth writing down. The footer is therefore three separately
 positioned `fixed` elements with static text. If something you add to the
 document does not appear, and there is no error, suspect this first.
+
+Re-confirmed on a two page render: a `fixed` `Text` producing `PAGE 1 OF 2`
+from the callback printed nothing on either page. There is no page numbering on
+the invoice for that reason, not for a design one, and the footer carries the
+invoice and shipment numbers instead.
 
 ---
 

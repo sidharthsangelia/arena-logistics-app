@@ -199,8 +199,34 @@ export const CREDIT_NOTE_NUMBER_PREFIX = "ARNCN";
 /** Zero-padded width of the per-year running number. */
 export const INVOICE_NUMBER_PAD = 5;
 
-export const INVOICE_TERMS = [
-  "This invoice covers freight and related services only. Duties, taxes and " +
-    "charges levied at destination are payable by the consignee.",
+/**
+ * Printed on every invoice, whatever the shipment was.
+ *
+ * Deliberately short. What declared cargo values mean is not here: it is
+ * printed against the declared value itself, where the question is actually
+ * asked. A terms block that restates what the page already says is a terms
+ * block nobody reads.
+ */
+const COMMON_TERMS = [
   "Claims relating to this invoice must be raised within 7 days of its date.",
 ];
+
+/**
+ * Terms are per mode because the export clause is meaningless on an India to
+ * India move, and a term that cannot apply to the shipment it is printed on
+ * teaches the reader to skip the whole block.
+ */
+const INTERNATIONAL_TERMS = [
+  "This invoice covers freight and related services only. Duties, taxes and " +
+    "charges levied at destination are payable by the consignee.",
+  ...COMMON_TERMS,
+];
+
+const DOMESTIC_TERMS = [
+  "This invoice covers courier and related services only.",
+  ...COMMON_TERMS,
+];
+
+export function invoiceTermsFor(mode: ShipmentMode): string[] {
+  return mode === ShipmentMode.DOMESTIC ? DOMESTIC_TERMS : INTERNATIONAL_TERMS;
+}

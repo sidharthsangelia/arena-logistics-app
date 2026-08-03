@@ -29,6 +29,7 @@ import {
   INVOICE_SNAPSHOT_VERSION,
   type BuyerSnapshot,
   type InvoiceDocumentData,
+  type PackageSnapshot,
   type PartySnapshot,
   type SellerSnapshot,
   type ShipmentSnapshot,
@@ -64,6 +65,14 @@ export const INVOICE_SHIPMENT_SELECT = {
   codAmount: true,
   clientId: true,
   senderName: true,
+  shipmentType: true,
+  declaredCargoType: true,
+  // Whichever waybill this mode produced. Both are read because one shipment
+  // only ever has one of them, and the document just wants "the number the
+  // customer tracks by".
+  domesticAwbNumber: true,
+  intlAwbNumber: true,
+  hawbNumber: true,
   org: {
     select: {
       id: true,
@@ -112,7 +121,32 @@ export const INVOICE_SHIPMENT_SELECT = {
       postalCode: true,
     },
   },
-  packages: { select: { quantity: true } },
+  // The cargo, in the order it was entered. Boxes and their contents are a
+  // handful of short rows per shipment, so this is not the fat include the
+  // comment above warns about; it is the packing detail the invoice prints.
+  packages: {
+    orderBy: { createdAt: "asc" },
+    select: {
+      description: true,
+      quantity: true,
+      lengthCm: true,
+      widthCm: true,
+      heightCm: true,
+      weightKg: true,
+      declaredValue: true,
+      declaredCurrency: true,
+      contents: {
+        orderBy: { createdAt: "asc" },
+        select: {
+          description: true,
+          hsCode: true,
+          quantity: true,
+          unitValue: true,
+          currency: true,
+        },
+      },
+    },
+  },
 } satisfies Prisma.ShipmentSelect;
 
 export type InvoiceShipment = Prisma.ShipmentGetPayload<{
@@ -335,6 +369,27 @@ export function buildInvoiceForShipment(
     0,
   );
 
+  // The packing detail, frozen like everything else. Quantities are coerced to
+  // at least 1: a box row that claims zero boxes would print a zero weight and
+  // a zero value against real cargo.
+  const packages: PackageSnapshot[] = shipment.packages.map((box) => ({
+    description: box.description?.trim() || "Package",
+    quantity: Math.max(1, box.quantity ?? 1),
+    lengthCm: toNumber(box.lengthCm),
+    widthCm: toNumber(box.widthCm),
+    heightCm: toNumber(box.heightCm),
+    weightKg: toNumber(box.weightKg),
+    declaredValue: box.declaredValue === null ? null : toNumber(box.declaredValue),
+    declaredCurrency: box.declaredCurrency ?? null,
+    contents: box.contents.map((item) => ({
+      description: item.description?.trim() || "Item",
+      hsCode: item.hsCode?.trim() || null,
+      quantity: Math.max(1, item.quantity ?? 1),
+      unitValue: toNumber(item.unitValue),
+      currency: item.currency ?? "INR",
+    })),
+  }));
+
   const issueDate = shipment.bookedAt ?? shipment.createdAt;
 
   const shipmentSnapshot: ShipmentSnapshot = {
@@ -351,6 +406,19 @@ export function buildInvoiceForShipment(
     chargeableWeightKg: shipment.totalChargeableWeightKg
       ? toNumber(shipment.totalChargeableWeightKg)
       : null,
+    packages,
+    shipmentType: shipment.shipmentType,
+    declaredCargoType: shipment.declaredCargoType,
+    // One shipment only ever holds one of these. The house waybill is last
+    // because ops type it in later; a vendor-issued number is the one the
+    // customer was given at booking.
+    awbNumber:
+      shipment.domesticAwbNumber ??
+      shipment.intlAwbNumber ??
+      shipment.hawbNumber ??
+      null,
+    pickupIncluded: shipment.pickupIncluded,
+    firstMileHubLabel: shipment.firstMileHubLabel,
     // Already white-labelled when it was stored at booking time.
     serviceName: shipment.selectedProductName,
     consignor,
