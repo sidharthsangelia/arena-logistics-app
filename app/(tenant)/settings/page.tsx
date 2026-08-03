@@ -21,6 +21,10 @@ import {
 } from "@/components/settings/SettingsSkeletons";
 import { ProfileTab } from "@/components/settings/profile/ProfileTab";
 import { ClientEmailsTab } from "@/components/settings/client-emails/ClientEmailsTab";
+import {
+  hasAnyExportDetail,
+  toExportProfileForm,
+} from "@/lib/booking/exportProfile";
 
 /**
  * SETTINGS
@@ -118,6 +122,8 @@ async function ProfilePanel() {
       orgId={org.id}
       addressComplete={status.addressComplete}
       initialDocs={kycResult.success ? kycResult.docs : []}
+      exportProfile={toExportProfileForm(org)}
+      hasExportDetail={hasAnyExportDetail(org)}
       profile={{
         contactName: org.contactName ?? "",
         // Pre-filled from the workspace name chosen at onboarding (kept in sync

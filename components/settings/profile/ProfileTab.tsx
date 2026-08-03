@@ -4,7 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { CheckCircle2, FolderOpen, MapPin, ShieldCheck } from "lucide-react";
+import { CheckCircle2, FolderOpen, MapPin, Plane, ShieldCheck } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -19,6 +19,8 @@ import {
 import { getKycDocs, type PartyKycDoc } from "@/actions/book/kyc";
 import { BASELINE_KYC_CONFIGS } from "@/lib/booking/kyc";
 import type { OrgProfileInput } from "@/actions/settings/profile.action";
+import { ExportProfileForm } from "@/components/settings/ExportProfileForm";
+import type { ExportProfileFormShape } from "@/lib/booking/exportProfile";
 
 /**
  * PROFILE TAB
@@ -37,11 +39,15 @@ export function ProfileTab({
   addressComplete,
   orgId,
   initialDocs,
+  exportProfile,
+  hasExportDetail,
 }: {
   profile: OrgProfileInput;
   addressComplete: boolean;
   orgId: string;
   initialDocs: PartyKycDoc[];
+  exportProfile: ExportProfileFormShape;
+  hasExportDetail: boolean;
 }) {
   const router = useRouter();
 
@@ -131,6 +137,41 @@ export function ProfileTab({
         >
           {() => (
             <OrgDocumentsSection orgId={orgId} initialDocs={initialDocs} />
+          )}
+        </SettingRow>
+
+        {/* Only meaningful once somebody ships abroad, but it lives with the
+            other "saved once, reused on every booking" rows rather than on a
+            tab of its own: it is the same kind of thing, and a tab nobody
+            visits is where a blocked booking goes unexplained. */}
+        <SettingRow
+          icon={Plane}
+          label="Export documents"
+          hint="IEC, AD code and LUT, used on international bookings."
+          value={
+            hasExportDetail ? (
+              <SettingValue tone="set">
+                {exportProfile.iecNumber || "Added"}
+              </SettingValue>
+            ) : (
+              <SettingValue>Not needed yet</SettingValue>
+            )
+          }
+          dialogTitle="Export documents"
+          dialogDescription="What your international consignments are filed under at customs. Most low-value courier exports need none of this, so add only what applies to you."
+          dialogClassName="sm:max-w-2xl"
+        >
+          {(close) => (
+            <ExportProfileForm
+              scope="ORG"
+              partyLabel="you"
+              initialValues={exportProfile}
+              onCancel={close}
+              onSaved={() => {
+                close();
+                router.refresh();
+              }}
+            />
           )}
         </SettingRow>
       </SettingsSection>

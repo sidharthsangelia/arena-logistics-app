@@ -12,6 +12,11 @@ import KycVault from "@/components/clients/clientDetailPage/KycVault";
 import { AddressBookManager } from "@/components/address/AddressBookManager";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ClientEmailPreferenceCard } from "@/components/clients/clientDetailPage/ClientEmailPreferenceCard";
+import { ClientExportProfileCard } from "@/components/clients/clientDetailPage/ClientExportProfileCard";
+import {
+  hasAnyExportDetail,
+  toExportProfileForm,
+} from "@/lib/booking/exportProfile";
 import { getCurrentOrg } from "@/utils/tenant";
 import {
   HeaderSkeleton,
@@ -274,6 +279,16 @@ async function ClientSidebar({
           <InfoRow label="Postal code" value={client.postalCode} />
         </div>
       </div>
+
+      {/* What this client's exports are filed under. Sits below the address
+          because both describe the legal entity rather than how to reach them,
+          and above notes because it is a setting rather than a remark. */}
+      <ClientExportProfileCard
+        clientId={client.id}
+        clientName={client.companyName}
+        profile={toExportProfileForm(client)}
+        hasDetail={hasAnyExportDetail(client)}
+      />
 
       {/* Notes — only rendered if present */}
       {client.notes && (

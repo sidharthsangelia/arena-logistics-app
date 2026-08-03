@@ -138,6 +138,32 @@ model Org {
   gstin        String?
   gstStateCode String?
 
+  // ── export profile (international bookings) ──
+  // Who this party legally is at customs, and under what papers. Every
+  // international vendor demands some subset of these, so they are structured
+  // columns rather than free text dug out of KycDocument.docNumber: a booking
+  // preflight has to be able to say "your AD code is missing" before the
+  // customer's money has bought a booking the vendor will refuse.
+  //
+  // The SAME block exists on Client. For a BA org booking on behalf of a
+  // client, the CLIENT is the legal exporter, so the client's values win and
+  // these are the fallback. Resolution lives in lib/booking/exportProfile.ts —
+  // never read these columns directly.
+  iecNumber         String? // Importer Exporter Code, mandatory for commercial exports
+  adCode            String? // Authorised Dealer code, ties the shipment to a bank
+  lutNumber         String? // Letter of Undertaking, for zero-rated exports
+  lutIssueDate      DateTime?
+  lutTillDate       DateTime? // LUTs expire; a stale one is refused at the border
+  iossNumber        String? // EU IOSS registration, for low-value consignments
+  defaultIncoterms  Incoterms  @default(DDP)
+  // NA, not LUT. An org that has not told us how it exports is claiming nothing,
+  // and defaulting to LUT meant every org was treated as claiming zero-rated
+  // relief under a Letter of Undertaking it did not hold — which then blocked
+  // its bookings on a missing LUT number it was never asked for. Shipmozo's own
+  // default for the same field is NA. Orgs that do ship under an LUT set it, and
+  // give us the number, on the export profile form in settings.
+  defaultExportType ExportType @default(NA)
+
   shipmentInvoices ShipmentInvoice[]
 
   @@index([slug])
@@ -194,6 +220,24 @@ model Client {
   deletedAt DateTime?
 
   companyKind CompanyKind @default(INDIVIDUAL)
+
+  // ── export profile (international bookings) ──
+  // Same block as Org, and it WINS over the org's when set: for a BA org
+  // booking on behalf of a client, the client is the party actually exporting,
+  // so their IEC and AD code are the ones that belong on the paperwork. See the
+  // long note on Org, and resolve through lib/booking/exportProfile.ts.
+  //
+  // Nullable enums here, unlike Org's defaulted ones, precisely so "this client
+  // has not told us" stays distinguishable from "this client chose DDP".
+  gstin             String?
+  iecNumber         String?
+  adCode            String?
+  lutNumber         String?
+  lutIssueDate      DateTime?
+  lutTillDate       DateTime?
+  iossNumber        String?
+  defaultIncoterms  Incoterms?
+  defaultExportType ExportType?
 
   // Per-client override of the BA's org-wide clientEmailsEnabled setting.
   // Deliberately three-state rather than a boolean: INHERIT means "whatever the
@@ -1019,6 +1063,13 @@ model Shipment {
   selectedVendorId       String?
   selectedVendorName     String?
   selectedProductName    String?
+  // The VENDOR's own id for the service the customer picked, snapshotted at
+  // selection. A dedicated column rather than a dig through chargesSnapshot,
+  // because this single value is what guarantees the parcel ships on the
+  // service that was actually paid for: at booking time the vendor is handed
+  // this id, not a product name matched by string. Null for vendors that expose
+  // no id, in which case the booking adapter has to resolve one or refuse.
+  selectedCourierId      String?
   markupPercentApplied   Decimal? @db.Decimal(6, 3)
   quotedTotal            Decimal? @db.Decimal(14, 4)
   currency               String   @default("INR")
@@ -1077,6 +1128,51 @@ model Shipment {
   // and the two must not be mistaken for each other.
   domesticLabelDocumentId String?
 
+  // ── international (India → world) carrier booking ──
+  // All null/NOT_REQUIRED on a DOMESTIC shipment. The mirror image of the
+  // domestic* block above: the export is pushed to the vendor automatically the
+  // moment the booking commits (lib/inngest/functions/bookInternationalCarrier.ts),
+  // and every external id is written the instant the vendor returns it so a
+  // retry after a mid-flow failure resumes rather than booking a second export.
+  //
+  // Kept apart from mawbNumber / hawbNumber above, which are the AIR WAYBILL
+  // numbers ops type in once the airline confirms the consolidated cargo. Those
+  // describe the flight; these describe our booking with the vendor. A shipment
+  // can legitimately have both, and conflating them would make it impossible to
+  // tell an ops-entered airline reference from a vendor-issued one.
+  intlBookingVendorId String? // which adapter owns this booking (lib/booking-adapters)
+  intlBookingOrderId  String? // vendor's order handle, for label / cancel / detail
+  intlShipperId       String? // Shipmozo create-shipper id, reused across retries
+  intlAwbNumber       String? // the vendor's waybill, once issued
+  intlCarrierName     String? // the carrier actually flying it, e.g. "DHL Express"
+  intlTrackingUrl     String? // the carrier's public tracking page, if any
+  intlVendorPickupId  String? // vendor's own collection handle (sKart pickup_id)
+  intlBookedAt        DateTime? // when the booking was placed with the vendor
+
+  // The document URLs the vendor handed back WITH the booking, as
+  // [{ kind, url }]. Persisted rather than kept in step memory because sKart
+  // returns its four PDFs exactly once, from the booking call, and publishes no
+  // endpoint to ask again. Without this, an ops retry days after a booking that
+  // succeeded but whose label upload failed would have no way to reach the
+  // label at all. Null for vendors that fetch documents by AWB (Shipmozo).
+  intlVendorDocuments Json?
+
+  intlBookingStatus   IntlBookingStatus @default(NOT_REQUIRED)
+  // Why the last attempt failed, surfaced on the ops booking page. Cleared on
+  // every fresh attempt so it never describes a run that has since succeeded.
+  intlBookingError    String?
+  intlBookingAttempts Int               @default(0)
+  // The AIRWAY_BILL ShipmentDocument holding the label PDF. Pointed at from here
+  // rather than found by docType, because ops can upload their own airway bill
+  // and the two must not be mistaken for each other.
+  intlLabelDocumentId String?
+
+  // Per-shipment override of the resolved export profile (IEC, AD code, LUT,
+  // incoterms). Ops set this when one consignment needs different papers from
+  // the party's standing profile. Wins over both the client's and the org's
+  // values. Null on almost every row — see lib/booking/exportProfile.ts.
+  exportProfileOverride Json?
+
   status ShipmentStatus @default(DRAFT)
 
   walletTransactions WalletTransaction[]
@@ -1122,6 +1218,34 @@ enum DomesticCourierStatus {
   BOOKED // AWB assigned
   FAILED // every retry spent; needs a human
   CANCELLED // order cancelled with the vendor
+}
+
+// How far the INTERNATIONAL carrier booking has got.
+//
+// Deliberately a second enum with the same members rather than a reuse of
+// DomesticCourierStatus. That name is on a hundred domestic call sites and
+// reads as a lie on an export row; renaming it to something shared would mean
+// touching the domestic flow for no behavioural gain, which is exactly the kind
+// of churn that breaks a working path. Two enums, no migration risk.
+enum IntlBookingStatus {
+  NOT_REQUIRED // domestic shipment, or an export booked before this existed
+  PENDING // queued with the vendor, no AWB yet
+  BOOKED // AWB assigned
+  FAILED // every retry spent; needs a human
+  CANCELLED // booking cancelled with the vendor
+}
+
+// How the export moves for GST purposes. Sent to vendors as `export_type`.
+enum ExportType {
+  LUT // zero-rated under a Letter of Undertaking, no IGST paid up front
+  BOND // moving under bond
+  NA // neither applies (non-commercial, gift, sample)
+}
+
+// Who bears duty and taxes at the destination.
+enum Incoterms {
+  DDP // delivered duty paid — the shipper pays
+  DDU // delivered duty unpaid — the receiver pays on arrival
 }
 
 // ─────────────────────────────────────────────
@@ -1486,7 +1610,7 @@ enum NotificationKind {
   COLLECTION_OVERDUE // a deferred payment nobody has collected
   SHIPMENT_STUCK // sat in the same status past the tolerance
   QUOTE_EXPIRING // a sent quote about to lapse
-  COURIER_BOOKING_FAILED // a paid domestic booking the courier vendor would not take
+  COURIER_BOOKING_FAILED // a paid booking the vendor would not take — domestic courier, export carrier or first-mile pickup
 
   // ── Tenant side ──
   SHIPMENT_STATUS // their shipment moved
