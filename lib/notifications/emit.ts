@@ -333,6 +333,57 @@ export async function notifyFirstMileStatusChanged(
   }
 }
 
+/**
+ * Tells the tenant their waybill has been issued and their label is ready.
+ *
+ * Reuses SHIPMENT_STATUS for the same reason the first-mile notices do: to the
+ * customer this IS their shipment progressing, and a kind of its own would mean a
+ * new enum value, a new filter chip and a migration to say something the existing
+ * kind already says. It lands in the "Shipment updates" tab with no config change.
+ *
+ * ── THE RETURN VALUE IS THE POINT ───────────────────────────────────────────
+ * True means THIS call wrote the row; false means one was already there. The
+ * caller uses that to decide whether to also send the email, which makes this row
+ * the durable "we have told this customer about this waybill" ledger.
+ *
+ * That matters because the booking jobs are durable and ops can re-drive them by
+ * hand. Step memoisation only covers a retry WITHIN a run; a fresh re-drive has
+ * no memory of the earlier one, and emailing a customer the same label twice is
+ * the kind of small wrongness that costs trust. The unique dedupeKey turns the
+ * race into a database constraint rather than a check-then-act that two
+ * concurrent runs could both pass.
+ *
+ * Keyed on the AWB as well as the shipment, so a consignment that was cancelled
+ * and rebooked — which legitimately has a NEW waybill — is announced again.
+ *
+ * SUCCESS is the right severity here, and one of the few places it is used: the
+ * customer was waiting on this document and it has arrived.
+ */
+export async function notifyAwbReady(params: {
+  shipmentId: string;
+  orgId: string;
+  shipmentNumber: string;
+  awbNumber: string;
+  carrierName?: string | null;
+}): Promise<boolean> {
+  const carrier = params.carrierName?.trim();
+
+  return emitNotification({
+    kind: "SHIPMENT_STATUS",
+    orgId: params.orgId,
+    title: `${params.shipmentNumber}: Airway bill ready`,
+    // Deliberately says nothing about the email. This row is written before the
+    // email is attempted (see the ledger note above), so a body claiming "we
+    // have emailed it" would be a promise made before it was kept. What is
+    // always true is that the label is on their shipment page.
+    body: `AWB ${params.awbNumber}${carrier ? ` with ${carrier}` : ""}. Your label is ready to print on your shipment page.`,
+    severity: "SUCCESS",
+    linkHref: `/shipments/${params.shipmentId}`,
+    shipmentId: params.shipmentId,
+    dedupeKey: `awb-ready:${params.shipmentId}:${params.awbNumber}`,
+  });
+}
+
 const TENANT_FIRST_MILE_COPY: Partial<
   Record<FirstMileStatus, { title: string; body: string; severity: NoticeSeverity }>
 > = {
@@ -464,6 +515,54 @@ export async function notifyCourierBookingFailed(params: {
     body: `${params.orgName} has paid and the courier would not take the order: ${params.reason}`,
     severity: "CRITICAL",
     linkHref: `/arena-dashboard/domestic-bookings/${params.shipmentId}`,
+    shipmentId: params.shipmentId,
+  });
+}
+
+/**
+ * A paid EXPORT the carrier vendor would not take.
+ *
+ * Shares the COURIER_BOOKING_FAILED kind with its domestic sibling above rather
+ * than adding an enum value, because the two describe the same thing to the
+ * person reading it — money in, no waybill — and they differ only in which ops
+ * page fixes it. That difference is the link, so the link is what changes.
+ */
+export async function notifyIntlBookingFailed(params: {
+  shipmentId: string;
+  shipmentNumber: string;
+  orgName: string;
+  reason: string;
+}): Promise<boolean> {
+  return emitNotification({
+    kind: "COURIER_BOOKING_FAILED",
+    title: `${params.shipmentNumber} has no waybill`,
+    body: `${params.orgName} has paid and the carrier would not take the export: ${params.reason}`,
+    severity: "CRITICAL",
+    linkHref: `/arena-dashboard/bookings/${params.shipmentId}`,
+    shipmentId: params.shipmentId,
+  });
+}
+
+/**
+ * A door → hub pickup that could not be booked.
+ *
+ * WARNING, not CRITICAL, and the difference is deliberate: the export itself is
+ * already booked and has a waybill by the time this can fire, so the parcel has
+ * somewhere to go. What is missing is the collection, which ops can arrange by
+ * phone while the retry is looked at.
+ */
+export async function notifyFirstMileBookingFailed(params: {
+  shipmentId: string;
+  shipmentNumber: string;
+  orgName: string;
+  reason: string;
+}): Promise<boolean> {
+  return emitNotification({
+    kind: "COURIER_BOOKING_FAILED",
+    title: `${params.shipmentNumber} has no pickup booked`,
+    body: `${params.orgName} paid for door collection and the courier would not take it: ${params.reason}`,
+    severity: "WARNING",
+    linkHref: `/arena-dashboard/bookings/${params.shipmentId}`,
     shipmentId: params.shipmentId,
   });
 }

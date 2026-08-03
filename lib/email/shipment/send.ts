@@ -13,6 +13,7 @@ import {
 } from "../clientEmails";
 import { arenaIdentity, associateIdentity, type EmailIdentity } from "./identity";
 import {
+  getAwbReadyCopy,
   getMilestoneCopy,
   getFirstMileMilestoneCopy,
   isEmailMilestone,
@@ -375,6 +376,84 @@ export async function sendShipmentMilestoneEmail(
     Sentry.captureException(err, {
       tags: { location: "sendShipmentMilestoneEmail" },
       extra: { shipmentId, status },
+    });
+    return NOT_SENT;
+  }
+}
+
+/**
+ * Sends "your airway bill is ready", with the label PDF attached.
+ *
+ * Called by the booking jobs once the carrier has issued the waybill and the
+ * label is filed against the shipment. Same guarantees as the milestone senders:
+ * it never throws, and a missing recipient or a Resend failure is reported to
+ * Sentry rather than failing a booking that has already completely succeeded.
+ *
+ * ROUTED ON `BOOKED`, not PROCESSING, for the business-associate client-email
+ * gate. This email is the second half of the booking confirmation — that email
+ * is what promised the waybill — so an associate who opted their client into
+ * booking confirmations has, by the same choice, opted them into receiving the
+ * document that confirmation promised. Splitting the two across different
+ * milestones would let a client be told "your airway bill is coming" and then
+ * never be sent it.
+ *
+ * The label travels as a URL rather than bytes: it is already on UploadThing by
+ * the time this runs and Resend fetches it itself, which keeps a few hundred
+ * kilobytes out of the job's step state. A shipment with no stored label still
+ * gets the email — the number is the useful part, and the copy adjusts to point
+ * at the shipment page instead.
+ */
+export async function sendAwbReadyEmail(
+  shipmentId: string,
+  input: {
+    awbNumber: string;
+    carrierName?: string | null;
+    trackingUrl?: string | null;
+    label?: ShipmentEmailAttachment | null;
+  },
+): Promise<ShipmentEmailResult> {
+  try {
+    if (!process.env.RESEND_API_KEY) {
+      Sentry.addBreadcrumb({
+        level: "warning",
+        message: "Skipping AWB email — RESEND_API_KEY not set",
+        data: { shipmentId },
+      });
+      return NOT_SENT;
+    }
+
+    const target = await resolveShipmentEmailTarget(
+      shipmentId,
+      ShipmentStatus.BOOKED,
+    );
+    if (!target) return NOT_SENT;
+
+    // The waybill just issued wins over whatever tracking the shipment carried
+    // before: this email is about THIS number, and the label attached to it
+    // prints exactly this one.
+    const ctx: ShipmentEmailContext = {
+      ...target.ctx,
+      trackingNumber: input.awbNumber,
+      trackingUrl: input.trackingUrl?.trim() || target.ctx.trackingUrl,
+    };
+
+    const copy = getAwbReadyCopy(ctx, {
+      carrierName: input.carrierName ?? null,
+      labelAttached: Boolean(input.label),
+    });
+
+    return await dispatchShipmentEmail(
+      target,
+      copy,
+      ctx,
+      "shipment_awb",
+      "awb_ready",
+      input.label ? [input.label] : undefined,
+    );
+  } catch (err) {
+    Sentry.captureException(err, {
+      tags: { location: "sendAwbReadyEmail" },
+      extra: { shipmentId, awbNumber: input.awbNumber },
     });
     return NOT_SENT;
   }

@@ -1,4 +1,7 @@
-import "server-only";
+// Deliberately NOT `server-only`, for the same reason as ./copy.ts: this is pure
+// string rendering over plain data with no secrets and no imports that reach
+// anything. Keeping it reachable is what lets a test assert on the markup a
+// customer actually receives. See utils/awbReadyEmail.test.ts.
 
 import type { EmailIdentity } from "./identity";
 import type { MilestoneCopy, ShipmentEmailContext } from "./copy";
@@ -72,7 +75,7 @@ function trackingBlock(ctx: ShipmentEmailContext, copy: MilestoneCopy): string {
   if (!hasNumber && !hasUrl) return "";
 
   const numberRow = hasNumber
-    ? `<p style="margin:0 0 ${hasUrl ? "18px" : "0"};color:${C.muted};font-size:13px;">Tracking number<br/><span style="color:${C.ink};font-size:16px;font-weight:600;letter-spacing:0.02em;">${esc(ctx.trackingNumber!)}</span></p>`
+    ? `<p style="margin:0 0 ${hasUrl ? "18px" : "0"};color:${C.muted};font-size:13px;">${esc(copy.trackingLabel ?? "Tracking number")}<br/><span style="color:${C.ink};font-size:16px;font-weight:600;letter-spacing:0.02em;">${esc(ctx.trackingNumber!)}</span></p>`
     : "";
 
   const button = hasUrl
@@ -298,7 +301,7 @@ export function renderShipmentEmailText(
   lines.push("");
 
   if (copy.showTracking && ctx.trackingNumber) {
-    lines.push(`Tracking number: ${ctx.trackingNumber}`);
+    lines.push(`${copy.trackingLabel ?? "Tracking number"}: ${ctx.trackingNumber}`);
   }
   if (copy.showTracking && ctx.trackingUrl) {
     lines.push(`Track your shipment: ${ctx.trackingUrl}`);

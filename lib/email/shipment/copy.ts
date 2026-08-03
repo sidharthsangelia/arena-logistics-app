@@ -1,4 +1,7 @@
-import "server-only";
+// Deliberately NOT `server-only`, following the same reasoning as the booking
+// mappers: this module is pure functions over plain data, it holds no secrets
+// and reaches nothing, and everything that decides what a customer is TOLD
+// belongs somewhere a test can reach it. See utils/awbReadyEmail.test.ts.
 
 import { ShipmentStatus, FirstMileStatus } from "@/generated/prisma";
 import { EMAIL_MILESTONES, isEmailMilestone } from "./milestones";
@@ -36,6 +39,13 @@ export interface MilestoneCopy {
   nextSteps: string[];
   /** Whether to surface the tracking number / button (when data exists). */
   showTracking: boolean;
+  /**
+   * Caption above the number in the tracking block. Defaults to "Tracking
+   * number", which is right for every status email. The airway bill email
+   * overrides it, because the number it shows IS the waybill and calling it
+   * something else in the one email that carries the document would be odd.
+   */
+  trackingLabel?: string;
   /** Small reassurance line under the header badge. */
   statusLabel: string;
 }
@@ -138,6 +148,54 @@ export function getMilestoneCopy(
     default:
       return null;
   }
+}
+
+/**
+ * Copy for "your airway bill is ready", sent once the carrier has issued the
+ * waybill and we hold the label.
+ *
+ * THIS EMAIL EXISTS BECAUSE THE BOOKING EMAIL PROMISES IT. Read the BOOKED copy
+ * above: "As soon as your airway bill is issued, we will send it to you along
+ * with everything you need to follow the journey." Before this, nothing kept
+ * that promise — the label simply appeared on the shipment page and the customer
+ * had to go looking. The label PDF rides along as an attachment, so the promise
+ * is kept in full rather than as a link to go and fetch it.
+ *
+ * Not a milestone email: the shipment's status does not change when a waybill is
+ * issued. The consignment is still BOOKED; we simply hold the document for it
+ * now. That is why this has its own copy function rather than a case in
+ * getMilestoneCopy, which is keyed on status.
+ *
+ * `ctx.trackingNumber` carries the AWB and `trackingLabel` renames the block to
+ * match, so the number in the email is the number printed on the label.
+ */
+export function getAwbReadyCopy(
+  ctx: ShipmentEmailContext,
+  options: { carrierName: string | null; labelAttached: boolean },
+): MilestoneCopy {
+  const route = `${ctx.originLabel} to ${ctx.destinationLabel}`;
+  const carrier = options.carrierName?.trim() || null;
+
+  return {
+    subject: `Your airway bill is ready (${ctx.shipmentNumber})`,
+    preheader: `Airway bill ${ctx.trackingNumber ?? ""} has been issued for shipment ${ctx.shipmentNumber}.`.trim(),
+    headline: "Your airway bill is ready",
+    statusLabel: "Airway bill issued",
+    paragraphs: [
+      `As promised, here is the airway bill for your shipment ${ctx.shipmentNumber} from ${route}. It has now been confirmed${carrier ? ` with ${carrier}` : ""} and the waybill number below is what identifies your consignment from here on.`,
+      options.labelAttached
+        ? `Your shipping label is attached to this email. Please print it and attach it securely to the parcel before it is handed over. A copy is also saved on your shipment page, so you can download it again at any time.`
+        : `Your shipping label is on your shipment page, ready to print and attach to the parcel before it is handed over.`,
+      `Keep this number to hand. If anything at all comes up, simply reply to this email and a real person on our team will help.`,
+    ],
+    nextSteps: [
+      "Print the label and attach it to your parcel",
+      "Hand the parcel over to the carrier",
+      "Follow the journey with your airway bill number",
+    ],
+    showTracking: true,
+    trackingLabel: "Airway bill number",
+  };
 }
 
 /**

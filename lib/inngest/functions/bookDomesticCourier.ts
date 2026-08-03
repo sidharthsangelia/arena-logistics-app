@@ -50,6 +50,7 @@ import {
 } from "@/lib/booking/domesticCourier";
 import { resolveExactCourierId } from "@/lib/booking/domesticCourierResolve";
 import { uploadLabel } from "@/lib/booking/labelStorage";
+import { announceAwbReady } from "@/lib/booking/awbAnnounce";
 import { notifyCourierBookingFailed } from "@/lib/notifications/emit";
 
 import {
@@ -239,7 +240,7 @@ export const bookDomesticCourier = inngest.createFunction(
   },
 
   async ({ event, step, logger, attempt }) => {
-    const { shipmentId } = event.data;
+    const { shipmentId, shipmentNumber, orgId } = event.data;
     const allowAutoAssign = event.data.allowAutoAssign === true;
 
     // ── 1. What are we booking, and how far did we get last time? ───────────
@@ -253,6 +254,14 @@ export const bookDomesticCourier = inngest.createFunction(
       logger.info(
         `Shipment ${prepared.request.displayReference} already has AWB ${prepared.awbNumber} and its label. Nothing to do.`,
       );
+
+      // Still announced. This run may be a retry of one that died after filing
+      // the label but before telling the customer, and the announcement is
+      // idempotent on its own notification ledger.
+      await step.run("announce-awb", () =>
+        announceDomesticAwb({ shipmentId, orgId, shipmentNumber }),
+      );
+
       return { booked: true, awbNumber: prepared.awbNumber, skipped: true };
     }
 
@@ -521,9 +530,70 @@ export const bookDomesticCourier = inngest.createFunction(
       });
     }
 
+    // ── Tell the customer ───────────────────────────────────────────────────
+    //
+    // The booking confirmation email promised the waybill "as soon as it is
+    // issued". This is where that promise is kept: an in-app notification and an
+    // email with the label attached. Its own step, after the label is filed, so
+    // the customer is never told about a document that is not there yet.
+    await step.run("announce-awb", () =>
+      announceDomesticAwb({ shipmentId, orgId, shipmentNumber }),
+    );
+
     return { booked: true, awbNumber, skipped: false };
   },
 );
+
+// ---------------------------------------------------------------------------
+
+/**
+ * Read the waybill and its label off the row, then tell the customer.
+ *
+ * The domestic twin of announceIntlAwb in bookInternationalCarrier.ts, and split
+ * the same way: the shared half — send once, attach the label, never throw —
+ * lives in lib/booking/awbAnnounce.ts, and only the column names differ here.
+ *
+ * Reads from the database rather than taking values from step output, because
+ * this runs on two paths: a fresh booking that has just filed its label, and a
+ * re-drive of a shipment that already had one. The row is what both agree on.
+ */
+async function announceDomesticAwb(input: {
+  shipmentId: string;
+  orgId: string;
+  shipmentNumber: string;
+}) {
+  const shipment = await prisma.shipment.findUnique({
+    where: { id: input.shipmentId },
+    select: {
+      domesticAwbNumber: true,
+      domesticCourierName: true,
+      domesticTrackingUrl: true,
+      domesticLabelDocumentId: true,
+    },
+  });
+
+  if (!shipment?.domesticAwbNumber) return { announced: false, emailed: false };
+
+  const label = shipment.domesticLabelDocumentId
+    ? await prisma.shipmentDocument.findUnique({
+        where: { id: shipment.domesticLabelDocumentId },
+        select: { fileUrl: true, fileName: true },
+      })
+    : null;
+
+  return announceAwbReady({
+    shipmentId: input.shipmentId,
+    orgId: input.orgId,
+    shipmentNumber: input.shipmentNumber,
+    awbNumber: shipment.domesticAwbNumber,
+    carrierName: shipment.domesticCourierName,
+    trackingUrl: shipment.domesticTrackingUrl,
+    label:
+      label?.fileUrl && label.fileName
+        ? { fileUrl: label.fileUrl, fileName: label.fileName }
+        : null,
+  });
+}
 
 // ---------------------------------------------------------------------------
 
