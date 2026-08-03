@@ -119,6 +119,13 @@ async function getShipment(id: string, orgId: string) {
       domesticCourierStatus: true,
       domesticCourierName: true,
       domesticLabelDocumentId: true,
+      // And the same three for an export. Read for exactly the same reason:
+      // the label card has to tell "still being issued" apart from "something
+      // went wrong", which are the same blank space to a customer otherwise.
+      intlBookingStatus: true,
+      intlAwbNumber: true,
+      intlCarrierName: true,
+      intlLabelDocumentId: true,
       quotedTotal: true,
       currency: true,
       markupPercentApplied: true,
@@ -1195,21 +1202,34 @@ async function DocumentsCard({
   const s = await shipmentPromise;
   const invoice = await getShipmentTaxInvoiceAction(s.id);
 
-  // The courier label gets its own group at the top, so it is filtered out of
+  // Domestic and international both produce a waybill we booked, so the label
+  // group is resolved from whichever of the two applies rather than being
+  // written twice. Everything below reads these three values and nothing else
+  // about the mode.
+  const isDomestic = s.mode === "DOMESTIC";
+
+  const labelDocumentId = isDomestic
+    ? s.domesticLabelDocumentId
+    : s.intlLabelDocumentId;
+  const awbNumber = isDomestic ? s.domesticAwbNumber : s.intlAwbNumber;
+  const carrierName = isDomestic ? s.domesticCourierName : s.intlCarrierName;
+  const bookingStatus = isDomestic
+    ? s.domesticCourierStatus
+    : s.intlBookingStatus;
+
+  // The waybill label gets its own group at the top, so it is filtered out of
   // the file list below. The same download in two places on one card just makes
   // the customer wonder which of them is the real one.
-  const documents = s.documents.filter(
-    (d) => d.id !== s.domesticLabelDocumentId,
-  );
+  const documents = s.documents.filter((d) => d.id !== labelDocumentId);
 
-  const labelDoc = s.domesticLabelDocumentId
-    ? (s.documents.find((d) => d.id === s.domesticLabelDocumentId) ?? null)
+  const labelDoc = labelDocumentId
+    ? (s.documents.find((d) => d.id === labelDocumentId) ?? null)
     : null;
 
-  // A label group exists only for a domestic booking that goes out on a courier
-  // we booked. International shipments and legacy domestic rows have none.
-  const showLabel =
-    s.mode === "DOMESTIC" && s.domesticCourierStatus !== "NOT_REQUIRED";
+  // A label group exists only where Arena booked the carrier through an API.
+  // Legacy rows, and exports placed by hand before automatic booking existed,
+  // sit at NOT_REQUIRED and show nothing rather than a promise we cannot keep.
+  const showLabel = bookingStatus !== "NOT_REQUIRED";
 
   const invoiceReady =
     !!invoice && invoice.generationStatus === "READY" && !!invoice.fileUrl;
@@ -1249,12 +1269,10 @@ async function DocumentsCard({
             >
               <DocRow
                 icon={Printer}
-                title={s.domesticAwbNumber ?? "Being issued"}
+                title={awbNumber ?? "Being issued"}
                 titleMono
                 subtitle={
-                  s.domesticCourierName
-                    ? `Waybill · ${s.domesticCourierName}`
-                    : "Courier waybill"
+                  carrierName ? `Waybill · ${carrierName}` : "Carrier waybill"
                 }
                 action={
                   labelDoc ? (
@@ -1262,7 +1280,7 @@ async function DocumentsCard({
                       href={labelDoc.fileUrl}
                       fileName={labelDoc.fileName}
                     />
-                  ) : s.domesticCourierStatus === "FAILED" ? (
+                  ) : bookingStatus === "FAILED" ? (
                     <span className="block max-w-40 text-right text-xs text-muted-foreground">
                       Our team is arranging this. Your booking and payment are
                       safe.

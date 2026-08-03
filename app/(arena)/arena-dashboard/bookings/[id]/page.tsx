@@ -1,13 +1,19 @@
 import { prisma } from "@/utils/db";
 import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
-import { ShipmentStatus, FirstMileStatus, ShipmentMode } from "@/generated/prisma";
+import {
+  ShipmentStatus,
+  FirstMileStatus,
+  ShipmentMode,
+  type IntlBookingStatus,
+} from "@/generated/prisma";
 
 import {
   ArrowLeft,
   Package,
   MapPin,
   Truck,
+  Plane,
   Clock,
   Building2,
   User,
@@ -82,9 +88,20 @@ import {
   requiredKycDocTypes,
 } from "@/lib/booking/kyc";
 import { FIRST_MILE_STAGES } from "@/lib/booking/firstMileStatus";
+import { IntlCarrierPanel } from "@/components/booking/arena/IntlCarrierPanel";
+import { intlAutoBookEnabled } from "@/lib/booking/intlAutoBook";
 import { CSB4_MAX_VALUE, SHIPMENT_TYPE_INFO } from "@/lib/booking/cargo";
 import { PartyType } from "@/generated/prisma";
 import { cn } from "@/lib/utils";
+
+/** One-word read-out for the collapsed carrier-booking card in the ops rail. */
+const INTL_BOOKING_SUMMARY: Record<IntlBookingStatus, string> = {
+  NOT_REQUIRED: "Not placed",
+  PENDING: "Waiting on carrier",
+  BOOKED: "Booked",
+  FAILED: "Failed",
+  CANCELLED: "Cancelled",
+};
 
 // ---------------------------------------------------------------------------
 // Data fetch
@@ -600,6 +617,12 @@ export default async function BookingDetailPage({
   // Door pickup drives all the first-mile UI. Legacy rows created before the
   // first-mile lifecycle existed have a null status, so default it to SCHEDULED
   // at render — pickupIncluded is the real signal, not the presence of a status.
+  // Pointed at by id rather than found by docType: ops can upload their own
+  // airway bill, and the two must not be mistaken for each other.
+  const intlLabelDoc = s.intlLabelDocumentId
+    ? (s.documents.find((d) => d.id === s.intlLabelDocumentId) ?? null)
+    : null;
+
   const hasFirstMile = s.pickupIncluded;
   const firstMileStatus = s.firstMileStatus ?? FirstMileStatus.SCHEDULED;
   const firstMileArrivedAtHub =
@@ -1088,6 +1111,40 @@ export default async function BookingDetailPage({
                 />
               </CardContent>
             </Card>
+
+            {/* The API booking with the carrier vendor. Sits ABOVE the manual
+                Carrier / AWB card below it because the two answer different
+                questions: this is the booking we placed through the vendor's
+                API, that is the airline's own waybill numbers ops type in once
+                the consolidated cargo is confirmed. A shipment legitimately has
+                both. */}
+            <CollapsibleCard
+              icon={Plane}
+              title="Carrier booking"
+              summary={INTL_BOOKING_SUMMARY[s.intlBookingStatus]}
+              defaultOpen={
+                s.intlBookingStatus === "FAILED" ||
+                (s.intlBookingStatus === "PENDING" && !s.intlAwbNumber)
+              }
+            >
+              <IntlCarrierPanel
+                shipmentId={s.id}
+                state={{
+                  status: s.intlBookingStatus,
+                  vendorName: s.selectedVendorName,
+                  selectedProductName: s.selectedProductName,
+                  carrierName: s.intlCarrierName,
+                  orderId: s.intlBookingOrderId,
+                  awbNumber: s.intlAwbNumber,
+                  trackingUrl: s.intlTrackingUrl,
+                  labelUrl: intlLabelDoc?.fileUrl ?? null,
+                  error: s.intlBookingError,
+                  attempts: s.intlBookingAttempts,
+                  bookedAt: s.intlBookedAt ? fmtDatetime(s.intlBookedAt) : null,
+                  autoBookEnabled: intlAutoBookEnabled(),
+                }}
+              />
+            </CollapsibleCard>
 
             {/* Carrier / AWB — opens itself when the shipment is moving but blank */}
             <CollapsibleCard

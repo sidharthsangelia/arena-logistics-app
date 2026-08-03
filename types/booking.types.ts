@@ -118,10 +118,15 @@ export interface ServiceOption {
   price: number;
   currency: string;
   /**
-   * Vendor's own courier id for this option, when exposed. For a first-mile
-   * Shipmozo option this is the domestic courier id, snapshotted so ops can
-   * later book the exact courier the customer selected. Optional/null for
-   * international services and legacy rows.
+   * Vendor's own id for this service, when exposed. Snapshotted at selection
+   * (onto Shipment.selectedCourierId) so the booking job can ask the vendor for
+   * THIS service rather than matching a product name against a fresh quote.
+   *
+   * Populated for domestic Shipmozo options, for first-mile options (the
+   * domestic courier id) and for Shipmozo international ones. Null for vendors
+   * that expose no id — sKart's rate calculator returns names only, so its
+   * booking adapter resolves the id from sKart's own courier catalogue — and
+   * null on rows created before this existed.
    */
   courierId?: string | null;
   /**

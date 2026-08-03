@@ -2,13 +2,21 @@ import "server-only";
 
 import type {
   ShipmozoAssignData,
+  ShipmozoCountryEntry,
+  ShipmozoCreateShipperData,
+  ShipmozoCreateShipperPayload,
   ShipmozoCreateWarehouseData,
   ShipmozoCreateWarehousePayload,
   ShipmozoEnvelope,
+  ShipmozoIntlPushOrderData,
+  ShipmozoIntlPushOrderPayload,
+  ShipmozoIntlRateProduct,
+  ShipmozoIntlRateRequest,
   ShipmozoOrderDetailData,
   ShipmozoPushOrderData,
   ShipmozoPushOrderPayload,
   ShipmozoTrackData,
+  ShipmozoWarehouseEntry,
 } from "./types";
 import { withPushOrderDefaults } from "./pushOrderDefaults";
 
@@ -160,21 +168,37 @@ export function cancelOrder(orderId: string): Promise<unknown> {
 }
 
 /**
- * Look an order up by Shipmozo's handle — which, for orders we pushed, is also
- * our own reference, because push-order carries `order_id: shipment.id`.
+ * Look an order up by SHIPMOZO'S OWN HANDLE — the `order_id` their push-order
+ * response returns, e.g. "56629AP704165902151".
  *
- * Used to answer "did the push actually land?" after a lost response, so this
- * resolves to null on any failure rather than throwing: a diagnostic that can
+ * ── NOT OUR REFERENCE ───────────────────────────────────────────────────────
+ * This used to be called with our own shipment id, on the belief that the
+ * `order_id` we send in push-order is also the handle Shipmozo files it under.
+ * It is not. They mint their own and echo ours back as `refrence_id`, and
+ * asking for one of ours answers `result: 0, "Order id is not valid"`. The
+ * lookup therefore never succeeded, and because it swallows its own errors the
+ * failure was invisible.
+ *
+ * There is no documented way to search by `refrence_id`, so this can only
+ * answer once we already hold their id — which is exactly when we least need
+ * it. See the note on duplicate protection in the international adapter.
+ *
+ * Resolves to null on any failure rather than throwing: a diagnostic that can
  * fail the thing it is diagnosing is worse than no diagnostic.
  */
 export async function getOrderDetail(
   orderId: string,
 ): Promise<ShipmozoOrderDetailData | null> {
   try {
-    return await get<ShipmozoOrderDetailData>(
+    const data = await get<ShipmozoOrderDetailData | ShipmozoOrderDetailData[]>(
       `/get-order-detail/${encodeURIComponent(orderId)}`,
       "get-order-detail",
     );
+    // Like get-order-label and track-order, a single record arrives wrapped in
+    // a list. Read as an object it yields undefined for every field while the
+    // call reports success.
+    const detail = Array.isArray(data) ? data[0] : data;
+    return detail ?? null;
   } catch {
     return null;
   }
@@ -336,4 +360,134 @@ export function createWarehouse(
     payload,
     "create-warehouse",
   );
+}
+
+/**
+ * Every pickup point on the account, newest first.
+ *
+ * Paged at 25. Only the first page is read, and deliberately: this exists to
+ * answer "have we already registered a warehouse for THIS booking?", the
+ * booking is minutes old, and walking hundreds of pages of historic addresses to
+ * find out would cost more than the duplicate it prevents.
+ *
+ * Swallows its own failures. A warehouse we could not look up is one we create
+ * instead, which is the behaviour this replaces — never a booking that fails.
+ */
+export async function getWarehouses(): Promise<ShipmozoWarehouseEntry[]> {
+  try {
+    const data = await get<ShipmozoWarehouseEntry[]>(
+      "/get-warehouses",
+      "get-warehouses",
+    );
+    return Array.isArray(data) ? data : [];
+  } catch {
+    return [];
+  }
+}
+
+// --- International -----------------------------------------------------------
+
+/**
+ * Register the exporter of record. Returns the new shipper id.
+ *
+ * International push-order takes a `shipper_id` that domestic has no equivalent
+ * of. A warehouse is where the parcel is COLLECTED; a shipper is who is SENDING
+ * it, and on a BA org's booking those are routinely different parties.
+ */
+export function createShipper(
+  payload: ShipmozoCreateShipperPayload,
+): Promise<ShipmozoCreateShipperData> {
+  return post<ShipmozoCreateShipperData>(
+    "/create-shipper",
+    payload,
+    "create-shipper",
+  );
+}
+
+/**
+ * Push an export order. Returns Shipmozo's handle for it.
+ *
+ * NOT routed through withPushOrderDefaults: that helper fills in the DOMESTIC
+ * payload's optional keys, and this endpoint takes a different set. The mapper
+ * populates every documented international key itself, for the same reason —
+ * Shipmozo reads fields without checking they exist, so an omitted optional is
+ * not "no value", it is a refused order.
+ */
+export function internationalPushOrder(
+  payload: ShipmozoIntlPushOrderPayload,
+): Promise<ShipmozoIntlPushOrderData> {
+  return post<ShipmozoIntlPushOrderData>(
+    "/international-push-order",
+    payload,
+    "international-push-order",
+  );
+}
+
+/**
+ * The services Shipmozo will actually carry this consignment on.
+ *
+ * Step 4 of their documented international flow, which sits BETWEEN the push and
+ * the assign. Called from the booking path to answer one question: is the
+ * courier the customer bought still offered for the consignment as it was
+ * pushed? It is never used to re-price — the customer's price was fixed at
+ * selection, and a booking that quietly re-quotes is a booking that can cost
+ * more than what was shown.
+ */
+export function internationalRateCalculator(
+  payload: ShipmozoIntlRateRequest,
+): Promise<ShipmozoIntlRateProduct[]> {
+  return post<ShipmozoIntlRateProduct[]>(
+    "/international-rate-calculator",
+    payload,
+    "international-rate-calculator",
+  ).then((data) => (Array.isArray(data) ? data : []));
+}
+
+/**
+ * Shipmozo's country list, for the numeric `consignee_country_id` that
+ * international push-order takes instead of an ISO code.
+ *
+ * Cached for the process lifetime: it is a static reference list, and fetching
+ * it inside a booking step would put an avoidable network call between a paid
+ * customer and their waybill. The rate adapter keeps its own cache of the same
+ * endpoint; they are deliberately not shared, because a booking must not fail
+ * because a rate lookup poisoned a cache.
+ */
+let countriesCache: ShipmozoCountryEntry[] | null = null;
+
+export async function getCountries(): Promise<ShipmozoCountryEntry[]> {
+  if (countriesCache) return countriesCache;
+  const data = await get<ShipmozoCountryEntry[]>("/countries", "countries");
+  countriesCache = Array.isArray(data) ? data : [];
+  return countriesCache;
+}
+
+/**
+ * ISO alpha-2 (or a full country name) → Shipmozo's numeric country id.
+ *
+ * Returns null rather than throwing when nothing matches, so the caller decides
+ * what an unknown destination means. For a booking it is fatal and permanent —
+ * the country will not appear in their list on a retry.
+ */
+export async function resolveCountryId(
+  countryCode: string,
+  countryName?: string,
+): Promise<string | null> {
+  const countries = await getCountries();
+  const code = countryCode.trim().toUpperCase();
+  const name = countryName?.trim().toUpperCase();
+
+  const match = countries.find((c) => {
+    const iso2 = c.iso2?.trim().toUpperCase();
+    const iso3 = c.iso3?.trim().toUpperCase();
+    const short = c.code?.trim().toUpperCase();
+    const full = c.name?.trim().toUpperCase();
+    return (
+      (code && (iso2 === code || iso3 === code || short === code)) ||
+      (name != null && full === name)
+    );
+  });
+
+  const id = match?.id;
+  return id == null ? null : String(id).trim() || null;
 }

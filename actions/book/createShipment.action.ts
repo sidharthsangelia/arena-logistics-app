@@ -52,6 +52,7 @@ import { prisma } from "@/utils/db";
 
 import {
   DomesticCourierStatus,
+  IntlBookingStatus,
   ShipmentStatus,
   ShipmentDocType,
   ShipmentMode,
@@ -97,6 +98,8 @@ import { sendShipmentMilestoneEmail } from "@/lib/email/shipment/send";
 import { inngest } from "@/lib/inngest/client";
 import { shipmentBookedEvent } from "@/lib/inngest/functions/generateShipmentInvoice";
 import { domesticCourierRequestedEvent } from "@/lib/inngest/functions/bookDomesticCourier";
+import { intlCarrierRequestedEvent } from "@/lib/inngest/functions/bookInternationalCarrier";
+import { intlAutoBookEnabled } from "@/lib/booking/intlAutoBook";
 import {
   INVOICE_SHIPMENT_SELECT,
   buildInvoiceForShipment,
@@ -764,6 +767,13 @@ export async function createShipmentAction(
             selectedVendorId: service.vendorId,
             selectedVendorName: service.vendorName,
             selectedProductName: service.productName,
+            // The vendor's own id for the chosen service. This one field is
+            // what lets the booking job ask the vendor for THIS carrier rather
+            // than matching a product name against a fresh quote — and a fresh
+            // quote can come back at a different price, or not list the service
+            // at all. Null for vendors that expose no id; the adapter then has
+            // to resolve one or refuse.
+            selectedCourierId: service.courierId ?? null,
 
             markupPercentApplied: markupPercent,
             quotedTotal: new Decimal(servicePrice.toFixed(2)),
@@ -785,6 +795,17 @@ export async function createShipmentAction(
             domesticCourierStatus: isDomestic
               ? DomesticCourierStatus.PENDING
               : DomesticCourierStatus.NOT_REQUIRED,
+
+            // And the mirror image for an export, for the same reason: ops
+            // looking at a booking one second after it lands should see
+            // "waiting on the carrier", not a blank. PENDING only when the
+            // automatic path will actually run — with auto-booking off, these
+            // are placed by ops and pretending otherwise would fill the queue
+            // with rows nothing is working on.
+            intlBookingStatus:
+              !isDomestic && intlAutoBookEnabled()
+                ? IntlBookingStatus.PENDING
+                : IntlBookingStatus.NOT_REQUIRED,
 
             // Orgs with payments turned off (Org.skipPayment) book without a
             // wallet debit; ops collect the charge when the parcel reaches the
@@ -1022,6 +1043,41 @@ export async function createShipmentAction(
             level: "warning",
             tags: {
               step: "queueDomesticCourierJob",
+              shipmentId: txResult.shipmentId,
+            },
+          });
+        }
+      }
+
+      // An export goes to the carrier vendor the same way, so the customer sees
+      // their label on the shipment page within a minute of paying rather than
+      // whenever ops next open a vendor panel. The job also releases the door
+      // pickup once it holds a waybill, so a first-mile collection is never
+      // arranged for a consignment that has nowhere to fly.
+      //
+      // GATED, unlike the domestic send. Export placement is new and touches
+      // customs data that only exists on some orgs today, so it ships dark:
+      // with INTL_AUTO_BOOK_ENABLED unset, international behaves exactly as it
+      // always has and ops place bookings by hand. Remove the gate once the
+      // flow is proven against live credentials.
+      //
+      // Guarded for the same reason as the sends above: a booking that is paid
+      // for and committed must not be reported as failed because a queue was
+      // unreachable. The shipment is left PENDING and the ops retry covers it.
+      if (!isDomestic && intlAutoBookEnabled()) {
+        try {
+          await inngest.send(
+            intlCarrierRequestedEvent({
+              shipmentId: txResult.shipmentId,
+              shipmentNumber: txResult.shipmentNumber,
+              orgId: dbOrgId,
+            }),
+          );
+        } catch (queueErr) {
+          Sentry.captureException(queueErr, {
+            level: "warning",
+            tags: {
+              step: "queueIntlCarrierJob",
               shipmentId: txResult.shipmentId,
             },
           });

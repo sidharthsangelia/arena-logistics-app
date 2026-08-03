@@ -161,3 +161,176 @@ export interface ShipmozoCreateWarehousePayload {
 export interface ShipmozoCreateWarehouseData {
   warehouse_id?: number | string;
 }
+
+// --- international rate calculator -------------------------------------------
+
+// Called from the BOOKING path, between the push and the assign, to confirm the
+// courier the customer bought is still offered for the consignment as pushed.
+// The rate adapter keeps its own copy of this shape for pricing; the two are
+// deliberately not shared, because a booking must not break when a pricing
+// concern changes the other.
+export interface ShipmozoIntlRateRequest {
+  pickup_pincode: string;
+  delivery_pincode: string;
+  /** Shipmozo's numeric country id, from GET /countries. */
+  delivery_country_id: string;
+  order_amount: string;
+  type_of_package: "SPS" | "MPS" | "B2B";
+  shipment_purpose: "DCSB4" | "SCSB4" | "CSB5";
+  /** GRAMS, like every other weight this vendor takes. */
+  weight: string;
+  dimensions: {
+    no_of_box: number;
+    length: number;
+    width: number;
+    height: number;
+  }[];
+}
+
+/** One offered service. `id` is the `courier_id` that assign-courier takes. */
+export interface ShipmozoIntlRateProduct {
+  id?: number | string;
+  name?: string;
+  total_charges?: number | string;
+}
+
+/**
+ * One row of GET /get-warehouses.
+ *
+ * Note the id key: a warehouse is created as `warehouse_id` and listed back as
+ * `id`. Only the fields we match on are typed.
+ */
+export interface ShipmozoWarehouseEntry {
+  id?: number | string;
+  address_title?: string;
+  name?: string;
+  phone?: string;
+  pincode?: string;
+  address_line_one?: string;
+  status?: string;
+}
+
+// --- shippers (international only) -------------------------------------------
+
+// International push-order takes a `shipper_id` that domestic has no equivalent
+// of: the exporter of record, registered once and referenced by id. Same
+// address shape as a warehouse, different endpoint and different meaning — a
+// warehouse is where the parcel is COLLECTED, a shipper is who is SENDING it.
+export interface ShipmozoCreateShipperPayload {
+  name: string;
+  phone: string;
+  email?: string;
+  address_line_one: string;
+  address_line_two?: string;
+  pin_code: string;
+  /**
+   * REQUIRED, despite being absent from Shipmozo's published schema.
+   *
+   * Their spec for /create-shipper documents six fields and marks none of them
+   * required; the live endpoint rejects the call with "The status field is
+   * required." Not the first place their docs understate the contract, so treat
+   * the spec as a starting point rather than the authority.
+   *
+   * The vocabulary is "ACTIVE", read from their own address records via
+   * GET /get-warehouses rather than guessed. See buildShipperPayload.
+   */
+  status: string;
+}
+
+export interface ShipmozoCreateShipperData {
+  shipper_id?: number | string;
+}
+
+// --- international push-order ------------------------------------------------
+
+// One line of the commercial invoice. Distinct from ShipmozoProductDetail (the
+// domestic shape) because international itemises for CUSTOMS: the HSN code and
+// the category are what the destination assesses duty against, and the key
+// names differ too (`hsn` here is on the same object as `product_category`,
+// which domestic does not send).
+export interface ShipmozoIntlRowContent {
+  name: string;
+  quantity: number;
+  unit_price: number;
+  sku_number?: string;
+  discount?: number | string;
+  hsn?: string;
+  tax?: number;
+  product_category?: string;
+}
+
+// Field names mirror Shipmozo's spec exactly. Everything is a string on the
+// wire, including the numbers: their examples send `"weight": "200"`, and a
+// bare number has been refused before.
+export interface ShipmozoIntlPushOrderPayload {
+  order_id: string;
+  order_date: string; // yyyy-mm-dd
+
+  consignee_name: string;
+  consignee_company_name?: string;
+  consignee_phone: string;
+  consignee_alternate_phone?: string;
+  consignee_email?: string;
+  consignee_address_line_one: string;
+  consignee_address_line_two?: string;
+  /** Shipmozo's own numeric country id, from GET /countries. Not an ISO code. */
+  consignee_country_id: string;
+  consignee_pin_code: string;
+  consignee_city: string;
+  consignee_state: string;
+  consignee_gst_number?: string;
+
+  row_content: ShipmozoIntlRowContent[];
+
+  type_of_package: "SPS" | "MPS";
+  shipment_purpose: "DCSB4" | "SCSB4" | "CSB5";
+
+  shipping_charges?: string;
+  weight: string; // GRAMS, like domestic push-order
+  length: string;
+  width: string;
+  height: string;
+
+  warehouse_id: string;
+  shipper_id?: string;
+
+  gst_ewaybill_number?: string;
+  gstin_number?: string;
+  currency: string;
+
+  // ── export compliance ──
+  iec_number?: string;
+  terms_of_invoice: "FOB" | "CIF";
+  ecomm: "YES" | "NO";
+  ad_code?: string;
+  invoice_number: string;
+  invoice_date: string; // yyyy-mm-dd
+  meis: "YES" | "NO";
+  export_type: "BOND" | "UT" | "NA";
+  ioss_number?: string;
+  lut_number?: string;
+  lut_issue_date?: string;
+  lut_till_date?: string;
+  freight_amount?: string;
+  incoterms: "DDU" | "DDP";
+  insurance_amount?: string;
+}
+
+// Undocumented beyond `result` / `message`, so only what we read is typed. The
+// same echo-our-own-reference behaviour as domestic push-order is assumed and
+// defended against in the adapter rather than relied on.
+export interface ShipmozoIntlPushOrderData {
+  Info?: string;
+  order_id?: string;
+  refrence_id?: string;
+}
+
+// --- countries ---------------------------------------------------------------
+
+export interface ShipmozoCountryEntry {
+  id?: number | string;
+  name?: string;
+  code?: string;
+  iso2?: string;
+  iso3?: string;
+}

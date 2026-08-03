@@ -14,6 +14,8 @@ import {
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
 import {
   Dialog,
   DialogContent,
@@ -65,18 +67,26 @@ export function FirstMilePickupBooking(props: Props) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
-  // Set when the paid courier could not be resolved; the dialog then asks ops to
-  // explicitly authorise an auto-assigned courier instead.
-  const [unresolved, setUnresolved] = useState<string | null>(null);
+  /**
+   * Authorise a courier the vendor picks when the paid-for one can no longer be
+   * identified.
+   *
+   * This used to be a two-stage prompt: book, get COURIER_UNRESOLVED back, then
+   * confirm. It cannot work that way now — the booking runs as a durable job, so
+   * the action returns before the courier has been resolved at all. An up-front
+   * opt-in is the honest replacement, and it matches how the domestic courier
+   * panel has always asked the same question.
+   */
+  const [allowAutoAssign, setAllowAutoAssign] = useState(false);
 
   const alreadyBooked = Boolean(booked.awb);
 
   function onOpenChange(next: boolean) {
     setOpen(next);
-    if (!next) setUnresolved(null); // reset the override prompt on close
+    if (!next) setAllowAutoAssign(false); // never carries across dialogs
   }
 
-  function handleBook(allowAutoAssign: boolean) {
+  function handleBook() {
     startTransition(async () => {
       const result = await bookFirstMilePickup(
         shipmentId,
@@ -84,17 +94,14 @@ export function FirstMilePickupBooking(props: Props) {
       );
       if (result.success) {
         setOpen(false);
-        setUnresolved(null);
-        toast.success("Pickup booked with Shipmozo", {
-          description: result.awb
-            ? `AWB ${result.awb}${result.carrier ? ` · ${result.carrier}` : ""}`
-            : "Order pushed.",
+        setAllowAutoAssign(false);
+        toast.success("Pickup queued with Shipmozo", {
+          description:
+            "The AWB appears here once the courier issues it, usually within a minute.",
         });
         router.refresh();
-      } else if (result.code === "COURIER_UNRESOLVED") {
-        setUnresolved(result.message);
       } else {
-        toast.error("Couldn't book pickup", { description: result.message });
+        toast.error("Couldn't queue the pickup", { description: result.message });
       }
     });
   }
@@ -143,9 +150,9 @@ export function FirstMilePickupBooking(props: Props) {
             <DialogHeader>
               <DialogTitle>Confirm door pickup</DialogTitle>
               <DialogDescription>
-                Review the pickup before it is booked. This books the exact
-                courier the customer paid for, pushes the order, and schedules
-                collection.
+                Review the pickup before it is queued. The job books the exact
+                courier the customer paid for, pushes the order and schedules
+                collection; the AWB lands here within a minute.
               </DialogDescription>
             </DialogHeader>
 
@@ -174,12 +181,23 @@ export function FirstMilePickupBooking(props: Props) {
                 <Row label="Pickup charge" value={money(props.charge, props.currency)} />
               </div>
 
-              {unresolved && (
-                <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2.5 text-xs leading-relaxed text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
-                  <p className="font-semibold">Paid courier not confirmed</p>
-                  <p className="mt-0.5">{unresolved}</p>
-                </div>
-              )}
+              <div className="flex items-start gap-2 border-t pt-3">
+                <Checkbox
+                  id="first-mile-auto-assign"
+                  checked={allowAutoAssign}
+                  onCheckedChange={(v) => setAllowAutoAssign(v === true)}
+                  disabled={isPending}
+                />
+                <Label
+                  htmlFor="first-mile-auto-assign"
+                  className="text-xs leading-relaxed font-normal text-muted-foreground"
+                >
+                  Let Shipmozo pick the courier if the paid-for service can no
+                  longer be found. Without this, a pickup whose courier cannot be
+                  confirmed stops and waits for a person rather than travelling
+                  on a service nobody chose.
+                </Label>
+              </div>
             </div>
 
             <DialogFooter>
@@ -191,37 +209,26 @@ export function FirstMilePickupBooking(props: Props) {
               >
                 Cancel
               </Button>
-              {unresolved ? (
-                <Button
-                  size="sm"
-                  variant="destructive"
-                  onClick={() => handleBook(true)}
-                  disabled={isPending}
-                >
-                  {isPending ? (
-                    <>
-                      <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                      Booking...
-                    </>
-                  ) : (
-                    "Book with auto-assigned courier"
-                  )}
-                </Button>
-              ) : (
-                <Button size="sm" onClick={() => handleBook(false)} disabled={isPending}>
-                  {isPending ? (
-                    <>
-                      <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                      Booking...
-                    </>
-                  ) : (
-                    <>
-                      <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />
-                      Confirm &amp; book
-                    </>
-                  )}
-                </Button>
-              )}
+              <Button
+                size="sm"
+                variant={allowAutoAssign ? "destructive" : "default"}
+                onClick={handleBook}
+                disabled={isPending}
+              >
+                {isPending ? (
+                  <>
+                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                    Queueing...
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />
+                    {allowAutoAssign
+                      ? "Book, auto-assign allowed"
+                      : "Confirm & book"}
+                  </>
+                )}
+              </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>

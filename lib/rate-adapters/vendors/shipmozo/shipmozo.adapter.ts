@@ -214,6 +214,13 @@ export class ShipmozoAdapter extends BaseVendorAdapter<
       totalWithoutTax: this.toNumber(product.before_tax_total_charges),
       tatDays: this.parseTatDays(product.estimated_delivery),
       charges,
+      // Shipmozo's own id for this service, carried through so the booking
+      // layer can assign THIS carrier rather than re-deriving one from a
+      // product name. Snapshotted onto the shipment at selection; without it,
+      // confirming what the customer paid for means re-quoting the route, and a
+      // re-quote can come back at a different price. See
+      // lib/booking-adapters/vendors/shipmozo-intl.
+      courierId: product.id != null ? String(product.id) : null,
     };
   }
 

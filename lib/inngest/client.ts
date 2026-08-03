@@ -98,6 +98,87 @@ export const domesticCourierRetryRequested = eventType(
   },
 );
 
+/**
+ * Fired for an INTERNATIONAL shipment that is booked and paid for, to place it
+ * with the carrier vendor and get its waybill.
+ *
+ * The export counterpart of shipment/domestic-courier.requested, and separate
+ * from it for the same reason those two are separate from shipment/booked: the
+ * jobs fail differently, carry different blast radii, and must be re-drivable
+ * independently. A failed export booking is a consignment nobody has collected;
+ * a failed invoice is a document we owe.
+ */
+export const intlCarrierRequested = eventType("shipment/intl-carrier.requested", {
+  schema: z.object({
+    shipmentId: z.string(),
+    shipmentNumber: z.string(),
+    orgId: z.string(),
+  }),
+});
+
+/**
+ * Re-drive an export booking an Arena admin has looked at and decided to try
+ * again. Manual by design, exactly like the invoice and domestic retries: if the
+ * first run failed for a reason nobody has fixed, an automatic retry just fails
+ * later.
+ *
+ * Note the absence of an `allowAutoAssign` flag, which the domestic retry has.
+ * There is no auto-assign on an export: international carriers are not
+ * interchangeable — transit time, duty handling and customs paperwork all differ
+ * and the customer chose on those — so an unidentifiable service is always a
+ * stop, never a substitution.
+ */
+export const intlCarrierRetryRequested = eventType(
+  "shipment/intl-carrier.retry.requested",
+  {
+    schema: z.object({
+      shipmentId: z.string(),
+      shipmentNumber: z.string(),
+      orgId: z.string(),
+      requestedByUserId: z.string(),
+    }),
+  },
+);
+
+/**
+ * Fired once an international leg is booked, to send the door → hub courier for
+ * a shipment whose customer bought Arena's first-mile pickup.
+ *
+ * DELIBERATELY DOWNSTREAM OF THE EXPORT BOOKING rather than fired at payment
+ * alongside it. A parcel collected from a customer's door for an export that
+ * then cannot be placed is a parcel sitting in a hub with nowhere to go, and
+ * somebody has to drive it back. Booking the carrier first costs a few minutes
+ * and means the collection only ever happens for a consignment that has a
+ * waybill waiting for it.
+ */
+export const firstMileRequested = eventType("shipment/first-mile.requested", {
+  schema: z.object({
+    shipmentId: z.string(),
+    shipmentNumber: z.string(),
+    orgId: z.string(),
+    /**
+     * Ship on whatever courier the vendor picks when the paid-for one cannot be
+     * identified. Never true on the automatic path: the customer chose a
+     * service, and substituting another is a decision only a person makes.
+     */
+    allowAutoAssign: z.boolean().optional(),
+  }),
+});
+
+/** Re-drive a first-mile pickup from the ops booking page. Manual by design. */
+export const firstMileRetryRequested = eventType(
+  "shipment/first-mile.retry.requested",
+  {
+    schema: z.object({
+      shipmentId: z.string(),
+      shipmentNumber: z.string(),
+      orgId: z.string(),
+      requestedByUserId: z.string(),
+      allowAutoAssign: z.boolean().optional(),
+    }),
+  },
+);
+
 export const inngest = new Inngest({
   id: "arena-cargo-logistics",
 
