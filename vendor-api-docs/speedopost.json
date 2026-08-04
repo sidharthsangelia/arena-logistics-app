@@ -1,0 +1,572 @@
+{
+  "name": "SpeedoPost API",
+  "description": "API documentation for SpeedoPost shipping and logistics platform. Covers authentication, warehouse setup, order creation, tracking, rate estimation, pickup, labels, cancellation, serviceability, reattempts, and appointment booking.",
+  "environments": {
+    "uat": "https://uat.speedopost.com",
+    "live": "https://admin.speedopost.com"
+  },
+  "authentication": {
+    "type": "Token Authentication (JWT Bearer)",
+    "note": "Staging and Production API userId and password are the same as SpeedoPost ERP login details.",
+    "usage": "Call the Authentication endpoint first to obtain a JWT token. Pass it as 'Authorization: Bearer <token>' header on all other endpoints (all endpoints except Authentication require this header).",
+    "tokenExpiry": "Not explicitly documented. Example tokens show 'exp' and 'iat' claims (JWT standard) - agent should decode the token to check expiry, or re-authenticate on receiving an 'Invalid token' failure response."
+  },
+  "globalConventions": {
+    "responseEnvelope": {
+      "status": "string - 'SUCCESS' or 'FAIL'",
+      "message": "string|null - human-readable message, populated mainly on FAIL",
+      "response": "object|array|string|null - the actual payload; null on FAIL for most endpoints"
+    },
+    "errorHandling": "On FAIL, 'response' is typically null and 'message' explains the reason (e.g. 'Invalid token.', 'Shipment not found.', 'Pickup date and time cannot be in past'). Agent should surface 'message' to the user/caller and treat these as retryable-after-fix errors, not exceptions, except 'Invalid token.' which means re-authentication is required.",
+    "dateFormats": "Inconsistent across endpoints - CreateOrder.pickupDate uses 'DD-MM-YYYY' (e.g. '31-01-2025'); CreatePickupRequest.pickupDate and BookAppointment.date use 'YYYY-MM-DD' (e.g. '2025-12-08'). Agent must format dates per-endpoint, not globally.",
+    "amountsAndWeights": "All monetary charge fields are in INR. Weight fields are in kilograms unless stated otherwise. Dimension units (length/width/height) are not explicitly documented anywhere in the source - verify with SpeedoPost before relying on precision."
+  },
+  "endpoints": [
+    {
+      "name": "Authentication",
+      "method": "POST",
+      "path": "/jwt/token",
+      "fullUrl": "https://uat.speedopost.com/jwt/token",
+      "description": "Authenticates a user and returns a JWT bearer token to be used for subsequent API calls.",
+      "requiresAuth": false,
+      "headers": { "Content-Type": "application/json" },
+      "requestBody": {
+        "userId": { "type": "string", "required": true, "description": "SpeedoPost user ID (same as ERP login)." },
+        "password": { "type": "string", "required": true, "description": "SpeedoPost password (same as ERP login)." }
+      },
+      "exampleRequest": { "userId": "9000000001", "password": "Api@9090" },
+      "exampleResponse": {
+        "status": "SUCCESS",
+        "message": null,
+        "response": "eyJhbGciOiJIUzI1NiJ9...<JWT>"
+      },
+      "responseSchema": {
+        "status": "string",
+        "message": "string|null",
+        "response": "string - JWT bearer token"
+      }
+    },
+    {
+      "name": "CreateWarehouse",
+      "method": "POST",
+      "path": "/util-service/api/auth/v1/CreateWarehouse",
+      "fullUrl": "https://uat.speedopost.com/util-service/api/auth/v1/CreateWarehouse",
+      "description": "Creates a new warehouse (pickup location).",
+      "requiresAuth": true,
+      "headers": { "Authorization": "Bearer <token>", "Content-Type": "application/json" },
+      "requestBody": {
+        "warehouseName": { "type": "string", "required": true, "description": "The name of the warehouse." },
+        "contactPersonName": { "type": "string", "required": true, "description": "Contact person for the warehouse." },
+        "contactNo": { "type": "string", "required": true, "description": "Primary contact number." },
+        "alternateNo": { "type": "string", "required": false, "description": "Alternate contact number." },
+        "email": { "type": "string", "required": true, "description": "Email address associated with the warehouse." },
+        "address": { "type": "string", "required": true, "description": "Address of the pickup location." },
+        "pinCode": { "type": "string", "required": true, "description": "Pin code of the warehouse location." },
+        "city": { "type": "string", "required": true, "description": "City where the warehouse is located." }
+      },
+      "exampleRequest": {
+        "warehouseName": "Raja WH",
+        "contactPersonName": "API",
+        "contactNo": "9090909090",
+        "alternateNo": "9090909091",
+        "email": "abc@gmail.com",
+        "address": "New Delhi",
+        "pinCode": "222161",
+        "city": "Delhi"
+      },
+      "exampleResponse": null,
+      "responseSchema": {
+        "status": "string",
+        "message": "string",
+        "warehouseId": "string - unique identifier for the newly created warehouse"
+      },
+      "notes": "Example in source docs returned no response body - treat schema as authoritative, not the missing example."
+    },
+    {
+      "name": "ServiceProvider",
+      "method": "GET",
+      "path": "/util-service/api/auth/v1/ServiceProvider",
+      "fullUrl": "https://uat.speedopost.com/util-service/api/auth/v1/ServiceProvider",
+      "description": "Retrieves the list of available service providers, grouped by business type (B2C, B2B, international).",
+      "requiresAuth": true,
+      "headers": { "Authorization": "Bearer <token>", "Content-Type": "application/json" },
+      "requestBody": null,
+      "queryParams": {},
+      "exampleResponse": {
+        "status": "SUCCESS",
+        "message": null,
+        "response": {
+          "b2cServiceProvider": [
+            { "serviceProviderCode": "3376851", "serviceProviderName": "DELHIVERYB2C_VK" }
+          ],
+          "b2bServiceProvider": [
+            { "serviceProviderCode": "37360", "serviceProviderName": "DELHIVERYB2B_VK" },
+            { "serviceProviderCode": "69481", "serviceProviderName": "GATI B2B" }
+          ],
+          "internationalServiceProvider": null
+        }
+      },
+      "responseSchema": {
+        "status": "string",
+        "message": "string|null",
+        "response": {
+          "b2cServiceProvider": "array<{serviceProviderCode: string, serviceProviderName: string}>",
+          "b2bServiceProvider": "array<{serviceProviderCode: string, serviceProviderName: string}>",
+          "internationalServiceProvider": "array|null"
+        }
+      },
+      "possibleResponses": {
+        "200_SUCCESS": "Service provider details returned successfully.",
+        "404_or_FAIL": "No service provider found."
+      },
+      "notes": "The originally-drafted schema (id/name/email/phone/address for a single provider) was inaccurate - this corrected version reflects the actual example response, which returns lists of {serviceProviderCode, serviceProviderName} grouped by business type."
+    },
+    {
+      "name": "CreateOrder",
+      "method": "POST",
+      "path": "/util-service/api/auth/v1/CreateOrder",
+      "fullUrl": "https://uat.speedopost.com/util-service/api/auth/v1/CreateOrder",
+      "description": "Creates a new shipment order, including client, receiver, invoice, product, dimension, and tax details.",
+      "requiresAuth": true,
+      "headers": { "Authorization": "Bearer <token>", "Content-Type": "application/json" },
+      "requestBody": {
+        "serviceProviderCode": { "type": "string", "required": false, "description": "If provided, system assigns this exact service provider; otherwise a random one is assigned." },
+        "serviceProviderAwbNumber": { "type": "string", "required": false, "description": "Service provider's pre-AWB series number." },
+        "clientCode": { "type": "string", "required": true },
+        "warehouseName": { "type": "string", "required": true, "description": "Name of the pickup warehouse (must already exist, see CreateWarehouse)." },
+        "pickupDate": { "type": "string", "required": false, "format": "DD-MM-YYYY" },
+        "orderType": { "type": "string", "required": true, "enum": ["B2B", "B2C"] },
+        "receiverName": { "type": "string", "required": true },
+        "receiverNumber": { "type": "string", "required": true },
+        "receiverEmail": { "type": "string", "required": false },
+        "receiverCity": { "type": "string", "required": true },
+        "receiverState": { "type": "string", "required": true },
+        "receiverAddress": { "type": "string", "required": true },
+        "receiverPinCode": { "type": "string", "required": true },
+        "clientOrderId": { "type": "string", "required": true, "description": "Client's own order reference ID." },
+        "invoiceNumber": { "type": "string", "required": true },
+        "invoiceAmount": { "type": "number", "required": true },
+        "skuCode": { "type": "string", "required": false },
+        "skuName": { "type": "string", "required": true },
+        "ewaybill": { "type": "string", "required": false, "description": "Mandatory if product price > Rs 50,000." },
+        "paymentType": { "type": "string", "required": true, "enum": ["COD", "PP"], "description": "COD = Cash on Delivery, PP = Prepaid." },
+        "codAmount": { "type": "number", "required": false, "description": "Mandatory when paymentType is COD." },
+        "category": { "type": "string", "required": false },
+        "brand": { "type": "string", "required": false },
+        "hsnCode": { "type": "string", "required": false },
+        "insurance": { "type": "boolean", "required": false, "description": "Present in example payload though not listed in the field table; whether shipment is insured." },
+        "weight": { "type": "number", "required": true, "description": "Total shipment weight." },
+        "totalQuantity": { "type": "integer", "required": true, "description": "Total box/package quantity." },
+        "dimensions": {
+          "type": "array",
+          "required": true,
+          "description": "One entry per distinct box type.",
+          "items": {
+            "length": "number",
+            "width": "number",
+            "height": "number",
+            "weight": "number - per-box weight (present in example; distinct from top-level 'weight')",
+            "count": "integer - number of boxes with these dimensions"
+          }
+        },
+        "sgstAmount": { "type": "number", "required": false },
+        "cgstAmount": { "type": "number", "required": false },
+        "igstAmount": { "type": "number", "required": false },
+        "gstinNumber": { "type": "string", "required": false },
+        "totalTaxValue": { "type": "number", "required": false }
+      },
+      "exampleRequest": {
+        "serviceProviderCode": null,
+        "serviceProviderAwbNumber": null,
+        "clientCode": "API",
+        "warehouseName": "API-WH1",
+        "pickupDate": "31-01-2025",
+        "orderType": "B2B",
+        "receiverName": "Rajan Singh",
+        "receiverNumber": "9090909090",
+        "receiverEmail": "abc@gmail.com",
+        "receiverCity": "Delhi",
+        "receiverState": "Delhi",
+        "receiverAddress": "NDLS",
+        "receiverPinCode": "110037",
+        "clientOrderId": "IS879878",
+        "invoiceNumber": "inV787867",
+        "invoiceAmount": 120,
+        "skuCode": "SKU001",
+        "skuName": "Books",
+        "ewaybill": "",
+        "paymentType": "COD",
+        "codAmount": 1200,
+        "category": "Aperal",
+        "brand": "Boat",
+        "hsnCode": "HS9090",
+        "insurance": false,
+        "weight": 120,
+        "totalQuantity": 2,
+        "dimensions": [
+          { "length": 10, "width": 10, "height": 10.4, "weight": 120, "count": 2 }
+        ],
+        "sgstAmount": null,
+        "cgstAmount": null,
+        "igstAmount": null,
+        "gstinNumber": "",
+        "totalTaxValue": null
+      },
+      "exampleResponse": "Not provided in source documentation.",
+      "responseSchema": {
+        "status": "string",
+        "message": "string|null",
+        "response": "object - order details (exact shape not documented; expect an AWB/order identifier at minimum, to be confirmed by calling the endpoint)"
+      },
+      "notes": "Response schema is unconfirmed - source docs describe only that 'the response will provide the status and order details' without a concrete example. Agent should log the live response shape on first successful call."
+    },
+    {
+      "name": "Tracking",
+      "method": "GET",
+      "path": "/util-service/api/auth/v1/TrackingDetails",
+      "fullUrl": "https://uat.speedopost.com/util-service/api/auth/v1/TrackingDetails?awb=2002189&trackingType=AWB",
+      "description": "Retrieves tracking details and full status history for a shipment.",
+      "requiresAuth": true,
+      "headers": { "Authorization": "Bearer <token>" },
+      "queryParams": {
+        "awb": { "type": "string", "required": true, "description": "The Air Waybill number for the shipment." },
+        "trackingType": { "type": "string", "required": true, "description": "Type of tracking to perform (example value: 'AWB')." }
+      },
+      "exampleResponse": {
+        "status": "SUCCESS",
+        "message": null,
+        "response": {
+          "currentStatus": "Delivered",
+          "currentStatusCode": "10007",
+          "awbNumber": "2002189",
+          "orderDate": null,
+          "clientOrderId": null,
+          "deliveredDate": null,
+          "currentLocation": null,
+          "serviceProviderName": "DELHIVERYB2B_VK",
+          "serviceProviderCode": "37360",
+          "serviceProviderAwbNumber": "242646569",
+          "packetHistory": [
+            { "type": "FWD", "statusCode": "10001", "status": "Order Booked", "date": "2023-06-17 15:16:51", "remarks": null, "location": "EAST ANDHERI" },
+            { "type": "FWD", "statusCode": "10003", "status": "Order In-transit", "date": "2023-06-18 01:17:25", "remarks": "Bag Added To Trip", "location": "Mumbai_SakiNaka_L (Maharashtra)" },
+            { "type": "FWD", "statusCode": "10006", "status": "Out for delivery", "date": "2023-06-21 09:19:02", "remarks": "Out for delivery", "location": "Hardoi_AvsVikasColny_D (Uttar Pradesh)" },
+            { "type": "FWD", "statusCode": "10007", "status": "Delivered", "date": "2023-06-21 14:24:02", "remarks": "Shipment Delivered", "location": "Hardoi_AvsVikasColny_D (Uttar Pradesh)" }
+          ]
+        }
+      },
+      "responseSchema": {
+        "status": "string",
+        "message": "string|null",
+        "response": {
+          "currentStatus": "string - human-readable current status (e.g. 'Delivered')",
+          "currentStatusCode": "string - numeric status code (e.g. '10007')",
+          "awbNumber": "string",
+          "orderDate": "string|null",
+          "clientOrderId": "string|null",
+          "deliveredDate": "string|null",
+          "currentLocation": "string|null",
+          "serviceProviderName": "string",
+          "serviceProviderCode": "string",
+          "serviceProviderAwbNumber": "string",
+          "packetHistory": "array<{type, statusCode, status, date, remarks, location}> - full chronological event log, oldest first"
+        }
+      },
+      "statusCodeReference": {
+        "10001": "Order Booked",
+        "10003": "Order In-transit",
+        "10006": "Out for delivery",
+        "10007": "Delivered",
+        "note": "Only codes observed in the example are listed; full enum not documented in source."
+      },
+      "notes": "packetHistory example in source truncated some intermediate entries for brevity; agent should not assume only these 4 statuses occur - treat packetHistory as an open-ended array."
+    },
+    {
+      "name": "Estimated Rate",
+      "method": "POST",
+      "path": "/util-service/api/auth/v1/EstimatedRate",
+      "fullUrl": "http://uat.speedopost.com/util-service/api/auth/v1/EstimatedRate",
+      "description": "Returns estimated shipping charges from all eligible service providers for a given shipment (weight, dimensions, route, payment mode). Use this to compare/select cheapest or preferred carrier before creating an order.",
+      "requiresAuth": true,
+      "headers": { "Authorization": "Bearer <token>", "Content-Type": "application/json" },
+      "requestBody": {
+        "orderType": { "type": "string", "required": true, "enum": ["B2B", "B2C"] },
+        "sourcePin": { "type": "string", "required": true, "description": "Pickup location pin code." },
+        "consigneePin": { "type": "string", "required": true, "description": "Delivery location pin code." },
+        "weight": { "type": "number", "required": true, "description": "Shipment weight (kg)." },
+        "paymentMode": { "type": "string", "required": true, "enum": ["COD", "PP"] },
+        "codAmount": { "type": "number", "required": false, "description": "Mandatory when paymentMode is COD." },
+        "dimensions": {
+          "type": "array",
+          "required": true,
+          "items": { "length": "number", "width": "number", "height": "number", "count": "integer" }
+        }
+      },
+      "exampleRequest": {
+        "orderType": "B2B",
+        "sourcePin": "110037",
+        "consigneePin": "110037",
+        "weight": 19,
+        "paymentMode": "PP",
+        "codAmount": 0.0,
+        "dimensions": [{ "length": 10, "width": 10, "height": 10, "count": 1 }]
+      },
+      "exampleResponse": {
+        "status": "SUCCESS",
+        "message": null,
+        "response": [
+          { "totalCharge": 347.215, "serviceProviderCode": 37360, "serviceProviderName": "DELHIVERYB2B_VK" },
+          { "totalCharge": 347.215, "serviceProviderCode": 69481, "serviceProviderName": "GATI B2B" }
+        ]
+      },
+      "responseSchema": {
+        "status": "string",
+        "message": "string|null",
+        "response": "array<{totalCharge: number, serviceProviderCode: number, serviceProviderName: string}> - one entry per serviceable provider, not guaranteed sorted by price"
+      },
+      "notes": "This minimal example only shows totalCharge/serviceProviderCode/serviceProviderName. A separate, more detailed rate-breakdown response format (seen in live testing, not in the base doc example) includes granular fields like freightCharge, fscCharge, gstAmount, subTotalCharge, chargeWeight, rate, and various surcharges. That expanded schema is captured below as 'extendedRateBreakdownSchema'.",
+      "extendedRateBreakdownSchema": {
+        "serviceProviderCode": "string",
+        "serviceProviderName": "string",
+        "rate": "number - per-unit rate",
+        "chargeWeight": "number - billable weight (kg), may differ from actual weight due to volumetric rounding",
+        "freightCharge": "number",
+        "fscCharge": "number - fuel surcharge",
+        "rovCharge": "number - risk of value charge",
+        "codCharge": "number",
+        "odaCharge": "number - out-of-delivery-area charge",
+        "waybillCharge": "number",
+        "fuelCharge": "number",
+        "insuranceCharge": "number",
+        "firstMileCharge": "number",
+        "greenCharge": "number",
+        "additionalCharge": "number",
+        "appointmentCharge": "number",
+        "handlingCharge": "number",
+        "reAttemptCharge": "number",
+        "nonMetroCharge": "number",
+        "dphCharge": "number",
+        "adhocVehicleCharge": "number",
+        "csdCharges": "number",
+        "sundayDeliveryCharges": "number",
+        "additionalMachineryCharges": "number",
+        "additionalManpowerCharges": "number",
+        "mathadiUnionCharges": "number",
+        "specialDeliveryCharges": "number",
+        "demurrageCharges": "number",
+        "gstPercent": "number",
+        "gstAmount": "number",
+        "subTotalCharge": "number - sum of all charges before GST",
+        "totalCharge": "number - subTotalCharge + gstAmount, final payable amount"
+      }
+    },
+    {
+      "name": "Create Pickup Request",
+      "method": "POST",
+      "path": "/util-service/api/auth/v1/CreatePickupRequest",
+      "fullUrl": "https://uat.speedopost.com/util-service/api/auth/v1/CreatePickupRequest",
+      "description": "Schedules a pickup request at a warehouse for a given carrier.",
+      "requiresAuth": true,
+      "headers": { "Authorization": "Bearer <token>", "Content-Type": "application/json" },
+      "requestBody": {
+        "serviceProviderCode": { "type": "string", "required": true, "description": "Carrier to pick up the shipment(s)." },
+        "warehouseName": { "type": "string", "required": true },
+        "expectedPacketCount": { "type": "integer", "required": true },
+        "expectedWeight": { "type": "number", "required": true },
+        "pickupDate": { "type": "string", "required": true, "format": "YYYY-MM-DD" },
+        "pickupTime": { "type": "string", "required": true, "format": "HH:MM:SS (24hr)" }
+      },
+      "exampleRequest": {
+        "serviceProviderCode": "37360",
+        "warehouseName": "TestWarehouse",
+        "expectedPacketCount": 10,
+        "expectedWeight": 200,
+        "pickupDate": "2025-12-07",
+        "pickupTime": "17:00:00"
+      },
+      "exampleResponse": {
+        "status": "FAIL",
+        "message": "Pickup date and time cannot be in past",
+        "response": null
+      },
+      "responseSchema": {
+        "status": "string",
+        "message": "string|null",
+        "response": "object|null - pickup request details on SUCCESS (exact shape not documented; likely includes a pickupId, given Cancel Pickup Request takes a {pickupId} path param)"
+      },
+      "notes": "Example call in source documentation failed validation (past date), so a SUCCESS response shape is not available - only inferred that a pickupId is returned, since CancelPickupRequest requires one."
+    },
+    {
+      "name": "Print Label",
+      "method": "GET",
+      "path": "/util-service/api/auth/v1/PrintLabel",
+      "fullUrl": "http://uat.speedopost.com/util-service/api/auth/v1/PrintLabel?awb=2003435",
+      "description": "Retrieves/generates a printable shipping label for a given AWB.",
+      "requiresAuth": true,
+      "headers": { "Authorization": "Bearer <token>" },
+      "queryParams": {
+        "awb": { "type": "string", "required": true, "description": "Air Waybill number of the shipment." }
+      },
+      "exampleResponse": {
+        "status": "FAIL",
+        "message": "Shipment not found.",
+        "response": null
+      },
+      "responseSchema": {
+        "status": "string",
+        "message": "string|null",
+        "response": "unknown on SUCCESS - not documented in source (likely a label URL, base64 PDF/image, or binary content; needs live verification)"
+      },
+      "notes": "No SUCCESS example available. Agent should treat the response shape as unconfirmed until a real successful call is observed."
+    },
+    {
+      "name": "Cancel Order",
+      "method": "GET",
+      "path": "/util-service/api/auth/v1/CancelOrder",
+      "fullUrl": "http://uat.speedopost.com/util-service/api/auth/v1/CancelOrder?awb=2003435",
+      "description": "Cancels an order/shipment by AWB.",
+      "requiresAuth": true,
+      "headers": { "Authorization": "Bearer <token>" },
+      "queryParams": {
+        "awb": { "type": "string", "required": true, "description": "Air Waybill number of the shipment to cancel." }
+      },
+      "exampleResponse": {
+        "status": "FAIL",
+        "message": "Invalid token.",
+        "response": null
+      },
+      "responseSchema": {
+        "status": "string",
+        "message": "string|null",
+        "response": "unknown on SUCCESS - not documented; example failed due to an expired/invalid token, not a business-logic error"
+      },
+      "notes": "The FAIL example here is an auth error, not evidence of the real success/failure payload shape - agent should re-authenticate and retry rather than treat this as representative."
+    },
+    {
+      "name": "Serviceability",
+      "method": "POST",
+      "path": "/util-service/api/auth/v1/Serviceability",
+      "fullUrl": "https://uat.speedopost.com/util-service/api/auth/v1/Serviceability",
+      "description": "Checks which service providers can service a given pickup-to-delivery pincode pair, and whether the delivery pincode is Out-of-Delivery-Area (ODA).",
+      "requiresAuth": true,
+      "headers": { "Authorization": "Bearer <token>", "Content-Type": "application/json" },
+      "requestBody": {
+        "pickupPincode": { "type": "string", "required": true },
+        "deliveryPincode": { "type": "string", "required": true }
+      },
+      "exampleRequest": { "pickupPincode": "110037", "deliveryPincode": "110035" },
+      "exampleResponse": {
+        "status": "SUCCESS",
+        "message": null,
+        "response": [
+          { "serviceProviderCode": "37360", "serviceProviderName": "DELHIVERYB2B_VK", "serviceActive": true, "oda": false },
+          { "serviceProviderCode": "69481", "serviceProviderName": "GATI B2B", "serviceActive": true, "oda": false },
+          { "serviceProviderCode": "69482", "serviceProviderName": "Oxyzen B2B", "serviceActive": true, "oda": false },
+          { "serviceProviderCode": "3765884", "serviceProviderName": "DELHIVERY_DENSE", "serviceActive": true, "oda": false },
+          { "serviceProviderCode": "3795579", "serviceProviderName": "MOVINB2B", "serviceActive": true, "oda": false },
+          { "serviceProviderCode": "3796458", "serviceProviderName": "CLASSIC_STRIPES_B2B", "serviceActive": true, "oda": false },
+          { "serviceProviderCode": "3803885", "serviceProviderName": "DP World Surface", "serviceActive": true, "oda": false },
+          { "serviceProviderCode": "3831742", "serviceProviderName": "NEXDROP", "serviceActive": true, "oda": false }
+        ]
+      },
+      "responseSchema": {
+        "status": "string",
+        "message": "string|null",
+        "response": "array<{serviceProviderCode: string, serviceProviderName: string, serviceActive: boolean, oda: boolean}>"
+      },
+      "notes": "The raw example response in source documentation repeats the same 8 providers 5 times in a row (duplicated array entries) - this is almost certainly a documentation/logging artifact, not intended API behavior. The de-duplicated 8-provider list above is used here; agent should still defensively de-duplicate by serviceProviderCode when parsing live responses in case the duplication is a real API bug."
+    },
+    {
+      "name": "Cancel Pickup Request",
+      "method": "GET",
+      "path": "/util-service/api/auth/v1/CancelPickupRequest/{pickupId}",
+      "fullUrl": "https://uat.speedopost.com/util-service/api/auth/v1/CancelPickupRequest/{pickupId}",
+      "description": "Cancels a previously created pickup request.",
+      "requiresAuth": true,
+      "headers": { "Authorization": "Bearer <token>" },
+      "pathParams": {
+        "pickupId": { "type": "string", "required": true, "description": "Identifier of the pickup request to cancel (returned by Create Pickup Request on success - exact response field name unconfirmed)." }
+      },
+      "requestBody": null,
+      "exampleRequest": null,
+      "exampleResponse": null,
+      "responseSchema": {
+        "status": "string",
+        "message": "string|null",
+        "response": "unknown - not documented in source"
+      },
+      "notes": "No example request or response was provided in source documentation for this endpoint. Path structure (pickupId as a path param, not query param) is confirmed from the URL pattern; payload/response shape is unconfirmed and needs live testing."
+    },
+    {
+      "name": "Reattempt Request",
+      "method": "POST",
+      "path": "/util-service/api/auth/v1/ReattemptRequest",
+      "fullUrl": "https://uat.speedopost.com/util-service/api/auth/v1/ReattemptRequest",
+      "description": "Requests a redelivery reattempt for one or more shipments (e.g. after a failed delivery attempt).",
+      "requiresAuth": true,
+      "headers": { "Authorization": "Bearer <token>", "Content-Type": "application/json" },
+      "requestBody": {
+        "type": "array<string|number>",
+        "description": "Array of AWB numbers to reattempt. Source docs give the conceptual example [\"2878982\",\"498948\"] (strings) but the concrete example payload uses [2003463] (number). Agent should send AWBs as strings to be safe, since AWBs elsewhere in the API (e.g. Tracking, PrintLabel) are treated as strings."
+      },
+      "exampleRequest": [2003463],
+      "exampleResponse": "Not provided in source documentation.",
+      "responseSchema": {
+        "status": "string",
+        "message": "string|null",
+        "response": "unknown - not documented in source"
+      },
+      "notes": "Request body is a raw JSON array, not an object - unlike every other POST endpoint in this API. Do not wrap it in an object."
+    },
+    {
+      "name": "Book Appointment",
+      "method": "POST",
+      "path": "/util-service/api/auth/v1/BookAppointment",
+      "fullUrl": "https://localhost:8082/util-service/api/auth/v1/BookAppointment",
+      "description": "Books a delivery appointment window for a B2B shipment.",
+      "requiresAuth": true,
+      "headers": { "Authorization": "Bearer <token>", "Content-Type": "application/json" },
+      "requestBody": {
+        "awbNumber": { "type": "string", "required": true, "description": "SpeedoPost AWB number." },
+        "date": { "type": "string", "required": true, "format": "YYYY-MM-DD", "description": "Appointment date; must be a future date." },
+        "startTime": { "type": "string", "required": true, "format": "HH:MM (24hr)" },
+        "endTime": { "type": "string", "required": true, "format": "HH:MM (24hr)" },
+        "poNumber": { "type": "string", "required": false, "description": "Purchase order number. Listed twice in source field table ('poNumberOptional' and 'poNumber Optional') - treated here as a single optional field, likely a documentation typo/duplication." },
+        "appointmentNo": { "type": "string", "required": false, "description": "Present in example payload but not in the field description table - likely used to reference/update an existing appointment; not documented as mandatory." }
+      },
+      "exampleRequest": {
+        "awbNumber": "2002348",
+        "date": "2026-01-20",
+        "startTime": "00:00",
+        "endTime": "10:00",
+        "poNumber": "",
+        "appointmentNo": ""
+      },
+      "exampleResponse": "Not provided in source documentation.",
+      "responseSchema": {
+        "status": "string",
+        "message": "string|null",
+        "response": "unknown - not documented in source"
+      },
+      "notes": "IMPORTANT: The fullUrl in source docs is 'https://localhost:8082/...' - this is almost certainly a copy-paste artifact from a local dev/testing environment, NOT the real UAT/live host. Agent should construct the actual call using the standard base URL pattern instead: {uat|live base URL}/util-service/api/auth/v1/BookAppointment. Flag this to a human before relying on it in production."
+    }
+  ],
+  "gapsAndOpenQuestions": {
+    "description": "Items still missing or unconfirmed even after incorporating the full source documentation. Surface these to a human before building production logic that depends on them.",
+    "list": [
+      "CreateOrder: success response shape is undocumented (only 'status/order details' described in prose, no JSON example).",
+      "Create Pickup Request: success response shape is undocumented (only a validation-FAIL example is given); exact field name for the returned pickup identifier is unconfirmed.",
+      "Print Label: success response shape/format is undocumented (could be a URL, base64 file, or binary stream).",
+      "Cancel Order: success/failure response shape is undocumented (only an auth-error example given).",
+      "Cancel Pickup Request: no request or response example at all - only the URL pattern with a {pickupId} path parameter is known.",
+      "Reattempt Request: success response shape is undocumented; also unclear whether AWBs should be sent as strings or numbers.",
+      "Book Appointment: success response shape is undocumented, and the documented URL points to 'localhost:8082' rather than a real host - needs correction from SpeedoPost or internal testing.",
+      "Units for dimensions (length/width/height) are never explicitly stated as cm/inches anywhere in the source.",
+      "Serviceability example response contains duplicated entries (same 8 providers repeated 5x) - unclear if this is a doc artifact or a real API bug; needs live verification.",
+      "No documented list of all possible 'currentStatusCode' values for Tracking - only 4 codes appear in the one example (10001, 10003, 10006, 10007)."
+    ]
+  },
+  "undocumentedEndpoints": {
+    "description": "All endpoints originally listed in the SpeedoPost navigation now have at least partial documentation above. None remain fully undocumented.",
+    "list": []
+  }
+}
