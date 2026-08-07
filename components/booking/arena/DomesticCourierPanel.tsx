@@ -168,11 +168,23 @@ export function DomesticCourierPanel({
         </p>
       )}
 
+      {/* Two labels for one waybill while both are in use: the courier's, which
+          their own network expects, and ours. Named rather than numbered so
+          nobody has to guess which is which on the phone to a customer. */}
       {state.labelUrl && (
         <Button asChild variant="outline" size="sm" className="h-8 w-full text-xs">
           <a href={state.labelUrl} target="_blank" rel="noopener noreferrer">
             <Download className="mr-1.5 h-3 w-3" aria-hidden />
-            Shipping label
+            {state.arenaLabelUrl ? "Carrier label" : "Shipping label"}
+          </a>
+        </Button>
+      )}
+
+      {state.arenaLabelUrl && (
+        <Button asChild variant="outline" size="sm" className="h-8 w-full text-xs">
+          <a href={state.arenaLabelUrl} target="_blank" rel="noopener noreferrer">
+            <Download className="mr-1.5 h-3 w-3" aria-hidden />
+            Arena label
           </a>
         </Button>
       )}

@@ -119,6 +119,10 @@ async function getShipment(id: string, orgId: string) {
       domesticCourierStatus: true,
       domesticCourierName: true,
       domesticLabelDocumentId: true,
+      // Arena's own rendering of the same waybill, filed beside the courier's
+      // while both are in use. Domestic only; an export carries the carrier's
+      // label alone.
+      arenaLabelDocumentId: true,
       // And the same three for an export. Read for exactly the same reason:
       // the label card has to tell "still being issued" apart from "something
       // went wrong", which are the same blank space to a customer otherwise.
@@ -1217,13 +1221,25 @@ async function DocumentsCard({
     ? s.domesticCourierStatus
     : s.intlBookingStatus;
 
-  // The waybill label gets its own group at the top, so it is filtered out of
-  // the file list below. The same download in two places on one card just makes
-  // the customer wonder which of them is the real one.
-  const documents = s.documents.filter((d) => d.id !== labelDocumentId);
+  // Arena's own rendering of the same waybill, on domestic bookings. It is a
+  // second file for one parcel, so it is shown INSIDE the label group with the
+  // carrier's, never loose in the file list where it would read as a different
+  // document altogether.
+  const arenaLabelDocumentId = isDomestic ? s.arenaLabelDocumentId : null;
+
+  // The waybill labels get their own group at the top, so they are filtered out
+  // of the file list below. The same download in two places on one card just
+  // makes the customer wonder which of them is the real one.
+  const documents = s.documents.filter(
+    (d) => d.id !== labelDocumentId && d.id !== arenaLabelDocumentId,
+  );
 
   const labelDoc = labelDocumentId
     ? (s.documents.find((d) => d.id === labelDocumentId) ?? null)
+    : null;
+
+  const arenaLabelDoc = arenaLabelDocumentId
+    ? (s.documents.find((d) => d.id === arenaLabelDocumentId) ?? null)
     : null;
 
   // A label group exists only where Arena booked the carrier through an API.
@@ -1264,8 +1280,12 @@ async function DocumentsCard({
           {/* 1. The one thing that has to leave the screen and go on the box. */}
           {showLabel && (
             <DocGroup
-              label="Shipping label"
-              hint="Print this and attach it to the parcel before the courier arrives."
+              label={arenaLabelDoc ? "Shipping labels" : "Shipping label"}
+              hint={
+                arenaLabelDoc
+                  ? "Two versions of the same waybill. Print either one and attach it to the parcel before the courier arrives."
+                  : "Print this and attach it to the parcel before the courier arrives."
+              }
             >
               <DocRow
                 icon={Printer}
@@ -1292,6 +1312,24 @@ async function DocumentsCard({
                   )
                 }
               />
+
+              {/* Arena's own rendering of the same waybill. Only ever shown
+                  once it exists: a customer waiting on a label should be
+                  watching one row, not two. */}
+              {arenaLabelDoc && (
+                <DocRow
+                  icon={Printer}
+                  title={awbNumber ?? "Being issued"}
+                  titleMono
+                  subtitle="Arena label · same waybill and barcode"
+                  action={
+                    <DownloadButton
+                      href={arenaLabelDoc.fileUrl}
+                      fileName={arenaLabelDoc.fileName}
+                    />
+                  }
+                />
+              )}
             </DocGroup>
           )}
 

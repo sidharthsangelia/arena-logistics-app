@@ -22,7 +22,10 @@ export interface DomesticCourierPanelState {
   orderId: string | null;
   awbNumber: string | null;
   trackingUrl: string | null;
+  /** The courier's own label, as filed by the booking job. */
   labelUrl: string | null;
+  /** Arena's rendering of the same waybill, filed beside it. */
+  arenaLabelUrl: string | null;
   error: string | null;
   attempts: number;
   bookedAt: string | null;

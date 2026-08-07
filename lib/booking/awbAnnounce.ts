@@ -50,12 +50,17 @@ export interface AnnounceAwbInput {
   carrierName?: string | null;
   trackingUrl?: string | null;
   /**
-   * The stored label, so the email can carry it. Resend fetches the URL itself,
-   * which keeps the PDF out of the job's step state. Null when the label could
-   * not be filed — the email still goes, because the waybill number is the
+   * The stored labels, so the email can carry them. Resend fetches each URL
+   * itself, which keeps the PDFs out of the job's step state. Empty when none
+   * could be filed — the email still goes, because the waybill number is the
    * useful part and the copy adapts.
+   *
+   * A LIST because a domestic shipment now has two labels for one waybill: the
+   * courier's own, and Arena's rendering of it. ORDER IS MEANINGFUL. The first
+   * is the one the copy tells the customer to print, so callers put the
+   * courier's label first.
    */
-  label?: { fileName: string; fileUrl: string } | null;
+  labels?: { fileName: string; fileUrl: string }[] | null;
 }
 
 export interface AnnounceAwbResult {
@@ -86,9 +91,10 @@ export async function announceAwbReady(
     awbNumber: input.awbNumber,
     carrierName: input.carrierName ?? null,
     trackingUrl: input.trackingUrl ?? null,
-    label: input.label
-      ? { filename: input.label.fileName, url: input.label.fileUrl }
-      : null,
+    labels: (input.labels ?? []).map((label) => ({
+      filename: label.fileName,
+      url: label.fileUrl,
+    })),
   }).catch((err) => {
     Sentry.captureException(err, {
       level: "warning",

@@ -171,10 +171,20 @@ export function getMilestoneCopy(
  */
 export function getAwbReadyCopy(
   ctx: ShipmentEmailContext,
-  options: { carrierName: string | null; labelAttached: boolean },
+  options: {
+    carrierName: string | null;
+    /**
+     * How many labels are attached. A domestic shipment carries two for one
+     * waybill — the courier's own label and Arena's rendering of it — and a
+     * customer opening two near-identical PDFs with no explanation would
+     * reasonably wonder which is the real one. The copy answers that outright.
+     */
+    labelCount: number;
+  },
 ): MilestoneCopy {
   const route = `${ctx.originLabel} to ${ctx.destinationLabel}`;
   const carrier = options.carrierName?.trim() || null;
+  const labelCount = Math.max(0, Math.trunc(options.labelCount));
 
   return {
     subject: `Your airway bill is ready (${ctx.shipmentNumber})`,
@@ -183,9 +193,11 @@ export function getAwbReadyCopy(
     statusLabel: "Airway bill issued",
     paragraphs: [
       `As promised, here is the airway bill for your shipment ${ctx.shipmentNumber} from ${route}. It has now been confirmed${carrier ? ` with ${carrier}` : ""} and the waybill number below is what identifies your consignment from here on.`,
-      options.labelAttached
-        ? `Your shipping label is attached to this email. Please print it and attach it securely to the parcel before it is handed over. A copy is also saved on your shipment page, so you can download it again at any time.`
-        : `Your shipping label is on your shipment page, ready to print and attach to the parcel before it is handed over.`,
+      labelCount === 0
+        ? `Your shipping label is on your shipment page, ready to print and attach to the parcel before it is handed over.`
+        : labelCount === 1
+          ? `Your shipping label is attached to this email. Please print it and attach it securely to the parcel before it is handed over. A copy is also saved on your shipment page, so you can download it again at any time.`
+          : `Two versions of the same label are attached to this email: the carrier's own label and Arena's. They carry the identical waybill number and barcode, so either will scan, and printing the first one is always safe. Please print one, attach it securely to the parcel before it is handed over, and ignore the other. Both are saved on your shipment page too.`,
       `Keep this number to hand. If anything at all comes up, simply reply to this email and a real person on our team will help.`,
     ],
     nextSteps: [

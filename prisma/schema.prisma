@@ -1127,6 +1127,14 @@ model Shipment {
   // rather than found by docType, because ops can upload their own airway bill
   // and the two must not be mistaken for each other.
   domesticLabelDocumentId String?
+  // Arena's OWN rendering of the same waybill (lib/labels/awb), filed alongside
+  // the vendor's label rather than instead of it. Both carry the courier's AWB
+  // in the barcode, so either scans; they are kept side by side while we decide
+  // which one to standardise on. A separate column for the same reason as the
+  // one above: three AIRWAY_BILL documents can sit on one shipment (vendor's,
+  // ours, and anything ops uploaded) and a docType lookup could not tell them
+  // apart.
+  arenaLabelDocumentId    String?
 
   // ── international (India → world) carrier booking ──
   // All null/NOT_REQUIRED on a DOMESTIC shipment. The mirror image of the

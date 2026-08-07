@@ -51,6 +51,11 @@ import {
 import { resolveExactCourierId } from "@/lib/booking/domesticCourierResolve";
 import { uploadLabel } from "@/lib/booking/labelStorage";
 import { announceAwbReady } from "@/lib/booking/awbAnnounce";
+import {
+  fileArenaLabelDocument,
+  renderArenaLabelForShipment,
+  uploadArenaLabel,
+} from "@/lib/labels/awb/filing";
 import { notifyCourierBookingFailed } from "@/lib/notifications/emit";
 
 import {
@@ -70,6 +75,8 @@ interface PreparedBooking {
   vendorOrderId: string | null;
   awbNumber: string | null;
   labelDocumentId: string | null;
+  /** Arena's own rendering of the same waybill, if it has been filed already. */
+  arenaLabelDocumentId: string | null;
 }
 
 /**
@@ -156,6 +163,7 @@ async function prepareBooking(shipmentId: string): Promise<PreparedBooking> {
     vendorOrderId: shipment.domesticCourierOrderId,
     awbNumber: shipment.domesticAwbNumber,
     labelDocumentId: shipment.domesticLabelDocumentId,
+    arenaLabelDocumentId: shipment.arenaLabelDocumentId,
   };
 }
 
@@ -250,10 +258,78 @@ export const bookDomesticCourier = inngest.createFunction(
 
     const alreadyBooked = Boolean(prepared.awbNumber);
 
+    /**
+     * Arena's own label for the waybill the courier issued.
+     *
+     * BEST EFFORT, DELIBERATELY. Three steps that report their own failures and
+     * never throw (see lib/labels/awb/filing.ts), so nothing in here can fail a
+     * run that has already taken money, placed the order and been given a
+     * waybill. If it does not get filed, the customer still has the courier's
+     * label, and this one is still rendered on demand by
+     * GET /api/labels/<shipmentId> and filed by the next re-drive.
+     *
+     * A closure rather than a helper because it runs from two places — the
+     * already-booked early return below and the end of a fresh booking — and it
+     * must use the same step ids in both. It runs at most once per run, so
+     * those ids stay unique.
+     */
+    const fileArenaLabel = async (): Promise<void> => {
+      if (prepared.arenaLabelDocumentId) return;
+
+      // The waybill is read from the shipment row rather than passed in, because
+      // on a fresh booking `prepared` predates the assign step that wrote it. A
+      // row with no AWB yet comes back as a refusal, not a blank barcode.
+      const rendered = await step.run("render-arena-label", () =>
+        renderArenaLabelForShipment(shipmentId),
+      );
+
+      if (!rendered.ok) {
+        logger.warn(
+          `Arena label not rendered for ${shipmentNumber}: ${rendered.reason}`,
+        );
+        return;
+      }
+
+      const uploaded = await step.run("upload-arena-label", () =>
+        uploadArenaLabel({
+          shipmentId,
+          base64: rendered.base64,
+          fileName: rendered.fileName,
+          mimeType: rendered.mimeType,
+        }),
+      );
+
+      if (!uploaded.ok) {
+        logger.warn(
+          `Arena label not stored for ${shipmentNumber}: ${uploaded.reason}`,
+        );
+        return;
+      }
+
+      const filed = await step.run("save-arena-label-document", () =>
+        fileArenaLabelDocument({
+          shipmentId,
+          awbNumber: rendered.awbNumber,
+          stored: uploaded.stored,
+        }),
+      );
+
+      if (!filed.ok) {
+        logger.warn(
+          `Arena label not filed for ${shipmentNumber}: ${filed.reason}`,
+        );
+      }
+    };
+
     if (alreadyBooked && prepared.labelDocumentId) {
       logger.info(
-        `Shipment ${prepared.request.displayReference} already has AWB ${prepared.awbNumber} and its label. Nothing to do.`,
+        `Shipment ${prepared.request.displayReference} already has AWB ${prepared.awbNumber} and its label. Nothing to book.`,
       );
+
+      // The vendor's label is filed, but ours may not be: this shipment may
+      // predate it, or an earlier run may have failed here. Cheap to attempt
+      // and a no-op once it exists.
+      await fileArenaLabel();
 
       // Still announced. This run may be a retry of one that died after filing
       // the label but before telling the customer, and the announcement is
@@ -530,6 +606,14 @@ export const bookDomesticCourier = inngest.createFunction(
       });
     }
 
+    // ── 8. Arena's own label for the same waybill ───────────────────────────
+    //
+    // After the vendor's, and never in place of it: the courier's label is the
+    // one their network was built around, and ours is filed beside it so both
+    // can be printed and compared. Same AWB, same barcode. Best effort by
+    // construction — see the closure at the top of this handler.
+    await fileArenaLabel();
+
     // ── Tell the customer ───────────────────────────────────────────────────
     //
     // The booking confirmation email promised the waybill "as soon as it is
@@ -569,17 +653,34 @@ async function announceDomesticAwb(input: {
       domesticCourierName: true,
       domesticTrackingUrl: true,
       domesticLabelDocumentId: true,
+      arenaLabelDocumentId: true,
     },
   });
 
   if (!shipment?.domesticAwbNumber) return { announced: false, emailed: false };
 
-  const label = shipment.domesticLabelDocumentId
-    ? await prisma.shipmentDocument.findUnique({
-        where: { id: shipment.domesticLabelDocumentId },
-        select: { fileUrl: true, fileName: true },
-      })
-    : null;
+  // Both labels ride along, the courier's first. Order is the message: the one
+  // at the top of the attachment list is the one to put on the parcel.
+  const documentIds = [
+    shipment.domesticLabelDocumentId,
+    shipment.arenaLabelDocumentId,
+  ].filter((id): id is string => Boolean(id));
+
+  const labels = documentIds.length
+    ? await prisma.shipmentDocument
+        .findMany({
+          where: { id: { in: documentIds } },
+          select: { id: true, fileUrl: true, fileName: true },
+        })
+        // findMany does not promise the order of an `in`, and here the order is
+        // meaningful, so it is restored from the ids rather than assumed.
+        .then((rows) =>
+          documentIds
+            .map((id) => rows.find((row) => row.id === id))
+            .filter((row) => Boolean(row?.fileUrl && row.fileName))
+            .map((row) => ({ fileUrl: row!.fileUrl, fileName: row!.fileName })),
+        )
+    : [];
 
   return announceAwbReady({
     shipmentId: input.shipmentId,
@@ -588,10 +689,7 @@ async function announceDomesticAwb(input: {
     awbNumber: shipment.domesticAwbNumber,
     carrierName: shipment.domesticCourierName,
     trackingUrl: shipment.domesticTrackingUrl,
-    label:
-      label?.fileUrl && label.fileName
-        ? { fileUrl: label.fileUrl, fileName: label.fileName }
-        : null,
+    labels,
   });
 }
 

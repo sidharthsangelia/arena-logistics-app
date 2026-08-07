@@ -409,7 +409,12 @@ export async function sendAwbReadyEmail(
     awbNumber: string;
     carrierName?: string | null;
     trackingUrl?: string | null;
-    label?: ShipmentEmailAttachment | null;
+    /**
+     * Every label filed for this waybill, most authoritative first. A domestic
+     * shipment carries two — the courier's own label and Arena's rendering of
+     * the same waybill — and the copy tells the customer to print the first.
+     */
+    labels?: ShipmentEmailAttachment[] | null;
   },
 ): Promise<ShipmentEmailResult> {
   try {
@@ -437,9 +442,13 @@ export async function sendAwbReadyEmail(
       trackingUrl: input.trackingUrl?.trim() || target.ctx.trackingUrl,
     };
 
+    const labels = (input.labels ?? []).filter(
+      (label) => Boolean(label?.url) && Boolean(label?.filename),
+    );
+
     const copy = getAwbReadyCopy(ctx, {
       carrierName: input.carrierName ?? null,
-      labelAttached: Boolean(input.label),
+      labelCount: labels.length,
     });
 
     return await dispatchShipmentEmail(
@@ -448,7 +457,7 @@ export async function sendAwbReadyEmail(
       ctx,
       "shipment_awb",
       "awb_ready",
-      input.label ? [input.label] : undefined,
+      labels.length ? labels : undefined,
     );
   } catch (err) {
     Sentry.captureException(err, {

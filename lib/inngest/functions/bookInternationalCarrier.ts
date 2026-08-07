@@ -828,10 +828,12 @@ async function announceIntlAwb(input: {
     awbNumber: shipment.intlAwbNumber,
     carrierName: shipment.intlCarrierName,
     trackingUrl: shipment.intlTrackingUrl,
-    label:
+    // A list because domestic files two labels for one waybill. An export has
+    // only the carrier's, which is the one its network was built around.
+    labels:
       label?.fileUrl && label.fileName
-        ? { fileUrl: label.fileUrl, fileName: label.fileName }
-        : null,
+        ? [{ fileUrl: label.fileUrl, fileName: label.fileName }]
+        : [],
   });
 }
 

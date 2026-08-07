@@ -71,6 +71,7 @@ export const DOMESTIC_COURIER_SHIPMENT_SELECT = {
   domesticAwbNumber: true,
   domesticTrackingUrl: true,
   domesticLabelDocumentId: true,
+  arenaLabelDocumentId: true,
 
   org: { select: { name: true } },
   pickupAddress: { select: ADDRESS_SELECT },

@@ -314,6 +314,10 @@ export default async function DomesticBookingDetailPage({
   const labelDocument = s.domesticLabelDocumentId
     ? (s.documents.find((d) => d.id === s.domesticLabelDocumentId) ?? null)
     : null;
+  // Arena's own rendering of the same waybill, filed beside the courier's.
+  const arenaLabelDocument = s.arenaLabelDocumentId
+    ? (s.documents.find((d) => d.id === s.arenaLabelDocumentId) ?? null)
+    : null;
 
   const allStatuses = Object.entries(STATUS_CONFIG).map(([value, c]) => ({
     value: value as ShipmentStatus,
@@ -735,6 +739,7 @@ export default async function DomesticBookingDetailPage({
                   awbNumber: s.domesticAwbNumber,
                   trackingUrl: s.domesticTrackingUrl,
                   labelUrl: labelDocument?.fileUrl ?? null,
+                  arenaLabelUrl: arenaLabelDocument?.fileUrl ?? null,
                   error: s.domesticCourierError,
                   attempts: s.domesticCourierAttempts,
                   bookedAt: s.domesticCourierBookedAt?.toISOString() ?? null,

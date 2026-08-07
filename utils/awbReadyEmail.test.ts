@@ -69,7 +69,7 @@ describe("getAwbReadyCopy", () => {
     const c = ctx();
     const copy = getAwbReadyCopy(c, {
       carrierName: "DHL Express",
-      labelAttached: true,
+      labelCount: 1,
     });
 
     assert.equal(copy.trackingLabel, "Airway bill number");
@@ -90,11 +90,11 @@ describe("getAwbReadyCopy", () => {
 
     const withCarrier = getAwbReadyCopy(c, {
       carrierName: "DHL Express",
-      labelAttached: true,
+      labelCount: 1,
     });
     assert.ok(withCarrier.paragraphs[0].includes("confirmed with DHL Express"));
 
-    const without = getAwbReadyCopy(c, { carrierName: null, labelAttached: true });
+    const without = getAwbReadyCopy(c, { carrierName: null, labelCount: 1 });
     assert.ok(without.paragraphs[0].includes("It has now been confirmed and"));
     // No dangling preposition where the carrier name would have been.
     assert.ok(!without.paragraphs[0].includes("with  "));
@@ -106,16 +106,32 @@ describe("getAwbReadyCopy", () => {
 
     const attached = getAwbReadyCopy(c, {
       carrierName: "DHL Express",
-      labelAttached: true,
+      labelCount: 1,
     });
     assert.ok(attached.paragraphs[1].includes("attached to this email"));
 
     const notAttached = getAwbReadyCopy(c, {
       carrierName: "DHL Express",
-      labelAttached: false,
+      labelCount: 0,
     });
     assert.ok(!notAttached.paragraphs[1].includes("attached to this email"));
     assert.ok(notAttached.paragraphs[1].includes("on your shipment page"));
+  });
+
+  it("tells the reader what the second label is, and that one print is enough", () => {
+    // A domestic booking attaches the carrier's label and Arena's rendering of
+    // the same waybill. Two near-identical PDFs with no explanation is how a
+    // customer ends up printing both and sticking both on the box.
+    const copy = getAwbReadyCopy(ctx(), {
+      carrierName: "Delhivery",
+      labelCount: 2,
+    });
+
+    const paragraph = copy.paragraphs[1];
+    assert.ok(paragraph.includes("Two versions of the same label"));
+    assert.ok(paragraph.includes("identical waybill number"));
+    // The instruction has to be singular, or it invites two labels on one box.
+    assert.ok(paragraph.includes("print one"));
   });
 
   it("does not tell the reader to look below the list for the number", () => {
@@ -123,7 +139,7 @@ describe("getAwbReadyCopy", () => {
     // "the number below" points at the footer.
     const copy = getAwbReadyCopy(ctx(), {
       carrierName: null,
-      labelAttached: true,
+      labelCount: 1,
     });
     for (const step of copy.nextSteps) {
       assert.ok(!step.includes("below"), `next step points the wrong way: ${step}`);
@@ -133,7 +149,7 @@ describe("getAwbReadyCopy", () => {
   it("carries the shipment number in the subject, where a customer scans for it", () => {
     const copy = getAwbReadyCopy(ctx(), {
       carrierName: null,
-      labelAttached: true,
+      labelCount: 1,
     });
     assert.ok(copy.subject.includes("ARN-2026-0042"));
   });
@@ -142,7 +158,7 @@ describe("getAwbReadyCopy", () => {
     const c = ctx({ trackingUrl: null });
     const copy = getAwbReadyCopy(c, {
       carrierName: "Skynet",
-      labelAttached: true,
+      labelCount: 1,
     });
 
     const html = renderShipmentEmailHtml(copy, c, IDENTITY, null);
