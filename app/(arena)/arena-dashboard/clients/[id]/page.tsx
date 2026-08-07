@@ -8,10 +8,12 @@ import ClientEditSheet from "@/components/clients/clientDetailPage/ClientEditShe
 import ClientDetailStats from "@/components/clients/clientDetailPage/ClientDetailStats";
 import ClientQuoteHistory from "@/components/clients/clientDetailPage/ClientQuoteHistory";
 import KycVault from "@/components/clients/clientDetailPage/KycVault";
+import type { KycDocType } from "@/lib/validations/clientsDocument.schema";
 import KycWaiverCard from "@/components/kyc/KycWaiverCard";
 import { getArenaAuth } from "@/utils/arena-auth";
 import { getActiveKycWaiver } from "@/lib/booking/waiver";
 import { Skeleton } from "@/components/ui/skeleton";
+import { SectionHeading } from "@/components/layout/SectionHeading";
 import {
   HeaderSkeleton,
   StatsSkeleton,
@@ -26,15 +28,6 @@ type Props = {
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
-function getInitials(name: string) {
-  return name
-    .split(" ")
-    .map((w) => w[0])
-    .slice(0, 2)
-    .join("")
-    .toUpperCase();
-}
-
 function formatDate(date: Date) {
   return new Intl.DateTimeFormat("en-IN", {
     day: "numeric",
@@ -43,7 +36,12 @@ function formatDate(date: Date) {
   }).format(date);
 }
 
-function InfoRow({
+/**
+ * A labelled value. Quiet label, then the value a step up in weight — the same
+ * pairing used across the detail pages, and the reason none of these blocks
+ * need a border to read as a group.
+ */
+function Field({
   label,
   value,
   mono,
@@ -53,14 +51,18 @@ function InfoRow({
   mono?: boolean;
 }) {
   return (
-    <div className="flex flex-col gap-0.5 py-3">
-      <span className="text-[11px] text-muted-foreground">{label}</span>
+    <div className="min-w-0">
+      <p className="text-xs text-muted-foreground">{label}</p>
       {value ? (
-        <span className={`text-sm ${mono ? "font-mono text-xs" : ""}`}>
+        <p
+          className={`mt-1 wrap-break-word text-sm font-medium text-foreground ${
+            mono ? "font-mono" : ""
+          }`}
+        >
           {value}
-        </span>
+        </p>
       ) : (
-        <span className="text-sm text-muted-foreground/50">—</span>
+        <p className="mt-1 text-sm text-muted-foreground/60">Not set</p>
       )}
     </div>
   );
@@ -130,19 +132,14 @@ async function ClientHeader({
   const location = [client.city, client.country].filter(Boolean).join(", ");
 
   return (
-    <div className="flex items-center gap-4">
-      <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full border bg-muted text-base font-medium text-muted-foreground">
-        {getInitials(client.companyName)}
-      </div>
-      <div>
-        <h1 className="text-xl font-semibold tracking-tight">
-          {client.companyName}
-        </h1>
-        <p className="mt-0.5 text-sm text-muted-foreground">
-          Client since {formatDate(client.createdAt)}
-          {location ? ` · ${location}` : ""}
-        </p>
-      </div>
+    <div className="min-w-0">
+      <h1 className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
+        {client.companyName}
+      </h1>
+      <p className="mt-2 text-sm text-muted-foreground">
+        Client since {formatDate(client.createdAt)}
+        {location ? ` · ${location}` : ""}
+      </p>
     </div>
   );
 }
@@ -217,50 +214,53 @@ async function ClientSidebar({
 }) {
   const client = await clientPromise;
 
+  // The postal address reads as an address, not as five labelled rows — that is
+  // how it will be written on a label, and how anyone checking it will read it.
+  const addressLines = [
+    client.addressLine1,
+    [client.city, client.state, client.postalCode].filter(Boolean).join(", "),
+    client.country,
+  ].filter((line) => Boolean(line?.trim()));
+
   return (
     <>
       {/* Contact */}
-      <div className="rounded-lg border">
-        <div className="border-b px-4 py-3">
-          <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
-            Contact
-          </p>
+      <section className="space-y-4">
+        <SectionHeading>Contact</SectionHeading>
+        <div className="space-y-4">
+          <Field label="Contact name" value={client.contactName} />
+          <Field label="Email" value={client.email} mono />
+          <Field label="Phone" value={client.phone} />
         </div>
-        <div className="divide-y px-4">
-          <InfoRow label="Contact name" value={client.contactName} />
-          <InfoRow label="Email" value={client.email} mono />
-          <InfoRow label="Phone" value={client.phone} />
-        </div>
-      </div>
+      </section>
 
       {/* Address */}
-      <div className="rounded-lg border">
-        <div className="border-b px-4 py-3">
-          <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
-            Address
+      <section className="space-y-4">
+        <SectionHeading>Address</SectionHeading>
+        {addressLines.length > 0 ? (
+          <div className="space-y-0.5 text-sm leading-relaxed text-muted-foreground">
+            {addressLines.slice(0, -1).map((line, i) => (
+              <p key={i}>{line}</p>
+            ))}
+            <p className="font-medium text-foreground">
+              {addressLines[addressLines.length - 1]}
+            </p>
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground/60">
+            No address on file.
           </p>
-        </div>
-        <div className="divide-y px-4">
-          <InfoRow label="Address" value={client.addressLine1} />
-          <InfoRow label="City" value={client.city} />
-          <InfoRow label="State" value={client.state} />
-          <InfoRow label="Country" value={client.country} />
-          <InfoRow label="Postal code" value={client.postalCode} />
-        </div>
-      </div>
+        )}
+      </section>
 
       {/* Notes — only rendered if present */}
       {client.notes && (
-        <div className="rounded-lg border">
-          <div className="border-b px-4 py-3">
-            <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
-              Notes
-            </p>
-          </div>
-          <p className="px-4 py-3 text-sm leading-relaxed text-muted-foreground">
+        <section className="space-y-4">
+          <SectionHeading>Notes</SectionHeading>
+          <p className="text-sm leading-relaxed text-muted-foreground">
             {client.notes}
           </p>
-        </div>
+        </section>
       )}
     </>
   );
@@ -340,7 +340,7 @@ async function ClientDocuments({
       clientId={client.id}
       documents={client.documents.map((d) => ({
         id: d.id,
-        docType: d.docType as any,
+        docType: d.docType as KycDocType,
         label: d.label,
         description: d.description,
         fileUrl: d.fileUrl,
@@ -363,43 +363,45 @@ export default async function ClientDetailPage({ params }: Props) {
   const clientPromise = fetchClient(id);
 
   return (
-    <>
+    <div className="space-y-12">
       {/* Header row
-          Left: avatar + name (dynamic) | Right: action buttons (dynamic, need client) */}
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <Suspense fallback={<HeaderSkeleton />}>
-          <ClientHeader clientPromise={clientPromise} />
-        </Suspense>
+          Left: company name (dynamic) | Right: action buttons (dynamic, need client) */}
+      <div className="space-y-8">
+        <div className="flex flex-wrap items-start justify-between gap-x-8 gap-y-4">
+          <Suspense fallback={<HeaderSkeleton />}>
+            <ClientHeader clientPromise={clientPromise} />
+          </Suspense>
 
-        {/* Actions also need the client (ClientEditSheet takes the full object) */}
-        <Suspense
-          fallback={
-            <div className="flex items-center gap-2">
-              <Skeleton className="h-8 w-20" />
-              <Skeleton className="h-8 w-28" />
-            </div>
-          }
-        >
-          <ClientActions clientPromise={clientPromise} />
+          {/* Actions also need the client (ClientEditSheet takes the full object) */}
+          <Suspense
+            fallback={
+              <div className="flex items-center gap-2">
+                <Skeleton className="h-8 w-20" />
+                <Skeleton className="h-8 w-28" />
+              </div>
+            }
+          >
+            <ClientActions clientPromise={clientPromise} />
+          </Suspense>
+        </div>
+
+        {/* Key figures, sitting under the name they describe */}
+        <Suspense fallback={<StatsSkeleton />}>
+          <ClientStats clientPromise={clientPromise} />
         </Suspense>
       </div>
 
-      {/* Stats — all dynamic */}
-      <Suspense fallback={<StatsSkeleton />}>
-        <ClientStats clientPromise={clientPromise} />
-      </Suspense>
-
-      {/* Body grid — layout shell is instant, content suspends per-section */}
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[280px_1fr]">
-        {/* Left sidebar — contact + address values are dynamic */}
-        <div className="space-y-4">
+      {/* Body grid — layout shell is instant, content suspends per-section.
+          The sidebar is split off by a single hairline rather than by cards. */}
+      <div className="grid grid-cols-1 gap-12 lg:grid-cols-[248px_minmax(0,1fr)] lg:items-start lg:gap-x-10">
+        <div className="space-y-10 lg:border-r lg:pr-10">
           <Suspense fallback={<ContactSidebarSkeleton />}>
             <ClientSidebar clientPromise={clientPromise} />
           </Suspense>
         </div>
 
         {/* Right column — each section suspends independently */}
-        <div className="space-y-5">
+        <div className="min-w-0 space-y-12">
           <Suspense fallback={<QuoteHistorySkeleton />}>
             <ClientQuotes clientPromise={clientPromise} />
           </Suspense>
@@ -409,12 +411,13 @@ export default async function ClientDetailPage({ params }: Props) {
           </Suspense>
 
           {/* Waiver sits under the vault: you look at what is on file first,
-              then decide whether to let them book without the rest. */}
+              then decide whether to let them book without the rest. It keeps its
+              card — it is an admin control panel, not part of the record. */}
           <Suspense fallback={<Skeleton className="h-52 w-full rounded-lg" />}>
             <ClientKycWaiver clientPromise={clientPromise} />
           </Suspense>
         </div>
       </div>
-    </>
+    </div>
   );
 }

@@ -1,22 +1,14 @@
 import Link from "next/link";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge";
 import type { ShipmentStatus } from "@/generated/prisma";
 import { STATUS_CONFIG } from "@/utils/statusConfigColors";
+import { SectionHeading } from "@/components/layout/SectionHeading";
 import { fmt } from "@/utils/helpers";
 
 export type ClientShipmentRow = {
   id: string;
   shipmentNumber: string;
   status: ShipmentStatus;
-  quotedTotal: any;
+  quotedTotal: unknown;
   currency: string;
   createdAt: Date;
   pickupAddress: { city: string };
@@ -31,6 +23,10 @@ function fmtDate(d: Date) {
   }).format(d);
 }
 
+// Five rows, read left to right: which shipment, where it goes, how it is
+// doing, what it cost. No card, no zebra fill, no outlined status pills — the
+// status keeps its colour as a dot, which is the only thing the colour was
+// ever for.
 export default function ClientRecentShipments({
   shipments,
   totalCount,
@@ -39,84 +35,76 @@ export default function ClientRecentShipments({
   totalCount: number;
 }) {
   return (
-    <div className="rounded-lg border">
-      <div className="flex items-center justify-between border-b px-4 py-3">
-        <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
-          Recent shipments
-        </p>
-        <span className="text-xs text-muted-foreground">
-          {totalCount} total
-        </span>
-      </div>
+    <section className="space-y-5">
+      <SectionHeading right={`${totalCount} total`}>
+        Recent shipments
+      </SectionHeading>
 
       {shipments.length === 0 ? (
-        <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">
+        <p className="text-sm text-muted-foreground">
           No shipments for this client yet.
-        </div>
+        </p>
       ) : (
-        <Table>
-          <TableHeader>
-            <TableRow className="bg-muted/30 hover:bg-muted/30">
-              <TableHead className="text-xs uppercase tracking-wide">
-                Shipment
-              </TableHead>
-              <TableHead className="text-xs uppercase tracking-wide">
-                Route
-              </TableHead>
-              <TableHead className="text-xs uppercase tracking-wide">
-                Status
-              </TableHead>
-              <TableHead className="text-right text-xs uppercase tracking-wide">
-                Amount
-              </TableHead>
-              <TableHead className="text-xs uppercase tracking-wide">
-                Date
-              </TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {shipments.map((s) => {
-              const cfg = STATUS_CONFIG[s.status];
-              return (
-                <TableRow
-                  key={s.id}
-                  className="relative transition-colors hover:bg-muted/50"
-                >
-                  <TableCell className="relative">
-                    <Link
-                      href={`/shipments/${s.id}`}
-                      className="absolute inset-0 z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                      aria-label={`View shipment ${s.shipmentNumber}`}
-                    />
-                    <span className="block text-sm font-medium">
-                      {s.shipmentNumber}
-                    </span>
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
-                    {s.pickupAddress.city} → {s.deliveryAddress.city}
-                  </TableCell>
-                  <TableCell>
-                    <Badge
-                      variant="outline"
-                      className={`text-[11px] font-medium ${cfg.className}`}
-                    >
-                      {cfg.label}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-right text-sm tabular-nums">
-                    {s.quotedTotal != null
-                      ? fmt(Number(s.quotedTotal), s.currency)
-                      : "—"}
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
-                    {fmtDate(s.createdAt)}
-                  </TableCell>
-                </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
+        <div className="-mx-2 overflow-x-auto">
+          <table className="w-full min-w-lg text-sm">
+            <thead>
+              <tr className="border-b text-left">
+                <th className="px-2 pb-2 text-xs font-normal text-muted-foreground">
+                  Shipment
+                </th>
+                <th className="px-2 pb-2 text-xs font-normal text-muted-foreground">
+                  Route
+                </th>
+                <th className="px-2 pb-2 text-xs font-normal text-muted-foreground">
+                  Status
+                </th>
+                <th className="px-2 pb-2 text-right text-xs font-normal text-muted-foreground">
+                  Amount
+                </th>
+                <th className="px-2 pb-2 text-right text-xs font-normal text-muted-foreground">
+                  Date
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border/60">
+              {shipments.map((s) => {
+                const cfg = STATUS_CONFIG[s.status];
+                return (
+                  <tr key={s.id} className="group">
+                    <td className="px-2 py-3">
+                      <Link
+                        href={`/shipments/${s.id}`}
+                        className="font-medium text-foreground underline-offset-4 hover:underline"
+                      >
+                        {s.shipmentNumber}
+                      </Link>
+                    </td>
+                    <td className="px-2 py-3 text-muted-foreground">
+                      {s.pickupAddress.city} → {s.deliveryAddress.city}
+                    </td>
+                    <td className="px-2 py-3">
+                      <span className="flex items-center gap-2 whitespace-nowrap text-foreground">
+                        <span
+                          className={`h-1.75 w-1.75 shrink-0 rounded-full ${cfg.dotClassName}`}
+                        />
+                        {cfg.label}
+                      </span>
+                    </td>
+                    <td className="px-2 py-3 text-right font-medium tabular-nums text-foreground">
+                      {s.quotedTotal != null
+                        ? fmt(Number(s.quotedTotal), s.currency)
+                        : "—"}
+                    </td>
+                    <td className="px-2 py-3 text-right whitespace-nowrap text-muted-foreground">
+                      {fmtDate(s.createdAt)}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       )}
-    </div>
+    </section>
   );
 }

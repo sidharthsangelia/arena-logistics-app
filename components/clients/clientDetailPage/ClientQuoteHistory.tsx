@@ -1,16 +1,7 @@
 import Link from "next/link";
 import type { QuoteStatus } from "@/generated/prisma";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge";
-import { FileText } from "lucide-react";
 import QuoteActionsMenu from "@/components/quotes/QuoteActionsMenu";
+import { SectionHeading } from "@/components/layout/SectionHeading";
 import { displayServiceName } from "@/lib/branding/serviceName";
 
 type QuoteRow = {
@@ -20,7 +11,7 @@ type QuoteRow = {
   vendorName: string;
   productName: string;
   currency: string;
-  quotedTotal: any;
+  quotedTotal: unknown;
   pdfUrl: string | null;
   createdAt: Date;
   validUntil: Date;
@@ -32,20 +23,15 @@ type ClientInfo = {
   email: string | null;
 };
 
-const STATUS_STYLES: Record<QuoteStatus, string> = {
-  DRAFT:
-    "bg-zinc-100 text-zinc-600 ring-1 ring-zinc-200 dark:bg-zinc-800/60 dark:text-zinc-400 dark:ring-zinc-700",
-  SENT:
-    "bg-blue-50 text-blue-700 ring-1 ring-blue-200 dark:bg-blue-950/50 dark:text-blue-400 dark:ring-blue-800",
-  ACCEPTED:
-    "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-400 dark:ring-emerald-800",
-  EXPIRED:
-    "bg-amber-50 text-amber-700 ring-1 ring-amber-200 dark:bg-amber-950/50 dark:text-amber-400 dark:ring-amber-800",
-  CANCELLED:
-    "bg-red-50 text-red-600 ring-1 ring-red-200 dark:bg-red-950/50 dark:text-red-400 dark:ring-red-800",
+// Status keeps its colour, but as a dot rather than a filled pill: five pills
+// stacked down a table read as decoration, five dots read as a column.
+const STATUS_DOT: Record<QuoteStatus, string> = {
+  DRAFT: "bg-muted-foreground/40",
+  SENT: "bg-blue-500",
+  ACCEPTED: "bg-emerald-500",
+  EXPIRED: "bg-amber-500",
+  CANCELLED: "bg-red-500",
 };
-
- 
 
 const STATUS_LABEL: Record<QuoteStatus, string> = {
   DRAFT: "Draft",
@@ -82,94 +68,107 @@ export default function ClientQuoteHistory({
   showVendor?: boolean;
 }) {
   return (
-    <div className="rounded-lg border p-4">
-      <div className="flex items-center justify-between border-b px-4 py-3">
-        <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
-          Quote history
-        </p>
-        <span className="text-xs text-muted-foreground">
-          {quotes.length} quote{quotes.length !== 1 ? "s" : ""}
-        </span>
-      </div>
+    <section className="space-y-5">
+      <SectionHeading
+        right={`${quotes.length} quote${quotes.length !== 1 ? "s" : ""}`}
+      >
+        Quote history
+      </SectionHeading>
 
       {quotes.length === 0 ? (
-        <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">
+        <p className="text-sm text-muted-foreground">
           No quotes for this client yet.
-        </div>
+        </p>
       ) : (
-        <Table>
-          <TableHeader>
-            <TableRow className="bg-muted/30 hover:bg-muted/30">
-              <TableHead className="text-xs uppercase tracking-wide">Quote</TableHead>
-              <TableHead className="text-xs uppercase tracking-wide">Status</TableHead>
-              {showVendor && (
-                <TableHead className="text-xs uppercase tracking-wide">Vendor</TableHead>
-              )}
-              <TableHead className="text-xs uppercase tracking-wide">Product</TableHead>
-              <TableHead className="text-right text-xs uppercase tracking-wide">Total</TableHead>
-              <TableHead className="text-xs uppercase tracking-wide">Date</TableHead>
-              <TableHead className="w-10" />
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {quotes.map((q) => (
-              <TableRow key={q.id}>
-                <TableCell>
-                  {q.pdfUrl ? (
-                    <Link href={q.pdfUrl} target="_blank" className="inline-flex items-center gap-1 text-sm font-medium hover:underline">
-                      <span className="block text-sm font-medium">
+        <div className="-mx-2 overflow-x-auto">
+          <table className="w-full min-w-lg text-sm">
+            <thead>
+              <tr className="border-b text-left">
+                <th className="px-2 pb-2 text-xs font-normal text-muted-foreground">
+                  Quote
+                </th>
+                <th className="px-2 pb-2 text-xs font-normal text-muted-foreground">
+                  Status
+                </th>
+                {showVendor && (
+                  <th className="px-2 pb-2 text-xs font-normal text-muted-foreground">
+                    Vendor
+                  </th>
+                )}
+                <th className="px-2 pb-2 text-xs font-normal text-muted-foreground">
+                  Product
+                </th>
+                <th className="px-2 pb-2 text-right text-xs font-normal text-muted-foreground">
+                  Total
+                </th>
+                <th className="px-2 pb-2 text-right text-xs font-normal text-muted-foreground">
+                  Date
+                </th>
+                <th className="w-8" />
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border/60">
+              {quotes.map((q) => (
+                <tr key={q.id}>
+                  <td className="px-2 py-3">
+                    {q.pdfUrl ? (
+                      <Link
+                        href={q.pdfUrl}
+                        target="_blank"
+                        className="font-medium text-foreground underline-offset-4 hover:underline"
+                      >
+                        {q.quoteNumber}
+                      </Link>
+                    ) : (
+                      <span className="font-medium text-muted-foreground">
                         {q.quoteNumber}
                       </span>
-                    </Link>
-                  ) : (
-                    <span className="block text-sm font-medium text-muted-foreground">
-                      {q.quoteNumber}
+                    )}
+                  </td>
+                  <td className="px-2 py-3">
+                    <span className="flex items-center gap-2 whitespace-nowrap text-foreground">
+                      <span
+                        className={`h-1.75 w-1.75 shrink-0 rounded-full ${STATUS_DOT[q.status]}`}
+                      />
+                      {STATUS_LABEL[q.status]}
                     </span>
+                  </td>
+                  {showVendor && (
+                    <td className="px-2 py-3 text-muted-foreground">
+                      {q.vendorName}
+                    </td>
                   )}
-                </TableCell>
-              <TableCell>
-  <span
-    className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium ${STATUS_STYLES[q.status]}`}
-  >
- 
-    {STATUS_LABEL[q.status]}
-  </span>
-</TableCell>
-                {showVendor && (
-                  <TableCell className="text-sm text-muted-foreground">
-                    {q.vendorName}
-                  </TableCell>
-                )}
-                <TableCell className="max-w-[120px] truncate text-sm">
-                  {displayServiceName(q.productName, showVendor)}
-                </TableCell>
-                <TableCell className="text-right text-sm tabular-nums">
-                  {fmt(Number(q.quotedTotal), q.currency)}
-                </TableCell>
-                <TableCell className="text-sm text-muted-foreground">
-                  {fmtDate(q.createdAt)}
-                </TableCell>
-                <TableCell>
-  <QuoteActionsMenu
-    quote={{
-      id: q.id,
-      quoteNumber: q.quoteNumber,
-      productName: q.productName,
-      vendorName: q.vendorName,
-      quotedTotal: Number(q.quotedTotal),
-      currency: q.currency,
-      status: q.status,
-      validUntil: q.validUntil,
-      pdfUrl: q.pdfUrl,
-    }}
-    client={client}
-  />
-</TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+                  <td className="max-w-32 truncate px-2 py-3 text-muted-foreground">
+                    {displayServiceName(q.productName, showVendor)}
+                  </td>
+                  <td className="px-2 py-3 text-right font-medium tabular-nums text-foreground">
+                    {fmt(Number(q.quotedTotal), q.currency)}
+                  </td>
+                  <td className="px-2 py-3 text-right whitespace-nowrap text-muted-foreground">
+                    {fmtDate(q.createdAt)}
+                  </td>
+                  <td className="py-3 pl-1">
+                    <QuoteActionsMenu
+                      quote={{
+                        id: q.id,
+                        quoteNumber: q.quoteNumber,
+                        productName: q.productName,
+                        vendorName: q.vendorName,
+                        quotedTotal: Number(q.quotedTotal),
+                        currency: q.currency,
+                        status: q.status,
+                        validUntil: q.validUntil,
+                        pdfUrl: q.pdfUrl,
+                      }}
+                      client={client}
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
-    </div>
+    </section>
   );
 }

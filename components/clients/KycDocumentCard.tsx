@@ -2,23 +2,8 @@
 
 import { useState } from "react";
 import { toast } from "sonner";
-import {
-  FileText,
-  ImageIcon,
-  ExternalLink,
-  Trash2,
-  Loader2,
-  MoreVertical,
-} from "lucide-react";
-import { Badge } from "@/components/ui/badge";
+import { FileText, ImageIcon, Trash2, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -30,7 +15,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { deleteKycDocumentAction } from "@/actions/documentVault/clientsDocument.action";
-import { KycDocType, KYC_DOC_TYPE_LABELS } from "@/lib/validations/clientsDocument.schema";
+import { KycDocType } from "@/lib/validations/clientsDocument.schema";
 import Link from "next/link";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -77,7 +62,6 @@ function isImage(mimeType: string) {
 
 export default function KycDocumentCard({
   id,
-  docType,
   label,
   description,
   fileUrl,
@@ -102,95 +86,61 @@ export default function KycDocumentCard({
     // No need to setDeleting(false) on success — card unmounts.
   }
 
-  const typeLabel  = KYC_DOC_TYPE_LABELS[docType];
   const fileIsImage = isImage(mimeType);
 
+  // One row per file. The type label lives on the group heading above, so it is
+  // not repeated here; what is left is the document's own name, its file, and a
+  // delete that appears on hover.
   return (
     <>
-  <Link
-  href={fileUrl}
-  target="_blank"
-  rel="noopener noreferrer"
-  className="
-    group relative flex items-start gap-3
-    rounded-lg border bg-card p-3
-    transition-colors hover:bg-muted/40
-  "
->
-  {/* Delete button */}
-
-  <Button
-    type="button"
-    variant="ghost"
-    size="icon"
-    onClick={(e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      setConfirmOpen(true);
-    }}
-    className="
-      absolute right-2 top-2
-      h-7 w-7
-      text-muted-foreground
-      opacity-0
-      transition-opacity
-      hover:text-destructive
-      group-hover:opacity-100
-    "
-  >
-    <Trash2 className="h-3.5 w-3.5" />
-    <span className="sr-only">Delete document</span>
-  </Button>
-
-  {/* File icon */}
-
-  <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-muted">
-    {fileIsImage ? (
-      <ImageIcon className="h-4 w-4 text-muted-foreground" />
-    ) : (
-      <FileText className="h-4 w-4 text-muted-foreground" />
-    )}
-  </div>
-
-  {/* Content */}
-
-  <div className="min-w-0 flex-1 pr-8">
-    <p className="truncate text-sm font-medium leading-tight">
-      {label}
-    </p>
-
-    <p className="mt-0.5 text-[11px] text-muted-foreground">
-      {fileName} · {formatBytes(fileSize)}
-    </p>
-
-    <div className="mt-2 flex flex-wrap items-center gap-1.5">
-      <Badge
-        variant="secondary"
-        className="px-1.5 py-0 text-[10px] font-normal"
+      <Link
+        href={fileUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="group relative -mx-2 flex items-center gap-3 rounded-md px-2 py-3 transition-colors hover:bg-muted/50"
       >
-        {typeLabel}
-      </Badge>
+        {fileIsImage ? (
+          <ImageIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
+        ) : (
+          <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+        )}
 
-      <span className="text-[10px] text-muted-foreground">
-        Added {formatDate(uploadedAt)}
-      </span>
-    </div>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium text-foreground">
+            {label}
+          </p>
+          <p className="mt-0.5 truncate text-xs text-muted-foreground">
+            {fileName} · {formatBytes(fileSize)} · Added{" "}
+            {formatDate(uploadedAt)}
+          </p>
+          {description && (
+            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+              {description}
+            </p>
+          )}
+        </div>
 
-    {description && (
-      <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">
-        {description}
-      </p>
-    )}
-  </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setConfirmOpen(true);
+          }}
+          className="h-7 w-7 shrink-0 text-muted-foreground opacity-0 transition-opacity hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+          <span className="sr-only">Delete document</span>
+        </Button>
 
-  {/* Loading */}
-
-  {deleting && (
-    <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-background/70">
-      <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-    </div>
-  )}
-</Link>
+        {deleting && (
+          <div className="absolute inset-0 flex items-center justify-center rounded-md bg-background/70">
+            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+          </div>
+        )}
+      </Link>
 
       {/* Delete confirmation */}
       <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>

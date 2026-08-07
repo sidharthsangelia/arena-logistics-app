@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { Mail, MailX } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { SectionHeading } from "@/components/layout/SectionHeading";
 import { setClientEmailPreference } from "@/actions/settings/clientEmails.action";
 import {
   CLIENT_EMAIL_PREFERENCES,
@@ -72,29 +73,18 @@ export function ClientEmailPreferenceCard({
   }
 
   return (
-    <div className="rounded-lg border">
-      <div className="border-b px-4 py-3">
-        <p className="text-xs font-medium tracking-widest text-muted-foreground uppercase">
-          Shipment emails
-        </p>
-      </div>
+    <section className="space-y-4">
+      <SectionHeading>Shipment emails</SectionHeading>
 
-      <div className="space-y-3 px-4 py-4">
+      <div className="space-y-3">
         <div className="flex items-start gap-2.5">
-          <div
-            className={cn(
-              "mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full",
-              willBeEmailed && hasAddress
-                ? "bg-emerald-100 text-emerald-700"
-                : "bg-slate-100 text-slate-600",
-            )}
-          >
-            {willBeEmailed && hasAddress ? (
-              <Mail className="h-3.5 w-3.5" />
-            ) : (
-              <MailX className="h-3.5 w-3.5" />
-            )}
-          </div>
+          {/* The icon carries the state, so it keeps its colour; everything
+              around it is plain type. */}
+          {willBeEmailed && hasAddress ? (
+            <Mail className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+          ) : (
+            <MailX className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+          )}
 
           <p className="text-sm leading-relaxed text-muted-foreground">
             {!hasAddress ? (
@@ -157,13 +147,13 @@ export function ClientEmailPreferenceCard({
         <p className="text-xs text-muted-foreground">
           <Link
             href="/settings?tab=emails"
-            className="underline hover:text-foreground"
+            className="underline underline-offset-4 hover:text-foreground"
           >
             Account setting
           </Link>{" "}
           is currently {orgEnabled ? "on" : "off"}.
         </p>
       </div>
-    </div>
+    </section>
   );
 }

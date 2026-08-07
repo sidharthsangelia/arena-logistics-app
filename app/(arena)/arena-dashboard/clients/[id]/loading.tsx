@@ -15,29 +15,27 @@ import {
 
 export default function ClientDetailLoading() {
   return (
-    <>
-      {/* Header */}
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <HeaderSkeleton />
-        <div className="flex items-center gap-2">
-          <Skeleton className="h-8 w-20" />
-          <Skeleton className="h-8 w-28" />
+    <div className="space-y-12">
+      <div className="space-y-8">
+        <div className="flex flex-wrap items-start justify-between gap-x-8 gap-y-4">
+          <HeaderSkeleton />
+          <div className="flex items-center gap-2">
+            <Skeleton className="h-8 w-20" />
+            <Skeleton className="h-8 w-28" />
+          </div>
         </div>
+        <StatsSkeleton />
       </div>
 
-      {/* Stats */}
-      <StatsSkeleton />
-
-      {/* Body grid */}
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[280px_1fr]">
-        <div className="space-y-4">
+      <div className="grid grid-cols-1 gap-12 lg:grid-cols-[248px_minmax(0,1fr)] lg:items-start lg:gap-x-10">
+        <div className="space-y-10 lg:border-r lg:pr-10">
           <ContactSidebarSkeleton />
         </div>
-        <div className="space-y-5">
+        <div className="min-w-0 space-y-12">
           <QuoteHistorySkeleton />
           <KycVaultSkeleton />
         </div>
       </div>
-    </>
+    </div>
   );
 }

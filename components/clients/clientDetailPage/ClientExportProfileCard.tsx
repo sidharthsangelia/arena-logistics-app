@@ -35,6 +35,7 @@ import {
   ExportProfileForm,
   type ExportProfileFormValues,
 } from "@/components/settings/ExportProfileForm";
+import { SectionHeading } from "@/components/layout/SectionHeading";
 
 const EXPORT_TYPE_LABEL: Record<ExportProfileFormValues["exportType"], string> = {
   LUT: "Under an LUT",
@@ -57,18 +58,19 @@ export function ClientExportProfileCard({
   const [open, setOpen] = React.useState(false);
 
   return (
-    <div className="rounded-lg border">
-      <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
-        <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
-          Export documents
-        </p>
-        <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
-          {hasDetail ? "Edit" : "Add"}
-        </Button>
-      </div>
+    <section className="space-y-4">
+      <SectionHeading
+        right={
+          <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
+            {hasDetail ? "Edit" : "Add"}
+          </Button>
+        }
+      >
+        Export documents
+      </SectionHeading>
 
       {hasDetail ? (
-        <div className="divide-y px-4">
+        <div className="space-y-2.5">
           <Row label="IEC number" value={profile.iecNumber} mono />
           <Row label="AD code" value={profile.adCode} mono />
           <Row label="IOSS number" value={profile.iossNumber} mono />
@@ -81,9 +83,9 @@ export function ClientExportProfileCard({
           )}
         </div>
       ) : (
-        <div className="flex items-start gap-3 px-4 py-4">
-          <Plane className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground/50" />
-          <p className="text-xs text-muted-foreground">
+        <div className="flex items-start gap-2.5">
+          <Plane className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+          <p className="text-sm leading-relaxed text-muted-foreground">
             Nothing on file, which is fine for most clients. These are only
             needed when this client&rsquo;s consignments go out on a commercial
             shipping bill, or under a Letter of Undertaking. When set, they are
@@ -116,7 +118,7 @@ export function ClientExportProfileCard({
           />
         </DialogContent>
       </Dialog>
-    </div>
+    </section>
   );
 }
 
@@ -130,11 +132,11 @@ function Row({
   mono?: boolean;
 }) {
   return (
-    <div className="flex items-baseline justify-between gap-4 py-2.5">
-      <span className="text-xs text-muted-foreground">{label}</span>
+    <div className="flex items-baseline justify-between gap-4">
+      <span className="shrink-0 text-xs text-muted-foreground">{label}</span>
       <span
-        className={`text-sm ${mono ? "font-mono" : ""} ${
-          value ? "text-foreground" : "text-muted-foreground/60"
+        className={`text-right text-sm ${mono ? "font-mono" : ""} ${
+          value ? "font-medium text-foreground" : "text-muted-foreground/60"
         }`}
       >
         {value || "Not set"}
