@@ -30,7 +30,6 @@ import {
   FileWarning,
   PackageX,
   Bell,
-  ChevronDown,
   RefreshCw,
   Home,
   Scale,
@@ -38,22 +37,8 @@ import {
   StickyNote,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { StatusUpdatePanel } from "@/components/booking/arena/StatusUpdatePanel";
 import { InternalNotesPanel } from "@/components/booking/arena/InternalNotesPanel";
 import { STATUS_CONFIG } from "@/utils/statusConfigColors";
@@ -66,9 +51,10 @@ import {
   fmtMoney,
   fmtNum,
   STATUS_ACCENT,
-  SectionLabel,
   HeroStat,
   CollapsibleCard,
+  CollapsibleSection,
+  SectionBlock,
   CardTitleRow,
   InfoRow,
   AddressCard,
@@ -422,30 +408,35 @@ function NeedsAttention({
     info: "border-l-sky-400",
   }[topTone];
 
+  // The only boxed block on the page, and deliberately so: everything else is
+  // flat, which is exactly what makes this one read as an alarm.
   return (
-    <Card className={cn("border-l-4", accentBorder)}>
-      <CardHeader className="border-b py-3">
-        <div className="flex items-center gap-2">
-          <Bell className={cn("h-4 w-4", TONE_TEXT[topTone])} />
-          <CardTitle className="text-sm">Needs attention</CardTitle>
-          <Badge variant="secondary" className="ml-auto text-xs">
-            {items.length} item{items.length > 1 ? "s" : ""}
-          </Badge>
-        </div>
-      </CardHeader>
-      <CardContent className="pt-3">
-        <ul className="space-y-2.5">
-          {items.map((it, i) => (
-            <li key={i} className="flex items-start gap-2.5 text-sm">
-              <it.icon
-                className={cn("mt-0.5 h-4 w-4 shrink-0", TONE_TEXT[it.tone])}
-              />
-              <span className="leading-relaxed text-foreground">{it.text}</span>
-            </li>
-          ))}
-        </ul>
-      </CardContent>
-    </Card>
+    <div
+      className={cn(
+        "rounded-lg border border-l-4 bg-muted/20 px-5 py-4",
+        accentBorder,
+      )}
+    >
+      <p className="flex items-center gap-2">
+        <Bell className={cn("h-4 w-4 shrink-0", TONE_TEXT[topTone])} />
+        <span className="text-sm font-semibold text-foreground">
+          Needs attention
+        </span>
+        <span className="text-xs text-muted-foreground">
+          {items.length} item{items.length > 1 ? "s" : ""}
+        </span>
+      </p>
+      <ul className="mt-3 space-y-2">
+        {items.map((it, i) => (
+          <li key={i} className="flex items-start gap-2.5 text-sm">
+            <it.icon
+              className={cn("mt-0.5 h-4 w-4 shrink-0", TONE_TEXT[it.tone])}
+            />
+            <span className="leading-relaxed text-foreground">{it.text}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
@@ -511,67 +502,53 @@ function ComplianceCheck({
     tone === "ok" ? CheckCircle2 : tone === "warn" ? Info : AlertTriangle;
 
   return (
-    <Card>
-      <CardTitleRow
-        icon={ShieldCheck}
-        title="Customs & compliance"
-        right={
-          info ? (
-            <Badge variant="outline" className="text-xs font-medium">
-              {info.label}
-            </Badge>
-          ) : (
-            <Badge variant="outline" className="text-xs text-amber-600">
-              Type not set
-            </Badge>
-          )
-        }
-      />
-      <CardContent className="space-y-4 pt-4">
-        <div
-          className={cn(
-            "flex items-start gap-2.5 rounded-lg border px-3.5 py-3 text-xs leading-relaxed",
-            toneStyles,
-          )}
-        >
-          <Icon className="mt-0.5 h-4 w-4 shrink-0" />
-          <p>{message}</p>
-        </div>
-
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <SectionLabel>Total declared value</SectionLabel>
-            <p className="text-sm font-semibold tabular-nums text-foreground">
-              {fmtMoney(totalDeclared, currency)}
-            </p>
-          </div>
-          <div>
-            <SectionLabel>Required KYC</SectionLabel>
-            {requiredDocs.length ? (
-              <div className="flex flex-wrap gap-1.5">
-                {requiredDocs.map((d) => (
-                  <Badge
-                    key={d}
-                    variant="secondary"
-                    className="text-[10px] font-normal"
-                  >
-                    {d}
-                  </Badge>
-                ))}
-              </div>
-            ) : (
-              <p className="text-xs text-muted-foreground">Set shipment type</p>
-            )}
-          </div>
-        </div>
-
-        {info && (
-          <p className="text-xs leading-relaxed text-muted-foreground">
-            {info.blurb}
-          </p>
+    <SectionBlock
+      icon={ShieldCheck}
+      title="Customs & compliance"
+      right={
+        info ? (
+          info.label
+        ) : (
+          <span className="text-xs font-medium text-amber-600 dark:text-amber-400">
+            Type not set
+          </span>
+        )
+      }
+    >
+      {/* The verdict keeps its tinted box — it is the one line here that can
+          say "do not ship this as booked". */}
+      <div
+        className={cn(
+          "flex items-start gap-2.5 rounded-lg border px-3.5 py-3 text-sm leading-relaxed",
+          toneStyles,
         )}
-      </CardContent>
-    </Card>
+      >
+        <Icon className="mt-0.5 h-4 w-4 shrink-0" />
+        <p>{message}</p>
+      </div>
+
+      <div className="grid gap-x-8 gap-y-4 sm:grid-cols-2">
+        <Field
+          label="Total declared value"
+          value={fmtMoney(totalDeclared, currency)}
+          strong
+        />
+        <div className="min-w-0">
+          <p className="text-xs text-muted-foreground">Required KYC</p>
+          <p className="mt-1.5 text-sm font-medium text-foreground">
+            {requiredDocs.length
+              ? requiredDocs.join(" · ")
+              : "Set shipment type"}
+          </p>
+        </div>
+      </div>
+
+      {info && (
+        <p className="text-sm leading-relaxed text-muted-foreground">
+          {info.blurb}
+        </p>
+      )}
+    </SectionBlock>
   );
 }
 
@@ -659,95 +636,88 @@ export default async function BookingDetailPage({
   }`;
 
   return (
-    <div className="mx-auto max-w-screen-xl space-y-6 px-6 py-8">
+    <div className="mx-auto max-w-7xl space-y-8 px-6 py-8">
       {/* ── Back ── */}
-      <Button
-        asChild
-        variant="ghost"
-        size="sm"
-        className="-ml-2 h-8 gap-1.5 text-muted-foreground"
+      <Link
+        href="/arena-dashboard/bookings"
+        className="group inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
       >
-        <Link href="/arena-dashboard/bookings">
-          <ArrowLeft className="h-4 w-4" />
-          Bookings
-        </Link>
-      </Button>
+        <ArrowLeft className="h-3.5 w-3.5 transition-transform group-hover:-translate-x-0.5" />
+        Bookings
+      </Link>
 
-      {/* ── Hero: identity + status + at-a-glance facts ── */}
-      <Card className={cn("border-l-4", STATUS_ACCENT[s.status])}>
-        <CardContent className="space-y-5">
-          <div className="min-w-0 space-y-2">
-            <div className="flex flex-wrap items-center gap-2.5">
-              <CopyButton
-                value={s.shipmentNumber}
-                label="Shipment number"
-                mono
-                className="text-2xl font-bold tracking-tight"
-              />
-              <Badge
-                variant="outline"
-                className={cn("px-2.5 py-1 text-xs font-semibold", cfg.className)}
-              >
-                {cfg.label}
-              </Badge>
-              {s.paymentDeferred && (
-                <Badge
-                  variant="outline"
-                  className="border-amber-200 bg-amber-50 text-xs font-medium text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-400"
-                >
-                  <Banknote className="mr-1 h-3 w-3" />
-                  Payment on arrival
-                </Badge>
-              )}
-              {isMultipiece && (
-                <Badge
-                  variant="outline"
-                  className="border-amber-300 bg-amber-100 text-xs font-semibold text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-300"
-                >
-                  <Layers className="mr-1 h-3 w-3" />
-                  Multipiece · {totalBoxes} boxes
-                </Badge>
-              )}
-            </div>
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
-              <span>
-                <span className="font-medium text-foreground">{s.org.name}</span>
-                {s.client && <span> · for {s.client.companyName}</span>}
-              </span>
-              {s.bookedAt && <span>· Booked {fmtDatetime(s.bookedAt)}</span>}
-              <span>· Created {fmtDatetime(s.createdAt)}</span>
-            </div>
-          </div>
+      {/* ── Hero: identity + status + at-a-glance facts. No card — the status
+          colour stays as the accent rule down the left, which is the part ops
+          actually reads from across the room. ── */}
+      <header className={cn("border-l-4 pl-5", STATUS_ACCENT[s.status])}>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <CopyButton
+            value={s.shipmentNumber}
+            label="Shipment number"
+            mono
+            className="text-2xl font-bold tracking-tight sm:text-3xl"
+          />
+          <Badge
+            variant="outline"
+            className={cn("px-2.5 py-1 text-xs font-semibold", cfg.className)}
+          >
+            {cfg.label}
+          </Badge>
+          {/* These two stay as chips. They change how the parcel is handled and
+              are wrong to lose in a line of running text. */}
+          {s.paymentDeferred && (
+            <Badge
+              variant="outline"
+              className="border-amber-200 bg-amber-50 text-xs font-medium text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-400"
+            >
+              <Banknote className="mr-1 h-3 w-3" />
+              Payment on arrival
+            </Badge>
+          )}
+          {isMultipiece && (
+            <Badge
+              variant="outline"
+              className="border-amber-300 bg-amber-100 text-xs font-semibold text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-300"
+            >
+              <Layers className="mr-1 h-3 w-3" />
+              Multipiece · {totalBoxes} boxes
+            </Badge>
+          )}
+        </div>
 
-          <Separator />
+        <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
+          <span className="font-medium text-foreground">{s.org.name}</span>
+          {s.client && <span>· for {s.client.companyName}</span>}
+          {s.bookedAt && <span>· Booked {fmtDatetime(s.bookedAt)}</span>}
+          <span>· Created {fmtDatetime(s.createdAt)}</span>
+        </p>
 
-          <div className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-3 lg:grid-cols-5">
-            <HeroStat icon={MapPin} label="Route" value={route} />
-            <HeroStat
-              icon={Scale}
-              label="Chargeable wt"
-              value={fmtNum(s.totalChargeableWeightKg, " kg")}
-            />
-            <HeroStat
-              icon={Banknote}
-              label="Declared value"
-              value={fmtMoney(totalDeclared, s.currency)}
-            />
-            <HeroStat
-              icon={Receipt}
-              label="Quoted total"
-              value={fmtMoney(s.quotedTotal, s.currency)}
-              strong
-            />
-            <HeroStat
-              icon={Truck}
-              label="Carrier"
-              value={s.selectedVendorName ?? "Not selected"}
-              warn={!s.selectedVendorId}
-            />
-          </div>
-        </CardContent>
-      </Card>
+        <div className="mt-5 grid grid-cols-2 gap-x-6 gap-y-5 border-t pt-5 sm:grid-cols-3 lg:grid-cols-5">
+          <HeroStat icon={MapPin} label="Route" value={route} />
+          <HeroStat
+            icon={Scale}
+            label="Chargeable wt"
+            value={fmtNum(s.totalChargeableWeightKg, " kg")}
+          />
+          <HeroStat
+            icon={Banknote}
+            label="Declared value"
+            value={fmtMoney(totalDeclared, s.currency)}
+          />
+          <HeroStat
+            icon={Receipt}
+            label="Quoted total"
+            value={fmtMoney(s.quotedTotal, s.currency)}
+            strong
+          />
+          <HeroStat
+            icon={Truck}
+            label="Carrier"
+            value={s.selectedVendorName ?? "Not selected"}
+            warn={!s.selectedVendorId}
+          />
+        </div>
+      </header>
 
       {/* ── Needs attention — the loud triage banner, full width ── */}
       <NeedsAttention
@@ -768,9 +738,10 @@ export default async function BookingDetailPage({
       />
 
       {/* ── Grid: LEFT reviews the shipment, RIGHT operates on it ── */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        {/* ── LEFT / MAIN column: review ── */}
-        <div className="space-y-6 lg:col-span-2">
+      <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
+        {/* ── LEFT / MAIN column: review. Flat sections — ops is reading here,
+            so nothing is boxed except what needs acting on. ── */}
+        <div className="space-y-8 lg:col-span-2">
           {/* Money owed on this booking, if it shipped before paying */}
           {collection && (
             <PaymentCollectionCard
@@ -782,6 +753,7 @@ export default async function BookingDetailPage({
           {/* First-mile (door → hub) pickup leg — only when opted in */}
           {hasFirstMile && (
             <FirstMilePickupCard
+              chrome="plain"
               status={firstMileStatus}
               hubLabel={s.firstMileHubLabel}
               courierName={s.firstMileVendorName}
@@ -820,253 +792,249 @@ export default async function BookingDetailPage({
           />
 
           {/* Parties */}
-          <Card>
-            <CardTitleRow icon={Building2} title="Parties" />
-            <CardContent className="pt-4">
-              <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
-                <div className="space-y-2">
-                  <SectionLabel>Booking org</SectionLabel>
-                  <p className="text-sm font-semibold text-foreground">
-                    {s.org.name}
+          <SectionBlock icon={Building2} title="Parties">
+            <div className="grid grid-cols-1 gap-8 sm:grid-cols-2">
+              <div className="min-w-0 space-y-2">
+                <p className="text-xs text-muted-foreground">Booking org</p>
+                <p className="text-base font-semibold text-foreground">
+                  {s.org.name}
+                </p>
+                <InfoRow icon={Hash} label="Slug" value={s.org.slug} />
+                <InfoRow
+                  icon={Mail}
+                  label="Email"
+                  value={s.org.email}
+                  copyLabel="Org email"
+                />
+                <InfoRow
+                  icon={Phone}
+                  label="Phone"
+                  value={s.org.phone}
+                  copyLabel="Org phone"
+                />
+                <InfoRow
+                  icon={User}
+                  label="Contact"
+                  value={s.org.contactName}
+                />
+                <div className="flex items-center gap-2 pt-1">
+                  <Badge variant="secondary" className="text-[10px]">
+                    {s.org.plan}
+                  </Badge>
+                  <Badge variant="outline" className="font-mono text-[10px]">
+                    {num(s.org.markupPercent).toFixed(1)}% markup
+                  </Badge>
+                </div>
+              </div>
+
+              {s.client ? (
+                <div className="min-w-0 space-y-2">
+                  <p className="text-xs text-muted-foreground">
+                    Shipping for (client)
                   </p>
-                  <InfoRow icon={Hash} label="Slug" value={s.org.slug} />
+                  <p className="text-base font-semibold text-foreground">
+                    {s.client.companyName}
+                  </p>
+                  <InfoRow
+                    icon={User}
+                    label="Contact"
+                    value={s.client.contactName}
+                  />
                   <InfoRow
                     icon={Mail}
                     label="Email"
-                    value={s.org.email}
-                    copyLabel="Org email"
+                    value={s.client.email}
+                    copyLabel="Client email"
                   />
                   <InfoRow
                     icon={Phone}
                     label="Phone"
-                    value={s.org.phone}
-                    copyLabel="Org phone"
+                    value={s.client.phone}
+                    copyLabel="Client phone"
                   />
-                  <InfoRow
-                    icon={User}
-                    label="Contact"
-                    value={s.org.contactName}
-                  />
-                  <div className="flex items-center gap-2 pt-1">
-                    <Badge variant="secondary" className="text-[10px]">
-                      {s.org.plan}
-                    </Badge>
-                    <Badge variant="outline" className="font-mono text-[10px]">
-                      {num(s.org.markupPercent).toFixed(1)}% markup
-                    </Badge>
-                  </div>
+                  <Badge variant="outline" className="mt-1 text-[10px]">
+                    {s.client.companyKind}
+                  </Badge>
                 </div>
-
-                {s.client ? (
-                  <div className="space-y-2">
-                    <SectionLabel>Shipping for (client)</SectionLabel>
-                    <p className="text-sm font-semibold text-foreground">
-                      {s.client.companyName}
-                    </p>
-                    <InfoRow
-                      icon={User}
-                      label="Contact"
-                      value={s.client.contactName}
-                    />
-                    <InfoRow
-                      icon={Mail}
-                      label="Email"
-                      value={s.client.email}
-                      copyLabel="Client email"
-                    />
-                    <InfoRow
-                      icon={Phone}
-                      label="Phone"
-                      value={s.client.phone}
-                      copyLabel="Client phone"
-                    />
-                    <Badge variant="outline" className="mt-1 text-[10px]">
-                      {s.client.companyKind}
-                    </Badge>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    <SectionLabel>Shipping for</SectionLabel>
-                    <p className="text-sm text-muted-foreground">
-                      The org is shipping on its own behalf.
-                    </p>
-                  </div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
+              ) : (
+                <div className="min-w-0 space-y-2">
+                  <p className="text-xs text-muted-foreground">Shipping for</p>
+                  <p className="text-sm text-muted-foreground">
+                    The org is shipping on its own behalf.
+                  </p>
+                </div>
+              )}
+            </div>
+          </SectionBlock>
 
           {/* Addresses */}
-          <Card>
-            <CardTitleRow icon={MapPin} title="Addresses" />
-            <CardContent className="pt-4">
-              <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
-                <AddressCard title="Pickup" address={s.pickupAddress} />
-                <AddressCard title="Delivery" address={s.deliveryAddress} />
-                {s.billingAddress && !s.billingSameAsDelivery && (
-                  <AddressCard
-                    title="Billing"
-                    address={s.billingAddress}
-                    flag="Separate billing party"
-                  />
-                )}
-                {s.billingSameAsDelivery && (
-                  <div>
-                    <SectionLabel>Billing</SectionLabel>
-                    <p className="text-xs text-muted-foreground">
-                      Same as delivery address.
-                    </p>
-                  </div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
+          <SectionBlock icon={MapPin} title="Addresses">
+            <div className="grid grid-cols-1 gap-8 sm:grid-cols-2">
+              <AddressCard title="Pickup" address={s.pickupAddress} />
+              <AddressCard title="Delivery" address={s.deliveryAddress} />
+              {s.billingAddress && !s.billingSameAsDelivery && (
+                <AddressCard
+                  title="Billing"
+                  address={s.billingAddress}
+                  flag="Separate billing party"
+                />
+              )}
+              {s.billingSameAsDelivery && (
+                <div className="min-w-0">
+                  <p className="text-xs text-muted-foreground">Billing</p>
+                  <p className="mt-1.5 text-sm text-muted-foreground">
+                    Same as delivery address.
+                  </p>
+                </div>
+              )}
+            </div>
+          </SectionBlock>
 
           {/* Packages / packing list */}
-          <Card className="overflow-hidden">
-            <CardTitleRow
-              icon={Package}
-              title="Boxes & packing list"
-              right={
-                <span className="text-xs text-muted-foreground">
-                  {totalBoxes} box{totalBoxes !== 1 ? "es" : ""} ·{" "}
-                  {totalItemLines} item{totalItemLines !== 1 ? "s" : ""}
-                </span>
-              }
-            />
+          <SectionBlock
+            icon={Package}
+            title="Boxes & packing list"
+            right={`${totalBoxes} box${totalBoxes !== 1 ? "es" : ""} · ${totalItemLines} item${totalItemLines !== 1 ? "s" : ""}`}
+          >
             <PackageBoxList
               packages={s.packages}
               fallbackCurrency={s.currency}
               variant="ops"
             />
-          </Card>
+          </SectionBlock>
 
           {/* Service + charges */}
-          <Card>
-            <CardTitleRow icon={Truck} title="Service & pricing" />
-            <CardContent className="pt-4">
-              {s.selectedVendorId ? (
-                <div className="grid grid-cols-2 gap-x-8 gap-y-4 sm:grid-cols-3">
-                  <Field label="Carrier" value={s.selectedVendorName} strong />
-                  <Field label="Product" value={s.selectedProductName} />
-                  <Field
-                    label="Quoted total"
-                    value={fmtMoney(s.quotedTotal, s.currency)}
-                    strong
-                  />
-                  <Field
-                    label="Markup applied"
-                    value={
-                      s.markupPercentApplied != null
-                        ? `${num(s.markupPercentApplied).toFixed(1)}%`
-                        : null
-                    }
-                  />
-                  <Field
-                    label="Chargeable weight"
-                    value={fmtNum(s.totalChargeableWeightKg, " kg")}
-                  />
-                  <Field label="Cargo type" value={s.declaredCargoType} />
-                </div>
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  No service selected yet.
-                </p>
-              )}
+          <SectionBlock icon={Truck} title="Service & pricing">
+            {s.selectedVendorId ? (
+              <div className="grid grid-cols-2 gap-x-8 gap-y-5 sm:grid-cols-3">
+                <Field label="Carrier" value={s.selectedVendorName} strong />
+                <Field label="Product" value={s.selectedProductName} />
+                <Field
+                  label="Quoted total"
+                  value={fmtMoney(s.quotedTotal, s.currency)}
+                  strong
+                />
+                <Field
+                  label="Markup applied"
+                  value={
+                    s.markupPercentApplied != null
+                      ? `${num(s.markupPercentApplied).toFixed(1)}%`
+                      : null
+                  }
+                />
+                <Field
+                  label="Chargeable weight"
+                  value={fmtNum(s.totalChargeableWeightKg, " kg")}
+                />
+                <Field label="Cargo type" value={s.declaredCargoType} />
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                No service selected yet.
+              </p>
+            )}
 
-              {/* Readable charge breakdown */}
-              {charges?.charges && charges.charges.length > 0 && (
-                <div className="mt-5 overflow-hidden rounded-lg border">
-                  <div className="divide-y divide-border/50">
-                    {charges.charges.map((c, i) => (
-                      <div
-                        key={i}
-                        className="flex items-center justify-between px-4 py-2.5 text-sm"
-                      >
-                        <span className="text-muted-foreground">{c.name}</span>
-                        <span className="font-medium tabular-nums">
-                          {fmtMoney(c.amount, c.currency)}
-                        </span>
-                      </div>
-                    ))}
-                    <div className="flex items-center justify-between bg-muted/40 px-4 py-2.5 text-sm font-bold">
-                      <span>Total</span>
-                      <span className="tabular-nums">
-                        {fmtMoney(s.quotedTotal, s.currency)}
-                      </span>
-                    </div>
+            {/* Readable charge breakdown */}
+            {charges?.charges && charges.charges.length > 0 && (
+              <dl className="mt-6 space-y-2.5">
+                {charges.charges.map((c, i) => (
+                  <div
+                    key={i}
+                    className="flex items-baseline justify-between gap-4 text-sm"
+                  >
+                    <dt className="text-muted-foreground">{c.name}</dt>
+                    <dd className="tabular-nums text-foreground">
+                      {fmtMoney(c.amount, c.currency)}
+                    </dd>
                   </div>
+                ))}
+                <div className="flex items-baseline justify-between gap-4 border-t pt-2.5">
+                  <dt className="text-sm font-medium text-foreground">Total</dt>
+                  <dd className="text-base font-semibold tabular-nums tracking-tight text-foreground">
+                    {fmtMoney(s.quotedTotal, s.currency)}
+                  </dd>
                 </div>
-              )}
+              </dl>
+            )}
 
-              {s.chargesSnapshot && (
-                <details className="mt-4">
-                  <summary className="cursor-pointer select-none text-xs text-muted-foreground hover:text-foreground">
-                    View raw charges snapshot
-                  </summary>
-                  <pre className="mt-2 overflow-x-auto rounded-md bg-muted p-3 text-[10px] leading-relaxed text-muted-foreground">
-                    {JSON.stringify(s.chargesSnapshot, null, 2)}
-                  </pre>
-                </details>
-              )}
-            </CardContent>
-          </Card>
+            {s.chargesSnapshot && (
+              <details className="mt-5">
+                <summary className="cursor-pointer select-none text-xs text-muted-foreground hover:text-foreground">
+                  View raw charges snapshot
+                </summary>
+                <pre className="mt-2 overflow-x-auto rounded-md bg-muted p-3 text-[10px] leading-relaxed text-muted-foreground">
+                  {JSON.stringify(s.chargesSnapshot, null, 2)}
+                </pre>
+              </details>
+            )}
+          </SectionBlock>
 
-          {/* Documents */}
-          <DocumentManager shipmentId={s.id} documents={s.documents} />
+          {/* Documents. The uploader keeps its card — it is a form, and the
+              rest of this column is not. */}
+          <SectionBlock
+            icon={FileWarning}
+            title="Shipment documents"
+            right={`${s.documents.length} file${s.documents.length !== 1 ? "s" : ""}`}
+          >
+            <DocumentManager shipmentId={s.id} documents={s.documents} />
+          </SectionBlock>
 
           {/* Internal notes — ops-only scratchpad */}
-          <Card>
-            <CardTitleRow icon={StickyNote} title="Internal notes" />
-            <CardContent className="pt-4">
-              <InternalNotesPanel
-                shipmentId={s.id}
-                initialNotes={s.internalNotes ?? ""}
-              />
-            </CardContent>
-          </Card>
+          <SectionBlock icon={StickyNote} title="Internal notes">
+            <InternalNotesPanel
+              shipmentId={s.id}
+              initialNotes={s.internalNotes ?? ""}
+            />
+          </SectionBlock>
 
           {s.walletTransactions.length > 0 && (
-            <CollapsibleCard
+            <CollapsibleSection
               icon={Wallet}
               title="Wallet transactions"
               summary={`${s.walletTransactions.length} recent`}
-              contentClassName="px-0 pb-0 pt-0"
             >
-              <Table>
-                <TableHeader>
-                  <TableRow className="bg-muted/40">
-                    <TableHead className="pl-5 text-xs">Type</TableHead>
-                    <TableHead className="text-xs">Status</TableHead>
-                    <TableHead className="text-right text-xs">Amount</TableHead>
-                    <TableHead className="pr-5 text-right text-xs">
-                      Balance after
-                    </TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {s.walletTransactions.map((txn) => (
-                    <TableRow key={txn.id}>
-                      <TableCell className="pl-5 text-xs font-medium">
-                        {txn.type.replace(/_/g, " ")}
-                      </TableCell>
-                      <TableCell className="text-xs text-muted-foreground">
-                        {txn.status.toLowerCase()}
-                      </TableCell>
-                      <TableCell className="text-right text-xs tabular-nums">
-                        {fmtMoney(txn.amount, txn.currency)}
-                      </TableCell>
-                      <TableCell className="pr-5 text-right text-xs tabular-nums text-muted-foreground">
-                        {fmtMoney(txn.balanceAfter, txn.currency)}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </CollapsibleCard>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b text-left">
+                      <th className="pb-2 pr-4 text-xs font-normal text-muted-foreground">
+                        Type
+                      </th>
+                      <th className="pb-2 pr-4 text-xs font-normal text-muted-foreground">
+                        Status
+                      </th>
+                      <th className="pb-2 pr-4 text-right text-xs font-normal text-muted-foreground">
+                        Amount
+                      </th>
+                      <th className="pb-2 text-right text-xs font-normal text-muted-foreground">
+                        Balance after
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/60">
+                    {s.walletTransactions.map((txn) => (
+                      <tr key={txn.id}>
+                        <td className="py-2.5 pr-4 font-medium text-foreground">
+                          {txn.type.replace(/_/g, " ")}
+                        </td>
+                        <td className="py-2.5 pr-4 text-muted-foreground">
+                          {txn.status.toLowerCase()}
+                        </td>
+                        <td className="py-2.5 pr-4 text-right tabular-nums text-foreground">
+                          {fmtMoney(txn.amount, txn.currency)}
+                        </td>
+                        <td className="py-2.5 text-right tabular-nums text-muted-foreground">
+                          {fmtMoney(txn.balanceAfter, txn.currency)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </CollapsibleSection>
           )}
 
-          <CollapsibleCard icon={Info} title="Shipment meta">
+          <CollapsibleSection icon={Info} title="Shipment meta">
             <div className="space-y-2.5">
               <InfoRow
                 icon={Hash}
@@ -1083,7 +1051,7 @@ export default async function BookingDetailPage({
                 value={`${s.documents.length} file${s.documents.length !== 1 ? "s" : ""}`}
               />
             </div>
-          </CollapsibleCard>
+          </CollapsibleSection>
         </div>
 
         {/* ── RIGHT / rail: operate on the shipment (sticky) ── */}
@@ -1226,61 +1194,62 @@ export default async function BookingDetailPage({
               }
             >
               {s.statusHistory.length === 0 ? (
-                <p className="text-xs text-muted-foreground">
+                <p className="text-sm text-muted-foreground">
                   No events recorded yet.
                 </p>
               ) : (
-                <ol className="relative ml-2 space-y-4 border-l border-border">
-                  {s.statusHistory.map((evt, i) => {
-                    const toCfg = STATUS_CONFIG[evt.toStatus];
-                    const isCurrent = i === 0;
-                    return (
-                      <li key={evt.id} className="pl-4">
-                        <div
-                          className={cn(
-                            "absolute -left-1.5 mt-1.5 h-3 w-3 rounded-full border-2 border-background bg-muted-foreground/40",
-                            isCurrent && "bg-foreground",
-                          )}
-                        />
-                        <div className="space-y-0.5">
-                          <div className="flex flex-wrap items-center gap-1.5">
-                            {evt.fromStatus && (
-                              <>
-                                <span className="text-[10px] text-muted-foreground">
-                                  {STATUS_CONFIG[evt.fromStatus]?.label ??
-                                    evt.fromStatus}
-                                </span>
-                                <span className="text-[10px] text-muted-foreground">
-                                  →
-                                </span>
-                              </>
+                <div className="relative">
+                  {/* One hairline threading the events together */}
+                  <div className="absolute bottom-3 left-0.75 top-2 w-px bg-border" />
+                  <ol>
+                    {s.statusHistory.map((evt, i) => {
+                      const toCfg = STATUS_CONFIG[evt.toStatus];
+                      const isCurrent = i === 0;
+                      return (
+                        <li
+                          key={evt.id}
+                          className="relative pb-4 pl-5 last:pb-0"
+                        >
+                          <span
+                            className={cn(
+                              "absolute left-0 top-1.5 h-1.75 w-1.75 rounded-full ring-2 ring-background",
+                              toCfg?.dotClassName ?? "bg-muted-foreground/30",
                             )}
-                            <Badge
-                              variant="outline"
-                              className={`px-1.5 py-0 text-[10px] ${toCfg?.className ?? ""}`}
-                            >
-                              {toCfg?.label ?? evt.toStatus}
-                            </Badge>
+                          />
+                          <p
+                            className={cn(
+                              "text-sm text-foreground",
+                              isCurrent && "font-semibold",
+                            )}
+                          >
+                            {evt.fromStatus && (
+                              <span className="font-normal text-muted-foreground">
+                                {STATUS_CONFIG[evt.fromStatus]?.label ??
+                                  evt.fromStatus}{" "}
+                                →{" "}
+                              </span>
+                            )}
+                            {toCfg?.label ?? evt.toStatus}
                             {isCurrent && (
-                              <span className="rounded-full border border-border bg-foreground/5 px-1.5 py-0 text-[10px] font-medium text-muted-foreground">
+                              <span className="ml-1.5 text-xs font-normal text-muted-foreground">
                                 Current
                               </span>
                             )}
-                          </div>
-                          <p className="text-[10px] text-muted-foreground">
+                          </p>
+                          <p className="mt-0.5 text-xs text-muted-foreground/70">
                             {fmtDatetime(evt.createdAt)} · by{" "}
                             {evt.changedByType.toLowerCase()}
                           </p>
                           {evt.note && (
-                            <p className="mt-1 rounded bg-muted/50 px-2 py-1 text-xs text-foreground">
+                            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
                               {evt.note}
                             </p>
                           )}
-                        </div>
-                      </li>
-                    );
-                  })}
-                </ol>
+                        </li>
+                      );
+                    })}
+                  </ol>
+                </div>
               )}
             </CollapsibleCard>
           </div>
@@ -1293,4 +1262,3 @@ export default async function BookingDetailPage({
 // ---------------------------------------------------------------------------
 // Field — label over value, for the service grid
 // ---------------------------------------------------------------------------
-

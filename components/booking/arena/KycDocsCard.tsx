@@ -8,8 +8,6 @@ import {
   ChevronDown,
 } from "lucide-react";
 import { KycDocType } from "@/generated/prisma";
-import { Card, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import {
   KYC_DOC_CONFIGS,
   KYC_KEY_TO_DOC_TYPE,
@@ -70,45 +68,47 @@ function DocLink({ doc }: { doc: KycDocRow }) {
       href={doc.fileUrl}
       target="_blank"
       rel="noopener noreferrer"
-      className="group flex items-center gap-2.5 rounded-md border px-2.5 py-2 transition-colors hover:bg-muted/40"
+      className="group -mx-2 flex items-center gap-2.5 rounded-md px-2 py-2.5 transition-colors hover:bg-muted/50"
     >
       <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1.5">
-          <p className="truncate text-sm font-medium text-foreground">
+        <p className="flex items-center gap-1.5">
+          <span className="truncate text-sm font-medium text-foreground">
             {doc.label}
-          </p>
-          {doc.docNumber && (
-            <span className="truncate font-mono text-xs text-muted-foreground">
-              {doc.docNumber}
-            </span>
-          )}
+          </span>
           {doc.verifiedAt ? (
             <BadgeCheck className="h-3.5 w-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
           ) : null}
+          {/* An expired document is a hold waiting to happen, so it keeps its
+              colour — as text, which is all the emphasis it needed. */}
           {expired && (
-            <span className="shrink-0 rounded-full border border-red-200 bg-red-50 px-1.5 py-px text-[10px] font-medium text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-400">
+            <span className="shrink-0 text-xs font-medium text-red-600 dark:text-red-400">
               Expired
             </span>
           )}
-        </div>
+        </p>
+        <p className="mt-0.5 truncate text-xs text-muted-foreground">
+          {doc.docNumber && (
+            <span className="font-mono">{doc.docNumber} · </span>
+          )}
+          {fmtBytes(doc.fileSize)} · {fmtDate(doc.uploadedAt)}
+        </p>
       </div>
-      <span className="shrink-0 text-[10px] text-muted-foreground/70">
-        {fmtBytes(doc.fileSize)} · {fmtDate(doc.uploadedAt)}
-      </span>
-      <ExternalLink className="h-3.5 w-3.5 shrink-0 text-muted-foreground group-hover:text-foreground" />
+      <ExternalLink className="h-3.5 w-3.5 shrink-0 text-muted-foreground/40 transition-colors group-hover:text-foreground" />
     </a>
   );
 }
 
+/** A required document nobody has uploaded. Keeps its tint: this is the row
+ *  ops is here to find. */
 function MissingRow({ label }: { label: string }) {
   return (
-    <div className="flex items-center gap-2.5 rounded-md border border-dashed border-amber-300 bg-amber-50/60 px-2.5 py-2 dark:border-amber-800 dark:bg-amber-950/20">
+    <div className="-mx-2 flex items-center gap-2.5 rounded-md bg-amber-50/70 px-2 py-2.5 dark:bg-amber-950/20">
       <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
       <p className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
         {label}
       </p>
-      <span className="shrink-0 text-[10px] font-medium text-amber-700 dark:text-amber-400">
+      <span className="shrink-0 text-xs font-medium text-amber-700 dark:text-amber-400">
         Not on file
       </span>
     </div>
@@ -154,7 +154,9 @@ export function KycDocsCard({
         )
       : shipmentType
         ? KYC_DOC_CONFIGS.filter((c) =>
-            c.requiredFor.includes(shipmentType as "CSB4" | "CSB5" | "COMMERCIAL"),
+            c.requiredFor.includes(
+              shipmentType as "CSB4" | "CSB5" | "COMMERCIAL",
+            ),
           )
         : [];
   const requiredTypes = new Set(
@@ -165,35 +167,34 @@ export function KycDocsCard({
   );
   const extras = docs.filter((d) => !requiredTypes.has(d.docType));
 
-  const typeLabel = shipmentType ? (TYPE_LABEL[shipmentType] ?? shipmentType) : null;
+  const typeLabel = shipmentType
+    ? (TYPE_LABEL[shipmentType] ?? shipmentType)
+    : null;
   // Keep the card open only while it needs ops' eyes — a required doc is
   // missing. When the vault is complete it collapses to a one-line reference.
   const needsAttention = missing.length > 0;
 
   return (
-    <Card className="gap-0 py-0">
+    <section>
       <details open={needsAttention || undefined} className="group">
-        <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 [&::-webkit-details-marker]:hidden">
-          <FileCheck2 className="h-4 w-4 shrink-0 text-muted-foreground" />
-          <CardTitle className="text-sm">KYC documents</CardTitle>
-          <span className="hidden truncate text-xs text-muted-foreground sm:inline">
-            · {partyLabel}
-          </span>
-          <span className="ml-auto flex items-center gap-2">
+        <summary className="flex cursor-pointer list-none items-center gap-2 border-b pb-2.5 [&::-webkit-details-marker]:hidden">
+          <h2 className="flex min-w-0 items-center gap-1.5 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+            <FileCheck2 className="h-3.5 w-3.5 shrink-0" />
+            KYC documents
+            <span className="hidden truncate font-normal normal-case tracking-normal sm:inline">
+              · {partyLabel}
+            </span>
+          </h2>
+          <span className="ml-auto flex items-center gap-2.5">
             {kycWaived && (
-              <Badge variant="outline" className="text-[11px] font-medium">
-                KYC waived
-              </Badge>
+              <span className="text-xs text-muted-foreground">KYC waived</span>
             )}
             {missing.length > 0 ? (
-              <Badge
-                variant="outline"
-                className="border-amber-300 bg-amber-100 text-[11px] font-medium text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-300"
-              >
+              <span className="text-xs font-medium text-amber-700 dark:text-amber-400">
                 {missing.length} missing
-              </Badge>
+              </span>
             ) : (
-              <span className="text-xs text-muted-foreground">
+              <span className="text-xs text-muted-foreground group-open:hidden">
                 {docs.length} on file
               </span>
             )}
@@ -201,9 +202,9 @@ export function KycDocsCard({
           </span>
         </summary>
 
-        <div className="space-y-3 border-t px-4 py-3">
+        <div className="space-y-5 pt-4">
           {kycWaived && (
-            <p className="rounded-md border bg-muted/40 px-2.5 py-2 text-xs leading-relaxed text-muted-foreground">
+            <p className="text-sm leading-relaxed text-muted-foreground">
               An Arena admin waived KYC for this party when the booking was
               placed, so only an Aadhaar card was required. Anything else below
               was supplied voluntarily.
@@ -212,11 +213,11 @@ export function KycDocsCard({
 
           {/* Required for this shipment type */}
           {requiredConfigs.length > 0 && (
-            <div className="space-y-1.5">
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+            <div>
+              <h3 className="text-sm font-semibold text-foreground">
                 {kycWaived ? "Required" : `Required for ${typeLabel}`}
-              </p>
-              <div className="space-y-1.5">
+              </h3>
+              <div className="mt-2 divide-y divide-border/60">
                 {requiredConfigs.map((c) => {
                   const doc = byType.get(KYC_KEY_TO_DOC_TYPE[c.key]);
                   return doc ? (
@@ -231,11 +232,11 @@ export function KycDocsCard({
 
           {/* Anything else on file */}
           {extras.length > 0 && (
-            <div className="space-y-1.5">
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+            <div>
+              <h3 className="text-sm font-semibold text-foreground">
                 Also on file
-              </p>
-              <div className="space-y-1.5">
+              </h3>
+              <div className="mt-2 divide-y divide-border/60">
                 {extras.map((doc) => (
                   <DocLink key={doc.id} doc={doc} />
                 ))}
@@ -245,12 +246,12 @@ export function KycDocsCard({
 
           {/* Nothing at all */}
           {docs.length === 0 && requiredConfigs.length === 0 && (
-            <p className="rounded-md border border-dashed py-4 text-center text-sm text-muted-foreground">
+            <p className="text-sm text-muted-foreground">
               No KYC documents on file for this party.
             </p>
           )}
         </div>
       </details>
-    </Card>
+    </section>
   );
 }

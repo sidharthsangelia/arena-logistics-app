@@ -1,11 +1,7 @@
 import { prisma } from "@/utils/db";
 import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
-import {
-  PartyType,
-  ShipmentMode,
-  ShipmentStatus,
-} from "@/generated/prisma";
+import { PartyType, ShipmentMode, ShipmentStatus } from "@/generated/prisma";
 
 import {
   ArrowLeft,
@@ -29,10 +25,10 @@ import {
   History,
   ReceiptText,
   Bell,
+  RefreshCw,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
@@ -52,9 +48,11 @@ import {
   fmtMoney,
   fmtNum,
   STATUS_ACCENT,
-  SectionLabel,
+  CardTitleRow,
   HeroStat,
   CollapsibleCard,
+  CollapsibleSection,
+  SectionBlock,
   InfoRow,
   AddressCard,
   Field,
@@ -213,7 +211,11 @@ const TONE_TEXT: Record<AttnTone, string> = {
 function NeedsAttention({
   items,
 }: {
-  items: { tone: AttnTone; icon: React.ComponentType<{ className?: string }>; text: string }[];
+  items: {
+    tone: AttnTone;
+    icon: React.ComponentType<{ className?: string }>;
+    text: string;
+  }[];
 }) {
   if (items.length === 0) return null;
 
@@ -221,10 +223,12 @@ function NeedsAttention({
   const sorted = [...items].sort((a, b) => order[a.tone] - order[b.tone]);
   const worst = sorted[0].tone;
 
+  // The only boxed block on the page, and deliberately so: everything else is
+  // flat, which is exactly what makes this one read as an alarm.
   return (
-    <Card
+    <div
       className={cn(
-        "gap-0 border-l-4 py-0",
+        "rounded-lg border border-l-4 bg-muted/20 px-5 py-4",
         worst === "danger"
           ? "border-l-red-500"
           : worst === "warn"
@@ -232,24 +236,31 @@ function NeedsAttention({
             : "border-l-sky-400",
       )}
     >
-      <CardContent className="space-y-2 px-4 py-3.5">
-        <p className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
-          <Bell className="h-3.5 w-3.5" />
+      <p className="flex items-center gap-2">
+        <Bell className={cn("h-4 w-4 shrink-0", TONE_TEXT[worst])} />
+        <span className="text-sm font-semibold text-foreground">
           Needs attention
-        </p>
-        <ul className="space-y-1.5">
-          {sorted.map((item, i) => {
-            const Icon = item.icon;
-            return (
-              <li key={i} className="flex items-start gap-2 text-sm">
-                <Icon className={cn("mt-0.5 h-3.5 w-3.5 shrink-0", TONE_TEXT[item.tone])} />
-                <span className="text-foreground">{item.text}</span>
-              </li>
-            );
-          })}
-        </ul>
-      </CardContent>
-    </Card>
+        </span>
+        <span className="text-xs text-muted-foreground">
+          {sorted.length} item{sorted.length > 1 ? "s" : ""}
+        </span>
+      </p>
+      <ul className="mt-3 space-y-2">
+        {sorted.map((item, i) => {
+          const Icon = item.icon;
+          return (
+            <li key={i} className="flex items-start gap-2.5 text-sm">
+              <Icon
+                className={cn("mt-0.5 h-4 w-4 shrink-0", TONE_TEXT[item.tone])}
+              />
+              <span className="leading-relaxed text-foreground">
+                {item.text}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
   );
 }
 
@@ -341,7 +352,11 @@ export default async function DomesticBookingDetailPage({
   }[] = [];
 
   if (s.status === ShipmentStatus.ON_HOLD) {
-    attention.push({ tone: "danger", icon: AlertTriangle, text: "Shipment is on hold." });
+    attention.push({
+      tone: "danger",
+      icon: AlertTriangle,
+      text: "Shipment is on hold.",
+    });
   }
   if (missingDocs.length > 0) {
     attention.push({
@@ -380,7 +395,12 @@ export default async function DomesticBookingDetailPage({
       text: "The courier order was cancelled. The shipment itself is still open.",
     });
   }
-  if (isOpen && pushedToCourier && !hasAwb && s.domesticCourierStatus !== "FAILED") {
+  if (
+    isOpen &&
+    pushedToCourier &&
+    !hasAwb &&
+    s.domesticCourierStatus !== "FAILED"
+  ) {
     attention.push({
       tone: "info",
       icon: Truck,
@@ -396,98 +416,88 @@ export default async function DomesticBookingDetailPage({
   }
 
   return (
-    <div className="mx-auto max-w-screen-xl space-y-6 px-6 py-8">
+    <div className="mx-auto max-w-7xl space-y-8 px-6 py-8">
       {/* ── Back ── */}
-      <Button
-        asChild
-        variant="ghost"
-        size="sm"
-        className="-ml-2 h-8 gap-1.5 text-muted-foreground"
+      <Link
+        href="/arena-dashboard/domestic-bookings"
+        className="group inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
       >
-        <Link href="/arena-dashboard/domestic-bookings">
-          <ArrowLeft className="h-4 w-4" />
-          Domestic bookings
-        </Link>
-      </Button>
+        <ArrowLeft className="h-3.5 w-3.5 transition-transform group-hover:-translate-x-0.5" />
+        Domestic bookings
+      </Link>
 
-      {/* ── Hero ── */}
-      <Card className={cn("border-l-4", STATUS_ACCENT[s.status])}>
-        <CardContent className="space-y-5">
-          <div className="min-w-0 space-y-2">
-            <div className="flex flex-wrap items-center gap-2.5">
-              <CopyButton
-                value={s.shipmentNumber}
-                label="Shipment number"
-                mono
-                className="text-2xl font-bold tracking-tight"
-              />
-              <Badge
-                variant="outline"
-                className={cn("px-2.5 py-1 text-xs font-semibold", cfg.className)}
-              >
-                {cfg.label}
-              </Badge>
-              <Badge variant="secondary" className="px-2 py-0.5 text-[11px]">
-                Domestic
-              </Badge>
-              {s.codEnabled && (
-                <Badge variant="outline" className="gap-1 px-2 py-0.5 text-[11px]">
-                  <Banknote className="h-3 w-3" />
-                  COD {fmtMoney(s.codAmount, "INR")}
-                </Badge>
-              )}
-              {s.paymentDeferred && (
-                <Badge variant="outline" className="gap-1 px-2 py-0.5 text-[11px]">
-                  <Wallet className="h-3 w-3" />
-                  Payment deferred
-                </Badge>
-              )}
-            </div>
-            <p className="text-sm text-muted-foreground">{route}</p>
-          </div>
+      {/* ── Hero. No card — the status colour stays as the accent rule down the
+          left, which is the part ops reads from across the room. ── */}
+      <header className={cn("border-l-4 pl-5", STATUS_ACCENT[s.status])}>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <CopyButton
+            value={s.shipmentNumber}
+            label="Shipment number"
+            mono
+            className="text-2xl font-bold tracking-tight sm:text-3xl"
+          />
+          <Badge
+            variant="outline"
+            className={cn("px-2.5 py-1 text-xs font-semibold", cfg.className)}
+          >
+            {cfg.label}
+          </Badge>
+          {/* COD and deferred payment change what has to happen at handover, so
+              they stay as chips rather than sinking into a line of prose. */}
+          {s.codEnabled && (
+            <Badge variant="outline" className="gap-1 px-2 py-0.5 text-[11px]">
+              <Banknote className="h-3 w-3" />
+              COD {fmtMoney(s.codAmount, "INR")}
+            </Badge>
+          )}
+          {s.paymentDeferred && (
+            <Badge variant="outline" className="gap-1 px-2 py-0.5 text-[11px]">
+              <Wallet className="h-3 w-3" />
+              Payment deferred
+            </Badge>
+          )}
+        </div>
+        <p className="mt-2 text-sm text-muted-foreground">
+          <span className="font-medium text-foreground">Domestic</span> ·{" "}
+          {route}
+        </p>
 
-          <Separator />
-
-          <div className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-3 lg:grid-cols-5">
-            <HeroStat
-              icon={Building2}
-              label="Booked by"
-              value={s.org.name}
-            />
-            <HeroStat
-              icon={Truck}
-              label="Courier"
-              value={s.selectedProductName ?? "Not selected"}
-              warn={!s.selectedProductName}
-            />
-            <HeroStat
-              icon={Layers}
-              label="Boxes"
-              value={`${totalBoxes} (${totalItemLines} item${totalItemLines === 1 ? "" : "s"})`}
-            />
-            <HeroStat
-              icon={Scale}
-              label="Actual weight"
-              value={fmtNum(s.totalActualWeightKg, " kg")}
-            />
-            <HeroStat
-              icon={Receipt}
-              label="Freight charged"
-              value={fmtMoney(s.quotedTotal, s.currency)}
-              strong
-            />
-          </div>
-        </CardContent>
-      </Card>
+        <div className="mt-5 grid grid-cols-2 gap-x-6 gap-y-5 border-t pt-5 sm:grid-cols-3 lg:grid-cols-5">
+          <HeroStat icon={Building2} label="Booked by" value={s.org.name} />
+          <HeroStat
+            icon={Truck}
+            label="Courier"
+            value={s.selectedProductName ?? "Not selected"}
+            warn={!s.selectedProductName}
+          />
+          <HeroStat
+            icon={Layers}
+            label="Boxes"
+            value={`${totalBoxes} (${totalItemLines} item${totalItemLines === 1 ? "" : "s"})`}
+          />
+          <HeroStat
+            icon={Scale}
+            label="Actual weight"
+            value={fmtNum(s.totalActualWeightKg, " kg")}
+          />
+          <HeroStat
+            icon={Receipt}
+            label="Freight charged"
+            value={fmtMoney(s.quotedTotal, s.currency)}
+            strong
+          />
+        </div>
+      </header>
 
       <NeedsAttention items={attention} />
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
-        {/* ── Main column ── */}
-        <div className="min-w-0 space-y-6">
+      <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_340px]">
+        {/* ── Main column: review. Flat sections — ops is reading here, so
+            nothing is boxed except what needs acting on. ── */}
+        <div className="min-w-0 space-y-8">
           {/* Addresses */}
-          <Card>
-            <CardContent className="grid gap-6 sm:grid-cols-2">
+          <SectionBlock icon={MapPin} title="Addresses">
+            <div className="grid gap-8 sm:grid-cols-2">
               <AddressCard title="Pickup from" address={s.pickupAddress} />
               <AddressCard title="Deliver to" address={s.deliveryAddress} />
               {s.billingAddress && !s.billingSameAsDelivery && (
@@ -497,93 +507,100 @@ export default async function DomesticBookingDetailPage({
                   flag="Different party"
                 />
               )}
-            </CardContent>
-          </Card>
+            </div>
+          </SectionBlock>
 
           {/* Goods */}
-          <Card>
-            <CardContent className="space-y-4">
-              <div className="flex items-center justify-between gap-3">
-                <SectionLabel>Goods</SectionLabel>
-                <p className="mb-3 text-xs text-muted-foreground">
-                  Declared {fmtMoney(totalDeclared, "INR")}
-                </p>
-              </div>
-              <PackageBoxList
-                packages={s.packages}
-                fallbackCurrency={s.currency ?? "INR"}
-                variant="ops"
-              />
-            </CardContent>
-          </Card>
+          <SectionBlock
+            icon={Package}
+            title="Goods"
+            right={`${totalBoxes} box${totalBoxes === 1 ? "" : "es"} · declared ${fmtMoney(totalDeclared, "INR")}`}
+          >
+            <PackageBoxList
+              packages={s.packages}
+              fallbackCurrency={s.currency ?? "INR"}
+              variant="ops"
+            />
+          </SectionBlock>
 
           {/* GST paperwork — the domestic counterpart to the customs block on
               the export page. Listed as a checklist rather than a file list,
               because what ops needs to know is what is MISSING. */}
-          <Card>
-            <CardContent className="space-y-3">
-              <SectionLabel>GST paperwork</SectionLabel>
-              <p className="-mt-2 text-xs text-muted-foreground">
-                Sender is {senderIsCompany ? "a company" : "an individual"} ·
-                declared value {fmtMoney(totalDeclared, "INR")}
-                {totalDeclared > EWAY_BILL_THRESHOLD &&
-                  ` · over the ₹${EWAY_BILL_THRESHOLD.toLocaleString("en-IN")} e-way bill threshold`}
-              </p>
-              <ul className="space-y-2">
-                {DOMESTIC_DOC_CONFIGS.map((config) => {
-                  const attached = s.documents.find(
-                    (d) => d.docType === config.docType,
-                  );
-                  const required =
-                    config.key === "taxInvoice"
-                      ? senderIsCompany
-                      : config.key === "eWayBill"
-                        ? totalDeclared > EWAY_BILL_THRESHOLD
-                        : false;
+          <SectionBlock
+            icon={ReceiptText}
+            title="GST paperwork"
+            right={
+              senderIsCompany
+                ? "Sender is a company"
+                : "Sender is an individual"
+            }
+          >
+            <p className="text-sm text-muted-foreground">
+              Declared value {fmtMoney(totalDeclared, "INR")}
+              {totalDeclared > EWAY_BILL_THRESHOLD &&
+                ` · over the ₹${EWAY_BILL_THRESHOLD.toLocaleString("en-IN")} e-way bill threshold`}
+            </p>
+            <ul className="divide-y divide-border/60">
+              {DOMESTIC_DOC_CONFIGS.map((config) => {
+                const attached = s.documents.find(
+                  (d) => d.docType === config.docType,
+                );
+                const required =
+                  config.key === "taxInvoice"
+                    ? senderIsCompany
+                    : config.key === "eWayBill"
+                      ? totalDeclared > EWAY_BILL_THRESHOLD
+                      : false;
 
-                  return (
-                    <li
-                      key={config.key}
-                      className="flex items-start gap-2.5 text-sm"
-                    >
-                      {attached ? (
-                        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
-                      ) : required ? (
-                        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-500" />
-                      ) : (
-                        <ReceiptText className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground/40" />
-                      )}
-                      <div className="min-w-0 flex-1">
-                        <p className="font-medium text-foreground">
-                          {config.label}
-                          <span className="ml-2 text-xs font-normal text-muted-foreground">
-                            {required ? "Required" : "Optional"}
-                          </span>
-                        </p>
-                        <p className="truncate text-xs text-muted-foreground">
-                          {attached
-                            ? attached.fileName
-                            : required
-                              ? "Not on file"
-                              : "Not provided"}
-                        </p>
-                      </div>
-                      {attached && (
-                        <a
-                          href={attached.fileUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="shrink-0 text-xs text-primary underline-offset-2 hover:underline"
+                return (
+                  <li
+                    key={config.key}
+                    className="flex items-start gap-2.5 py-2.5 text-sm first:pt-0 last:pb-0"
+                  >
+                    {attached ? (
+                      <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+                    ) : required ? (
+                      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-500" />
+                    ) : (
+                      <ReceiptText className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground/40" />
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="font-medium text-foreground">
+                        {config.label}
+                        <span
+                          className={cn(
+                            "ml-2 text-xs font-normal text-muted-foreground",
+                            required &&
+                              !attached &&
+                              "font-medium text-red-600 dark:text-red-400",
+                          )}
                         >
-                          Open
-                        </a>
-                      )}
-                    </li>
-                  );
-                })}
-              </ul>
-            </CardContent>
-          </Card>
+                          {required ? "Required" : "Optional"}
+                        </span>
+                      </p>
+                      <p className="truncate text-xs text-muted-foreground">
+                        {attached
+                          ? attached.fileName
+                          : required
+                            ? "Not on file"
+                            : "Not provided"}
+                      </p>
+                    </div>
+                    {attached && (
+                      <a
+                        href={attached.fileUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="shrink-0 text-xs text-primary underline-offset-4 hover:underline"
+                      >
+                        Open
+                      </a>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </SectionBlock>
 
           {/* Party KYC — Aadhaar only, and only for an individual sender. */}
           {requiredKycKeys.length > 0 && (
@@ -596,18 +613,28 @@ export default async function DomesticBookingDetailPage({
             />
           )}
 
-          {/* Documents */}
-          <DocumentManager shipmentId={s.id} documents={s.documents} />
+          {/* Documents. The uploader keeps its card — it is a form, and the
+              rest of this column is not. */}
+          <SectionBlock
+            icon={FileWarning}
+            title="Shipment documents"
+            right={`${s.documents.length} file${s.documents.length === 1 ? "" : "s"}`}
+          >
+            <DocumentManager shipmentId={s.id} documents={s.documents} />
+          </SectionBlock>
 
           {/* Pricing */}
-          <CollapsibleCard
+          <CollapsibleSection
             icon={Receipt}
             title="Pricing"
             summary={fmtMoney(s.quotedTotal, s.currency)}
           >
             <div className="space-y-2 text-sm">
               {charges?.charges?.map((c, i) => (
-                <div key={i} className="flex justify-between text-muted-foreground">
+                <div
+                  key={i}
+                  className="flex justify-between text-muted-foreground"
+                >
                   <span>{c.name}</span>
                   <span className="text-foreground tabular-nums">
                     {fmtMoney(c.amount, c.currency)}
@@ -634,10 +661,10 @@ export default async function DomesticBookingDetailPage({
                 </p>
               )}
             </div>
-          </CollapsibleCard>
+          </CollapsibleSection>
 
           {/* Status history */}
-          <CollapsibleCard
+          <CollapsibleSection
             icon={History}
             title="Status history"
             summary={`${s.statusHistory.length} event${s.statusHistory.length === 1 ? "" : "s"}`}
@@ -648,13 +675,17 @@ export default async function DomesticBookingDetailPage({
                   <Clock className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                   <div className="min-w-0">
                     <p className="text-foreground">
-                      {e.fromStatus ? `${STATUS_CONFIG[e.fromStatus]?.label ?? e.fromStatus} → ` : ""}
+                      {e.fromStatus
+                        ? `${STATUS_CONFIG[e.fromStatus]?.label ?? e.fromStatus} → `
+                        : ""}
                       <span className="font-medium">
                         {STATUS_CONFIG[e.toStatus]?.label ?? e.toStatus}
                       </span>
                     </p>
                     {e.note && (
-                      <p className="mt-0.5 text-xs text-muted-foreground">{e.note}</p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        {e.note}
+                      </p>
                     )}
                     <p className="mt-0.5 text-xs text-muted-foreground">
                       {fmtDatetime(e.createdAt)} · {e.changedByType}
@@ -663,27 +694,33 @@ export default async function DomesticBookingDetailPage({
                 </li>
               ))}
             </ul>
-          </CollapsibleCard>
+          </CollapsibleSection>
 
           {/* Reference */}
-          <CollapsibleCard icon={Package} title="Booking reference">
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <CollapsibleSection icon={Package} title="Booking reference">
+            <div className="grid gap-x-8 gap-y-5 sm:grid-cols-2 lg:grid-cols-3">
               <Field label="Created" value={fmtDatetime(s.createdAt)} />
               <Field label="Booked" value={fmtDatetime(s.bookedAt)} />
               <Field label="Last updated" value={fmtDatetime(s.updatedAt)} />
-              <Field label="Courier order id" value={s.domesticCourierOrderId} />
+              <Field
+                label="Courier order id"
+                value={s.domesticCourierOrderId}
+              />
               <Field label="AWB" value={s.domesticAwbNumber} />
-              <Field label="Pushed to courier" value={fmtDatetime(s.domesticCourierBookedAt)} />
+              <Field
+                label="Pushed to courier"
+                value={fmtDatetime(s.domesticCourierBookedAt)}
+              />
             </div>
-          </CollapsibleCard>
+          </CollapsibleSection>
         </div>
 
         {/* ── Operate rail ── */}
         <div className="space-y-4 lg:sticky lg:top-6 lg:self-start">
           {/* Customer */}
-          <Card>
-            <CardContent className="space-y-3">
-              <SectionLabel>Customer</SectionLabel>
+          <Card className="gap-0 py-0">
+            <CardTitleRow icon={Building2} title="Customer" />
+            <CardContent className="space-y-2.5 py-4">
               <InfoRow icon={Building2} label="Org" value={s.org.name} />
               {s.client && (
                 <InfoRow
@@ -710,10 +747,22 @@ export default async function DomesticBookingDetailPage({
             </CardContent>
           </Card>
 
-          {/* Status */}
-          <Card>
-            <CardContent className="space-y-3">
-              <SectionLabel>Update status</SectionLabel>
+          {/* Status — the primary control, so it is always open and carries an
+              emphasis ring. */}
+          <Card className="gap-0 py-0 ring-2 ring-primary/20">
+            <CardTitleRow
+              icon={RefreshCw}
+              title="Update status"
+              right={
+                <Badge
+                  variant="outline"
+                  className={cn("text-xs font-medium", cfg.className)}
+                >
+                  {cfg.label}
+                </Badge>
+              }
+            />
+            <CardContent className="py-4">
               <StatusUpdatePanel
                 shipmentId={s.id}
                 currentStatus={s.status}
@@ -725,9 +774,9 @@ export default async function DomesticBookingDetailPage({
           {/* Courier. The order is placed automatically when the booking is
               paid for, so this is a read-out most of the time; the controls are
               for the runs that failed. */}
-          <Card>
-            <CardContent className="space-y-3">
-              <SectionLabel>Courier</SectionLabel>
+          <Card className="gap-0 py-0">
+            <CardTitleRow icon={Truck} title="Courier" />
+            <CardContent className="py-4">
               <DomesticCourierPanel
                 shipmentId={s.id}
                 state={{
@@ -769,7 +818,10 @@ export default async function DomesticBookingDetailPage({
                 </li>
               )}
               {s.walletTransactions.map((t) => (
-                <li key={t.id} className="flex items-start justify-between gap-3 text-sm">
+                <li
+                  key={t.id}
+                  className="flex items-start justify-between gap-3 text-sm"
+                >
                   <div className="min-w-0">
                     <p className="font-medium text-foreground">
                       {t.type.replaceAll("_", " ")}
