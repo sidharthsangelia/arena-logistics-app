@@ -1,117 +1,100 @@
-import {
-  ArrowRight,
-  ChevronDown,
-  Clock,
-  FileText,
-  MapPin,
-  Package,
-  Receipt,
-  Wallet,
-} from "lucide-react";
-import { Card, CardContent } from "@/components/ui/card";
+import { ArrowRight, ChevronDown } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 
-// Every skeleton here mirrors its real card 1:1 — same chrome, same static
+// Every skeleton here mirrors its real section 1:1 — same rules, same static
 // text, only the data-dependent bits are blocked out. That way nothing
 // reflows or "pops" when the real content lands; a skeleton block just turns
-// into text in the same box.
+// into text in the same place.
 
-function StaticHeader({
-  icon: Icon,
-  title,
-}: {
-  icon: React.ComponentType<{ className?: string }>;
-  title: string;
-}) {
+/** The section heading is static text, so it renders for real in the skeleton. */
+function SectionTitle({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex items-center justify-between px-5 py-3.5 border-b bg-muted/20">
-      <div className="flex items-center gap-2">
-        <Icon className="h-3.5 w-3.5 text-muted-foreground" />
-        <span className="text-sm font-semibold text-foreground">{title}</span>
+    <div className="border-b pb-2.5">
+      <span className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+        {children}
+      </span>
+    </div>
+  );
+}
+
+// ─── Header: shipment number, total, route, key figures ────────────────────
+
+export function HeaderSkeleton() {
+  return (
+    <div className="space-y-8">
+      <div className="flex flex-wrap items-start justify-between gap-x-8 gap-y-4">
+        <div className="space-y-2.5">
+          <Skeleton className="h-9 w-52" />
+          <Skeleton className="h-4 w-72" />
+        </div>
+        <div className="space-y-2 text-right">
+          <Skeleton className="ml-auto h-9 w-32" />
+          <Skeleton className="ml-auto h-3 w-20" />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-4">
+        <div className="space-y-2">
+          <Skeleton className="h-3 w-10" />
+          <Skeleton className="h-7 w-28" />
+          <Skeleton className="h-4 w-36" />
+        </div>
+        <div className="flex items-center gap-1.5 self-end pb-6 text-muted-foreground/40">
+          <span className="h-px w-6 bg-border sm:w-12" />
+          <ArrowRight className="h-3.5 w-3.5 shrink-0" />
+          <span className="h-px w-6 bg-border sm:w-12" />
+        </div>
+        <div className="flex flex-col items-end space-y-2">
+          <Skeleton className="h-3 w-6" />
+          <Skeleton className="h-7 w-28" />
+          <Skeleton className="h-4 w-36" />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-x-8 gap-y-6 border-t pt-6 sm:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="space-y-2">
+            <Skeleton className="h-3 w-20" />
+            <Skeleton className="h-5 w-24" />
+          </div>
+        ))}
       </div>
     </div>
   );
 }
 
-// ─── Hero: shipment number, route, quick stats, journey rail ───────────────
+// ─── Status: current stage, tracking number, journey rail ──────────────────
 
-export function HeroSkeleton() {
+export function StatusSkeleton() {
   return (
-    <Card className="overflow-hidden">
-      <CardContent className="p-0">
-        {/* Top bar */}
-        <div className="flex flex-wrap items-center justify-between gap-4 border-b bg-muted/20 px-5 py-4">
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg border bg-background">
-              <Package className="h-4 w-4 text-muted-foreground" />
-            </div>
-            <div className="space-y-1.5">
-              <Skeleton className="h-5 w-40" />
-              <Skeleton className="h-3 w-48" />
-            </div>
-          </div>
-          <div className="text-right space-y-1.5">
-            <Skeleton className="ml-auto h-7 w-28" />
-            <Skeleton className="ml-auto h-3 w-20" />
-          </div>
-        </div>
+    <div className="space-y-6">
+      <SectionTitle>Status</SectionTitle>
 
-        {/* Route strip */}
-        <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 px-5 py-4 border-b">
-          <div className="space-y-1.5">
-            <Skeleton className="h-3 w-10" />
-            <Skeleton className="h-5 w-24" />
-            <Skeleton className="h-3 w-28" />
-          </div>
-          <div className="flex items-center gap-2 text-muted-foreground/40">
-            <div className="h-px w-8 bg-border" />
-            <ArrowRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground/30" />
-            <div className="h-px w-8 bg-border" />
-          </div>
-          <div className="flex flex-col items-end space-y-1.5">
-            <Skeleton className="h-3 w-6" />
-            <Skeleton className="h-5 w-24" />
-            <Skeleton className="h-3 w-28" />
-          </div>
+      <div className="flex flex-wrap items-start justify-between gap-x-8 gap-y-4">
+        <div className="space-y-2">
+          <Skeleton className="h-7 w-32" />
+          <Skeleton className="h-4 w-80 max-w-full" />
         </div>
+        <div className="space-y-2 text-right">
+          <Skeleton className="ml-auto h-3 w-24" />
+          <Skeleton className="ml-auto h-5 w-32" />
+        </div>
+      </div>
 
-        {/* Quick stat tiles */}
-        <div className="grid grid-cols-2 gap-0 sm:grid-cols-4 divide-x divide-y sm:divide-y-0 border-b">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="flex flex-col gap-1.5 px-4 py-4">
-              <Skeleton className="h-3 w-16" />
-              <Skeleton className="h-4 w-20" />
-            </div>
-          ))}
-        </div>
-
-        {/* Tracking number row — label is static, only the value is dynamic */}
-        <div className="flex items-center justify-between px-5 py-3 border-b">
-          <span className="text-xs text-muted-foreground">
-            Tracking number
-          </span>
-          <Skeleton className="h-4 w-28" />
-        </div>
-
-        {/* Journey rail */}
-        <div className="p-5">
-          <div className="rounded-lg border bg-card px-5 py-5 space-y-4">
-            <div className="space-y-2">
-              <Skeleton className="h-5 w-24 rounded-full" />
-              <Skeleton className="h-3 w-56" />
-            </div>
-            <div className="flex items-start justify-between pt-1">
-              {Array.from({ length: 5 }).map((_, i) => (
-                <div key={i} className="flex flex-col items-center gap-2">
-                  <Skeleton className="h-[26px] w-[26px] rounded-full" />
-                  <Skeleton className="h-2 w-10" />
-                </div>
-              ))}
-            </div>
+      <div className="pt-2">
+        <div className="relative">
+          <div className="absolute left-0 right-0 top-2.75 h-px bg-border" />
+          <div className="relative flex justify-between">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="flex flex-col items-center gap-2">
+                <Skeleton className="h-5.5 w-5.5 rounded-full" />
+                <Skeleton className="h-3 w-12" />
+              </div>
+            ))}
           </div>
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }
 
@@ -120,15 +103,13 @@ export function HeroSkeleton() {
 
 export function FirstMileSkeleton() {
   return (
-    <Card className="overflow-hidden">
-      <CardContent className="flex items-center gap-3 p-4">
-        <Skeleton className="h-9 w-9 shrink-0 rounded-lg" />
-        <div className="flex-1 space-y-1.5">
-          <Skeleton className="h-4 w-36" />
-          <Skeleton className="h-3 w-52" />
-        </div>
-      </CardContent>
-    </Card>
+    <div className="space-y-6">
+      <SectionTitle>Door pickup</SectionTitle>
+      <div className="space-y-2">
+        <Skeleton className="h-5 w-64" />
+        <Skeleton className="h-4 w-80 max-w-full" />
+      </div>
+    </div>
   );
 }
 
@@ -136,19 +117,14 @@ export function FirstMileSkeleton() {
 
 function AddressBlockSkeleton() {
   return (
-    <div className="rounded-lg border bg-card p-4 space-y-2.5">
-      <div className="flex items-center gap-1.5">
-        <div className="h-1.5 w-1.5 rounded-full bg-muted-foreground/30" />
-        <Skeleton className="h-3 w-28" />
-      </div>
-      <div className="space-y-1.5">
-        <Skeleton className="h-4 w-32" />
-        <Skeleton className="h-3 w-24" />
-        <div className="space-y-1 pt-1">
-          <Skeleton className="h-3 w-full" />
-          <Skeleton className="h-3 w-3/4" />
-          <Skeleton className="h-3 w-1/2" />
-        </div>
+    <div className="space-y-2">
+      <Skeleton className="h-3 w-28" />
+      <Skeleton className="h-4 w-32" />
+      <Skeleton className="h-4 w-24" />
+      <div className="space-y-1 pt-2">
+        <Skeleton className="h-4 w-full" />
+        <Skeleton className="h-4 w-3/4" />
+        <Skeleton className="h-4 w-1/2" />
       </div>
     </div>
   );
@@ -156,13 +132,15 @@ function AddressBlockSkeleton() {
 
 export function AddressesSkeleton() {
   return (
-    <Card className="overflow-hidden">
-      <StaticHeader icon={MapPin} title="Addresses" />
-      <div className="grid gap-3 p-4 sm:grid-cols-2">
+    <div className="space-y-6">
+      <SectionTitle>Addresses</SectionTitle>
+      <div className="grid gap-8 sm:grid-cols-2">
         <AddressBlockSkeleton />
-        <AddressBlockSkeleton />
+        <div className="sm:border-l sm:pl-8">
+          <AddressBlockSkeleton />
+        </div>
       </div>
-    </Card>
+    </div>
   );
 }
 
@@ -170,99 +148,94 @@ export function AddressesSkeleton() {
 
 export function PackagesSkeleton() {
   return (
-    <Card className="overflow-hidden">
-      <StaticHeader icon={Package} title="What's inside" />
-      <div className="space-y-3 p-4">
+    <div className="space-y-6">
+      <SectionTitle>What&apos;s inside</SectionTitle>
+      <div className="space-y-6">
         {Array.from({ length: 2 }).map((_, i) => (
-          <div key={i} className="space-y-2 rounded-lg border p-3">
+          <div key={i} className="space-y-3">
             <div className="flex items-center justify-between">
               <Skeleton className="h-4 w-24" />
-              <Skeleton className="h-4 w-16" />
+              <Skeleton className="h-4 w-20" />
             </div>
-            <Skeleton className="h-3 w-full" />
-            <Skeleton className="h-3 w-2/3" />
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-2/3" />
           </div>
         ))}
       </div>
-    </Card>
+    </div>
   );
 }
 
 // ─── Pricing ────────────────────────────────────────────────────────────────
 
-// The real card starts collapsed, so the skeleton is just the summary row it
+// The real section starts collapsed, so the skeleton is just the summary row it
 // collapses to: title, total, chevron. Anything taller would collapse away the
-// moment the data lands, which is a worse jump than a slightly short placeholder.
+// moment the data lands, which is a worse jump than a short placeholder.
 export function PricingSkeleton() {
   return (
-    <Card className="overflow-hidden">
-      <div className="flex items-center justify-between gap-4 border-b bg-muted/20 px-5 py-3.5">
-        <div className="flex items-center gap-2">
-          <Receipt className="h-3.5 w-3.5 text-muted-foreground" />
-          <span className="text-sm font-semibold text-foreground">
-            Pricing breakdown
-          </span>
-        </div>
-        <div className="flex items-center gap-3">
-          <Skeleton className="h-5 w-24" />
-          <ChevronDown className="h-4 w-4 text-muted-foreground/40" />
-        </div>
-      </div>
-    </Card>
+    <div className="flex items-baseline justify-between gap-4 border-b pb-2.5">
+      <span className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+        Pricing
+      </span>
+      <span className="flex items-baseline gap-3">
+        <Skeleton className="h-4 w-24" />
+        <ChevronDown className="h-3.5 w-3.5 self-center text-muted-foreground/40" />
+      </span>
+    </div>
   );
 }
 
 // ─── Documents ──────────────────────────────────────────────────────────────
 
-// One card, grouped: shipping label, tax invoice, then the file list. The
-// skeleton keeps the group bands so the card does not reshuffle when the real
-// groups land, and blocks out only the labels, since which groups apply depends
-// on the shipment.
+// One section, grouped: shipping label, tax invoice, then the file list. The
+// skeleton keeps the group rhythm so the section does not reshuffle when the
+// real groups land, and blocks out only the labels, since which groups apply
+// depends on the shipment.
 export function DocumentsSkeleton() {
   return (
-    <Card className="overflow-hidden">
-      <StaticHeader icon={FileText} title="Documents and paperwork" />
-      {Array.from({ length: 2 }).map((_, group) => (
-        <div key={group} className="border-b last:border-0">
-          <div className="space-y-1 bg-muted/10 px-5 py-2.5">
-            <Skeleton className="h-3 w-28" />
-            <Skeleton className="h-3 w-56" />
-          </div>
-          <div className="divide-y divide-border/40">
+    <div className="space-y-6">
+      <SectionTitle>Documents</SectionTitle>
+      <div className="space-y-7">
+        {Array.from({ length: 2 }).map((_, group) => (
+          <div key={group} className="space-y-3">
+            <div className="space-y-1.5">
+              <Skeleton className="h-4 w-32" />
+              <Skeleton className="h-3 w-64 max-w-full" />
+            </div>
             {Array.from({ length: group === 0 ? 1 : 2 }).map((_, i) => (
-              <div key={i} className="flex items-center gap-3 px-5 py-3.5">
-                <Skeleton className="h-9 w-9 shrink-0 rounded-lg" />
+              <div key={i} className="flex items-center gap-3 py-2">
+                <Skeleton className="h-4 w-4 shrink-0 rounded" />
                 <div className="flex-1 space-y-1.5">
                   <Skeleton className="h-4 w-40" />
-                  <Skeleton className="h-3 w-56" />
+                  <Skeleton className="h-3 w-56 max-w-full" />
                 </div>
               </div>
             ))}
           </div>
-        </div>
-      ))}
-    </Card>
+        ))}
+      </div>
+    </div>
   );
 }
 
-// ─── Wallet transactions — conditional, kept compact ────────────────────────
+// ─── Wallet activity — conditional, kept compact ────────────────────────────
 
 export function WalletTransactionsSkeleton() {
   return (
-    <Card className="overflow-hidden">
-      <StaticHeader icon={Wallet} title="Wallet transactions" />
-      <div className="divide-y divide-border/40">
+    <div className="space-y-5">
+      <SectionTitle>Wallet activity</SectionTitle>
+      <div className="space-y-4">
         {Array.from({ length: 2 }).map((_, i) => (
-          <div key={i} className="flex items-center justify-between px-5 py-3.5">
+          <div key={i} className="flex items-baseline justify-between gap-4">
             <div className="space-y-1.5">
-              <Skeleton className="h-3 w-20" />
-              <Skeleton className="h-2.5 w-24" />
+              <Skeleton className="h-4 w-24" />
+              <Skeleton className="h-3 w-40" />
             </div>
-            <Skeleton className="h-4 w-16" />
+            <Skeleton className="h-4 w-20" />
           </div>
         ))}
       </div>
-    </Card>
+    </div>
   );
 }
 
@@ -270,28 +243,21 @@ export function WalletTransactionsSkeleton() {
 
 export function BookingSummarySkeleton() {
   return (
-    <Card className="overflow-hidden">
-      <div className="px-4 py-3 border-b bg-muted/20">
-        <p className="text-xs font-medium text-muted-foreground">
-          Booking details
-        </p>
+    <div className="space-y-5">
+      <SectionTitle>Booking</SectionTitle>
+      <div className="space-y-1.5">
+        <Skeleton className="h-4 w-32" />
+        <Skeleton className="h-3 w-24" />
       </div>
-      <div className="flex items-center gap-2.5 border-b p-4">
-        <Skeleton className="h-8 w-8 shrink-0 rounded-full" />
-        <div className="flex-1 space-y-1.5">
-          <Skeleton className="h-4 w-32" />
-          <Skeleton className="h-3 w-24" />
-        </div>
-      </div>
-      <div className="space-y-3 px-4 py-3">
-        {Array.from({ length: 3 }).map((_, i) => (
-          <div key={i} className="flex items-center justify-between">
-            <Skeleton className="h-3 w-14" />
+      <div className="space-y-2.5">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="flex items-center justify-between gap-4">
+            <Skeleton className="h-3 w-16" />
             <Skeleton className="h-3 w-24" />
           </div>
         ))}
       </div>
-    </Card>
+    </div>
   );
 }
 
@@ -299,39 +265,18 @@ export function BookingSummarySkeleton() {
 
 export function StatusHistorySkeleton() {
   return (
-    <Card className="overflow-hidden">
-      <div className="flex items-center gap-2 px-4 py-3 border-b bg-muted/20">
-        <Clock className="h-3.5 w-3.5 text-muted-foreground" />
-        <p className="text-xs font-medium text-muted-foreground">
-          Status history
-        </p>
-      </div>
-      <div className="space-y-4 px-4 py-4">
+    <div className="space-y-5">
+      <SectionTitle>History</SectionTitle>
+      <div className="relative space-y-5">
+        <div className="absolute bottom-3 left-0.75 top-2 w-px bg-border" />
         {Array.from({ length: 3 }).map((_, i) => (
-          <div key={i} className="flex items-start gap-2.5">
-            <Skeleton className="mt-1.5 h-[7px] w-[7px] shrink-0 rounded-full" />
-            <div className="flex-1 space-y-1.5">
-              <Skeleton className="h-4 w-20 rounded-full" />
-              <Skeleton className="h-2.5 w-24" />
-            </div>
+          <div key={i} className="relative space-y-1.5 pl-5">
+            <Skeleton className="absolute left-0 top-1.5 h-1.75 w-1.75 rounded-full" />
+            <Skeleton className="h-4 w-24" />
+            <Skeleton className="h-3 w-32" />
           </div>
         ))}
       </div>
-    </Card>
-  );
-}
-
-// ─── Shipment ID sidebar ─────────────────────────────────────────────────────
-
-export function ShipmentIdSkeleton() {
-  return (
-    <Card>
-      <CardContent className="space-y-1.5 px-4 py-3">
-        <p className="text-xs font-medium text-muted-foreground">
-          Shipment ID
-        </p>
-        <Skeleton className="h-3 w-full" />
-      </CardContent>
-    </Card>
+    </div>
   );
 }

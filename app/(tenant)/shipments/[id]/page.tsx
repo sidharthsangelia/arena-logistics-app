@@ -9,28 +9,17 @@ import {
   ArrowLeft,
   ArrowRight,
   ChevronDown,
-  Clock,
   ExternalLink,
-  FileCheck2,
   FileText,
-  MapPin,
-  Package,
   Printer,
   Receipt,
-  Wallet,
-  Mail,
-  Phone,
   Info,
   AlertTriangle,
-  CheckCircle2,
-  CircleDot,
-  Circle,
+  Check,
   Download,
 } from "lucide-react";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { getShipmentTaxInvoiceAction } from "@/actions/invoices/taxInvoices.action";
 import { PackageBoxList } from "@/components/booking/PackageBoxList";
 import { FirstMilePickupCard } from "@/components/booking/FirstMilePickupCard";
@@ -53,7 +42,8 @@ import {
 import { formatEnumLabel } from "@/utils/helpers";
 import { SHIPMENT_TYPE_INFO, shipmentTypeLabel } from "@/lib/booking/cargo";
 import {
-  HeroSkeleton,
+  HeaderSkeleton,
+  StatusSkeleton,
   FirstMileSkeleton,
   AddressesSkeleton,
   PackagesSkeleton,
@@ -62,15 +52,14 @@ import {
   WalletTransactionsSkeleton,
   BookingSummarySkeleton,
   StatusHistorySkeleton,
-  ShipmentIdSkeleton,
 } from "./skeletons";
 
 // ---------------------------------------------------------------------------
 // Data fetch — tenant-scoped. The org lookup is fast (single indexed query)
 // and awaited up front; the shipment itself is fetched as one query and
-// handed down as a shared promise. Every card below awaits that same promise
+// handed down as a shared promise. Every section below awaits that same promise
 // independently inside its own <Suspense>, so the page shell (back link,
-// grid layout) paints immediately and each card streams in the instant the
+// grid layout) paints immediately and each section streams in the instant the
 // query resolves, with a layout-matched skeleton until then.
 // ---------------------------------------------------------------------------
 
@@ -297,7 +286,6 @@ function packageTotals(shipment: Awaited<ShipmentPromise>) {
 type JourneyStep = {
   status: ShipmentStatus[];
   label: string;
-  tooltip: string;
 };
 
 const JOURNEY_STEPS: JourneyStep[] = [
@@ -308,7 +296,6 @@ const JOURNEY_STEPS: JourneyStep[] = [
       "BOOKED" as ShipmentStatus,
     ],
     label: "Booked",
-    tooltip: "Shipment booking confirmed by our system.",
   },
   {
     status: [
@@ -316,7 +303,6 @@ const JOURNEY_STEPS: JourneyStep[] = [
       "DOCUMENTS_PENDING" as ShipmentStatus,
     ],
     label: "Processing",
-    tooltip: "Our ops team is preparing labels, AWB, and carrier booking.",
   },
   {
     status: [
@@ -324,18 +310,15 @@ const JOURNEY_STEPS: JourneyStep[] = [
       "CUSTOMS_HOLD" as ShipmentStatus,
       "ON_HOLD" as ShipmentStatus,
     ],
-    label: "In Transit",
-    tooltip: "Shipment has been handed to the carrier and is moving.",
+    label: "In transit",
   },
   {
     status: ["OUT_FOR_DELIVERY" as ShipmentStatus],
-    label: "Out for Delivery",
-    tooltip: "On the delivery vehicle heading to the final destination.",
+    label: "Out for delivery",
   },
   {
     status: ["DELIVERED" as ShipmentStatus],
     label: "Delivered",
-    tooltip: "Successfully delivered to the destination.",
   },
 ];
 
@@ -349,15 +332,112 @@ function getJourneyState(currentStatus: ShipmentStatus) {
 }
 
 // ---------------------------------------------------------------------------
-// Small primitives
+// Layout primitives
+//
+// The page carries no card chrome at all: hierarchy comes from type size and
+// weight, and the only rules on the page are the hairline under each section
+// title and the one splitting the sidebar off. Anything that needs to stand
+// out (a status, an alert, a money figure) earns it with size, weight or
+// colour rather than a box.
+//
+// Six steps, used consistently everywhere on the page. Nothing is sized or
+// weighted off this list, which is what keeps a page with this much data on it
+// from turning into noise:
+//
+//   Display  text-3xl font-semibold tracking-tight  shipment number, total
+//   Lead     text-xl  font-semibold tracking-tight  route cities, current status
+//   Stat     text-base font-semibold                key figures, money
+//   Heading  text-sm  font-semibold                 group and block titles
+//   Eyebrow  text-xs  font-semibold uppercase       section titles, muted
+//   Body     text-sm                                content, muted when secondary
+//   Meta     text-xs  muted                         field labels, timestamps
+//
+// Weight carries the emphasis inside a step: font-semibold is reserved for the
+// value a customer came to read, font-medium for its supporting detail.
 // ---------------------------------------------------------------------------
 
-function MicroLabel({ children }: { children: React.ReactNode }) {
+/** Section heading: small caps over a single hairline, with optional right meta. */
+function SectionTitle({
+  children,
+  meta,
+  tooltip,
+}: {
+  children: React.ReactNode;
+  meta?: React.ReactNode;
+  tooltip?: string;
+}) {
   return (
-    <p className="text-xs font-medium text-muted-foreground">{children}</p>
+    <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-b pb-2.5">
+      <h2 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+        {children}
+        {tooltip && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Info className="h-3 w-3 cursor-help text-muted-foreground/40" />
+            </TooltipTrigger>
+            <TooltipContent className="max-w-56 text-xs normal-case">
+              {tooltip}
+            </TooltipContent>
+          </Tooltip>
+        )}
+      </h2>
+      {meta && (
+        <span className="text-xs text-muted-foreground">{meta}</span>
+      )}
+    </div>
   );
 }
 
+/** A labelled value: quiet label, then the value a step up in weight. */
+function Field({
+  label,
+  value,
+  sub,
+  mono,
+  align = "left",
+  tooltip,
+}: {
+  label: string;
+  value: React.ReactNode;
+  sub?: React.ReactNode;
+  mono?: boolean;
+  align?: "left" | "right";
+  tooltip?: string;
+}) {
+  return (
+    <div className={cn("min-w-0", align === "right" && "text-right")}>
+      <p
+        className={cn(
+          "flex items-center gap-1 text-xs text-muted-foreground",
+          align === "right" && "justify-end",
+        )}
+      >
+        {label}
+        {tooltip && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Info className="h-3 w-3 cursor-help text-muted-foreground/40" />
+            </TooltipTrigger>
+            <TooltipContent className="max-w-56 text-xs">
+              {tooltip}
+            </TooltipContent>
+          </Tooltip>
+        )}
+      </p>
+      <p
+        className={cn(
+          "mt-1.5 text-base font-semibold text-foreground",
+          mono && "font-mono",
+        )}
+      >
+        {value}
+      </p>
+      {sub && <p className="mt-0.5 text-xs text-muted-foreground">{sub}</p>}
+    </div>
+  );
+}
+
+/** Label left, value right — used down the sidebar. No dividers by design. */
 function KVRow({
   label,
   value,
@@ -371,23 +451,23 @@ function KVRow({
 }) {
   if (!value) return null;
   return (
-    <div className="flex items-baseline justify-between gap-4 py-2.5 border-b last:border-0 border-border/50">
-      <div className="flex items-center gap-1 shrink-0">
-        <span className="text-xs text-muted-foreground">{label}</span>
+    <div className="flex items-baseline justify-between gap-4">
+      <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
+        {label}
         {tooltip && (
           <Tooltip>
             <TooltipTrigger asChild>
-              <Info className="h-3 w-3 text-muted-foreground/40 cursor-help" />
+              <Info className="h-3 w-3 cursor-help text-muted-foreground/40" />
             </TooltipTrigger>
-            <TooltipContent side="right" className="max-w-48 text-xs">
+            <TooltipContent side="left" className="max-w-52 text-xs">
               {tooltip}
             </TooltipContent>
           </Tooltip>
         )}
-      </div>
+      </span>
       <span
         className={cn(
-          "text-xs text-right text-foreground",
+          "text-right text-xs font-medium text-foreground",
           mono && "font-mono",
         )}
       >
@@ -397,54 +477,21 @@ function KVRow({
   );
 }
 
-function SectionHeader({
-  icon: Icon,
-  title,
-  meta,
-  tooltip,
-  description,
-}: {
-  icon: React.ComponentType<{ className?: string }>;
-  title: string;
-  meta?: string;
-  tooltip?: string;
-  /** Permanent one-line explainer shown under the title — reserve this for
-   * cards whose purpose or behavior genuinely isn't obvious at a glance, so
-   * it doesn't read as noise on the cards that are already self-explanatory. */
-  description?: string;
-}) {
+/** The one shape on the page that keeps a border: something needing attention. */
+function Notice({ children }: { children: React.ReactNode }) {
   return (
-    <div className="border-b bg-muted/20">
-      <div className="flex items-center justify-between px-5 py-3.5">
-        <div className="flex items-center gap-2">
-          <Icon className="h-3.5 w-3.5 text-muted-foreground" />
-          <span className="text-sm font-semibold text-foreground">
-            {title}
-          </span>
-          {tooltip && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Info className="h-3.5 w-3.5 text-muted-foreground/40 cursor-help" />
-              </TooltipTrigger>
-              <TooltipContent className="max-w-52 text-xs">
-                {tooltip}
-              </TooltipContent>
-            </Tooltip>
-          )}
-        </div>
-        {meta && <span className="text-xs text-muted-foreground">{meta}</span>}
-      </div>
-      {description && (
-        <p className="px-5 pb-3 -mt-1.5 text-xs text-muted-foreground/70">
-          {description}
-        </p>
-      )}
+    <div className="flex items-start gap-2.5 rounded-lg border border-amber-300/70 bg-amber-50 px-4 py-3 dark:border-amber-800/60 dark:bg-amber-950/20">
+      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+      <p className="text-sm leading-relaxed text-amber-800 dark:text-amber-200">
+        {children}
+      </p>
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Address block
+// Address block — plain type, no container. The two blocks are told apart by
+// their labels and a hairline between the columns, not by two boxes.
 // ---------------------------------------------------------------------------
 
 function AddressBlock({
@@ -469,34 +516,25 @@ function AddressBlock({
   const isPickup = role === "pickup";
 
   return (
-    <div className="rounded-lg border bg-card p-4 space-y-2.5">
-      <div className="flex items-center gap-1.5">
-        <div
-          className={cn(
-            "h-1.5 w-1.5 rounded-full",
-            isPickup ? "bg-foreground" : "bg-muted-foreground/40",
-          )}
-        />
-        <MicroLabel>
-          {isPickup ? "Sender · Consignor" : "Receiver · Consignee"}
-        </MicroLabel>
-      </div>
-      <div className="space-y-1 text-sm">
-        {addr.contactName && (
-          <p className="font-semibold text-foreground">{addr.contactName}</p>
-        )}
-        {addr.contactPhone && (
-          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <Phone className="h-3 w-3 shrink-0" />
-            {addr.contactPhone}
-          </div>
-        )}
-        <div className="pt-1 space-y-0.5 text-xs text-muted-foreground leading-relaxed">
-          <p>{addr.line1}</p>
-          {addr.line2 && <p>{addr.line2}</p>}
-          <p>{geo}</p>
-          <p className="font-medium text-foreground/70">{addr.country}</p>
-        </div>
+    <div className="min-w-0">
+      <p className="text-xs text-muted-foreground">
+        {isPickup ? "Sender · Consignor" : "Receiver · Consignee"}
+      </p>
+      {addr.contactName && (
+        <p className="mt-1.5 text-base font-semibold text-foreground">
+          {addr.contactName}
+        </p>
+      )}
+      {addr.contactPhone && (
+        <p className="mt-0.5 text-sm text-muted-foreground tabular-nums">
+          {addr.contactPhone}
+        </p>
+      )}
+      <div className="mt-3 space-y-0.5 text-sm leading-relaxed text-muted-foreground">
+        <p>{addr.line1}</p>
+        {addr.line2 && <p>{addr.line2}</p>}
+        <p>{geo}</p>
+        <p className="font-medium text-foreground">{addr.country}</p>
       </div>
     </div>
   );
@@ -507,163 +545,74 @@ function AddressBlock({
 // ---------------------------------------------------------------------------
 
 function JourneyRail({ currentStatus }: { currentStatus: ShipmentStatus }) {
-  const { activeIdx, cancelled } = getJourneyState(currentStatus);
-  const cfg = STATUS_CONFIG[currentStatus];
-
-  if (cancelled) {
-    return (
-      <div className="flex items-center gap-3 rounded-lg border border-border/60 bg-muted/30 px-5 py-4">
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted">
-          <AlertTriangle className="h-4 w-4 text-muted-foreground" />
-        </div>
-        <div>
-          <p className="text-sm font-semibold text-foreground">
-            Shipment Cancelled
-          </p>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            This shipment has been cancelled. Contact support if you need help.
-          </p>
-        </div>
-      </div>
-    );
-  }
+  const { activeIdx } = getJourneyState(currentStatus);
 
   return (
-    <div className="rounded-lg border bg-card px-5 py-5 space-y-4">
-      {/* Status badge + description */}
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2">
-            <span
-              className={cn(
-                "inline-flex h-2 w-2 rounded-full",
-                cfg.dotClassName,
-              )}
-            />
-            <Badge
-              variant="outline"
-              className={cn(
-                "text-xs font-semibold px-2.5 py-0.5",
-                cfg.className,
-              )}
-            >
-              {cfg.label}
-            </Badge>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Info className="h-3.5 w-3.5 text-muted-foreground/50 cursor-help" />
-              </TooltipTrigger>
-              <TooltipContent className="max-w-60 text-xs leading-relaxed">
-                {cfg.description}
-              </TooltipContent>
-            </Tooltip>
-          </div>
-          <p className="text-xs text-muted-foreground pl-4">
-            {cfg.description}
-          </p>
-        </div>
-      </div>
+    <div className="relative">
+      {/* Background track */}
+      <div className="absolute left-0 right-0 top-2.75 h-px bg-border" />
 
-      {/* Step dots + connector line */}
-      <div className="relative pt-1">
-        {/* Background track */}
-        <div className="absolute top-[13px] left-0 right-0 h-px bg-border" />
-
-        {/* Filled track up to active step */}
-        {activeIdx >= 0 && (
-          <div
-            className="absolute top-[13px] left-0 h-px bg-foreground/30 transition-all duration-500"
-            style={{
-              width: `${
-                activeIdx === 0
-                  ? "0%"
-                  : `${(activeIdx / (JOURNEY_STEPS.length - 1)) * 100}%`
-              }`,
-            }}
-          />
-        )}
-
-        <div className="relative flex justify-between">
-          {JOURNEY_STEPS.map((step, idx) => {
-            const isLastStep = idx === JOURNEY_STEPS.length - 1;
-            // If this IS the active step AND it's the last step, treat it as done (fully ticked)
-            const isDone = idx < activeIdx || (idx === activeIdx && isLastStep);
-            const isActive = idx === activeIdx && !isLastStep;
-            const isPending = idx > activeIdx;
-
-            return (
-              <Tooltip key={step.label}>
-                <TooltipTrigger asChild>
-                  <div className="flex flex-col items-center gap-2 cursor-default">
-                    {/* Dot */}
-                    <div
-                      className={cn(
-                        "relative z-10 flex h-[26px] w-[26px] items-center justify-center rounded-full border-2 transition-all duration-300",
-                        isDone && "border-foreground bg-foreground",
-                        isActive &&
-                          "border-foreground bg-background shadow-sm ring-4 ring-foreground/10",
-                        isPending && "border-border bg-background",
-                      )}
-                    >
-                      {isDone ? (
-                        <CheckCircle2 className="h-3.5 w-3.5 text-background" />
-                      ) : isActive ? (
-                        <CircleDot className="h-3.5 w-3.5 text-foreground" />
-                      ) : (
-                        <Circle className="h-3 w-3 text-muted-foreground/30" />
-                      )}
-                    </div>
-
-                    {/* Label */}
-                    <span
-                      className={cn(
-                        "text-center text-[10px] font-medium leading-tight max-w-[64px]",
-                        isDone && "text-foreground",
-                        isActive && "text-foreground font-semibold",
-                        isPending && "text-muted-foreground/50",
-                      )}
-                    >
-                      {step.label}
-                    </span>
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent className="max-w-44 text-xs text-center">
-                  {step.tooltip}
-                </TooltipContent>
-              </Tooltip>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Special alert for statuses needing attention */}
-      {(currentStatus === "DOCUMENTS_PENDING" ||
-        currentStatus === "CUSTOMS_HOLD" ||
-        currentStatus === "ON_HOLD") && (
-        <div className="flex items-start gap-2.5 rounded-md border border-orange-200 bg-orange-50 px-3.5 py-3 dark:border-orange-800/50 dark:bg-orange-950/20">
-          <AlertTriangle className="h-4 w-4 text-orange-600 shrink-0 mt-0.5 dark:text-orange-400" />
-          <div className="text-xs text-orange-700 dark:text-orange-300 leading-relaxed">
-            {currentStatus === "DOCUMENTS_PENDING" &&
-              "Action required: Our team needs additional documents. Please check your email or contact support."}
-            {currentStatus === "CUSTOMS_HOLD" &&
-              "Your shipment is under customs review. We are actively working to resolve this."}
-            {currentStatus === "ON_HOLD" &&
-              "Your shipment is temporarily on hold. Our team will be in touch with more details."}
-          </div>
-        </div>
+      {/* Filled track up to the active step */}
+      {activeIdx > 0 && (
+        <div
+          className="absolute left-0 top-2.75 h-px bg-foreground/40 transition-all duration-500"
+          style={{
+            width: `${(activeIdx / (JOURNEY_STEPS.length - 1)) * 100}%`,
+          }}
+        />
       )}
+
+      <div className="relative flex justify-between">
+        {JOURNEY_STEPS.map((step, idx) => {
+          const isLastStep = idx === JOURNEY_STEPS.length - 1;
+          // The final step, once reached, is done rather than in progress.
+          const isDone = idx < activeIdx || (idx === activeIdx && isLastStep);
+          const isActive = idx === activeIdx && !isLastStep;
+
+          return (
+            <div
+              key={step.label}
+              className="flex min-w-0 flex-col items-center gap-2"
+            >
+              <div
+                className={cn(
+                  "relative z-10 flex h-5.5 w-5.5 items-center justify-center rounded-full bg-background transition-colors duration-300",
+                  isDone && "bg-foreground",
+                  isActive && "ring-2 ring-inset ring-foreground",
+                  !isDone && !isActive && "ring-1 ring-inset ring-border",
+                )}
+              >
+                {isDone && <Check className="h-3 w-3 text-background" />}
+                {isActive && (
+                  <span className="h-1.5 w-1.5 rounded-full bg-foreground" />
+                )}
+              </div>
+              <span
+                className={cn(
+                  "max-w-18 text-center text-xs leading-tight",
+                  isDone && "text-muted-foreground",
+                  isActive && "font-semibold text-foreground",
+                  !isDone && !isActive && "text-muted-foreground/50",
+                )}
+              >
+                {step.label}
+              </span>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Card sections — each awaits the same shared shipment promise, and each is
+// Sections — each awaits the same shared shipment promise, and each is
 // wrapped in its own <Suspense> by the page below. Splitting it this way
-// means every card gets a skeleton that matches its own shape, and a slow
-// render in one card never holds up the others.
+// means every section gets a skeleton that matches its own shape, and a slow
+// render in one never holds up the others.
 // ---------------------------------------------------------------------------
 
-async function ShipmentHeroCard({
+async function ShipmentHeader({
   shipmentPromise,
 }: {
   shipmentPromise: ShipmentPromise;
@@ -671,233 +620,238 @@ async function ShipmentHeroCard({
   const s = await shipmentPromise;
   const { totalBoxes, totalItemLines, totalDeclared } = packageTotals(s);
   const isDomestic = s.mode === "DOMESTIC";
+  const exportType =
+    !isDomestic && s.shipmentType ? SHIPMENT_TYPE_INFO[s.shipmentType] : null;
+
+  // The one-line subtitle under the shipment number: what kind of shipment
+  // this is, then when it happened. All of it used to be badges. The mode is
+  // rendered ahead of this list, in foreground weight, because it is the one
+  // part of the line that changes what the rest of the page means.
+  const meta: React.ReactNode[] = [];
+  if (exportType) {
+    meta.push(
+      <Tooltip key="export-type">
+        <TooltipTrigger asChild>
+          <span className="cursor-help underline decoration-dotted underline-offset-4">
+            {exportType.label}
+          </span>
+        </TooltipTrigger>
+        <TooltipContent className="max-w-56 text-xs">
+          {exportType.blurb}
+        </TooltipContent>
+      </Tooltip>,
+    );
+  }
+  if (isDomestic && s.codEnabled) {
+    meta.push(
+      <Tooltip key="cod">
+        <TooltipTrigger asChild>
+          <span className="cursor-help underline decoration-dotted underline-offset-4">
+            Cash on delivery
+          </span>
+        </TooltipTrigger>
+        <TooltipContent className="max-w-60 text-xs">
+          The courier collects{" "}
+          {formatMoney(s.codAmount, "INR", { fallback: "the goods value" })}{" "}
+          from the receiver on delivery and remits it to you. This is the value
+          of your goods, not the shipping charge.
+        </TooltipContent>
+      </Tooltip>,
+    );
+  }
+  meta.push(`Created ${formatDate(s.createdAt)}`);
+  if (s.bookedAt) meta.push(`Booked ${formatDate(s.bookedAt)}`);
+
+  return (
+    <header className="space-y-8">
+      {/* Identity + price */}
+      <div className="flex flex-wrap items-start justify-between gap-x-8 gap-y-4">
+        <div className="min-w-0">
+          <h1 className="font-mono text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
+            {s.shipmentNumber}
+          </h1>
+          <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
+            <span className="font-medium text-foreground">
+              {isDomestic ? "Domestic" : "International"}
+            </span>
+            {meta.map((item, i) => (
+              <span key={i} className="flex items-center gap-2">
+                <span className="text-muted-foreground/40">·</span>
+                {item}
+              </span>
+            ))}
+          </p>
+        </div>
+
+        <div className="shrink-0 text-right">
+          <p className="text-2xl font-semibold tracking-tight tabular-nums text-foreground sm:text-3xl">
+            {formatMoney(s.quotedTotal, s.currency, { fallback: "Not set" })}
+          </p>
+          <p className="mt-1 flex items-center justify-end gap-1 text-xs text-muted-foreground">
+            Total quoted
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Info className="h-3 w-3 cursor-help text-muted-foreground/40" />
+              </TooltipTrigger>
+              <TooltipContent className="max-w-56 text-xs">
+                The price quoted to you at time of booking, including all
+                surcharges and applicable markup.
+              </TooltipContent>
+            </Tooltip>
+          </p>
+        </div>
+      </div>
+
+      {/* Route */}
+      <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-4">
+        <div className="min-w-0">
+          <p className="text-xs text-muted-foreground">From</p>
+          <p className="mt-1 truncate text-xl font-semibold tracking-tight text-foreground">
+            {s.pickupAddress.city}
+          </p>
+          <p className="truncate text-sm text-muted-foreground">
+            {s.pickupAddress.country}
+            {s.pickupAddress.contactName && ` · ${s.pickupAddress.contactName}`}
+          </p>
+        </div>
+        <div className="flex items-center gap-1.5 self-end pb-6 text-muted-foreground/50">
+          <span className="h-px w-6 bg-border sm:w-12" />
+          <ArrowRight className="h-3.5 w-3.5 shrink-0" />
+          <span className="h-px w-6 bg-border sm:w-12" />
+        </div>
+        <div className="min-w-0 text-right">
+          <p className="text-xs text-muted-foreground">To</p>
+          <p className="mt-1 truncate text-xl font-semibold tracking-tight text-foreground">
+            {s.deliveryAddress.city}
+          </p>
+          <p className="truncate text-sm text-muted-foreground">
+            {s.deliveryAddress.country}
+            {s.deliveryAddress.contactName &&
+              ` · ${s.deliveryAddress.contactName}`}
+          </p>
+        </div>
+      </div>
+
+      {/* Key figures — separated by space, not by dividers */}
+      <div className="grid grid-cols-2 gap-x-8 gap-y-6 border-t pt-6 sm:grid-cols-4">
+        <Field
+          label="Boxes"
+          value={`${totalBoxes} box${totalBoxes !== 1 ? "es" : ""}`}
+          sub={`${totalItemLines} item${totalItemLines !== 1 ? "s" : ""} inside`}
+        />
+        <Field
+          label="Actual weight"
+          value={formatWeight(s.totalActualWeightKg, {
+            fallback: "Not set",
+            treatZeroAsUnset: true,
+          })}
+          sub={
+            s.totalChargeableWeightKg
+              ? `Chargeable ${formatWeight(s.totalChargeableWeightKg, {
+                  fallback: "Not set",
+                  treatZeroAsUnset: true,
+                })}`
+              : undefined
+          }
+          tooltip="Actual physical weight. Chargeable weight can be higher when the box size (volumetric weight) is greater."
+        />
+        <Field label="Service" value={s.selectedProductName ?? "Not assigned"} />
+        <Field
+          label="Declared value"
+          value={
+            totalDeclared > 0
+              ? formatMoney(totalDeclared, undefined, { fallback: "Not set" })
+              : "Not declared"
+          }
+          sub={s.client ? `For ${s.client.companyName}` : "Your own org"}
+        />
+      </div>
+    </header>
+  );
+}
+
+async function StatusSection({
+  shipmentPromise,
+}: {
+  shipmentPromise: ShipmentPromise;
+}) {
+  const s = await shipmentPromise;
+  const cfg = STATUS_CONFIG[s.status];
+  const { cancelled } = getJourneyState(s.status);
+  const isDomestic = s.mode === "DOMESTIC";
   // Whichever waybill is on file. Domestic runs on the courier's AWB; an export
   // has two, and the House AWB is the one we generate and hand to the customer,
   // so it takes priority over the airline's Master AWB.
   const trackingNumber = isDomestic
     ? s.domesticAwbNumber
     : (s.hawbNumber ?? s.mawbNumber);
-  const exportType =
-    !isDomestic && s.shipmentType ? SHIPMENT_TYPE_INFO[s.shipmentType] : null;
 
   return (
-    <Card className="overflow-hidden">
-      <CardContent className="p-0">
-        {/* Top bar with shipment number */}
-        <div className="flex flex-wrap items-center justify-between gap-4 border-b bg-muted/20 px-5 py-4">
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg border bg-background">
-              <Package className="h-4 w-4 text-muted-foreground" />
-            </div>
-            <div>
-              <div className="flex flex-wrap items-center gap-2">
-                <h1 className="font-mono text-lg font-bold tracking-tight text-foreground">
-                  {s.shipmentNumber}
-                </h1>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Info className="h-3.5 w-3.5 text-muted-foreground/40 cursor-help" />
-                  </TooltipTrigger>
-                  <TooltipContent className="text-xs">
-                    Your unique shipment reference number.
-                  </TooltipContent>
-                </Tooltip>
+    <section className="space-y-6">
+      <SectionTitle>Status</SectionTitle>
 
-                {/* Mode, then (for exports) the customs category. Both sit next
-                    to the shipment number because between them they decide
-                    which paperwork the shipment travels on, so they are worth
-                    seeing without opening anything. The category is absent on
-                    drafts that never reached the packages step, and on every
-                    domestic shipment, which has no customs category at all. */}
-                <Badge
-                  variant="secondary"
-                  className="text-[10px] font-medium"
-                >
-                  {isDomestic ? "Domestic" : "International"}
-                </Badge>
-
-                {isDomestic && s.codEnabled && (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Badge
-                        variant="outline"
-                        className="cursor-help text-[10px] font-medium"
-                      >
-                        Cash on delivery
-                      </Badge>
-                    </TooltipTrigger>
-                    <TooltipContent className="max-w-56 text-xs">
-                      The courier collects{" "}
-                      {formatMoney(s.codAmount, "INR", { fallback: "the goods value" })}{" "}
-                      from the
-                      receiver on delivery and remits it to you. This is the
-                      value of your goods, not the shipping charge.
-                    </TooltipContent>
-                  </Tooltip>
-                )}
-
-                {exportType && (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Badge
-                        variant="outline"
-                        className="cursor-help text-[10px] font-medium"
-                      >
-                        {exportType.label}
-                      </Badge>
-                    </TooltipTrigger>
-                    <TooltipContent className="max-w-52 text-xs">
-                      {exportType.blurb}
-                    </TooltipContent>
-                  </Tooltip>
-                )}
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Created {formatDate(s.createdAt)}
-                {s.bookedAt && ` · Booked ${formatDate(s.bookedAt)}`}
-              </p>
-            </div>
-          </div>
-
-          <div className="text-right">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <div className="cursor-default">
-                  <p className="text-2xl font-bold tabular-nums text-foreground">
-                    {formatMoney(s.quotedTotal, s.currency, {
-                      fallback: "Not set",
-                    })}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    Total quoted
-                  </p>
-                </div>
-              </TooltipTrigger>
-              <TooltipContent className="text-xs max-w-52">
-                The price quoted to you at time of booking, including all
-                surcharges and applicable markup.
-              </TooltipContent>
-            </Tooltip>
-          </div>
+      <div className="flex flex-wrap items-start justify-between gap-x-8 gap-y-4">
+        <div className="min-w-0 max-w-xl">
+          <p className="flex items-center gap-2.5 text-xl font-semibold tracking-tight text-foreground">
+            <span
+              className={cn(
+                "h-2.5 w-2.5 shrink-0 rounded-full",
+                cfg.dotClassName,
+              )}
+            />
+            {cfg.label}
+          </p>
+          <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
+            {cfg.description}
+          </p>
         </div>
 
-        {/* Route strip */}
-        <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 px-5 py-4 border-b">
-          <div>
-            <MicroLabel>From</MicroLabel>
-            <p className="mt-1 text-base font-semibold text-foreground">
-              {s.pickupAddress.city}
-            </p>
-            <p className="text-xs text-muted-foreground">
-              {s.pickupAddress.country}
-              {s.pickupAddress.contactName &&
-                ` · ${s.pickupAddress.contactName}`}
-            </p>
-          </div>
-          <div className="flex items-center gap-2 text-muted-foreground/40">
-            <div className="h-px w-8 bg-border" />
-            <ArrowRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground/50" />
-            <div className="h-px w-8 bg-border" />
-          </div>
-          <div className="text-right">
-            <MicroLabel>To</MicroLabel>
-            <p className="mt-1 text-base font-semibold text-foreground">
-              {s.deliveryAddress.city}
-            </p>
-            <p className="text-xs text-muted-foreground">
-              {s.deliveryAddress.country}
-              {s.deliveryAddress.contactName &&
-                ` · ${s.deliveryAddress.contactName}`}
-            </p>
-          </div>
+        <div className="shrink-0 text-right">
+          <p className="text-xs text-muted-foreground">Tracking number</p>
+          <p
+            className={cn(
+              "mt-1",
+              trackingNumber
+                ? "text-base font-mono font-semibold tracking-tight text-foreground"
+                : "text-sm text-muted-foreground",
+            )}
+          >
+            {trackingNumber ?? "Not added yet"}
+          </p>
         </div>
+      </div>
 
-        {/* Quick stat tiles */}
-        <div className="grid grid-cols-2 gap-0 sm:grid-cols-4 divide-x divide-y sm:divide-y-0 border-b">
-          {[
-            {
-              label: "Boxes",
-              value: `${totalBoxes} box${totalBoxes !== 1 ? "es" : ""}`,
-              sub: `${totalItemLines} item${totalItemLines !== 1 ? "s" : ""} inside`,
-              tooltip:
-                "Total physical boxes in this shipment, and the number of goods declared across them.",
-            },
-            {
-              label: "Actual weight",
-              value: formatWeight(s.totalActualWeightKg, {
-                fallback: "Not set",
-                treatZeroAsUnset: true,
-              }),
-              sub: s.totalChargeableWeightKg
-                ? `Chargeable ${formatWeight(s.totalChargeableWeightKg, {
-                    fallback: "Not set",
-                    treatZeroAsUnset: true,
-                  })}`
-                : undefined,
-              tooltip:
-                "Actual physical weight. Chargeable weight can be higher when the box size (volumetric weight) is greater.",
-            },
-            {
-              label: "Service",
-              value: s.selectedProductName ?? "Not assigned",
-              tooltip:
-                "The service selected for this shipment when it was booked.",
-            },
-            {
-              label: "Declared value",
-              value:
-                totalDeclared > 0
-                  ? formatMoney(totalDeclared, undefined, {
-                      fallback: "Not set",
-                    })
-                  : "Not declared",
-              sub: s.client ? `For ${s.client.companyName}` : "Your own org",
-              tooltip:
-                "Total declared value of the goods, used for customs and insurance.",
-            },
-          ].map(({ label, value, sub, tooltip }) => (
-            <Tooltip key={label}>
-              <TooltipTrigger asChild>
-                <div className="flex flex-col gap-1 px-4 py-4 cursor-default hover:bg-muted/20 transition-colors">
-                  <MicroLabel>{label}</MicroLabel>
-                  <p className="text-sm font-semibold text-foreground leading-tight">
-                    {value}
-                  </p>
-                  {sub && (
-                    <p className="text-xs text-muted-foreground">{sub}</p>
-                  )}
-                </div>
-              </TooltipTrigger>
-              <TooltipContent className="max-w-52 text-xs">
-                {tooltip}
-              </TooltipContent>
-            </Tooltip>
-          ))}
-        </div>
-
-        {/* Tracking number — whichever AWB is on file. Kept plain (no link,
-            no HAWB/MAWB distinction) until tracking-page linking is decided. */}
-        <div className="flex items-center justify-between px-5 py-3 border-b">
-          <span className="text-xs text-muted-foreground">
-            Tracking number
-          </span>
-          {trackingNumber ? (
-            <span className="text-sm font-mono font-semibold text-foreground">
-              {trackingNumber}
-            </span>
-          ) : (
-            <span className="text-xs text-muted-foreground">
-              Not added yet
-            </span>
-          )}
-        </div>
-
-        {/* Journey progress rail */}
-        <div className="p-5">
+      {!cancelled && (
+        <div className="pt-2">
           <JourneyRail currentStatus={s.status} />
         </div>
-      </CardContent>
-    </Card>
+      )}
+
+      {cancelled && (
+        <Notice>
+          This shipment has been cancelled. Contact support if you need help.
+        </Notice>
+      )}
+
+      {s.status === "DOCUMENTS_PENDING" && (
+        <Notice>
+          Action required: our team needs additional documents. Please check
+          your email or contact support.
+        </Notice>
+      )}
+      {s.status === "CUSTOMS_HOLD" && (
+        <Notice>
+          Your shipment is under customs review. We are actively working to
+          resolve this.
+        </Notice>
+      )}
+      {s.status === "ON_HOLD" && (
+        <Notice>
+          Your shipment is temporarily on hold. Our team will be in touch with
+          more details.
+        </Notice>
+      )}
+    </section>
   );
 }
 
@@ -914,6 +868,7 @@ async function FirstMileSection({
 
   return (
     <FirstMilePickupCard
+      chrome="plain"
       status={firstMileStatus}
       hubLabel={s.firstMileHubLabel}
       courierName={s.firstMileVendorName}
@@ -935,7 +890,7 @@ async function FirstMileSection({
   );
 }
 
-async function AddressesCard({
+async function AddressesSection({
   shipmentPromise,
 }: {
   shipmentPromise: ShipmentPromise;
@@ -943,21 +898,22 @@ async function AddressesCard({
   const s = await shipmentPromise;
 
   return (
-    <Card className="overflow-hidden">
-      <SectionHeader
-        icon={MapPin}
-        title="Addresses"
-        tooltip="Pickup and delivery contact details and full addresses for this shipment."
-      />
-      <div className="grid gap-3 p-4 sm:grid-cols-2">
+    <section className="space-y-6">
+      <SectionTitle>Addresses</SectionTitle>
+
+      <div className="grid gap-8 sm:grid-cols-2">
         <AddressBlock role="pickup" addr={s.pickupAddress} />
-        <AddressBlock role="delivery" addr={s.deliveryAddress} />
+        {/* The hairline between the columns is the only rule here: it separates
+            sender from receiver without drawing two boxes. */}
+        <div className="sm:border-l sm:pl-8">
+          <AddressBlock role="delivery" addr={s.deliveryAddress} />
+        </div>
       </div>
 
       {!s.billingSameAsDelivery && s.billingAddress && (
-        <div className="border-t px-4 py-3.5 space-y-2">
-          <MicroLabel>Billing address</MicroLabel>
-          <div className="text-xs text-muted-foreground space-y-0.5 leading-relaxed">
+        <div className="border-t pt-5">
+          <p className="text-xs text-muted-foreground">Billing address</p>
+          <div className="mt-1.5 space-y-0.5 text-sm leading-relaxed text-muted-foreground">
             {s.billingAddress.contactName && (
               <p className="font-medium text-foreground">
                 {s.billingAddress.contactName}
@@ -977,11 +933,11 @@ async function AddressesCard({
           </div>
         </div>
       )}
-    </Card>
+    </section>
   );
 }
 
-async function PackagesCard({
+async function PackagesSection({
   shipmentPromise,
 }: {
   shipmentPromise: ShipmentPromise;
@@ -990,22 +946,21 @@ async function PackagesCard({
   const { totalBoxes, totalItemLines } = packageTotals(s);
 
   return (
-    <Card className="overflow-hidden">
-      <SectionHeader
-        icon={Package}
-        title="What's inside"
+    <section className="space-y-6">
+      <SectionTitle
         meta={`${totalBoxes} box${totalBoxes !== 1 ? "es" : ""} · ${totalItemLines} item${totalItemLines !== 1 ? "s" : ""}`}
-        tooltip="Every box in this shipment with its size, weight, and the goods packed inside it."
-      />
+      >
+        What&apos;s inside
+      </SectionTitle>
       <PackageBoxList
         packages={s.packages}
         fallbackCurrency={s.currency ?? "INR"}
       />
-    </Card>
+    </section>
   );
 }
 
-async function PricingCard({
+async function PricingSection({
   shipmentPromise,
 }: {
   shipmentPromise: ShipmentPromise;
@@ -1021,118 +976,93 @@ async function PricingCard({
   // the summary row so nothing is hidden, and only the line items fold away.
   // Native <details> keeps this a server component, same as the first-mile card.
   return (
-    <Card className="overflow-hidden">
+    <section>
       <details className="group">
-        <summary className="flex cursor-pointer list-none items-center justify-between gap-4 border-b bg-muted/20 px-5 py-3.5 transition-colors hover:bg-muted/30 [&::-webkit-details-marker]:hidden">
-          <div className="flex min-w-0 items-center gap-2">
-            <Receipt className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-            <span className="text-sm font-semibold text-foreground">
-              Pricing breakdown
-            </span>
-            <span className="truncate text-xs text-muted-foreground">
-              {lineItems.length > 0
-                ? `${lineItems.length} charge${lineItems.length > 1 ? "s" : ""}`
-                : "Locked in at booking"}
-            </span>
-          </div>
-
-          <div className="flex shrink-0 items-center gap-3">
-            <span className="text-lg font-bold tabular-nums text-foreground">
+        <summary className="flex cursor-pointer list-none items-baseline justify-between gap-4 border-b pb-2.5 [&::-webkit-details-marker]:hidden">
+          <h2 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+            Pricing
+          </h2>
+          <span className="flex items-baseline gap-3">
+            <span className="text-base font-semibold tracking-tight tabular-nums text-foreground">
               {formatMoney(s.quotedTotal, s.currency, { fallback: "Not set" })}
             </span>
-            <span className="flex items-center gap-1 text-xs text-muted-foreground">
-              <span className="hidden sm:inline">
-                <span className="group-open:hidden">Show</span>
-                <span className="hidden group-open:inline">Hide</span>
-              </span>
-              <ChevronDown className="h-4 w-4 transition-transform duration-200 group-open:rotate-180" />
+            <span className="flex items-center gap-1 text-xs text-muted-foreground transition-colors group-hover:text-foreground">
+              <span className="group-open:hidden">Show breakdown</span>
+              <span className="hidden group-open:inline">Hide</span>
+              <ChevronDown className="h-3.5 w-3.5 self-center transition-transform duration-200 group-open:rotate-180" />
             </span>
-          </div>
+          </span>
         </summary>
 
-        <p className="px-5 pt-3 text-xs text-muted-foreground/70">
-          Locked in at booking. The total will not change even if rates move
-          afterward.
-        </p>
+        <div className="pt-5">
+          <p className="text-sm text-muted-foreground">
+            Locked in at booking. The total will not change even if rates move
+            afterward.
+          </p>
 
-        {/* Service — metadata line, not a charge, styled a step down from the
-            amounts below so it reads as context rather than another line item */}
-        <div className="mt-3 flex items-center justify-between border-y border-border/50 px-5 py-3">
-          <span className="text-xs text-muted-foreground">Service</span>
-          <span className="text-sm font-medium text-foreground">
-            {s.selectedProductName ?? "Not assigned"}
-          </span>
-        </div>
+          <dl className="mt-5 space-y-3">
+            <div className="flex items-baseline justify-between gap-4">
+              <dt className="text-sm text-muted-foreground">Service</dt>
+              <dd className="text-sm text-foreground">
+                {s.selectedProductName ?? "Not assigned"}
+              </dd>
+            </div>
 
-        {lineItems.length > 0 && (
-          <div className="divide-y divide-border/40">
             {lineItems.map((c, i) => (
               <div
                 key={i}
-                className="flex items-center justify-between px-5 py-3"
+                className="flex items-baseline justify-between gap-4"
               >
-                <span className="text-sm text-muted-foreground">{c.name}</span>
-                <span className="text-sm font-medium tabular-nums text-foreground">
+                <dt className="text-sm text-muted-foreground">{c.name}</dt>
+                <dd className="text-sm tabular-nums text-foreground">
                   {formatMoney(c.amount, c.currency, { fallback: "Not set" })}
-                </span>
+                </dd>
               </div>
             ))}
-          </div>
-        )}
 
-        {/* Total repeated at the foot of the list, where the eye lands after
-            reading the charges. The summary row above carries it when closed. */}
-        <div className="flex items-center justify-between border-t bg-muted/30 px-5 py-3.5">
-          <span className="text-sm font-semibold text-foreground">Total</span>
-          <span className="text-base font-bold tabular-nums text-foreground">
-            {formatMoney(s.quotedTotal, s.currency, { fallback: "Not set" })}
-          </span>
+            <div className="flex items-baseline justify-between gap-4 border-t pt-3">
+              <dt className="text-sm font-medium text-foreground">Total</dt>
+              <dd className="text-lg font-semibold tracking-tight tabular-nums text-foreground">
+                {formatMoney(s.quotedTotal, s.currency, { fallback: "Not set" })}
+              </dd>
+            </div>
+          </dl>
         </div>
       </details>
-    </Card>
+    </section>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Paperwork — one card, three groups
+// Paperwork — one section, three groups
 //
 // The shipping label, Arena's tax invoice and the file list used to be three
 // separate cards stacked on top of each other, which meant a customer looking
 // for "my paperwork" had to work out which of three boxes owned the thing they
-// wanted. They are one card now, split into labelled groups in the order they
-// actually get used: print the label, keep the invoice, then everything else.
+// wanted. They are one section now, split into labelled groups in the order
+// they actually get used: print the label, keep the invoice, then everything
+// else.
 //
-// Each group renders only when it has something to say, and the card itself
+// Each group renders only when it has something to say, and the section itself
 // renders an empty state only when all three are empty.
 // ---------------------------------------------------------------------------
 
-/** A labelled run of rows inside the paperwork card. */
+/** A labelled run of rows inside the paperwork section. */
 function DocGroup({
   label,
   hint,
-  meta,
   children,
 }: {
   label: string;
   /** One line saying what this group is for, in the customer's words. */
   hint: string;
-  meta?: string;
   children: React.ReactNode;
 }) {
   return (
-    <section className="border-b last:border-0">
-      <div className="flex items-baseline justify-between gap-4 bg-muted/10 px-5 py-2.5">
-        <div className="min-w-0">
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-foreground/80">
-            {label}
-          </h3>
-          <p className="mt-0.5 text-xs text-muted-foreground/70">{hint}</p>
-        </div>
-        {meta && (
-          <span className="shrink-0 text-xs text-muted-foreground">{meta}</span>
-        )}
-      </div>
-      {children}
+    <section>
+      <h3 className="text-sm font-semibold text-foreground">{label}</h3>
+      <p className="mt-0.5 text-xs text-muted-foreground">{hint}</p>
+      <div className="mt-3 space-y-1">{children}</div>
     </section>
   );
 }
@@ -1156,10 +1086,8 @@ function DocRow({
   action: React.ReactNode;
 }) {
   return (
-    <div className="flex items-center gap-3 px-5 py-3.5">
-      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border bg-background">
-        <Icon className="h-4 w-4 text-muted-foreground" />
-      </div>
+    <div className="flex items-center gap-3 py-2">
+      <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
       <div className="min-w-0 flex-1">
         <p
           className={cn(
@@ -1169,7 +1097,9 @@ function DocRow({
         >
           {title}
         </p>
-        <p className="mt-0.5 text-xs text-muted-foreground">{subtitle}</p>
+        <p className="mt-0.5 truncate text-xs text-muted-foreground">
+          {subtitle}
+        </p>
       </div>
       <div className="shrink-0">{action}</div>
     </div>
@@ -1198,7 +1128,16 @@ function DownloadButton({
   );
 }
 
-async function DocumentsCard({
+/** The line that stands in for a download button while a file is still coming. */
+function PendingNote({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="block max-w-44 text-right text-xs text-muted-foreground">
+      {children}
+    </span>
+  );
+}
+
+async function DocumentsSection({
   shipmentPromise,
 }: {
   shipmentPromise: ShipmentPromise;
@@ -1228,7 +1167,7 @@ async function DocumentsCard({
   const arenaLabelDocumentId = isDomestic ? s.arenaLabelDocumentId : null;
 
   // The waybill labels get their own group at the top, so they are filtered out
-  // of the file list below. The same download in two places on one card just
+  // of the file list below. The same download in two places on one page just
   // makes the customer wonder which of them is the real one.
   const documents = s.documents.filter(
     (d) => d.id !== labelDocumentId && d.id !== arenaLabelDocumentId,
@@ -1253,30 +1192,28 @@ async function DocumentsCard({
   const isEmpty = !showLabel && !invoice && documents.length === 0;
 
   return (
-    <Card className="overflow-hidden">
-      <SectionHeader
-        icon={FileText}
-        title="Documents and paperwork"
+    <section className="space-y-6">
+      <SectionTitle
         meta={
           documents.length > 0
             ? `${documents.length} file${documents.length > 1 ? "s" : ""} attached`
             : undefined
         }
-        description="Everything you can print or download for this shipment, in one place."
-      />
+      >
+        Documents
+      </SectionTitle>
 
       {isEmpty ? (
-        <div className="flex flex-col items-center justify-center gap-2 py-10">
-          <FileText className="h-7 w-7 text-muted-foreground/30" />
-          <p className="text-sm text-muted-foreground">Nothing to download yet</p>
-          <p className="max-w-xs text-center text-xs text-muted-foreground/70">
-            {s.mode === "DOMESTIC"
+        <div className="flex flex-col items-start gap-1 py-2">
+          <p className="text-sm text-foreground">Nothing to download yet</p>
+          <p className="max-w-md text-sm text-muted-foreground">
+            {isDomestic
               ? "Anything you attached at booking, plus what our team adds later, shows up here."
               : "Your airway bill, invoices and customs paperwork show up here as they are issued."}
           </p>
         </div>
       ) : (
-        <>
+        <div className="space-y-7">
           {/* 1. The one thing that has to leave the screen and go on the box. */}
           {showLabel && (
             <DocGroup
@@ -1301,14 +1238,14 @@ async function DocumentsCard({
                       fileName={labelDoc.fileName}
                     />
                   ) : bookingStatus === "FAILED" ? (
-                    <span className="block max-w-40 text-right text-xs text-muted-foreground">
+                    <PendingNote>
                       Our team is arranging this. Your booking and payment are
                       safe.
-                    </span>
+                    </PendingNote>
                   ) : (
-                    <span className="block max-w-40 text-right text-xs text-muted-foreground">
+                    <PendingNote>
                       Usually ready within a minute of booking.
-                    </span>
+                    </PendingNote>
                   )
                 }
               />
@@ -1358,9 +1295,9 @@ async function DocumentsCard({
                       fileName={invoice.fileName}
                     />
                   ) : (
-                    <span className="block max-w-40 text-right text-xs text-muted-foreground">
+                    <PendingNote>
                       Usually ready within a minute of booking.
-                    </span>
+                    </PendingNote>
                   )
                 }
               />
@@ -1373,47 +1310,42 @@ async function DocumentsCard({
             <DocGroup
               label="Supporting documents"
               hint={
-                s.mode === "DOMESTIC"
+                isDomestic
                   ? "Files attached to this booking, such as an e-way bill or delivery challan."
                   : "Files attached to this booking, such as the commercial invoice, packing list and customs forms."
               }
-              meta={`${documents.length} file${documents.length > 1 ? "s" : ""}`}
             >
-              <div className="divide-y divide-border/40">
-                {documents.map((doc) => (
-                  <a
-                    key={doc.id}
-                    href={doc.fileUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="group flex items-center gap-3 px-5 py-3.5 transition-colors hover:bg-muted/30"
-                  >
-                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border bg-background">
-                      <FileCheck2 className="h-4 w-4 text-muted-foreground" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium text-foreground">
-                        {doc.label}
-                      </p>
-                      <p className="mt-0.5 text-xs text-muted-foreground">
-                        {formatEnumLabel(doc.docType)} · {doc.fileName} ·{" "}
-                        {formatFileSize(doc.fileSize)} ·{" "}
-                        {formatDate(doc.uploadedAt)}
-                      </p>
-                    </div>
-                    <ExternalLink className="h-3.5 w-3.5 shrink-0 text-muted-foreground/30 transition-colors group-hover:text-muted-foreground" />
-                  </a>
-                ))}
-              </div>
+              {documents.map((doc) => (
+                <a
+                  key={doc.id}
+                  href={doc.fileUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="group -mx-2 flex items-center gap-3 rounded-md px-2 py-2 transition-colors hover:bg-muted/50"
+                >
+                  <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-foreground">
+                      {doc.label}
+                    </p>
+                    <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                      {formatEnumLabel(doc.docType)} · {doc.fileName} ·{" "}
+                      {formatFileSize(doc.fileSize)} ·{" "}
+                      {formatDate(doc.uploadedAt)}
+                    </p>
+                  </div>
+                  <ExternalLink className="h-3.5 w-3.5 shrink-0 text-muted-foreground/40 transition-colors group-hover:text-foreground" />
+                </a>
+              ))}
             </DocGroup>
           )}
-        </>
+        </div>
       )}
-    </Card>
+    </section>
   );
 }
 
-async function WalletTransactionsCard({
+async function WalletTransactionsSection({
   shipmentPromise,
 }: {
   shipmentPromise: ShipmentPromise;
@@ -1422,61 +1354,53 @@ async function WalletTransactionsCard({
   if (s.walletTransactions.length === 0) return null;
 
   return (
-    <Card className="overflow-hidden">
-      <SectionHeader
-        icon={Wallet}
-        title="Wallet transactions"
-        tooltip="Payment debits and credits linked to this shipment."
-        description="Credits (top-ups and refunds) are shown in green; debits are the charges for this shipment."
-      />
-      <div className="divide-y divide-border/40">
+    <section className="space-y-5">
+      <SectionTitle tooltip="Payment debits and credits linked to this shipment. Credits are top-ups and refunds; debits are the charges for this shipment.">
+        Wallet activity
+      </SectionTitle>
+
+      <div className="space-y-4">
         {s.walletTransactions.map((txn) => {
           const isCredit = txn.type === "TOP_UP" || txn.type === "REFUND";
           return (
             <div
               key={txn.id}
-              className="flex items-center justify-between px-5 py-3.5"
+              className="flex items-baseline justify-between gap-4"
             >
-              <div className="space-y-0.5">
-                <p className="text-xs font-medium text-foreground">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-foreground">
                   {formatEnumLabel(txn.type)}
                 </p>
-                <p className="text-[10px] text-muted-foreground">
-                  {formatDateTime(txn.createdAt)}
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  {formatDateTime(txn.createdAt)} ·{" "}
+                  {formatEnumLabel(txn.status, "lower")}
                 </p>
                 {txn.notes && (
-                  <p className="text-[10px] text-muted-foreground/70">
+                  <p className="mt-0.5 text-xs text-muted-foreground">
                     {txn.notes}
                   </p>
                 )}
               </div>
-              <div className="text-right space-y-1">
-                <p
-                  className={cn(
-                    "text-sm font-semibold tabular-nums",
-                    isCredit
-                      ? "text-emerald-600 dark:text-emerald-400"
-                      : "text-foreground",
-                  )}
-                >
-                  {isCredit ? "+" : "−"}
-                  {formatMoney(txn.amount, txn.currency, {
-                    fallback: "Not set",
-                  })}
-                </p>
-                <Badge variant="outline" className="text-[10px]">
-                  {formatEnumLabel(txn.status, "lower")}
-                </Badge>
-              </div>
+              <p
+                className={cn(
+                  "shrink-0 text-base font-semibold tabular-nums",
+                  isCredit
+                    ? "text-emerald-600 dark:text-emerald-400"
+                    : "text-foreground",
+                )}
+              >
+                {isCredit ? "+" : "−"}
+                {formatMoney(txn.amount, txn.currency, { fallback: "Not set" })}
+              </p>
             </div>
           );
         })}
       </div>
-    </Card>
+    </section>
   );
 }
 
-async function BookingSummaryCard({
+async function BookingSummarySection({
   shipmentPromise,
 }: {
   shipmentPromise: ShipmentPromise;
@@ -1484,54 +1408,31 @@ async function BookingSummaryCard({
   const s = await shipmentPromise;
 
   return (
-    <Card className="overflow-hidden">
-      <div className="px-4 py-3 border-b bg-muted/20">
-        <MicroLabel>Booking details</MicroLabel>
-      </div>
+    <section className="space-y-5">
+      <SectionTitle>Booking</SectionTitle>
 
-      {/* Client */}
       {s.client ? (
-        <div className="p-4 border-b">
-          <div className="flex items-center gap-2.5 mb-3">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-muted text-[10px] font-bold text-muted-foreground">
-              {s.client.companyName.slice(0, 2).toUpperCase()}
-            </div>
-            <div className="min-w-0">
-              <p className="text-sm font-semibold leading-tight text-foreground truncate">
-                {s.client.companyName}
-              </p>
-              {s.client.contactName && (
-                <p className="text-xs text-muted-foreground truncate">
-                  {s.client.contactName}
-                </p>
-              )}
-            </div>
-          </div>
-          <div className="space-y-1.5">
-            {s.client.email && (
-              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <Mail className="h-3 w-3 shrink-0" />
-                <span className="truncate">{s.client.email}</span>
-              </div>
-            )}
-            {s.client.phone && (
-              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <Phone className="h-3 w-3 shrink-0" />
-                <span>{s.client.phone}</span>
-              </div>
-            )}
+        <div className="min-w-0">
+          <p className="truncate text-sm font-semibold text-foreground">
+            {s.client.companyName}
+          </p>
+          {s.client.contactName && (
+            <p className="truncate text-xs text-muted-foreground">
+              {s.client.contactName}
+            </p>
+          )}
+          <div className="mt-2 space-y-0.5 text-xs text-muted-foreground">
+            {s.client.email && <p className="truncate">{s.client.email}</p>}
+            {s.client.phone && <p className="tabular-nums">{s.client.phone}</p>}
           </div>
         </div>
       ) : (
-        <div className="px-4 py-3 border-b">
-          <p className="text-xs text-muted-foreground">
-            Booked for your own organisation.
-          </p>
-        </div>
+        <p className="text-xs text-muted-foreground">
+          Booked for your own organisation.
+        </p>
       )}
 
-      {/* Mode, export category and timestamps */}
-      <div className="px-4 py-1.5">
+      <div className="space-y-2.5">
         <KVRow
           label="Type"
           value={s.mode === "DOMESTIC" ? "Domestic" : "International"}
@@ -1548,11 +1449,6 @@ async function BookingSummaryCard({
           <KVRow
             label="Export type"
             value={shipmentTypeLabel(s.shipmentType) ?? "Not set"}
-            tooltip={
-              s.shipmentType
-                ? SHIPMENT_TYPE_INFO[s.shipmentType]?.blurb
-                : "The customs category is set when the shipment's boxes and declared value are entered."
-            }
           />
         )}
         {s.mode === "DOMESTIC" && s.codEnabled && (
@@ -1562,27 +1458,24 @@ async function BookingSummaryCard({
             tooltip="Collected from the receiver on delivery and remitted to you. This is the declared value of your goods, separate from the shipping charge you already paid."
           />
         )}
-        <KVRow
-          label="Created"
-          value={formatDateTime(s.createdAt)}
-          tooltip="When this booking was first created in the system."
-        />
+        <KVRow label="Created" value={formatDateTime(s.createdAt)} />
         <KVRow
           label="Booked"
           value={s.bookedAt ? formatDateTime(s.bookedAt) : null}
-          tooltip="When payment was confirmed and the shipment entered the ops queue."
         />
+        <KVRow label="Last updated" value={formatDateTime(s.updatedAt)} />
         <KVRow
-          label="Last updated"
-          value={formatDateTime(s.updatedAt)}
-          tooltip="When this shipment record was last modified."
+          label="Reference"
+          value={s.id}
+          mono
+          tooltip="Internal system ID. Use the shipment number at the top of this page when contacting support."
         />
       </div>
-    </Card>
+    </section>
   );
 }
 
-async function StatusHistoryCard({
+async function StatusHistorySection({
   shipmentPromise,
 }: {
   shipmentPromise: ShipmentPromise;
@@ -1590,100 +1483,62 @@ async function StatusHistoryCard({
   const s = await shipmentPromise;
 
   return (
-    <Card className="overflow-hidden">
-      <div className="flex items-center gap-2 px-4 py-3 border-b bg-muted/20">
-        <Clock className="h-3.5 w-3.5 text-muted-foreground" />
-        <MicroLabel>Status history</MicroLabel>
-      </div>
+    <section className="space-y-5">
+      <SectionTitle>History</SectionTitle>
+
       {s.statusHistory.length === 0 ? (
-        <p className="px-4 py-6 text-xs text-center text-muted-foreground">
-          No events recorded yet.
-        </p>
+        <p className="text-xs text-muted-foreground">No events recorded yet.</p>
       ) : (
-        <div className="px-4 py-4">
-          <ol className="relative ml-1">
-            <div className="absolute left-[3px] top-2 bottom-4 w-px bg-border" />
+        <div className="relative">
+          {/* One vertical hairline threading the events together */}
+          <div className="absolute bottom-3 left-0.75 top-2 w-px bg-border" />
+          <ol>
             {s.statusHistory.map((evt, i) => {
               const evtCfg = STATUS_CONFIG[evt.toStatus];
               // History is newest-first, so the top row is current.
               const isCurrent = i === 0;
               return (
-                <li key={evt.id} className="relative pl-5 pb-5 last:pb-0">
+                <li key={evt.id} className="relative pb-5 pl-5 last:pb-0">
                   <span
                     className={cn(
-                      "absolute left-0 top-1.5 h-[7px] w-[7px] rounded-full ring-2 ring-background",
+                      "absolute left-0 top-1.5 h-1.75 w-1.75 rounded-full ring-2 ring-background",
                       evtCfg?.dotClassName ?? "bg-muted-foreground/30",
-                      isCurrent && "ring-4 ring-foreground/10",
                     )}
                   />
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <Badge
-                        variant="outline"
-                        className={cn(
-                          "text-[10px] font-medium px-1.5 py-0",
-                          evtCfg?.className,
-                        )}
-                      >
-                        {evtCfg?.label ?? evt.toStatus}
-                      </Badge>
-                      {isCurrent && (
-                        <span className="rounded-full bg-foreground/5 border border-border px-1.5 py-0 text-[10px] font-medium text-muted-foreground">
-                          Current
-                        </span>
-                      )}
-                    </div>
-                    {evt.note && (
-                      <p className="text-[10px] text-muted-foreground leading-relaxed bg-muted/50 rounded px-2 py-1">
-                        {evt.note}
-                      </p>
+                  <p
+                    className={cn(
+                      "text-sm text-foreground",
+                      isCurrent && "font-semibold",
                     )}
-                    <p className="text-[10px] text-muted-foreground/50">
-                      {formatDateTime(evt.createdAt)}
+                  >
+                    {evtCfg?.label ?? formatEnumLabel(evt.toStatus)}
+                    {isCurrent && (
+                      <span className="ml-1.5 text-xs font-normal text-muted-foreground">
+                        Current
+                      </span>
+                    )}
+                  </p>
+                  <p className="mt-0.5 text-xs text-muted-foreground/70">
+                    {formatDateTime(evt.createdAt)}
+                  </p>
+                  {evt.note && (
+                    <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                      {evt.note}
                     </p>
-                  </div>
+                  )}
                 </li>
               );
             })}
           </ol>
         </div>
       )}
-    </Card>
-  );
-}
-
-async function ShipmentIdCard({
-  shipmentPromise,
-}: {
-  shipmentPromise: ShipmentPromise;
-}) {
-  const s = await shipmentPromise;
-
-  return (
-    <Card>
-      <CardContent className="px-4 py-3 space-y-1">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <div className="cursor-default">
-              <MicroLabel>Shipment ID</MicroLabel>
-              <p className="font-mono text-[10px] text-muted-foreground break-all mt-1 leading-relaxed">
-                {s.id}
-              </p>
-            </div>
-          </TooltipTrigger>
-          <TooltipContent className="text-xs">
-            Internal system ID. Use the shipment number (above) when
-            contacting support.
-          </TooltipContent>
-        </Tooltip>
-      </CardContent>
-    </Card>
+    </section>
   );
 }
 
 // ---------------------------------------------------------------------------
 // Page — a thin, static shell. The back link and grid layout render
-// instantly; every card below streams in independently as the (single,
+// instantly; every section below streams in independently as the (single,
 // shared) shipment query resolves.
 // ---------------------------------------------------------------------------
 
@@ -1695,72 +1550,72 @@ export default async function ShipmentDetailPage({
   const { id } = await params;
   const orgId = await getTenantOrgId();
 
-  // Kick off the query once — every card below shares this promise. React
+  // Kick off the query once — every section below shares this promise. React
   // dedupes the underlying fetch, so this is still a single DB round trip.
   const shipmentPromise = getShipment(id, orgId);
 
   return (
     <TooltipProvider delayDuration={200}>
       <div className="min-h-screen bg-background">
-        <div className="mx-auto max-w-5xl px-5 py-8 space-y-5">
+        <div className="mx-auto max-w-5xl px-6 py-8 sm:px-8 sm:py-10">
           {/* ── Back nav — static, never blocked ── */}
           <Link
             href="/shipments"
-            className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors group"
+            className="group inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
           >
-            <ArrowLeft className="h-3.5 w-3.5 group-hover:-translate-x-0.5 transition-transform" />
+            <ArrowLeft className="h-3.5 w-3.5 transition-transform group-hover:-translate-x-0.5" />
             All shipments
           </Link>
 
-          <Suspense fallback={<HeroSkeleton />}>
-            <ShipmentHeroCard shipmentPromise={shipmentPromise} />
-          </Suspense>
+          <div className="mt-8 space-y-12">
+            <Suspense fallback={<HeaderSkeleton />}>
+              <ShipmentHeader shipmentPromise={shipmentPromise} />
+            </Suspense>
 
-          <Suspense fallback={<FirstMileSkeleton />}>
-            <FirstMileSection shipmentPromise={shipmentPromise} />
-          </Suspense>
+            <Suspense fallback={<StatusSkeleton />}>
+              <StatusSection shipmentPromise={shipmentPromise} />
+            </Suspense>
 
-          {/* ── Two-column layout — shell is static, each card suspends on its own ── */}
-          <div className="grid gap-5 xl:grid-cols-[1fr_260px] xl:items-start">
-            {/* ── Left: main sections ── */}
-            <div className="space-y-5 min-w-0">
-              <Suspense fallback={<AddressesSkeleton />}>
-                <AddressesCard shipmentPromise={shipmentPromise} />
-              </Suspense>
+            <Suspense fallback={<FirstMileSkeleton />}>
+              <FirstMileSection shipmentPromise={shipmentPromise} />
+            </Suspense>
 
-              <Suspense fallback={<PackagesSkeleton />}>
-                <PackagesCard shipmentPromise={shipmentPromise} />
-              </Suspense>
+            {/* ── Two columns — the sidebar is split off by a single hairline ── */}
+            <div className="grid gap-12 xl:grid-cols-[minmax(0,1fr)_244px] xl:items-start xl:gap-x-10">
+              <div className="min-w-0 space-y-12">
+                <Suspense fallback={<AddressesSkeleton />}>
+                  <AddressesSection shipmentPromise={shipmentPromise} />
+                </Suspense>
 
-              {/* Paperwork sits above pricing: it is the thing customers come
-                  back to this page for, and the price is already locked in and
-                  shown in the hero. */}
-              <Suspense fallback={<DocumentsSkeleton />}>
-                <DocumentsCard shipmentPromise={shipmentPromise} />
-              </Suspense>
+                <Suspense fallback={<PackagesSkeleton />}>
+                  <PackagesSection shipmentPromise={shipmentPromise} />
+                </Suspense>
 
-              <Suspense fallback={<PricingSkeleton />}>
-                <PricingCard shipmentPromise={shipmentPromise} />
-              </Suspense>
+                {/* Paperwork sits above pricing: it is the thing customers come
+                    back to this page for, and the price is already locked in and
+                    shown at the top. */}
+                <Suspense fallback={<DocumentsSkeleton />}>
+                  <DocumentsSection shipmentPromise={shipmentPromise} />
+                </Suspense>
 
-              <Suspense fallback={<WalletTransactionsSkeleton />}>
-                <WalletTransactionsCard shipmentPromise={shipmentPromise} />
-              </Suspense>
-            </div>
+                <Suspense fallback={<PricingSkeleton />}>
+                  <PricingSection shipmentPromise={shipmentPromise} />
+                </Suspense>
 
-            {/* ── Right sidebar ── */}
-            <div className="space-y-4">
-              <Suspense fallback={<BookingSummarySkeleton />}>
-                <BookingSummaryCard shipmentPromise={shipmentPromise} />
-              </Suspense>
+                <Suspense fallback={<WalletTransactionsSkeleton />}>
+                  <WalletTransactionsSection shipmentPromise={shipmentPromise} />
+                </Suspense>
+              </div>
 
-              <Suspense fallback={<StatusHistorySkeleton />}>
-                <StatusHistoryCard shipmentPromise={shipmentPromise} />
-              </Suspense>
+              <div className="space-y-10 xl:border-l xl:pl-10">
+                <Suspense fallback={<BookingSummarySkeleton />}>
+                  <BookingSummarySection shipmentPromise={shipmentPromise} />
+                </Suspense>
 
-              <Suspense fallback={<ShipmentIdSkeleton />}>
-                <ShipmentIdCard shipmentPromise={shipmentPromise} />
-              </Suspense>
+                <Suspense fallback={<StatusHistorySkeleton />}>
+                  <StatusHistorySection shipmentPromise={shipmentPromise} />
+                </Suspense>
+              </div>
             </div>
           </div>
         </div>
