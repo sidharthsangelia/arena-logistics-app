@@ -18,6 +18,7 @@ import type { BookingFormData } from "@/types/booking.types";
 import type { RateQuote } from "@/lib/types";
 import { getDomesticRatesAction } from "@/actions/domesticRateCalculator.action";
 import {
+  FIRST_MILE_VENDOR_IDS,
   buildFirstMileRequest,
   firstMilePickupSource,
   resolveFirstMileHub,
@@ -106,7 +107,11 @@ export default function FirstMileStep({
         }
 
         const request = buildFirstMileRequest(formData, hub);
-        const result = await getDomesticRatesAction(request);
+        // Narrowed on purpose: this leg gets BOOKED, so only vendors that can
+        // book may quote it. See FIRST_MILE_VENDOR_IDS.
+        const result = await getDomesticRatesAction(request, [
+          ...FIRST_MILE_VENDOR_IDS,
+        ]);
 
         if (!result.success || result.quotes.length === 0) {
           setFetchError(

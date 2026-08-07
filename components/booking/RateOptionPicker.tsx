@@ -95,6 +95,8 @@ const VENDOR_BADGE: Record<string, string> = {
     "bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-950/30 dark:text-orange-400 dark:border-orange-800",
   shipmozo:
     "bg-teal-50 text-teal-700 border-teal-200 dark:bg-teal-950/30 dark:text-teal-400 dark:border-teal-800",
+  speedopost:
+    "bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950/30 dark:text-indigo-400 dark:border-indigo-800",
 };
 
 function vendorBadgeClass(id: string) {

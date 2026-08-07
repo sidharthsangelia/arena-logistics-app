@@ -121,6 +121,28 @@ const CHARGE_DESCRIPTIONS: Record<string, string> = {
   "security surcharge": "Security surcharge",
   "screening charges": "Security screening charges",
 
+  // SpeedoPost's surcharge vocabulary. Their extended rate breakdown names
+  // around two dozen charges, several of them abbreviations or regional terms
+  // that mean nothing to a customer reading a tax invoice. Curated here rather
+  // than left to the shape check, which would print them verbatim.
+  "risk of value": "Risk surcharge",
+  "cod collection": "Cash on delivery charges",
+  "out of delivery area": "Out of delivery area charges",
+  "first mile": "Pickup charges",
+  waybill: "Airway bill charges",
+  "green levy": "Environmental surcharge",
+  "non metro": "Non-metro delivery charges",
+  "re attempt": "Re-attempt delivery charges",
+  "adhoc vehicle": "Dedicated vehicle charges",
+  // A Maharashtra registered-labour levy. The union's name means nothing
+  // outside the state; what the customer paid for is the unloading.
+  "mathadi union": "Unloading labour charges",
+  demurrage: "Demurrage charges",
+  "sunday delivery": "Sunday delivery charges",
+  "special delivery": "Special delivery charges",
+  "additional machinery": "Additional machinery charges",
+  "additional manpower": "Additional manpower charges",
+
   // Weight and dimension adjustments.
   "overweight charges": "Overweight surcharge",
   "oversize charges": "Oversize surcharge",
@@ -144,6 +166,8 @@ const FORBIDDEN_TOKENS = new Set([
   "shipmozo",
   "shipglobal",
   "skart",
+  "speedopost",
+  "speedo",
   "aramex",
   "dhl",
   "fedex",

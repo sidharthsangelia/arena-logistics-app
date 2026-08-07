@@ -15,6 +15,7 @@
 
 import { AdapterRegistry } from "../core/registry";
 import { ShipmozoDomesticAdapter } from "./shipmozo-domestic/shipmozo-domestic.adapter";
+import { SpeedoPostDomesticAdapter } from "./speedopost/speedopost.adapter";
 
 /**
  * Singleton domestic registry, pinned to globalThis (same rationale as the
@@ -34,6 +35,23 @@ globalForDomesticRegistry.__arenaDomesticAdapterRegistry =
   domesticAdapterRegistry;
 
 domesticAdapterRegistry.register(new ShipmozoDomesticAdapter());
+
+/**
+ * SpeedoPost quotes but CANNOT YET BOOK, and that asymmetry is deliberate.
+ *
+ * There is no entry for "speedopost" in
+ * lib/booking-adapters/vendors/domestic.booking.index.ts, so a customer who
+ * selects one of these quotes in the booking wizard will pay, and
+ * bookDomesticCourier will stop at `resolveBookingAdapter` returning null. The
+ * money stays held (domesticCourierBooking.md D5), ops get a CRITICAL
+ * COURIER_BOOKING_FAILED, and the order is placed by hand.
+ *
+ * That was chosen knowingly: the rates are worth having in front of customers
+ * before the booking integration lands. Registering a SpeedoPost booking
+ * adapter under the same vendorId is the whole fix, and nothing here changes
+ * when it does.
+ */
+domesticAdapterRegistry.register(new SpeedoPostDomesticAdapter());
 
 // ↓ Future domestic vendors — add as needed
 // import { DelhiveryDomesticAdapter } from "./delhivery-domestic/delhivery-domestic.adapter";

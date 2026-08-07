@@ -18,10 +18,12 @@ import { trackingAdapterRegistry } from "../core/tracking.registry";
 import { SkartTrackingAdapter } from "./skart/skart.tracking.adapter";
 import { AramexTrackingAdapter } from "./aramex/aramex.tracking.adapter";
 import { ShipmozoTrackingAdapter } from "./shipmozo/shipmozo.tracking.adapter";
+import { SpeedoPostTrackingAdapter } from "./speedopost/speedopost.tracking.adapter";
 
 trackingAdapterRegistry.register(new SkartTrackingAdapter());
 trackingAdapterRegistry.register(new AramexTrackingAdapter());
 trackingAdapterRegistry.register(new ShipmozoTrackingAdapter());
+trackingAdapterRegistry.register(new SpeedoPostTrackingAdapter());
 
 // ↓ Future vendors — uncomment / add as needed
 // import { FedExTrackingAdapter } from "./fedex/fedex.tracking.adapter";

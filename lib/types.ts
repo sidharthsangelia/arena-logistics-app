@@ -114,10 +114,16 @@ export type VendorId = (typeof AVAILABLE_VENDORS)[number]["id"];
 // -- Domestic calculator vendors -----------------------------------------------
 // The carriers queried by the DOMESTIC rate calculator. These map to the
 // separate domestic adapter registry (lib/rate-adapters/vendors/domestic.index).
-// Shipmozo returns many courier options as individual quotes, all under this
-// one adapter; add another entry here only when a second domestic adapter ships.
+// Both adapters return many courier options as individual quotes under one
+// vendor id; add another entry here only when a third domestic adapter ships.
+//
+// The same underlying courier can appear twice, once per vendor, at different
+// prices — a Delhivery quoted via Shipmozo and via SpeedoPost are two real,
+// separately purchasable options, and the cheaper one wins on sort. That is the
+// point of sourcing from two aggregators, not a duplicate to collapse.
 export const DOMESTIC_CALCULATOR_VENDORS = [
   { id: "shipmozo", label: "Shipmozo" },
+  { id: "speedopost", label: "SpeedoPost" },
 ] as const;
 
 export type DomesticCalculatorVendorId =

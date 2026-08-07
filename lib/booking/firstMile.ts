@@ -28,6 +28,27 @@ import {
 } from "@/lib/booking/cargo";
 
 // ---------------------------------------------------------------------------
+// Which vendors may quote a first-mile leg
+// ---------------------------------------------------------------------------
+
+/**
+ * The first-mile step prices through the DOMESTIC rate registry, which now
+ * holds more vendors than can actually collect a parcel for us.
+ *
+ * A first-mile pickup is not a quote, it is a leg of an export that gets booked
+ * by `lib/inngest/functions/bookFirstMilePickup.ts` — through the same
+ * `resolveBookingAdapter` lookup as a domestic booking. A vendor with no
+ * booking adapter selected here would take the customer's money and then leave
+ * the door → hub leg of an international shipment unplaced.
+ *
+ * So this list is "vendors that can quote AND book", not "vendors that can
+ * quote". SpeedoPost is deliberately absent: it quotes today and cannot book
+ * (see speedopostBooking.md). Add it here the moment its booking adapter is
+ * registered, and not before.
+ */
+export const FIRST_MILE_VENDOR_IDS = ["shipmozo"] as const;
+
+// ---------------------------------------------------------------------------
 // Hub registry (config constant for now — nearest-hub routing is future)
 // ---------------------------------------------------------------------------
 
