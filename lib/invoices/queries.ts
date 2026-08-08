@@ -96,14 +96,21 @@ function buildWhere(opts: {
 // Row mapping
 // ---------------------------------------------------------------------------
 
-const rowInclude = {
+/**
+ * Exported so the merged Arena feed (./admin/feed.ts) can carry a whole
+ * InvoiceRow on its uploaded-bill rows without a second, drifting copy of this
+ * mapping. There is one shape of this row and one place that builds it.
+ */
+export const invoiceRowInclude = {
   org: { select: { id: true, name: true, companyName: true } },
   shipment: { select: { id: true, shipmentNumber: true } },
 } satisfies Prisma.InvoiceInclude;
 
+const rowInclude = invoiceRowInclude;
+
 type InvoiceWithRels = Prisma.InvoiceGetPayload<{ include: typeof rowInclude }>;
 
-function toRow(inv: InvoiceWithRels): InvoiceRow {
+export function invoiceToRow(inv: InvoiceWithRels): InvoiceRow {
   return {
     id: inv.id,
     invoiceNumber: inv.invoiceNumber,
@@ -220,7 +227,7 @@ async function fetchPage(opts: {
   ]);
 
   return {
-    rows: rows.map(toRow),
+    rows: rows.map(invoiceToRow),
     total,
     pageCount: Math.max(1, Math.ceil(total / pageSize)),
     page,

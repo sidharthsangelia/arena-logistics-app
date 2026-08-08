@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { FileText, Loader2, Plus, Upload, X } from "lucide-react";
+import { FileText, Loader2, Upload, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -181,9 +181,12 @@ export function NewInvoiceSheet({ onCreated }: { onCreated: () => void }) {
 
   return (
     <Sheet open={open} onOpenChange={handleOpenChange}>
-      <Button size="sm" onClick={() => setOpen(true)}>
-        <Plus className="mr-1.5 h-4 w-4" />
-        New invoice
+      {/* "Upload a bill", not "New invoice": the primary button beside it opens
+          the invoice builder, and this one only ever attaches a PDF somebody
+          else's accounting system produced. */}
+      <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
+        <Upload className="mr-1.5 h-4 w-4" />
+        Upload a bill
       </Button>
 
       <SheetContent className="flex w-full flex-col gap-0 overflow-y-auto p-0 sm:max-w-lg">
