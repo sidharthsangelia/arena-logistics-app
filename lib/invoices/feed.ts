@@ -24,7 +24,13 @@
 
 import "server-only";
 
-import { Prisma, TaxDocType } from "@/generated/prisma";
+import {
+  InvoiceStatus,
+  ManualInvoiceDocType,
+  ManualInvoiceStatus,
+  Prisma,
+  TaxDocType,
+} from "@/generated/prisma";
 import { prisma } from "@/utils/db";
 import {
   coerceInvoiceFeedSortField,
@@ -130,10 +136,70 @@ function bookingWhere(opts: {
 /**
  * A booking invoice is never overdue: it is settled from the wallet at booking,
  * and it carries no due date to be past. Asking for overdue therefore asks for
- * account bills only.
+ * the two admin-raised kinds only.
  */
 function bookingIsExcluded(statusFilter: InvoiceStatusFilter): boolean {
   return statusFilter === "OVERDUE";
+}
+
+/**
+ * Manual invoices raised against an org the customer belongs to.
+ *
+ * DRAFTS ARE NEVER INCLUDED, here or anywhere on the tenant side. A draft has
+ * no number, no PDF and nothing has been claimed from the customer yet, so
+ * showing them one would be telling them they owe money that has not been
+ * billed.
+ */
+function manualWhere(opts: {
+  orgId: string;
+  statusFilter: InvoiceStatusFilter;
+  search?: string;
+  now: Date;
+}): Prisma.ManualInvoiceWhereInput {
+  const where: Prisma.ManualInvoiceWhereInput = {
+    orgId: opts.orgId,
+    deletedAt: null,
+    status: { not: ManualInvoiceStatus.DRAFT },
+  };
+
+  switch (opts.statusFilter) {
+    case "PAID":
+      where.status = ManualInvoiceStatus.PAID;
+      break;
+    case "CANCELLED":
+      where.status = ManualInvoiceStatus.CANCELLED;
+      break;
+    case "OVERDUE":
+      where.status = ManualInvoiceStatus.ISSUED;
+      where.dueDate = { lt: opts.now };
+      break;
+    case "UNPAID":
+      // Issued but not yet due, so UNPAID and OVERDUE partition the set the
+      // same way they do for account bills.
+      where.status = ManualInvoiceStatus.ISSUED;
+      where.OR = [{ dueDate: null }, { dueDate: { gte: opts.now } }];
+      break;
+    default:
+      break;
+  }
+
+  const q = opts.search?.trim();
+  if (q) {
+    const contains: Prisma.StringFilter = { contains: q, mode: "insensitive" };
+    const searchOr: Prisma.ManualInvoiceWhereInput[] = [
+      { invoiceNumber: contains },
+      { reference: contains },
+      { consignments: { some: { awbNumber: contains } } },
+    ];
+    if (where.OR) {
+      where.AND = [{ OR: where.OR }, { OR: searchOr }];
+      delete where.OR;
+    } else {
+      where.OR = searchOr;
+    }
+  }
+
+  return where;
 }
 
 // ---------------------------------------------------------------------------
@@ -169,8 +235,22 @@ const BOOKING_SELECT = {
   shipment: { select: { shipmentNumber: true } },
 } satisfies Prisma.ShipmentInvoiceSelect;
 
+const MANUAL_SELECT = {
+  id: true,
+  invoiceNumber: true,
+  docType: true,
+  status: true,
+  total: true,
+  currency: true,
+  issueDate: true,
+  dueDate: true,
+  fileUrl: true,
+  fileName: true,
+} satisfies Prisma.ManualInvoiceSelect;
+
 type AccountRaw = Prisma.InvoiceGetPayload<{ select: typeof ACCOUNT_SELECT }>;
 type BookingRaw = Prisma.ShipmentInvoiceGetPayload<{ select: typeof BOOKING_SELECT }>;
+type ManualRaw = Prisma.ManualInvoiceGetPayload<{ select: typeof MANUAL_SELECT }>;
 
 function accountToRow(inv: AccountRaw): InvoiceFeedRow {
   return {
@@ -212,6 +292,41 @@ function bookingToRow(inv: BookingRaw): InvoiceFeedRow {
   };
 }
 
+/**
+ * A manual invoice has its own statuses (DRAFT / ISSUED / PAID / CANCELLED),
+ * which are not the account bill's (UNPAID / PAID / CANCELLED). Mapped rather
+ * than passed through, so the feed's one status vocabulary stays true: ISSUED
+ * is what the customer reads as unpaid, and deriveInvoiceStatusView then turns
+ * a past due date into OVERDUE exactly as it does for the other kinds.
+ */
+function manualToRow(inv: ManualRaw): InvoiceFeedRow {
+  const asAccountStatus =
+    inv.status === ManualInvoiceStatus.PAID
+      ? InvoiceStatus.PAID
+      : inv.status === ManualInvoiceStatus.CANCELLED
+        ? InvoiceStatus.CANCELLED
+        : InvoiceStatus.UNPAID;
+
+  return {
+    id: `manual:${inv.id}`,
+    kind: "MANUAL",
+    isCreditNote: inv.docType === ManualInvoiceDocType.CREDIT_NOTE,
+    invoiceNumber: inv.invoiceNumber,
+    status: deriveInvoiceStatusView(asAccountStatus, inv.dueDate),
+    amount: Number(inv.total),
+    currency: inv.currency,
+    issueDate: inv.issueDate.toISOString(),
+    dueDate: inv.dueDate ? inv.dueDate.toISOString() : null,
+    // A manual invoice is for work that never went through the platform, so it
+    // has no Shipment to point at. Its own consignments are on the PDF.
+    shipmentId: null,
+    shipmentNumber: null,
+    fileUrl: inv.fileUrl,
+    fileName: inv.fileName,
+    preparing: false,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Summary — org scope only
 // ---------------------------------------------------------------------------
@@ -224,6 +339,11 @@ function bookingToRow(inv: BookingRaw): InvoiceFeedRow {
 async function fetchSummary(orgId: string, now: Date): Promise<InvoiceSummary> {
   const accountScope: Prisma.InvoiceWhereInput = { orgId, deletedAt: null };
   const bookingScope: Prisma.ShipmentInvoiceWhereInput = { orgId };
+  const manualScope: Prisma.ManualInvoiceWhereInput = {
+    orgId,
+    deletedAt: null,
+    status: { not: ManualInvoiceStatus.DRAFT },
+  };
 
   const [
     accountTotal,
@@ -233,6 +353,10 @@ async function fetchSummary(orgId: string, now: Date): Promise<InvoiceSummary> {
     bookingTotal,
     bookingUnpaid,
     bookingPaid,
+    manualTotal,
+    manualUnpaid,
+    manualOverdue,
+    manualPaid,
   ] = await Promise.all([
     prisma.invoice.count({ where: accountScope }),
     prisma.invoice.aggregate({
@@ -259,17 +383,40 @@ async function fetchSummary(orgId: string, now: Date): Promise<InvoiceSummary> {
       _sum: { total: true },
       _count: true,
     }),
+    prisma.manualInvoice.count({ where: manualScope }),
+    prisma.manualInvoice.aggregate({
+      where: { ...manualScope, status: ManualInvoiceStatus.ISSUED },
+      _sum: { total: true },
+      _count: true,
+    }),
+    prisma.manualInvoice.count({
+      where: {
+        ...manualScope,
+        status: ManualInvoiceStatus.ISSUED,
+        dueDate: { lt: now },
+      },
+    }),
+    prisma.manualInvoice.aggregate({
+      where: { ...manualScope, status: ManualInvoiceStatus.PAID },
+      _sum: { total: true },
+      _count: true,
+    }),
   ]);
 
   return {
-    total: accountTotal + bookingTotal,
+    total: accountTotal + bookingTotal + manualTotal,
     outstandingAmount:
-      Number(accountUnpaid._sum.amount ?? 0) + Number(bookingUnpaid._sum.total ?? 0),
-    outstandingCount: accountUnpaid._count + bookingUnpaid._count,
-    overdueCount: accountOverdue,
-    paidCount: accountPaid._count + bookingPaid._count,
+      Number(accountUnpaid._sum.amount ?? 0) +
+      Number(bookingUnpaid._sum.total ?? 0) +
+      Number(manualUnpaid._sum.total ?? 0),
+    outstandingCount:
+      accountUnpaid._count + bookingUnpaid._count + manualUnpaid._count,
+    overdueCount: accountOverdue + manualOverdue,
+    paidCount: accountPaid._count + bookingPaid._count + manualPaid._count,
     paidAmount:
-      Number(accountPaid._sum.amount ?? 0) + Number(bookingPaid._sum.total ?? 0),
+      Number(accountPaid._sum.amount ?? 0) +
+      Number(bookingPaid._sum.total ?? 0) +
+      Number(manualPaid._sum.total ?? 0),
     currency: "INR",
   };
 }
@@ -300,16 +447,25 @@ export async function getOrgInvoiceFeed(
 
   const accWhere = accountWhere({ orgId, statusFilter, search, now });
   const bookWhere = bookingWhere({ orgId, statusFilter, search });
+  const manWhere = manualWhere({ orgId, statusFilter, search, now });
 
   const bookingOff = bookingIsExcluded(statusFilter);
-  const wantAccount = kindFilter !== "BOOKING";
-  const wantBooking = kindFilter !== "ACCOUNT" && !bookingOff;
+  const wantAccount = kindFilter === "ALL" || kindFilter === "ACCOUNT";
+  const wantBooking = (kindFilter === "ALL" || kindFilter === "BOOKING") && !bookingOff;
+  const wantManual = kindFilter === "ALL" || kindFilter === "MANUAL";
 
   // Everything above the requested page has to be merged before it can be
   // sliced, so each side contributes at most that many rows.
   const take = page * pageSize;
 
-  const [accountRows, bookingRows, accountCount, bookingCount] = await Promise.all([
+  const [
+    accountRows,
+    bookingRows,
+    manualRows,
+    accountCount,
+    bookingCount,
+    manualCount,
+  ] = await Promise.all([
     wantAccount
       ? prisma.invoice.findMany({
           where: accWhere,
@@ -326,13 +482,29 @@ export async function getOrgInvoiceFeed(
           take,
         })
       : Promise.resolve([] as BookingRaw[]),
+    wantManual
+      ? prisma.manualInvoice.findMany({
+          where: manWhere,
+          select: MANUAL_SELECT,
+          orderBy: [
+            { [sortField === "amount" ? "total" : "issueDate"]: sortDir },
+            { id: "desc" },
+          ],
+          take,
+        })
+      : Promise.resolve([] as ManualRaw[]),
     prisma.invoice.count({ where: accWhere }),
     bookingOff
       ? Promise.resolve(0)
       : prisma.shipmentInvoice.count({ where: bookWhere }),
+    prisma.manualInvoice.count({ where: manWhere }),
   ]);
 
-  const merged = [...accountRows.map(accountToRow), ...bookingRows.map(bookingToRow)];
+  const merged = [
+    ...accountRows.map(accountToRow),
+    ...bookingRows.map(bookingToRow),
+    ...manualRows.map(manualToRow),
+  ];
 
   // Mirrors the database's ordering exactly, id tiebreak included.
   merged.sort((a, b) => {
@@ -345,7 +517,9 @@ export async function getOrgInvoiceFeed(
   });
 
   const total =
-    (wantAccount ? accountCount : 0) + (wantBooking ? bookingCount : 0);
+    (wantAccount ? accountCount : 0) +
+    (wantBooking ? bookingCount : 0) +
+    (wantManual ? manualCount : 0);
 
   return {
     rows: merged.slice((page - 1) * pageSize, page * pageSize),
@@ -354,6 +528,10 @@ export async function getOrgInvoiceFeed(
     page,
     pageSize,
     summary: await fetchSummary(orgId, now),
-    kindCounts: { ACCOUNT: accountCount, BOOKING: bookingCount },
+    kindCounts: {
+      ACCOUNT: accountCount,
+      BOOKING: bookingCount,
+      MANUAL: manualCount,
+    },
   };
 }

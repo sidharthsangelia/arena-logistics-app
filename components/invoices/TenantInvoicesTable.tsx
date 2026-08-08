@@ -30,6 +30,7 @@ import {
   invoiceDownloadHref,
   type InvoiceFeedPage,
   type InvoiceFeedRow,
+  type InvoiceKind,
   type InvoiceKindFilter,
 } from "@/lib/invoices/config";
 
@@ -235,7 +236,7 @@ function InvoiceNumberCell({ row }: { row: InvoiceFeedRow }) {
 }
 
 const KIND_TAG: Record<
-  "BOOKING" | "CREDIT_NOTE" | "ACCOUNT",
+  InvoiceKind | "CREDIT_NOTE",
   { label: string; icon: React.ElementType; hint: string }
 > = {
   BOOKING: {
@@ -246,7 +247,12 @@ const KIND_TAG: Record<
   CREDIT_NOTE: {
     label: "Credit note",
     icon: RotateCcw,
-    hint: "Reverses part or all of a booking invoice.",
+    hint: "Reverses part or all of an invoice.",
+  },
+  MANUAL: {
+    label: "Services",
+    icon: Receipt,
+    hint: "Tax invoice for work arranged with us directly.",
   },
   ACCOUNT: {
     label: "Account bill",
@@ -330,6 +336,10 @@ function RowActions({ row }: { row: InvoiceFeedRow }) {
 const KIND_LABEL: Record<InvoiceKindFilter, string> = {
   ALL: "All",
   BOOKING: "Booking",
+  // Raised by hand for work arranged off the platform. "Services" rather than
+  // "Manual", which describes how Arena made it and means nothing to the person
+  // being billed.
+  MANUAL: "Services",
   ACCOUNT: "Account",
 };
 
@@ -344,11 +354,11 @@ function KindSwitch({
 }: {
   value: InvoiceKindFilter;
   onChange: (next: InvoiceKindFilter) => void;
-  counts?: Record<"BOOKING" | "ACCOUNT", number>;
+  counts?: Record<InvoiceKind, number>;
 }) {
   const countFor = (kind: InvoiceKindFilter) => {
     if (!counts) return null;
-    if (kind === "ALL") return counts.BOOKING + counts.ACCOUNT;
+    if (kind === "ALL") return counts.BOOKING + counts.ACCOUNT + counts.MANUAL;
     return counts[kind];
   };
 

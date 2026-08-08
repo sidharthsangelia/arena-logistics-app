@@ -29,7 +29,7 @@ export async function GET(
 ) {
   const { kind, id } = await params;
 
-  if (kind !== "booking" && kind !== "account") {
+  if (!isDownloadableKind(kind)) {
     return NextResponse.json({ error: "not found" }, { status: 404 });
   }
 
@@ -88,9 +88,17 @@ interface StoredFile {
   mimeType: string | null;
 }
 
+/** Mirrors INVOICE_KIND_PATHS in lib/invoices/config.ts. */
+const DOWNLOADABLE_KINDS = ["booking", "account", "manual"] as const;
+type DownloadableKind = (typeof DOWNLOADABLE_KINDS)[number];
+
+function isDownloadableKind(kind: string): kind is DownloadableKind {
+  return (DOWNLOADABLE_KINDS as readonly string[]).includes(kind);
+}
+
 /** orgId goes in the where clause, never into a check afterwards. */
 async function lookupFile(
-  kind: "booking" | "account",
+  kind: DownloadableKind,
   id: string,
   orgId: string,
 ): Promise<StoredFile | null> {
@@ -101,6 +109,17 @@ async function lookupFile(
     });
     // Always a PDF this app rendered itself, so there is no stored mime type.
     return row ? { ...row, mimeType: "application/pdf" } : null;
+  }
+
+  if (kind === "manual") {
+    // The DRAFT exclusion is part of the access check, not a display filter: a
+    // draft is not a document the customer has been given, so its id must miss
+    // here exactly as another org's would.
+    const row = await prisma.manualInvoice.findFirst({
+      where: { id, orgId, deletedAt: null, status: { not: "DRAFT" } },
+      select: { fileUrl: true, fileName: true, mimeType: true },
+    });
+    return row;
   }
 
   return prisma.invoice.findFirst({

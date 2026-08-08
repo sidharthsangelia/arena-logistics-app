@@ -91,8 +91,37 @@ export async function allocateInvoiceNumber(
   docType: TaxDocType,
   issueDate: Date,
 ): Promise<AllocatedNumber> {
+  const prefix =
+    docType === TaxDocType.CREDIT_NOTE
+      ? CREDIT_NOTE_NUMBER_PREFIX
+      : INVOICE_NUMBER_PREFIX;
+
+  return allocateSeriesNumber(tx, docType, prefix, issueDate);
+}
+
+/**
+ * The counter itself, for any series.
+ *
+ * Booking invoices key on TaxDocType; manual invoices key on their own
+ * MANUAL_TAX_INVOICE and MANUAL_CREDIT_NOTE (lib/invoices/manual/config.ts).
+ * They are separate series on purpose: GST wants each series internally
+ * consecutive, not one series for the whole business, and keeping them apart
+ * means a manual draft abandoned at 6pm cannot leave a hole in the series live
+ * bookings are writing into.
+ *
+ * `series` is a free string rather than an enum because InvoiceCounter is keyed
+ * on `(series, financialYear)` and creates rows on demand, so a new series needs
+ * nothing but a name nothing else uses.
+ *
+ * MUST be called inside a transaction, for the reason in the module header.
+ */
+export async function allocateSeriesNumber(
+  tx: Prisma.TransactionClient,
+  series: string,
+  prefix: string,
+  issueDate: Date,
+): Promise<AllocatedNumber> {
   const financialYear = financialYearOf(issueDate);
-  const series = docType;
 
   // One statement does all of it: create the year's counter if this is its
   // first invoice, otherwise lock the existing row and increment. The row is
@@ -119,7 +148,7 @@ export async function allocateInvoiceNumber(
   }
 
   return {
-    invoiceNumber: formatInvoiceNumber(docType, financialYear, sequence),
+    invoiceNumber: `${prefix}/${financialYear}/${String(sequence).padStart(INVOICE_NUMBER_PAD, "0")}`,
     financialYear,
     sequence,
   };

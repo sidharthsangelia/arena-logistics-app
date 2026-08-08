@@ -15,6 +15,41 @@ const ISO_BY_NAME: Record<string, string> = Object.fromEntries(
   COUNTRIES.map((c) => [c.name, c.code]),
 );
 
+// ---------------------------------------------------------------------------
+// Where a lookup is even possible
+// ---------------------------------------------------------------------------
+//
+// Zippopotam covers about sixty countries and no more, and several of the
+// places Arena ships to most (the UAE, Hong Kong, Ireland outside Dublin) have
+// no usable postal system to look up in the first place.
+//
+// Without this a form cannot tell "that pincode is wrong" apart from "nobody
+// offers this service for Dubai", and it shows the same discouraging "not
+// found" for both. Knowing which one it is lets the UI ask for the city
+// directly instead of leaving someone retyping a ZIP that was never going to
+// resolve. India is on the list separately: it goes to India Post, not here.
+
+const ZIPPOPOTAM_ISO = new Set([
+  "AD", "AR", "AS", "AT", "AU", "AX", "BD", "BE", "BG", "BR", "CA", "CH",
+  "CZ", "DE", "DK", "DO", "ES", "FI", "FO", "FR", "GB", "GF", "GG", "GL",
+  "GP", "GT", "GU", "GY", "HR", "HU", "IM", "IS", "IT", "JE", "JP", "LI",
+  "LK", "LT", "LU", "MC", "MD", "MH", "MK", "MP", "MQ", "MT", "MX", "MY",
+  "NC", "NL", "NO", "NZ", "PH", "PK", "PL", "PM", "PR", "PT", "RE", "RO",
+  "RU", "SE", "SI", "SJ", "SK", "SM", "TH", "TR", "US", "VA", "VI", "YT",
+  "ZA",
+]);
+
+/**
+ * True when a postal code typed for this country can actually resolve to a
+ * city. Callers should use it to change what they ASK for, never to block:
+ * a country with no lookup still needs a city, it just has to be typed.
+ */
+export function hasPostalLookup(countryName: string | null | undefined): boolean {
+  const iso = countryName ? ISO_BY_NAME[countryName] : undefined;
+  if (!iso) return false;
+  return iso === "IN" || ZIPPOPOTAM_ISO.has(iso);
+}
+
 export interface PostalLookupResult {
   city: string;
   state: string;

@@ -81,7 +81,34 @@ export const SELECTABLE_GST_STATES: readonly GstState[] = GST_STATES.filter(
   (s) => s.active,
 );
 
-const STATE_BY_CODE = new Map(GST_STATES.map((s) => [s.code, s]));
+/**
+ * Code 96, which is not a state at all.
+ *
+ * GSTR-1 wants 96 in the place-of-supply column on an export, and nothing else
+ * will do: 97 is "Other Territory", meaning offshore installations inside
+ * India's own jurisdiction, and filing an air export to Dubai under it is
+ * simply the wrong answer to the question.
+ *
+ * Deliberately outside GST_STATES and therefore outside SELECTABLE_GST_STATES.
+ * The settings form picks where ARENA is registered, and Arena cannot be
+ * registered outside India, so offering it there would only be a way to break
+ * every invoice at once. The manual invoice builder adds it to its own list
+ * when the invoice is international, which is the one place it is meaningful.
+ */
+export const OUTSIDE_INDIA: GstState = {
+  code: "96",
+  name: "Outside India",
+  active: true,
+};
+
+/**
+ * Resolvable by code, even though it is not offerable everywhere. An invoice
+ * already issued against 96 has to keep printing "Outside India" rather than
+ * falling back to a bare number.
+ */
+const STATE_BY_CODE = new Map(
+  [...GST_STATES, OUTSIDE_INDIA].map((s) => [s.code, s]),
+);
 
 export function gstStateName(code: string | null | undefined): string | null {
   if (!code) return null;

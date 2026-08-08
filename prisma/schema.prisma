@@ -79,6 +79,9 @@ model Org {
   baApplications BaApplication[]
   bookingDrafts  BookingDraft[]
 
+  billingParties BillingParty[]
+  manualInvoices ManualInvoice[]
+
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
@@ -253,6 +256,8 @@ model Client {
 
   quotes    Quote[]
   documents ClientDocument[]
+
+  billingParties BillingParty[]
 
   @@index([orgId])
   @@index([orgId, companyName])
@@ -1928,4 +1933,549 @@ model InvoiceCounter {
   updatedAt DateTime @updatedAt
 
   @@unique([series, financialYear])
+}
+
+// ---------------------------------------------------------------------------
+// MANUAL INVOICING — off-platform work, billed by hand
+// ---------------------------------------------------------------------------
+//
+// Most of Arena's business never touches the booking flow: a customer calls, a
+// consignment moves, and somebody has to produce a proper GST tax invoice for
+// it. These models are that tool. See manualInvoicing.md for the decisions.
+//
+// Deliberately NOT ShipmentInvoice. That one is minted by the platform from a
+// booked Shipment and an authoritative wallet debit, and every rule about it
+// follows from those two facts. This one is typed by an admin, has no shipment,
+// and adds tax on top of what was typed. Sharing a table would put a branch on
+// that distinction in every function in the invoice layer.
+
+// ---------------------------------------------------------------------------
+// BillingParty — the address book of people Arena bills
+// ---------------------------------------------------------------------------
+//
+// Everything else in the invoice layer hangs off an Org, because everything
+// else began with somebody signing up. Off-platform customers have no account
+// and most never will. Inventing a shell Org for each one would fill the tenant
+// tables with rows that can never log in and would show up in every org count,
+// list and export.
+//
+// So this is a plain party record. It CAN be linked to an Org or a Client when
+// one happens to match, and when it is linked to an Org the issued invoice also
+// appears in that customer's own /invoices tab. When it is not, the PDF is the
+// whole delivery and nobody logs in to see it.
+/// Whether the party being billed is a company or a person.
+///
+/// Not cosmetic. An individual has no GSTIN, no CIN and no trading name, and a
+/// form that asks for them anyway reads as though the invoice cannot be raised
+/// without them. It also changes the document: a company with no GSTIN is
+/// meaningfully "unregistered" and worth stating, whereas printing
+/// "GSTIN: Unregistered" against a person's name is noise.
+enum BillingPartyKind {
+  BUSINESS
+  INDIVIDUAL
+}
+
+model BillingParty {
+  id String @id @default(cuid())
+
+  /// BUSINESS unless someone says otherwise, because almost every party is one
+  /// and every party that existed before this column was added is one.
+  kind BillingPartyKind @default(BUSINESS)
+
+  /// Printed as the bill-to name. The registered legal name for a business, the
+  /// person's full name for an individual.
+  legalName String
+  /// Optional trading name, printed beneath the legal one when they differ.
+  tradeName String?
+  /// The customer's code in Arena's own accounting system, if they have one.
+  customerCode String?
+
+  gstin String?
+  pan   String?
+  cin   String?
+
+  contactName String?
+  email       String?
+  phone       String?
+
+  addressLine1 String?
+  addressLine2 String?
+  city         String?
+  /// Free text, as typed. stateCode below is the authoritative one.
+  state        String?
+  /// Two-digit GST state code. Decides IGST vs CGST/SGST on every invoice
+  /// raised to this party, so it is resolved from the GSTIN when there is one.
+  stateCode    String?
+  postalCode   String?
+  country      String? @default("India")
+
+  notes String?
+
+  // ── optional links back into the platform ──
+  // Both nullable and both SetNull: a party outlives the account it was once
+  // matched to. Losing the link must never lose the billing history.
+  orgId String?
+  org   Org?    @relation(fields: [orgId], references: [id], onDelete: SetNull)
+
+  clientId String?
+  client   Client? @relation(fields: [clientId], references: [id], onDelete: SetNull)
+
+  /// Convenience defaults remembered from the last invoice raised to this
+  /// party: currency, tax mode, payment terms, place of supply, and the charge
+  /// types that were used. Picking a party fills roughly half the form, which
+  /// is the single largest contributor to the five-minute target.
+  ///
+  /// JSON rather than columns because the set of things worth remembering will
+  /// change as the tool is used, and none of it is authoritative: a default
+  /// seeds a form field, and the field is what gets snapshotted onto the
+  /// document. Nothing here is ever printed straight.
+  defaults Json?
+
+  invoices ManualInvoice[]
+
+  createdById   String?
+  createdByName String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([legalName])
+  @@index([gstin])
+  @@index([orgId])
+  @@index([clientId])
+  @@index([deletedAt])
+  @@index([createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// ChargeType — the catalog behind the charge picker
+// ---------------------------------------------------------------------------
+//
+// A table rather than a constant because vendors invent surcharges faster than
+// anyone ships code, and an admin who cannot bill something will work around
+// the tool rather than wait for a deploy.
+//
+// `applicability` filters what the picker offers FIRST; it never restricts what
+// can be billed. A charge marked international still appears on a domestic
+// invoice if you search for it by name. A catalog that refuses is a catalog
+// people route around.
+model ChargeType {
+  id String @id @default(cuid())
+
+  /// Stable kebab-case key, e.g. "fuel-surcharge". The seed upserts on this,
+  /// so re-running it never duplicates a row or overwrites an edited rate.
+  code String @unique
+  /// What prints on the invoice line.
+  label String
+  /// Longer wording for the picker, when the label alone is ambiguous.
+  description String?
+
+  /// Services Accounting Code defaulted onto the line so an admin never types
+  /// one. Overridable per line.
+  sacCode String @default("996812")
+  /// Default GST rate for this charge, in percent. Overridable per line.
+  defaultRatePercent Decimal @default(18) @db.Decimal(5, 2)
+
+  /// True for charges that are normally money Arena pays out and recovers
+  /// (destination duty, origin country taxes, airline DO). Seeds the line's
+  /// reimbursement flag, which keeps the amount out of taxable value and out
+  /// of every tax head. See manualInvoiceMoney.
+  defaultReimbursement Boolean @default(false)
+
+  applicability ChargeApplicability @default(ANY)
+
+  charges ManualInvoiceCharge[]
+
+  /// Picker ordering. Lower sorts first, so freight and fuel surcharge sit at
+  /// the top where they are needed on almost every invoice.
+  sortOrder Int @default(500)
+
+  /// Seeded rows are marked so the seed can tell its own rows from an admin's
+  /// and never clobber the latter.
+  isSystem Boolean @default(true)
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive, sortOrder])
+  @@index([applicability])
+}
+
+enum ChargeApplicability {
+  ANY
+  DOMESTIC
+  INTERNATIONAL
+  AIR
+  SEA
+}
+
+// ---------------------------------------------------------------------------
+// ChargePreset — a named bundle of charge lines
+// ---------------------------------------------------------------------------
+//
+// "Air export commercial" pre-loads freight, fuel surcharge, AHS,
+// documentation and customs clearance with their SACs and zero amounts, so the
+// admin fills numbers only. The second half of the five-minute target, after
+// duplicating a previous invoice.
+model ChargePreset {
+  id String @id @default(cuid())
+
+  name        String  @unique
+  description String?
+
+  /// Array of { chargeTypeCode, label, sacCode, ratePercent, reimbursement }.
+  /// Denormalised on purpose: a preset is a starting point, and a charge type
+  /// later renamed or deactivated must not silently change what an old preset
+  /// lays down or make it fail to load at all.
+  lines Json
+
+  mode ShipmentMode?
+
+  sortOrder Int @default(500)
+
+  createdById   String?
+  createdByName String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([deletedAt, sortOrder])
+}
+
+// ---------------------------------------------------------------------------
+// ManualInvoice — the document
+// ---------------------------------------------------------------------------
+//
+// A DRAFT is a live, editable working area: no number, no snapshot, no PDF, and
+// it reads from the consignment and charge rows below. Issuing allocates the
+// serial, freezes everything printed into the JSON columns, renders the PDF,
+// and makes the row immutable.
+//
+// EVERYTHING PRINTED IS SNAPSHOTTED, for the same reason as ShipmentInvoice: a
+// tax invoice is a statement about a moment, and the customer is holding a copy.
+// Correcting a party's GSTIN next month must not rewrite the invoice they
+// already have. The renderer reads only the frozen JSON, never a live join.
+model ManualInvoice {
+  id String @id @default(cuid())
+
+  /// Null while DRAFT. Allocated on issue and never reused. Nothing is legally
+  /// issued without a number, so null is exactly what "not yet issued" means.
+  invoiceNumber String? @unique
+  /// "26-27", stamped alongside the number.
+  financialYear String?
+
+  docType ManualInvoiceDocType @default(TAX_INVOICE)
+
+  /// Only set on a CREDIT_NOTE: the invoice it reverses. Restrict, because an
+  /// invoice with a credit note against it cannot be made to disappear.
+  relatedInvoiceId String?
+  relatedInvoice   ManualInvoice?  @relation("ManualInvoiceCorrection", fields: [relatedInvoiceId], references: [id], onDelete: Restrict)
+  corrections      ManualInvoice[] @relation("ManualInvoiceCorrection")
+
+  // ── who is billed ──
+  // Restrict rather than Cascade: deleting a party must not take issued tax
+  // documents with it. The party delete path soft-deletes for this reason.
+  billingPartyId String
+  billingParty   BillingParty @relation(fields: [billingPartyId], references: [id], onDelete: Restrict)
+
+  /// Denormalised from the party at issue time so the tenant-side list can be
+  /// scoped without walking through BillingParty, and so unlinking a party from
+  /// its org later does not retroactively hide invoices that org has seen.
+  orgId String?
+  org   Org?    @relation(fields: [orgId], references: [id], onDelete: SetNull)
+
+  status  ManualInvoiceStatus @default(DRAFT)
+  /// Domestic or international. Drives default terms and which charge types the
+  /// picker offers first. Not a tax decision: the rate is per line.
+  mode    ShipmentMode        @default(INTERNATIONAL)
+  /// CSB-4 / CSB-5 / commercial. A label for filtering, printed in the shipment
+  /// block, changing nothing about the money.
+  csbCategory String?
+
+  issueDate DateTime @default(now())
+  dueDate   DateTime?
+  /// One of the values in lib/invoices/manual/config.ts, e.g. "NET_30".
+  paymentTerms String?
+
+  /// Free-text reference the customer asked for on their bill (a PO number,
+  /// their own job reference). Printed in the invoice details block.
+  reference String?
+
+  // ── tax posture ──
+  /// EXCLUSIVE adds GST to what was typed; INCLUSIVE splits it out of the typed
+  /// gross. One switch, one branch in the money engine, invariants hold both
+  /// ways. See manualInvoicing.md §4.
+  taxMode      TaxMode @default(EXCLUSIVE)
+  /// Printed and stated; true means the recipient pays the GST, so no tax is
+  /// charged on the document.
+  reverseCharge Boolean @default(false)
+
+  placeOfSupplyCode String?
+  placeOfSupplyName String?
+
+  // ── money, in the invoice currency ──
+  // Populated on issue from the charge rows and re-verified before persisting.
+  // A draft carries running totals so the list is readable, but the issue path
+  // rebuilds them from the rows rather than trusting these.
+  currency       String  @default("INR")
+  /// Sum of non-reimbursement lines, pre-tax.
+  taxableValue   Decimal @default(0) @db.Decimal(14, 2)
+  cgstAmount     Decimal @default(0) @db.Decimal(14, 2)
+  sgstAmount     Decimal @default(0) @db.Decimal(14, 2)
+  igstAmount     Decimal @default(0) @db.Decimal(14, 2)
+  totalTax       Decimal @default(0) @db.Decimal(14, 2)
+  /// Pure-agent recoveries. In the total, outside the taxable value and outside
+  /// every tax head.
+  reimbursements Decimal @default(0) @db.Decimal(14, 2)
+  /// taxableValue + totalTax + reimbursements. What the customer owes.
+  total          Decimal @default(0) @db.Decimal(14, 2)
+  /// Printed when nothing is charged, e.g. a reverse-charge or export citation.
+  taxNote        String?
+
+  // ── e-invoicing (optional, pasted by hand) ──
+  // No IRP integration. An admin generates the IRN on the government portal and
+  // pastes it back; the PDF prints the QR when one is present.
+  irn        String?
+  irnAckNo   String?
+  irnAckDate DateTime?
+  /// The signed QR payload, rendered to a QR code on the document.
+  irnQrData  String? @db.Text
+
+  notes String?
+  /// Overrides the mode's default terms when an admin needs different ones.
+  termsOverride String? @db.Text
+
+  // ── frozen document content (null while DRAFT) ──
+  /// Arena's issuer block, a copy of the same config the booking invoices use.
+  sellerSnapshot Json?
+  /// Bill-to block as it stood at issue.
+  buyerSnapshot  Json?
+  /// Consignments as printed, with their per-consignment charge lines.
+  consignmentSnapshot Json?
+  /// The rolled-up, taxed service lines. What the charges table prints.
+  lineItems      Json?
+
+  // ── the PDF ──
+  // Same column shape as ShipmentDocument, Invoice and ShipmentInvoice so the
+  // download UI treats all of them identically.
+  fileUrl  String?
+  fileKey  String?
+  fileName String?
+  fileSize Int?
+  mimeType String?
+
+  issuedAt   DateTime?
+  paidAt     DateTime?
+  paidById   String?
+  paidByName String?
+
+  /// Set when the PDF was last emailed to the party, so the list can show
+  /// whether the customer has actually been sent their invoice.
+  lastSentAt DateTime?
+  lastSentTo String?
+
+  cancelledAt     DateTime?
+  cancelledReason String?
+
+  createdById   String?
+  createdByName String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  /// Drafts are deletable. Once issued, deletedAt stays null forever: the
+  /// correction path is a credit note.
+  deletedAt DateTime?
+
+  consignments ManualInvoiceConsignment[]
+
+  @@index([status])
+  @@index([billingPartyId])
+  @@index([orgId, status])
+  @@index([issueDate(sort: Desc)])
+  @@index([financialYear])
+  @@index([deletedAt])
+  @@index([createdAt])
+}
+
+enum ManualInvoiceStatus {
+  DRAFT // no number, no PDF, freely editable
+  ISSUED // numbered, rendered, immutable, unpaid
+  PAID
+  CANCELLED // voided; the number and PDF survive for the record
+  // OVERDUE is NOT here. It is derived (ISSUED && dueDate < now) in
+  // deriveManualInvoiceView, the same call the account-bill list already makes.
+}
+
+enum ManualInvoiceDocType {
+  TAX_INVOICE
+  CREDIT_NOTE
+}
+
+enum TaxMode {
+  /// Typed amounts are pre-tax; GST is added and the total grows.
+  EXCLUSIVE
+  /// Typed amounts are gross; GST is split out of them and the total is
+  /// exactly what was typed.
+  INCLUSIVE
+}
+
+// ---------------------------------------------------------------------------
+// ManualInvoiceConsignment — one AWB on the invoice
+// ---------------------------------------------------------------------------
+//
+// An invoice can bill several consignments at once, which is what monthly
+// billing of a regular customer looks like. Every field is optional except the
+// ordering, because an invoice for warehousing or a documentation fee has no
+// AWB, no route and no weight, and forcing placeholder values onto it would put
+// fiction on a tax document.
+model ManualInvoiceConsignment {
+  id String @id @default(cuid())
+
+  invoiceId String
+  invoice   ManualInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  /// Position on the document. The S.No column.
+  sortOrder Int @default(0)
+
+  /// House air waybill, or the courier's tracking number.
+  awbNumber  String?
+  /// Master air waybill, for consolidated air freight.
+  mawbNumber String?
+  bookingDate DateTime?
+
+  // ── route ──
+  //
+  // `origin` and `destination` are what PRINTS: a composed label like
+  // "Gurugram, Haryana" or "Dubai, United Arab Emirates". They stay free text
+  // and stay editable, because a lane is sometimes a port, a hub or a customer's
+  // own wording, and forcing every one through a pincode would block an invoice
+  // on a lookup that was never going to succeed.
+  //
+  // The structured fields beneath them are the record. They are filled by the
+  // pincode lookup (utils/postalLookup.ts, the same India Post and Zippopotam
+  // path the booking flow uses) and are what any later lane report has to read,
+  // because "Gurugram, Haryana" cannot be grouped and a state code can.
+  origin      String?
+  destination String?
+
+  originPostalCode String?
+  originCity       String?
+  originState      String?
+  originCountry    String?
+
+  destinationPostalCode String?
+  destinationCity       String?
+  destinationState      String?
+  destinationCountry    String?
+
+  /// "Express", "Air freight", "Sea LCL". Free text: the service names Arena
+  /// sells off-platform are not the platform's service catalog.
+  serviceType String?
+  /// Airport or port codes, when the lane is freight rather than courier.
+  originPort      String?
+  destinationPort String?
+  flightNumber    String?
+
+  /// Carrier or airline the consignment flew on. Printed as given; this is
+  /// Arena's own record of an off-platform move, not a rate sourced through the
+  /// platform, so carrierBranding.md's vendor-disclosure rule does not bite.
+  airlineName   String?
+  /// The forwarder, when the move went through one.
+  forwarderName String?
+  /// The agent at the far end, when there was one.
+  subAgent      String?
+
+  /// Total No of Packages on the customer's paperwork.
+  pieces              Int?
+  grossWeightKg       Decimal? @db.Decimal(10, 3)
+  chargeableWeightKg  Decimal? @db.Decimal(10, 3)
+
+  /// Package breakdown, when the customer's own paperwork states it this way.
+  /// Separate from `pieces` because a consignment of 3 pallets holding 40
+  /// cartons is two true numbers, and collapsing them loses the one the
+  /// warehouse actually counted.
+  boxCount    Int?
+  palletCount Int?
+  cartonCount Int?
+
+  goodsDescription String?
+  /// Free-text "Particulars" line, for anything the columns do not hold.
+  particulars      String?
+  /// The customer's own export invoice number, which their bank will ask for.
+  exportInvoiceNo  String?
+  /// The customer's reference for this consignment, distinct from the
+  /// invoice-wide reference and from Arena's job number.
+  referenceNo      String?
+  shipperName      String?
+  consigneeName    String?
+  containerNumber  String?
+  jobNumber        String?
+
+  notes String?
+
+  charges ManualInvoiceCharge[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([invoiceId, sortOrder])
+}
+
+// ---------------------------------------------------------------------------
+// ManualInvoiceCharge — one billed line, under one consignment
+// ---------------------------------------------------------------------------
+//
+// Charges belong to a consignment rather than to the invoice, so "what did that
+// one AWB cost" stays answerable. The taxed table printed on the document is a
+// roll-up of these grouped by label, SAC and rate.
+model ManualInvoiceCharge {
+  id String @id @default(cuid())
+
+  consignmentId String
+  consignment   ManualInvoiceConsignment @relation(fields: [consignmentId], references: [id], onDelete: Cascade)
+
+  sortOrder Int @default(0)
+
+  /// The catalog row this came from, for reporting. Nullable and SetNull: the
+  /// label, SAC and rate are copied onto the line below, so a deleted or
+  /// renamed charge type cannot change what an invoice says.
+  chargeTypeId String?
+  chargeType   ChargeType? @relation(fields: [chargeTypeId], references: [id], onDelete: SetNull)
+
+  /// What prints. Copied from the catalog at pick time, editable after.
+  label   String
+  sacCode String @default("996812")
+
+  /// Unit price and quantity, so the document can show the working. The billed
+  /// figure is `amount`, which is stored rather than derived: a rate of 4097.11
+  /// times a quantity of 3 is not a figure anyone wants recomputed with a
+  /// different rounding rule than the one the admin saw.
+  rate     Decimal @default(0) @db.Decimal(14, 2)
+  quantity Decimal @default(1) @db.Decimal(10, 3)
+  amount   Decimal @default(0) @db.Decimal(14, 2)
+  /// Subtracted from amount before tax. Stored as a positive number.
+  discount Decimal @default(0) @db.Decimal(14, 2)
+
+  /// Per line, defaulted from the catalog. A single invoice-wide rate could not
+  /// express a bill mixing 18% service charges with a zero-rated item, and every
+  /// real freight invoice mixes them eventually.
+  ratePercent Decimal @default(18) @db.Decimal(5, 2)
+
+  /// Pure-agent recovery: money Arena paid out and is recovering, not revenue.
+  /// Excluded from taxable value and from every tax head, printed in its own
+  /// subtotal, still owed by the customer. Charging GST on recovered duty for a
+  /// year means a year of credit notes, so this flag matters more than its size
+  /// suggests.
+  reimbursement Boolean @default(false)
+
+  notes String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([consignmentId, sortOrder])
+  @@index([chargeTypeId])
 }

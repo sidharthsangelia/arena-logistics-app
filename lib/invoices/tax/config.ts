@@ -188,6 +188,31 @@ export function issuerIsConfigured(issuer: InvoiceIssuer = ISSUER): boolean {
   return !suspect.some((v) => !v || v.toUpperCase().includes("REPLACE ME"));
 }
 
+/**
+ * True when the issuer's state code agrees with the first two digits of its own
+ * GSTIN.
+ *
+ * ── WHY THIS IS ITS OWN CHECK ───────────────────────────────────────────────
+ * `stateCode` alone decides IGST against CGST plus SGST on every invoice this
+ * codebase raises, booking or manual. If it disagrees with the GSTIN, the total
+ * a customer pays is still correct (see the note in money.ts: the split does not
+ * change the total), but every invoice files that tax under the wrong heads.
+ * That is a GSTR-1 problem discovered at return time, not at issue time, which
+ * is exactly the kind of silence worth a loud check.
+ *
+ * Deliberately NOT folded into `issuerIsConfigured()`. That gate blocks issuing
+ * entirely, and it should: a document with REPLACE ME where the GSTIN belongs
+ * must never exist. A state-code mismatch is a real configuration decision
+ * somebody may have made on purpose, so it warns rather than blocks.
+ */
+export function issuerStateMatchesGstin(
+  issuer: InvoiceIssuer = ISSUER,
+): boolean {
+  const prefix = issuer.gstin?.trim().slice(0, 2);
+  if (!prefix || prefix.length !== 2 || !/^\d{2}$/.test(prefix)) return true;
+  return prefix === issuer.stateCode;
+}
+
 // ---------------------------------------------------------------------------
 // Document presentation
 // ---------------------------------------------------------------------------

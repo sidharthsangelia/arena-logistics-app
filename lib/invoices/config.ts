@@ -128,9 +128,19 @@ export interface InvoiceListParams {
 // question — "what has Arena billed me?" — so /invoices shows one list with the
 // kind as a tag, and the two tables are merged at read time.
 
-export type InvoiceKind = "BOOKING" | "ACCOUNT";
+/**
+ * MANUAL is the invoice an Arena admin raised by hand for off-platform work
+ * (lib/invoices/manual). It reaches this feed only when its billing party is
+ * linked to a real org; a walk-in customer has no account to see it in.
+ */
+export type InvoiceKind = "BOOKING" | "ACCOUNT" | "MANUAL";
 
-export const INVOICE_KIND_FILTERS = ["ALL", "BOOKING", "ACCOUNT"] as const;
+export const INVOICE_KIND_FILTERS = [
+  "ALL",
+  "BOOKING",
+  "MANUAL",
+  "ACCOUNT",
+] as const;
 export type InvoiceKindFilter = (typeof INVOICE_KIND_FILTERS)[number];
 
 export function coerceInvoiceKindFilter(value: unknown): InvoiceKindFilter {
@@ -203,9 +213,20 @@ export interface InvoiceFeedPage {
  * streams the same bytes from our origin with an attachment disposition — see
  * app/api/invoices/[kind]/[id]/download/route.ts.
  */
+/**
+ * Kind to URL segment. A Record rather than a ternary chain so adding a fourth
+ * kind is a type error here and in the route's own validator, instead of a
+ * silent fallthrough that downloads the wrong table's file.
+ */
+export const INVOICE_KIND_PATHS: Record<InvoiceKind, string> = {
+  BOOKING: "booking",
+  ACCOUNT: "account",
+  MANUAL: "manual",
+};
+
 export function invoiceDownloadHref(row: InvoiceFeedRow): string {
   const rawId = row.id.slice(row.id.indexOf(":") + 1);
-  const kind = row.kind === "BOOKING" ? "booking" : "account";
+  const kind = INVOICE_KIND_PATHS[row.kind];
   return `/api/invoices/${kind}/${encodeURIComponent(rawId)}/download`;
 }
 
