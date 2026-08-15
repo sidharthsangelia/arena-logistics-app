@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --import tsx --test \"utils/*.test.ts\" \"utils/*.test.tsx\""
+    "test": "node --import tsx --test \"utils/*.test.ts\" \"utils/*.test.tsx\"",
+    "test:server": "node --conditions=react-server --import tsx --test \"utils/*.server-test.ts\"",
+    "test:all": "npm run test && npm run test:server"
   },
   "dependencies": {
     "@clerk/nextjs": "^7.4.1",
@@ -25,6 +27,7 @@
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
     "dotenv": "^17.4.2",
+    "exceljs": "^4.4.0",
     "immer": "^11.1.8",
     "inngest": "^4.14.0",
     "lucide-react": "^1.16.0",
