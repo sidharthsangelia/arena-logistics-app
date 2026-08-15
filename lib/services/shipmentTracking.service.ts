@@ -10,6 +10,7 @@ import type {
 import { trackShipment } from "@/lib/services/tracking.services";
 import { trackingAdapterRegistry } from "@/lib/tracking-adapters/vendors/tracking.index";
 import { buildInternalTimeline } from "@/lib/tracking/internalTimeline";
+import { displayServiceName } from "@/lib/branding/serviceName";
 import {
   looksLikeShipmentNumber,
   resolveTrackedShipment,
@@ -94,6 +95,10 @@ async function trackResolvedShipment(
   const legSummaries: TrackingLegSummary[] = [];
   let main: CanonicalTrackResult | null = null;
 
+  // Arena staff read the raw sourcing name; everyone else reads the
+  // white-labelled one, same rule and same helper as the quote and the invoice.
+  const isArena = scope.kind === "arena";
+
   for (const { leg, result, error } of fetched) {
     const legEvents = (result?.events ?? []).map((e) => labelEvent(e, leg));
     events.push(...legEvents);
@@ -104,7 +109,15 @@ async function trackResolvedShipment(
       kind: leg.kind,
       label: leg.label,
       awb: leg.awb,
-      carrier: leg.carrier ?? result?.shipmentInfo.service,
+      // Both sources can name a vendor rather than a carrier: the leg falls
+      // back to `selectedVendorName` / `firstMileVendorName` when no airline is
+      // recorded, and the vendor's own `service` string is whatever they call
+      // their product ("ShipGlobal Direct"). A real carrier — DHL, Delhivery,
+      // Emirates SkyCargo — passes through the swap untouched.
+      carrier: brandedCarrier(
+        leg.carrier ?? result?.shipmentInfo.service,
+        isArena,
+      ),
       eventCount: legEvents.length,
       // Same rule as above: the vendor's raw complaint is a diagnostic for ops,
       // not something a customer should read off a tracking page.
@@ -144,8 +157,13 @@ async function trackResolvedShipment(
         awb: primaryLeg?.awb ?? shipment.shipmentNumber,
         reference: shipment.shipmentNumber,
         route: shipment.route,
-        carrier: shipment.carrier ?? undefined,
-        service: main?.shipmentInfo.service ?? shipment.carrier ?? undefined,
+        carrier: brandedCarrier(shipment.carrier ?? undefined, isArena),
+        // The headline "Service" row on the tracking card. Same masking as the
+        // legs — this is the most-read line on the page.
+        service: brandedCarrier(
+          main?.shipmentInfo.service ?? shipment.carrier ?? undefined,
+          isArena,
+        ),
         weight: main?.shipmentInfo.weight ?? shipment.weightKg,
         numberOfPieces: main?.shipmentInfo.numberOfPieces ?? shipment.pieces,
         destination: main?.shipmentInfo.destination,
@@ -163,6 +181,21 @@ async function trackResolvedShipment(
       legs: legSummaries,
     },
   };
+}
+
+/**
+ * White-labels a carrier/service string for the reader, preserving `undefined`.
+ *
+ * `displayServiceName` returns "" for a blank input, and an empty string on
+ * `TrackingLegSummary.carrier` would render as an empty line rather than being
+ * dropped, so absence is mapped back to undefined.
+ */
+function brandedCarrier(
+  name: string | undefined,
+  isArena: boolean,
+): string | undefined {
+  if (!name) return undefined;
+  return displayServiceName(name, isArena) || undefined;
 }
 
 interface FetchedLeg {

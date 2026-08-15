@@ -93,6 +93,57 @@ describe("displayServiceName — viewer split (D11)", () => {
   });
 });
 
+describe("post-booking surfaces — the strings they actually feed in", () => {
+  /**
+   * Quoting was already masked; everything AFTER the customer pays used to
+   * print the raw name, because Shipment.selectedProductName stores the vendor
+   * string verbatim as the sourcing record (D12) and the read-time swap was
+   * only wired into the rate and quote screens.
+   *
+   * The shipment detail page, the shipments table, the tax invoice, the
+   * tracking page and the milestone emails now all route through here, and they
+   * feed in shapes the quote path never did — a bare vendor name with no
+   * service word after it, and real carrier names that must survive untouched.
+   */
+
+  it("masks a bare vendor name, which is what the tracking legs fall back to", () => {
+    // TrackingLegPlan.carrier falls back to selectedVendorName /
+    // firstMileVendorName when no airline is recorded, so these arrive alone.
+    assert.equal(brandServiceName("ShipGlobal"), "Arena");
+    assert.equal(brandServiceName("Shipmozo"), "Arena");
+  });
+
+  it("passes a real carrier through, so tracking keeps naming who is flying it", () => {
+    // shipmentResolve prefers carrierAirline / domesticCourierName; masking one
+    // of these would tell the customer Arena is the airline.
+    for (const name of ["Emirates SkyCargo", "Delhivery", "Blue Dart", "DHL"]) {
+      assert.equal(brandServiceName(name), name, name);
+    }
+  });
+
+  it("gives the invoice and the quote the same words for the same shipment", () => {
+    // The buyer holds both documents. A quote saying "Arena Direct" against an
+    // invoice saying "ShipGlobal Direct" is the leak AND a discrepancy.
+    const raw = "ShipGlobal Direct";
+    assert.equal(displayServiceName(raw, false), brandServiceName(raw));
+  });
+
+  it("never lets a vendor token through on any post-booking string", () => {
+    const stored = [
+      "ShipGlobal Direct",
+      "ShipGlobal First Class",
+      "Ship Global Premium",
+      "ShipGlobal",
+      "Shipmozo Drift",
+      "Shipmozo",
+    ];
+    for (const raw of stored) {
+      const out = brandServiceName(raw);
+      assert.ok(!/ship\s?global|shipmozo/i.test(out), `${raw} -> ${out}`);
+    }
+  });
+});
+
 describe("carrierLogo follows the displayed name", () => {
   it("shows the Arena logo once the name is white-labelled", () => {
     const customerName = displayServiceName("ShipGlobal Direct", false);

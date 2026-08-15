@@ -11,6 +11,8 @@ import { formatDate, formatMoney, formatTime, formatWeight } from "@/utils/forma
 import { STATUS_CONFIG } from "@/utils/statusConfigColors";
 import type { ShipmentRow } from "@/queries/shipments";
 import { DataTableColumnHeader } from "@/components/data-table/DataTableColumnHeader";
+import { useIsArenaOrg } from "@/hooks/useIsArenaOrg";
+import { brandServiceName } from "@/lib/branding/serviceName";
 
 // Columns a user is allowed to hide via the "View" menu. Keep the identity
 // (shipmentNumber), status, and the row action pinned/always-visible.
@@ -23,6 +25,51 @@ export const SHIPMENT_TOGGLEABLE_COLUMNS: { id: string; label: string }[] = [
   { id: "quotedTotal", label: "Freight" },
   { id: "bookedAt", label: "Booked" },
 ];
+
+/**
+ * The carrier column, split by who is reading it (carrierBranding.md D11).
+ *
+ * Arena staff get the sourcing vendor above the raw product name — that pair is
+ * the record they book and reconcile against. Customers get the white-labelled
+ * service alone: the vendor line is dropped entirely, because "ShipGlobal" as a
+ * bare word is the disclosure this whole layer exists to prevent, and there is
+ * nothing to white-label it INTO (the vendor is not a carrier the customer
+ * bought).
+ *
+ * A component rather than an inline cell so the check is `useIsArenaOrg()` — the
+ * same Clerk orgId rule every other branded surface uses. The table's `client`
+ * prop would have been closer to hand but it defaults to false, which fails OPEN
+ * on any caller that forgets to pass it.
+ */
+function CarrierCell({
+  vendorName,
+  productName,
+}: {
+  vendorName: string | null;
+  productName: string | null;
+}) {
+  const isArena = useIsArenaOrg();
+
+  if (!isArena) {
+    const service = brandServiceName(productName);
+    return (
+      <p className="max-w-[130px] truncate text-xs text-foreground">
+        {service || "—"}
+      </p>
+    );
+  }
+
+  return (
+    <div>
+      <p className="text-xs text-foreground">{vendorName ?? "—"}</p>
+      {productName && (
+        <p className="mt-0.5 max-w-[130px] truncate text-[10px] text-muted-foreground">
+          {productName}
+        </p>
+      )}
+    </div>
+  );
+}
 
 export function getShipmentColumns(client = false): ColumnDef<ShipmentRow>[] {
   return [
@@ -99,14 +146,10 @@ export function getShipmentColumns(client = false): ColumnDef<ShipmentRow>[] {
       header: "Carrier",
       enableSorting: false,
       cell: ({ row }) => (
-        <div>
-          <p className="text-xs text-foreground">{row.original.selectedVendorName ?? "—"}</p>
-          {row.original.selectedProductName && (
-            <p className="mt-0.5 max-w-[130px] truncate text-[10px] text-muted-foreground">
-              {row.original.selectedProductName}
-            </p>
-          )}
-        </div>
+        <CarrierCell
+          vendorName={row.original.selectedVendorName}
+          productName={row.original.selectedProductName}
+        />
       ),
     },
     {

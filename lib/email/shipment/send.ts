@@ -21,6 +21,7 @@ import {
   type ShipmentEmailContext,
 } from "./copy";
 import { isFirstMileEmailMilestone } from "@/lib/booking/firstMileStatus";
+import { brandServiceName } from "@/lib/branding/serviceName";
 import {
   renderShipmentEmailHtml,
   renderShipmentEmailText,
@@ -234,7 +235,12 @@ async function resolveShipmentEmailTarget(
   // Service only. The sourcing vendor never appears in customer-facing copy, so
   // a shipment with no product name shows no Service row rather than falling
   // back to the vendor. See carrierBranding.md.
-  const serviceName = shipment.selectedProductName?.trim() || null;
+  //
+  // White-labelled too, and not optionally: `selectedProductName` is stored raw
+  // ("ShipGlobal Direct") and this email is the one surface we cannot retract
+  // once it has left. There is no Arena-staff reader to branch on — the
+  // recipient is always the customer.
+  const serviceName = brandServiceName(shipment.selectedProductName) || null;
 
   const ctx: ShipmentEmailContext = {
     shipmentNumber: shipment.shipmentNumber,
@@ -447,7 +453,11 @@ export async function sendAwbReadyEmail(
     );
 
     const copy = getAwbReadyCopy(ctx, {
-      carrierName: input.carrierName ?? null,
+      // "confirmed with ..." in the body. The name comes from whatever the
+      // booking adapter reported, which for an own-brand vendor is the vendor
+      // ("ShipGlobal Direct"), so it takes the same swap as the service line
+      // above. A genuine carrier (DHL, Delhivery) is returned untouched.
+      carrierName: brandServiceName(input.carrierName) || null,
       labelCount: labels.length,
     });
 

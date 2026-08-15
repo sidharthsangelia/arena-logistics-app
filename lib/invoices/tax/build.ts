@@ -17,6 +17,8 @@ import "server-only";
 
 import { Prisma, ShipmentMode, TaxDocType } from "@/generated/prisma";
 
+import { brandServiceName } from "@/lib/branding/serviceName";
+
 import { makeChargeDescriber } from "./chargeNames";
 import { getInvoiceIssuer, taxTreatmentFor } from "./config";
 import { formatInvoiceDate, resolvePlaceOfSupply } from "./gst";
@@ -419,8 +421,17 @@ export function buildInvoiceForShipment(
       null,
     pickupIncluded: shipment.pickupIncluded,
     firstMileHubLabel: shipment.firstMileHubLabel,
-    // Already white-labelled when it was stored at booking time.
-    serviceName: shipment.selectedProductName,
+    // White-labelled HERE, not at booking time. `selectedProductName` is the
+    // raw sourcing name ("ShipGlobal Direct") — the booking form deliberately
+    // persists the vendor's own string as the record of truth (carrierBranding
+    // D12) and masks at read time. The invoice is a customer document that
+    // leaves the building, so it takes the same swap the quote did: the buyer
+    // reads "Arena Direct" on both, and the two documents agree.
+    //
+    // Frozen into the snapshot on purpose. An invoice must render identically
+    // in five years, so it captures the label rather than re-deriving it from a
+    // rule table that may have moved on.
+    serviceName: brandServiceName(shipment.selectedProductName) || null,
     consignor,
     bookedOnBehalfOfClient,
     codAmount: shipment.codAmount ? toNumber(shipment.codAmount) : null,

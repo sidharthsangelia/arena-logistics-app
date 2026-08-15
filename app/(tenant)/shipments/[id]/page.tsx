@@ -30,6 +30,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { brandServiceName } from "@/lib/branding/serviceName";
 import { STATUS_CONFIG } from "@/utils/statusConfigColors";
 import {
   toNumber,
@@ -755,7 +756,14 @@ async function ShipmentHeader({
           }
           tooltip="Actual physical weight. Chargeable weight can be higher when the box size (volumetric weight) is greater."
         />
-        <Field label="Service" value={s.selectedProductName ?? "Not assigned"} />
+        {/* White-labelled, not raw: this whole route group is customer-facing
+            (carrierBranding.md D11), so the sourcing vendor's own-brand service
+            reads as "Arena Direct" here exactly as it did on the quote the
+            customer accepted. */}
+        <Field
+          label="Service"
+          value={brandServiceName(s.selectedProductName) || "Not assigned"}
+        />
         <Field
           label="Declared value"
           value={
@@ -1004,7 +1012,7 @@ async function PricingSection({
             <div className="flex items-baseline justify-between gap-4">
               <dt className="text-sm text-muted-foreground">Service</dt>
               <dd className="text-sm text-foreground">
-                {s.selectedProductName ?? "Not assigned"}
+                {brandServiceName(s.selectedProductName) || "Not assigned"}
               </dd>
             </div>
 
