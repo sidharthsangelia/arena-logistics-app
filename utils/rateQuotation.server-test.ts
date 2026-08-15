@@ -167,6 +167,21 @@ async function open(buffer: Buffer): Promise<ExcelJS.Workbook> {
  * Deliberately not ExcelJS: the leak test must not depend on the same reader
  * the writer was built against.
  */
+/**
+ * The row number of a grid's header, found by its column A label.
+ *
+ * Every rate sheet has a heading block of logo, title and subtitle above the
+ * grid, and that block has already changed height once. Pinning assertions to
+ * an absolute row number made a layout change look like a pricing regression,
+ * which is the opposite of what these tests are for.
+ */
+function findHeaderRow(sheet: ExcelJS.Worksheet, label: string): number {
+  for (let row = 1; row <= 20; row += 1) {
+    if (sheet.getCell(row, 1).value === label) return row;
+  }
+  throw new Error(`no header row with "${label}" in column A on "${sheet.name}"`);
+}
+
 function rawXmlText(buffer: Buffer): string {
   // End of central directory record, found by scanning back for its signature.
   let eocd = -1;
@@ -328,6 +343,50 @@ describe("workbook structure", () => {
     assert.ok(names.indexOf("FedEx") < names.indexOf(CUSTOMER_OWN_BRAND_LABEL));
   });
 
+  it("keeps every logo out of the frozen first column", async () => {
+    const spec = internalSpec();
+    const workbook = await open(await buildQuotationWorkbook(spec, makeData(spec)));
+
+    for (const sheet of workbook.worksheets) {
+      const frozen = sheet.views.some(
+        (view) => view.state === "frozen" && (view.xSplit ?? 0) > 0,
+      );
+      if (!frozen) continue;
+
+      for (const image of sheet.getImages()) {
+        // Excel clips a floating image at a frozen pane boundary. Anchored in
+        // column A, a logo wider than the weight column was cut in half at the
+        // freeze line, which is how carrier marks went missing on the page.
+        assert.ok(
+          image.range.tl.nativeCol >= 1,
+          `logo anchored in column A on "${sheet.name}" will be clipped at the freeze`,
+        );
+      }
+    }
+  });
+
+  it("writes nothing but weights into column A of a rate sheet", async () => {
+    const spec = internalSpec();
+    const workbook = await open(await buildQuotationWorkbook(spec, makeData(spec)));
+
+    for (const sheet of workbook.worksheets) {
+      if (sheet.name === "Cover" || sheet.name === "Terms & Conditions") continue;
+
+      sheet.eachRow((row, rowNumber) => {
+        const value = row.getCell(1).value;
+        if (value === null || value === undefined || value === "") return;
+
+        // The header label and the numbers under it. Anything else here is a
+        // heading, a footnote or a section label that has drifted back into the
+        // column, where it is either clipped or overflowing into the grid.
+        assert.ok(
+          value === "Weight" || typeof value === "number",
+          `"${sheet.name}" row ${rowNumber} column A holds ${JSON.stringify(value)}`,
+        );
+      });
+    }
+  });
+
   it("embeds each logo once, however many sheets use it", async () => {
     const spec = customerSpec();
     const workbook = await open(await buildQuotationWorkbook(spec, makeData(spec)));
@@ -362,8 +421,7 @@ describe("prices on the page", () => {
     const sheet = workbook.getWorksheet("DHL");
     assert.ok(sheet);
 
-    // Header is row 6, so the first data row is 7 and the first price is B7.
-    const cell = sheet.getCell(7, 2);
+    const cell = sheet.getCell(findHeaderRow(sheet, "Weight") + 1, 2);
 
     assert.equal(typeof cell.value, "number", "price written as text, not a number");
     assert.ok(cell.numFmt?.includes("₹"), `numFmt was "${cell.numFmt}"`);
@@ -374,7 +432,9 @@ describe("prices on the page", () => {
     const workbook = await open(await buildQuotationWorkbook(spec, makeData(spec)));
 
     // UPS has no AE rate in the fixture. AE is the third country, so column 4.
-    const cell = workbook.getWorksheet("UPS")?.getCell(7, 4);
+    const ups = workbook.getWorksheet("UPS");
+    assert.ok(ups);
+    const cell = ups.getCell(findHeaderRow(ups, "Weight") + 1, 4);
 
     // A zero in a price grid reads as free. This must never be 0.
     assert.notEqual(cell?.value, 0);
@@ -388,9 +448,14 @@ describe("prices on the page", () => {
     const sheet = workbook.getWorksheet("Best rates");
     assert.ok(sheet);
 
+    // Found rather than hardcoded: the heading block above the grid has moved
+    // once already, and a test that pins the grid to row 7 fails on a layout
+    // change instead of on the thing it is actually asserting.
+    const headerRow = findHeaderRow(sheet, "Weight");
+
     // Country bands are two columns wide: price, then carrier.
-    const price = sheet.getCell(7, 2);
-    const carrier = sheet.getCell(7, 3);
+    const price = sheet.getCell(headerRow + 1, 2);
+    const carrier = sheet.getCell(headerRow + 1, 3);
 
     assert.equal(typeof price.value, "number");
     assert.ok(

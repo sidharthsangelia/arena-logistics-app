@@ -46,7 +46,7 @@ import {
   allTermsSections,
   type TermsContext,
 } from "./terms";
-import { SWEEP_ORIGIN } from "../config";
+import { MAX_QUOTABLE_AGE_DAYS, SWEEP_ORIGIN } from "../config";
 import { isOwnBrandNetwork } from "../carrier";
 import type { QuotationData, PricedOption } from "./data";
 import {
@@ -63,7 +63,58 @@ const CARRIER_LOGO_KEY: Record<string, string> = {
   DHL: "dhl",
   FEDEX: "fedex",
   UPS: "ups",
+  SHIPGLOBAL: "shipglobal",
 };
+
+/**
+ * ── COLUMN A IS THE WEIGHT COLUMN AND NOTHING ELSE ──────────────────────────
+ * Every rate sheet freezes the first column so the weight stays visible while
+ * the reader scrolls across destinations. Two things follow from that, and both
+ * were being violated:
+ *
+ *   1. A floating image is CLIPPED at a frozen pane boundary. A logo anchored
+ *      in column A spilled across the freeze line into the scrolling region and
+ *      Excel cut it off there, which is why some carrier marks were half drawn
+ *      and others barely appeared at all.
+ *   2. Column A is sized for "0.5kg". Any heading, section label or footnote
+ *      written into it either overflows into the grid or is truncated by the
+ *      cell to its right.
+ *
+ * So: column A holds weights. Everything else — logos, titles, section labels,
+ * footnotes, the service table — starts at column B.
+ */
+const CONTENT_COL = 2;
+
+/** Uniform width for every destination column, so the grid reads as a grid. */
+const GRID_COL_WIDTH = 18;
+
+/** Column A. Wide enough for "100kg" centred, narrow enough to stay a spine. */
+const WEIGHT_COL_WIDTH = 13;
+
+/**
+ * The "Carrier / service" column on the summary, and the "Service" column on a
+ * carrier sheet.
+ *
+ * Wide enough that "FedEx · International Priority" lands on one line. Long
+ * names wrapping to two or three lines inside a fixed-height row is what made
+ * the summary hard to read: the row was 20pt, the text was 30, and Excel simply
+ * cut the rest off.
+ */
+const SERVICE_COL_WIDTH = 38;
+
+/**
+ * The logo box on a rate sheet, in pixels.
+ *
+ * Sized by HEIGHT rather than width because the marks are not the same shape:
+ * the UPS shield is portrait (120x142) while DHL and FedEx are wide. A
+ * width-driven box shrank the shield to a 29px sliver beside a full-size DHL
+ * wordmark. Fitting to a common height makes them read as equals.
+ */
+const LOGO_BOX = { width: 132, height: 58 };
+
+/** Rightmost content column on the cover and on the terms sheet. */
+const COVER_LAST_COL = 5;
+const TERMS_LAST_COL = 3;
 
 export async function buildQuotationWorkbook(
   spec: QuotationSpec,
@@ -114,12 +165,14 @@ function addCoverSheet(
     pageSetup: { paperSize: 9, orientation: "portrait", fitToPage: true, fitToWidth: 1 },
   });
 
+  // Column A is a narrow gutter on the cover and stays empty, same rule as the
+  // rate sheets: nothing is ever written into it.
   sheet.columns = [
     { width: 3 },
     { width: 26 },
-    { width: 30 },
+    { width: 32 },
+    { width: 28 },
     { width: 26 },
-    { width: 24 },
     { width: 3 },
   ];
 
@@ -128,7 +181,10 @@ function addCoverSheet(
   sheet.getRow(1).height = 12;
   sheet.getRow(2).height = 56;
 
-  placeImage(workbook, sheet, "arena", { tl: { col: 1, row: 1 }, ext: { width: 168, height: 56 } });
+  placeImage(workbook, sheet, "arena", {
+    tl: { col: CONTENT_COL - 1, row: 1 },
+    ext: { width: 168, height: 56 },
+  });
 
   let row = 4;
 
@@ -137,6 +193,7 @@ function addCoverSheet(
     row,
     spec.layout === "CHEAPEST" ? "Best available rates" : "International rate card",
     `Express and economy air freight from ${SWEEP_ORIGIN.city}, India`,
+    COVER_LAST_COL,
   );
 
   row += 1;
@@ -144,8 +201,8 @@ function addCoverSheet(
   // The internal stamp goes above everything else on the page. A person
   // glancing at a printout must see it before they see a price.
   if (spec.audience === "INTERNAL") {
-    sheet.mergeCells(row, 2, row, 5);
-    const stamp = sheet.getCell(row, 2);
+    sheet.mergeCells(row, CONTENT_COL, row, COVER_LAST_COL);
+    const stamp = sheet.getCell(row, CONTENT_COL);
     stamp.value = INTERNAL_STAMP;
     stamp.font = font.danger;
     stamp.fill = fill(PALETTE.dangerSoft);
@@ -207,27 +264,34 @@ function addCoverSheet(
   // assumes these have been read.
   row = writeSectionLabel(sheet, row, "Please read before quoting from this document");
 
+  const noteWidth = mergedWidth(sheet, CONTENT_COL, COVER_LAST_COL);
+
   for (const note of SHEET_FOOTNOTES) {
-    sheet.mergeCells(row, 2, row, 5);
-    const cell = sheet.getCell(row, 2);
+    sheet.mergeCells(row, CONTENT_COL, row, COVER_LAST_COL);
+    const cell = sheet.getCell(row, CONTENT_COL);
     cell.value = `•  ${note}`;
     cell.font = font.bodySoft;
     cell.alignment = ALIGN.topLeft;
     cell.fill = fill(PALETTE.warnSoft);
-    sheet.getRow(row).height = 30;
+    sheet.getRow(row).height = wrappedRowHeight([note.length + 3], noteWidth);
     row += 1;
   }
 
   if (data.stale) {
     row += 1;
-    sheet.mergeCells(row, 2, row, 5);
-    const cell = sheet.getCell(row, 2);
-    cell.value = `These rates were captured ${data.ageDays} days ago and are older than our ${"quotable"} window. Reconfirm every price before sending this document.`;
+    sheet.mergeCells(row, CONTENT_COL, row, COVER_LAST_COL);
+    const cell = sheet.getCell(row, CONTENT_COL);
+    const warning =
+      `These rates were captured ${data.ageDays} days ago and are older than our ` +
+      `${MAX_QUOTABLE_AGE_DAYS}-day quotable window. Reconfirm every price before ` +
+      "sending this document.";
+
+    cell.value = warning;
     cell.font = font.warn;
     cell.fill = fill(PALETTE.warnSoft);
-    cell.alignment = ALIGN.left;
+    cell.alignment = ALIGN.topLeft;
     cell.border = cellBorder(PALETTE.warn);
-    sheet.getRow(row).height = 28;
+    sheet.getRow(row).height = wrappedRowHeight([warning.length], noteWidth);
   }
 
   setFooter(sheet, spec);
@@ -250,24 +314,33 @@ function addSummarySheet(
   spec: QuotationSpec,
   data: QuotationData,
 ): void {
+  // The heading block, then the country band, then the column header. All three
+  // are frozen so a reader forty slabs down still knows which country and which
+  // of the two columns they are looking at.
+  const bandRow = HEADING_ROWS + 1;
+  const headerRow = bandRow + 1;
+
   const sheet = workbook.addWorksheet(spec.layout === "CHEAPEST" ? "Best rates" : "Summary", {
-    views: [{ showGridLines: false, state: "frozen", xSplit: 1, ySplit: 6 }],
+    views: [{ showGridLines: false, state: "frozen", xSplit: 1, ySplit: headerRow }],
     pageSetup: {
       paperSize: 9,
       orientation: "landscape",
       fitToPage: true,
       fitToWidth: 1,
       fitToHeight: 0,
-      printTitlesRow: "1:6",
+      printTitlesRow: `1:${headerRow}`,
     },
   });
 
-  const headerRow = 6;
+  const lastCol = 1 + data.countries.length * 2;
 
-  sheet.getColumn(1).width = 12;
+  // The service column is the one that holds a long string, and it is the one
+  // the reader most needs to take in at a glance. Given the room, "FedEx ·
+  // International Priority" sits on one line instead of wrapping to three.
+  sheet.getColumn(1).width = WEIGHT_COL_WIDTH;
   for (let i = 0; i < data.countries.length; i += 1) {
-    sheet.getColumn(2 + i * 2).width = 15;
-    sheet.getColumn(3 + i * 2).width = 26;
+    sheet.getColumn(2 + i * 2).width = 16;
+    sheet.getColumn(3 + i * 2).width = SERVICE_COL_WIDTH;
   }
 
   writeSheetHeading(
@@ -276,23 +349,23 @@ function addSummarySheet(
     "arena",
     "Best available rate",
     "The lowest price we can offer on each lane, and the carrier it is with.",
-    2 + data.countries.length * 2 - 1,
+    lastCol,
   );
 
   // Country band across the top, spanning its two columns.
   data.countries.forEach((country, index) => {
     const left = 2 + index * 2;
-    sheet.mergeCells(headerRow - 1, left, headerRow - 1, left + 1);
-    const band = sheet.getCell(headerRow - 1, left);
+    sheet.mergeCells(bandRow, left, bandRow, left + 1);
+    const band = sheet.getCell(bandRow, left);
     band.value = `${country.name} (${country.city})`;
     band.font = { ...font.tableHeader, size: 11 };
     band.fill = fill(PALETTE.accent);
     band.alignment = ALIGN.centre;
     band.border = headerBorder();
   });
-  sheet.getRow(headerRow - 1).height = 24;
+  sheet.getRow(bandRow).height = 26;
 
-  const weightHeader = sheet.getCell(headerRow - 1, 1);
+  const weightHeader = sheet.getCell(bandRow, 1);
   weightHeader.value = "";
   weightHeader.fill = fill(PALETTE.accent);
   weightHeader.border = headerBorder();
@@ -306,29 +379,31 @@ function addSummarySheet(
 
   data.weights.forEach((weight, weightIndex) => {
     const rowNumber = headerRow + 1 + weightIndex;
-    const excelRow = sheet.getRow(rowNumber);
-    excelRow.height = ROW_HEIGHT.data;
-
     const banded = weightIndex % 2 === 1;
 
-    const weightCell = sheet.getCell(rowNumber, 1);
-    weightCell.value = weight;
-    weightCell.numFmt = NUMBER_FORMAT.weight;
-    weightCell.font = font.bodyStrong;
-    weightCell.alignment = ALIGN.right;
-    weightCell.border = cellBorder();
-    weightCell.fill = fill(banded ? PALETTE.paperAlt : PALETTE.paper);
+    const options = data.countries.map((country) =>
+      data.cheapest.get(laneKey(country.code, weight)) ?? null,
+    );
 
-    data.countries.forEach((country, countryIndex) => {
-      const option = data.cheapest.get(laneKey(country.code, weight));
+    writeWeightCell(sheet, rowNumber, weight, banded);
+
+    options.forEach((option, countryIndex) => {
       const priceCol = 2 + countryIndex * 2;
-
       writePriceCell(sheet, rowNumber, priceCol, option?.price ?? null, banded, true);
-      writeServiceCell(sheet, rowNumber, priceCol + 1, option ?? null, banded, spec);
+      writeServiceCell(sheet, rowNumber, priceCol + 1, option, banded, spec);
     });
+
+    // The row grows to fit the longest service label on it. ExcelJS cannot
+    // measure wrapped text, and a fixed height silently clipped the second line
+    // of every long name, which is what made this table hard to read: the
+    // information was in the cell, just not on the page.
+    sheet.getRow(rowNumber).height = wrappedRowHeight(
+      options.map((option) => serviceLabel(option, spec).length),
+      SERVICE_COL_WIDTH,
+    );
   });
 
-  writeFootnotes(sheet, headerRow + data.weights.length + 2, 2 + data.countries.length * 2 - 1, spec);
+  writeFootnotes(sheet, headerRow + data.weights.length + 2, lastCol, spec);
   setFooter(sheet, spec);
 }
 
@@ -353,25 +428,32 @@ function addCarrierSheet(
   usedSheetNames: Set<string>,
 ): void {
   const title = sheetNameFor(carrier, spec);
+  const headerRow = HEADING_ROWS + 1;
 
   const sheet = workbook.addWorksheet(safeSheetName(title, usedSheetNames), {
-    views: [{ showGridLines: false, state: "frozen", xSplit: 1, ySplit: 6 }],
+    views: [{ showGridLines: false, state: "frozen", xSplit: 1, ySplit: headerRow }],
     pageSetup: {
       paperSize: 9,
       orientation: "landscape",
       fitToPage: true,
       fitToWidth: 1,
       fitToHeight: 0,
-      printTitlesRow: "1:6",
+      printTitlesRow: `1:${headerRow}`,
     },
   });
 
-  const headerRow = 6;
   const lastCol = 1 + data.countries.length;
 
-  sheet.getColumn(1).width = 12;
-  for (let i = 0; i < data.countries.length; i += 1) {
-    sheet.getColumn(2 + i).width = 17;
+  // The service table below the grid needs more columns than a two-country
+  // grid has, so the sheet is sized to whichever is wider. Every column gets
+  // the same width: the alternative was widening one destination column to fit
+  // a product name, which left the price grid visibly lopsided.
+  const serviceTable = serviceTableLayout(spec);
+  const lastSheetCol = Math.max(lastCol, CONTENT_COL + serviceTableSpan(serviceTable) - 1);
+
+  sheet.getColumn(1).width = WEIGHT_COL_WIDTH;
+  for (let col = CONTENT_COL; col <= lastSheetCol; col += 1) {
+    sheet.getColumn(col).width = GRID_COL_WIDTH;
   }
 
   writeSheetHeading(
@@ -395,13 +477,7 @@ function addCarrierSheet(
 
     const banded = weightIndex % 2 === 1;
 
-    const weightCell = sheet.getCell(rowNumber, 1);
-    weightCell.value = weight;
-    weightCell.numFmt = NUMBER_FORMAT.weight;
-    weightCell.font = font.bodyStrong;
-    weightCell.alignment = ALIGN.right;
-    weightCell.border = cellBorder();
-    weightCell.fill = fill(banded ? PALETTE.paperAlt : PALETTE.paper);
+    writeWeightCell(sheet, rowNumber, weight, banded);
 
     data.countries.forEach((country, countryIndex) => {
       const option = data.best.get(optionKey(carrier, country.code, weight));
@@ -420,11 +496,13 @@ function addCarrierSheet(
 
   row = writeSectionLabel(sheet, row, "Service, transit and coverage");
 
-  const serviceHeader = ["Destination", "Service", "Transit", "Pickup", "Available"];
-  if (spec.audience === "INTERNAL") serviceHeader.push("Sourced via");
-
-  serviceHeader.forEach((label, index) => {
-    writeHeaderCell(sheet, row, 1 + index, label);
+  // Header. Each column starts where its span puts it, so the product name gets
+  // two grid columns and the grid above keeps its even rhythm.
+  serviceTable.forEach((column) => {
+    if (column.span > 1) {
+      sheet.mergeCells(row, column.col, row, column.col + column.span - 1);
+    }
+    writeHeaderCell(sheet, row, column.col, column.label);
   });
   sheet.getRow(row).height = ROW_HEIGHT.tableHeader;
   row += 1;
@@ -438,7 +516,7 @@ function addCarrierSheet(
     const bg = fill(banded ? PALETTE.paperAlt : PALETTE.paper);
     const sample = options[0];
 
-    const cells: (string | number)[] = [
+    const values: string[] = [
       country.name,
       sample ? sample.serviceName : "Not available",
       sample && sample.tatDays > 0 ? `${sample.tatDays} days` : "On request",
@@ -453,29 +531,68 @@ function addCarrierSheet(
     ];
 
     if (spec.audience === "INTERNAL") {
-      cells.push(sample?.vendorId ?? "—");
+      values.push(sample?.vendorId ?? "—");
     }
 
-    cells.forEach((value, cellIndex) => {
-      const cell = sheet.getCell(row, 1 + cellIndex);
-      cell.value = value;
+    serviceTable.forEach((column, cellIndex) => {
+      if (column.span > 1) {
+        sheet.mergeCells(row, column.col, row, column.col + column.span - 1);
+      }
+
+      const cell = sheet.getCell(row, column.col);
+      cell.value = values[cellIndex] ?? "";
       cell.font = cellIndex === 0 ? font.bodyStrong : font.bodySoft;
-      cell.alignment = ALIGN.left;
+      // Names read left, everything else is a short value under a centred
+      // header and reads centred, same as the grid above.
+      cell.alignment = column.centre ? ALIGN.centre : ALIGN.left;
       cell.border = cellBorder();
       cell.fill = bg;
     });
 
-    sheet.getRow(row).height = ROW_HEIGHT.data;
+    sheet.getRow(row).height = wrappedRowHeight(
+      [values[1]?.length ?? 0],
+      GRID_COL_WIDTH * 2,
+    );
     row += 1;
   });
 
-  // Column widths for the service table are wider than the price grid needs, so
-  // they are applied after the grid has had its say. The service column is the
-  // one that actually holds a long string.
-  sheet.getColumn(2).width = Math.max(sheet.getColumn(2).width ?? 17, 30);
-
-  writeFootnotes(sheet, row + 1, lastCol, spec);
+  writeFootnotes(sheet, row + 1, lastSheetCol, spec);
   setFooter(sheet, spec);
+}
+
+/**
+ * Where each column of the under-grid service table sits, and how many grid
+ * columns it spans.
+ *
+ * Anchored at column B like everything else, and spanning rather than resizing:
+ * the product name is the only long string here, and giving it two columns is
+ * what lets every destination column above stay the same width.
+ */
+function serviceTableLayout(
+  spec: QuotationSpec,
+): { label: string; col: number; span: number; centre: boolean }[] {
+  const spans: [string, number, boolean][] = [
+    ["Destination", 1, false],
+    ["Service", 2, false],
+    ["Transit", 1, true],
+    ["Pickup", 1, true],
+    ["Available", 1, true],
+  ];
+
+  if (spec.audience === "INTERNAL") spans.push(["Sourced via", 1, true]);
+
+  let col = CONTENT_COL;
+  return spans.map(([label, span, centre]) => {
+    const placed = { label, col, span, centre };
+    col += span;
+    return placed;
+  });
+}
+
+function serviceTableSpan(
+  layout: { span: number }[],
+): number {
+  return layout.reduce((total, column) => total + column.span, 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -498,22 +615,40 @@ function addTermsSheet(
     },
   });
 
-  sheet.columns = [{ width: 3 }, { width: 6 }, { width: 108 }, { width: 3 }];
+  // Column A stays an empty gutter here too. The clause number sits in B and
+  // the clause text in C, which is a hanging indent rather than a second
+  // content column: the number is a marker for the sentence beside it.
+  const CLAUSE_COL_WIDTH = 106;
+  sheet.columns = [
+    { width: 3 },
+    { width: 6 },
+    { width: CLAUSE_COL_WIDTH },
+    { width: 3 },
+  ];
 
   sheet.getRow(1).height = 12;
   sheet.getRow(2).height = 48;
-  placeImage(workbook, sheet, "arena", { tl: { col: 1, row: 1 }, ext: { width: 144, height: 48 } });
+  placeImage(workbook, sheet, "arena", {
+    tl: { col: CONTENT_COL - 1, row: 1 },
+    ext: { width: 144, height: 48 },
+  });
 
   let row = 4;
-  row = writeTitle(sheet, row, "Terms & Conditions", "Applicable to every rate in this workbook.");
+  row = writeTitle(
+    sheet,
+    row,
+    "Terms & Conditions",
+    "Applicable to every rate in this workbook.",
+    TERMS_LAST_COL,
+  );
   row += 1;
 
   // The terms sheet gets the stamp too. Sheets get printed one at a time, and
   // an unstamped page of Arena letterhead is exactly the page that ends up
   // stapled to a customer copy.
   if (spec.audience === "INTERNAL") {
-    sheet.mergeCells(row, 2, row, 3);
-    const stamp = sheet.getCell(row, 2);
+    sheet.mergeCells(row, CONTENT_COL, row, TERMS_LAST_COL);
+    const stamp = sheet.getCell(row, CONTENT_COL);
     stamp.value = INTERNAL_STAMP;
     stamp.font = font.danger;
     stamp.fill = fill(PALETTE.dangerSoft);
@@ -524,8 +659,8 @@ function addTermsSheet(
   }
 
   for (const section of allTermsSections(context)) {
-    sheet.mergeCells(row, 2, row, 3);
-    const heading = sheet.getCell(row, 2);
+    sheet.mergeCells(row, CONTENT_COL, row, TERMS_LAST_COL);
+    const heading = sheet.getCell(row, CONTENT_COL);
     heading.value = section.heading;
     heading.font = { ...font.sheetTitle, size: 12 };
     heading.alignment = ALIGN.left;
@@ -537,38 +672,39 @@ function addTermsSheet(
     row += 1;
 
     section.clauses.forEach((clause, index) => {
-      const number = sheet.getCell(row, 2);
+      const number = sheet.getCell(row, CONTENT_COL);
       number.value = `${index + 1}.`;
       number.font = font.small;
       number.alignment = { horizontal: "right", vertical: "top" };
 
-      const text = sheet.getCell(row, 3);
+      const text = sheet.getCell(row, TERMS_LAST_COL);
       text.value = clause;
       text.font = font.bodySoft;
       text.alignment = ALIGN.topLeft;
 
-      // ExcelJS cannot measure wrapped text, so the height is estimated from
-      // the character count. Erring generous: a clause clipped at the bottom of
-      // its cell is a clause a customer can say they never saw.
-      sheet.getRow(row).height = Math.max(
-        ROW_HEIGHT.terms,
-        Math.ceil(clause.length / 105) * ROW_HEIGHT.terms,
-      );
+      // Same estimate as everywhere else: ExcelJS cannot measure wrapped text
+      // and Excel will not auto-fit a row whose height we set. A clause clipped
+      // at the bottom of its cell is a clause a customer can say they never saw.
+      sheet.getRow(row).height = wrappedRowHeight([clause.length], CLAUSE_COL_WIDTH);
       row += 1;
     });
 
     row += 1;
   }
 
-  sheet.mergeCells(row, 2, row, 3);
-  const closing = sheet.getCell(row, 2);
-  closing.value =
+  sheet.mergeCells(row, CONTENT_COL, row, TERMS_LAST_COL);
+  const closing = sheet.getCell(row, CONTENT_COL);
+  const closingText =
     "Arena Cargo Logistics · " +
     `${SWEEP_ORIGIN.line1}, ${SWEEP_ORIGIN.city} ${SWEEP_ORIGIN.pincode}, India · ` +
     "Questions about any clause on this page are welcome before you book.";
+  closing.value = closingText;
   closing.font = font.small;
   closing.alignment = ALIGN.topLeft;
-  sheet.getRow(row).height = 28;
+  sheet.getRow(row).height = wrappedRowHeight(
+    [closingText.length],
+    mergedWidth(sheet, CONTENT_COL, TERMS_LAST_COL),
+  );
 
   setFooter(sheet, spec);
 }
@@ -582,16 +718,17 @@ function writeTitle(
   row: number,
   title: string,
   subtitle: string,
+  lastCol: number,
 ): number {
-  sheet.mergeCells(row, 2, row, 5);
-  const titleCell = sheet.getCell(row, 2);
+  sheet.mergeCells(row, CONTENT_COL, row, lastCol);
+  const titleCell = sheet.getCell(row, CONTENT_COL);
   titleCell.value = title;
   titleCell.font = font.title;
   titleCell.alignment = ALIGN.left;
   sheet.getRow(row).height = ROW_HEIGHT.title;
 
-  sheet.mergeCells(row + 1, 2, row + 1, 5);
-  const subtitleCell = sheet.getCell(row + 1, 2);
+  sheet.mergeCells(row + 1, CONTENT_COL, row + 1, lastCol);
+  const subtitleCell = sheet.getCell(row + 1, CONTENT_COL);
   subtitleCell.value = subtitle;
   subtitleCell.font = font.subtitle;
   subtitleCell.alignment = ALIGN.left;
@@ -600,7 +737,26 @@ function writeTitle(
   return row + 3;
 }
 
-/** Title block for a rate sheet, with the carrier's own mark beside it. */
+/**
+ * Title block for a rate sheet: the mark on the left, the name and the line
+ * under it set beside it rather than below it.
+ *
+ * ── WHY BESIDE AND NOT BELOW ────────────────────────────────────────────────
+ * Stacked, this was a logo row, a title row and a subtitle row — three bands of
+ * mostly empty page above the grid, with a column of white space to the right
+ * of the mark doing nothing. Laid out beside the mark it costs two rows instead
+ * of four, and the first prices are visible without scrolling on a laptop.
+ *
+ * The logo stays in column B: column A is frozen, and Excel CLIPS a floating
+ * image at a frozen pane boundary, which is what was cutting carrier marks in
+ * half. The text starts one column further right so it never lands on top of
+ * the mark.
+ *
+ * Rows 1-4 are the block on every rate sheet, which is why the grids below
+ * start at HEADING_ROWS + 1.
+ */
+const HEADING_ROWS = 4;
+
 function writeSheetHeading(
   workbook: ExcelJS.Workbook,
   sheet: ExcelJS.Worksheet,
@@ -609,31 +765,41 @@ function writeSheetHeading(
   subtitle: string,
   lastCol: number,
 ): void {
-  sheet.getRow(1).height = 10;
-  sheet.getRow(2).height = 40;
-  sheet.getRow(3).height = 18;
-  sheet.getRow(4).height = 10;
+  // One column in from the mark, and never left of it on a narrow sheet.
+  const textCol = CONTENT_COL + 1;
+  const right = Math.max(textCol, lastCol);
+
+  sheet.getRow(1).height = 6;
+  sheet.getRow(2).height = 26;
+  sheet.getRow(3).height = 20;
+  sheet.getRow(4).height = 8;
 
   placeImage(workbook, sheet, logoKey, {
-    tl: { col: 0.15, row: 1.1 },
-    ext: { width: 110, height: 34 },
+    // Anchor is zero-based, so col 1 is column B. The box spans rows 2 and 3 so
+    // the mark reads as the same height as the two lines of text beside it.
+    tl: { col: CONTENT_COL - 1 + 0.06, row: 1.05 },
+    ext: LOGO_BOX,
   });
 
-  sheet.mergeCells(2, 2, 2, Math.max(2, lastCol));
-  const titleCell = sheet.getCell(2, 2);
+  sheet.mergeCells(2, textCol, 2, right);
+  const titleCell = sheet.getCell(2, textCol);
   titleCell.value = title;
   titleCell.font = font.sheetTitle;
-  titleCell.alignment = { horizontal: "left", vertical: "middle" };
+  // Bottom and top respectively, so the two lines sit close together and read
+  // as one block rather than as two rows that happen to be adjacent.
+  titleCell.alignment = { horizontal: "left", vertical: "bottom" };
 
-  sheet.mergeCells(3, 2, 3, Math.max(2, lastCol));
-  const subtitleCell = sheet.getCell(3, 2);
+  sheet.mergeCells(3, textCol, 3, right);
+  const subtitleCell = sheet.getCell(3, textCol);
   subtitleCell.value = subtitle;
   subtitleCell.font = font.bodySoft;
-  subtitleCell.alignment = { horizontal: "left", vertical: "middle" };
+  subtitleCell.alignment = { horizontal: "left", vertical: "top" };
 }
 
 function writeSectionLabel(sheet: ExcelJS.Worksheet, row: number, label: string): number {
-  const cell = sheet.getCell(row, 1);
+  // Column B, not A. In column A this was either overflowing a 3-character
+  // cover gutter or being cut off by the weight column on a rate sheet.
+  const cell = sheet.getCell(row, CONTENT_COL);
   cell.value = label.toUpperCase();
   cell.font = font.sectionLabel;
   cell.alignment = ALIGN.left;
@@ -685,11 +851,38 @@ function writeHeaderCell(
 }
 
 /**
+ * The weight down the spine of every rate sheet. Column A, and column A holds
+ * nothing else on any sheet in this workbook.
+ *
+ * Centred rather than right-aligned. Right-aligned it sat hard against the
+ * first price column and read as part of it; centred under a centred header it
+ * reads as the axis it is.
+ */
+function writeWeightCell(
+  sheet: ExcelJS.Worksheet,
+  row: number,
+  weight: number,
+  banded: boolean,
+): void {
+  const cell = sheet.getCell(row, 1);
+  cell.value = weight;
+  cell.numFmt = NUMBER_FORMAT.weight;
+  cell.font = font.bodyStrong;
+  cell.alignment = ALIGN.centre;
+  cell.border = cellBorder();
+  cell.fill = fill(banded ? PALETTE.paperAlt : PALETTE.paper);
+}
+
+/**
  * A price, or a blank that means "no rate", never a zero.
  *
  * `null` writes an empty cell rather than a 0, because 0 in a price grid reads
  * as free. The number format turns a stored zero into an em dash for the same
  * reason.
+ *
+ * Centred, matching the weight column and the header above it. These grids are
+ * read across a row to compare countries rather than summed down a column, and
+ * centring is what makes a row scan as one thing.
  */
 function writePriceCell(
   sheet: ExcelJS.Worksheet,
@@ -704,18 +897,38 @@ function writePriceCell(
   if (price === null) {
     cell.value = "—";
     cell.font = font.small;
-    cell.alignment = ALIGN.centre;
   } else {
     cell.value = price;
     cell.numFmt = NUMBER_FORMAT.money;
     cell.font = highlight ? font.best : font.body;
-    cell.alignment = ALIGN.right;
   }
 
+  cell.alignment = ALIGN.centre;
   cell.border = cellBorder();
   cell.fill = fill(
     price !== null && highlight ? PALETTE.bestSoft : banded ? PALETTE.paperAlt : PALETTE.paper,
   );
+}
+
+/**
+ * Carrier first, then the service, then the sourcing vendor on an internal file
+ * only. This is the string that stops a price being anonymous.
+ *
+ * Built here rather than inside the cell writer because the row height has to
+ * be worked out from its length before the cell is written.
+ */
+function serviceLabel(option: PricedOption | null, spec: QuotationSpec): string {
+  if (!option) return "Not available";
+
+  const parts = [option.carrierName];
+  if (option.serviceName && option.serviceName !== option.carrierName) {
+    parts.push(option.serviceName);
+  }
+  if (spec.audience === "INTERNAL" && option.vendorId) {
+    parts.push(`via ${option.vendorId}`);
+  }
+
+  return parts.join(" · ");
 }
 
 function writeServiceCell(
@@ -728,26 +941,28 @@ function writeServiceCell(
 ): void {
   const cell = sheet.getCell(row, col);
 
-  if (!option) {
-    cell.value = "Not available";
-    cell.font = font.small;
-  } else {
-    // Carrier first, then the service, then the sourcing vendor on an internal
-    // file only. This is the string that stops a price being anonymous.
-    const parts = [option.carrierName];
-    if (option.serviceName && option.serviceName !== option.carrierName) {
-      parts.push(option.serviceName);
-    }
-    if (spec.audience === "INTERNAL" && option.vendorId) {
-      parts.push(`via ${option.vendorId}`);
-    }
-    cell.value = parts.join(" · ");
-    cell.font = font.bodySoft;
-  }
-
+  cell.value = serviceLabel(option, spec);
+  cell.font = option ? font.bodySoft : font.small;
+  // Left, not centred: this is the one column holding prose, and centred prose
+  // in a grid gives every row a different ragged left edge to find.
   cell.alignment = ALIGN.left;
   cell.border = cellBorder();
   cell.fill = fill(banded ? PALETTE.paperAlt : PALETTE.paper);
+}
+
+/**
+ * Row height for a row containing wrapped text.
+ *
+ * ExcelJS has no text metrics and Excel does not auto-fit a row whose height
+ * was set explicitly, so the number of lines is estimated from the character
+ * count against the column width. Erring generous by design: an over-tall row
+ * costs a little white space, an under-tall one hides the second half of the
+ * carrier's name, which is the whole point of the column.
+ */
+function wrappedRowHeight(lengths: number[], colWidth: number): number {
+  const perLine = Math.max(8, colWidth - 3);
+  const lines = Math.max(1, ...lengths.map((length) => Math.ceil(length / perLine)));
+  return Math.max(ROW_HEIGHT.data, lines * 15 + 6);
 }
 
 function writeFootnotes(
@@ -757,27 +972,49 @@ function writeFootnotes(
   spec: QuotationSpec,
 ): void {
   let row = startRow;
+  // Column B onwards. Merged from column A these notes ran under the weight
+  // spine, so the frozen first column carried a slice of a sentence.
+  const right = Math.max(CONTENT_COL, lastCol);
+  const width = mergedWidth(sheet, CONTENT_COL, right);
 
   if (spec.audience === "INTERNAL") {
-    sheet.mergeCells(row, 1, row, Math.max(2, lastCol));
-    const stamp = sheet.getCell(row, 1);
+    sheet.mergeCells(row, CONTENT_COL, row, right);
+    const stamp = sheet.getCell(row, CONTENT_COL);
     stamp.value = INTERNAL_STAMP;
     stamp.font = font.danger;
     stamp.fill = fill(PALETTE.dangerSoft);
     stamp.alignment = ALIGN.left;
-    sheet.getRow(row).height = 24;
+    sheet.getRow(row).height = wrappedRowHeight([INTERNAL_STAMP.length], width);
     row += 1;
   }
 
   for (const note of SHEET_FOOTNOTES) {
-    sheet.mergeCells(row, 1, row, Math.max(2, lastCol));
-    const cell = sheet.getCell(row, 1);
+    sheet.mergeCells(row, CONTENT_COL, row, right);
+    const cell = sheet.getCell(row, CONTENT_COL);
     cell.value = `•  ${note}`;
     cell.font = font.small;
     cell.alignment = ALIGN.topLeft;
-    sheet.getRow(row).height = 16;
+    // These are the notes that travel with a printed page, and the longest of
+    // them wraps to two lines on a narrow sheet. At a fixed height the second
+    // line was simply not on the paper.
+    sheet.getRow(row).height = wrappedRowHeight([note.length + 3], width);
     row += 1;
   }
+}
+
+/**
+ * The character width of a merged run of columns.
+ *
+ * Excel's column width unit is roughly one character of the default font, so
+ * summing the widths gives a usable estimate of how much text fits on one line
+ * of a merged cell. Only an estimate, which is why wrappedRowHeight rounds up.
+ */
+function mergedWidth(sheet: ExcelJS.Worksheet, from: number, to: number): number {
+  let total = 0;
+  for (let col = from; col <= to; col += 1) {
+    total += sheet.getColumn(col).width ?? 10;
+  }
+  return total;
 }
 
 /** Page footer. Printed on every page of every sheet, so a loose page is placeable. */
