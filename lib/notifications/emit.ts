@@ -616,3 +616,43 @@ export async function notifyArenaMessage(params: {
 
   return results.filter(Boolean).length;
 }
+
+// ---------------------------------------------------------------------------
+// Arena: the scheduled rate sweep came back wrong
+// ---------------------------------------------------------------------------
+
+/**
+ * A vendor failed enough of its matrix during a sweep to be worth looking at.
+ *
+ * WARNING rather than CRITICAL, and one notification for the whole run rather
+ * than one per vendor. Nothing is on fire: the sweep feeds indicative quotation
+ * sheets, and yesterday's rows are still there. What has happened is that the
+ * grid has started going stale in one corner, and if nobody notices, it keeps
+ * going stale until a customer is quoted from month-old numbers.
+ *
+ * Deduped on the run id so the last lane and the planner's backstop cannot both
+ * announce the same run. That is the same mechanism the attention sweep uses,
+ * and it is why emitNotification treats a key collision as success.
+ */
+export async function notifyRateSweepDegraded(params: {
+  runId: string;
+  degradedVendors: string[];
+  snapshotCount: number;
+  totalVendors: number;
+}): Promise<boolean> {
+  const names = params.degradedVendors.join(", ");
+  const allDown = params.degradedVendors.length >= params.totalVendors;
+
+  return emitNotification({
+    kind: "RATE_SWEEP_DEGRADED",
+    title: allDown
+      ? "Rate sweep failed across every vendor"
+      : `Rate sweep degraded: ${names}`,
+    body: allDown
+      ? `No vendor returned usable rates. The quote grid is now as old as the last good sweep. Check credentials and the vendor status pages before the next run.`
+      : `${names} failed or returned nothing across much of the matrix. The run still stored ${params.snapshotCount.toLocaleString("en-IN")} rates from the other vendors.`,
+    severity: allDown ? "CRITICAL" : "WARNING",
+    linkHref: `/arena-dashboard/rate-sweeps/${params.runId}`,
+    dedupeKey: `rate-sweep-degraded:${params.runId}`,
+  });
+}

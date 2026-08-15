@@ -5,6 +5,11 @@
  */
 
 import { BaseVendorAdapter } from "../../core/base.adapter";
+import {
+  RateAdapterError,
+  errorFromResponse,
+  truncateBody,
+} from "../../core/errors";
 import type { CanonicalRateRequest, RateQuote } from "../../core/types";
 import type {
   AramexRateRequest,
@@ -138,27 +143,37 @@ export class AramexAdapter extends BaseVendorAdapter<
     const rawBody = await res.text();
 
     if (!res.ok) {
-      throw new Error(
-        `Aramex API returned ${res.status}: ${rawBody}`
-      );
+      throw errorFromResponse(this.vendorId, "Aramex API", res, rawBody);
     }
 
     let json: AramexRateResponse;
 
     try {
       json = JSON.parse(rawBody) as AramexRateResponse;
-    } catch {
-      throw new Error(
-        `Failed to parse Aramex response: ${rawBody}`
+    } catch (err) {
+      throw new RateAdapterError(
+        this.vendorId,
+        `Failed to parse Aramex response: ${truncateBody(rawBody)}`,
+        { kind: "VENDOR_ERROR", cause: err },
       );
     }
 
+    // Aramex signals everything through HasErrors at HTTP 200: unserviceable
+    // lanes, rejected weights and bad credentials all arrive the same way, with
+    // only the notification text to tell them apart. The credential case is
+    // worth separating because it is the one that must stop the whole vendor
+    // rather than cost one lane, and it is the one that would otherwise burn
+    // six hundred calls on a night when someone rotated a key.
     if (json.HasErrors) {
       const messages =
         json.Notifications?.map((n) => n.Message).join("; ") ??
         "Unknown Aramex error";
 
-      throw new Error(`Aramex API error: ${messages}`);
+      throw new RateAdapterError(
+        this.vendorId,
+        `Aramex API error: ${messages}`,
+        { kind: looksLikeAramexAuthFailure(messages) ? "AUTH_ERROR" : "NO_SERVICE" },
+      );
     }
 
     return json;
@@ -209,4 +224,31 @@ export class AramexAdapter extends BaseVendorAdapter<
       },
     ];
   }
+}
+/**
+ * Aramex does not give credential failures their own field, code or HTTP
+ * status: an expired account PIN comes back as HasErrors with a notification
+ * that reads like any other rejection. This looks at the wording, which is
+ * exactly the fragile approach the typed errors elsewhere exist to avoid, and
+ * it is used here because Aramex leaves nothing else to look at.
+ *
+ * The failure mode is deliberately one-sided. A missed auth failure costs the
+ * sweep a wasted run against one vendor, which the per-vendor failure-rate
+ * alert catches anyway. A false positive would stop a vendor that was working,
+ * so the patterns stay narrow and specific rather than matching anything
+ * containing "invalid".
+ */
+export function looksLikeAramexAuthFailure(message: string): boolean {
+  const text = message.toLowerCase();
+
+  return (
+    text.includes("invalid credential") ||
+    text.includes("invalid user") ||
+    text.includes("invalid account") ||
+    text.includes("account number") ||
+    text.includes("account pin") ||
+    text.includes("unauthorized") ||
+    text.includes("unauthorised") ||
+    text.includes("authentication")
+  );
 }

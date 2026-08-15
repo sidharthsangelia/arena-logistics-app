@@ -23,6 +23,7 @@ import type {
   RateQuote,
   VendorError,
 } from "./types";
+import { describeThrown } from "./errors";
 
 export interface FetchRatesResult {
   quotes: RateQuote[];
@@ -69,15 +70,22 @@ export abstract class BaseVendorAdapter<TVendorRequest, TVendorResponse> {
       const quotes = this.transformResponse(vendorResponse);
       return { quotes };
     } catch (err) {
-      const message =
-        err instanceof Error ? err.message : "Unknown vendor error";
+      // Classification comes off the thrown value rather than being re-derived
+      // here, so an adapter that throws RateAdapterError gets its status and
+      // kind carried through, and one that throws a plain Error still produces
+      // exactly the VendorError shape this always produced.
+      const described = describeThrown(err);
       console.error(`[${this.vendorId}] fetchRates failed:`, err);
       return {
         quotes: [],
         error: {
           vendorId: this.vendorId,
           vendorName: this.vendorName,
-          message,
+          message: described.message,
+          kind: described.kind,
+          status: described.status,
+          retryAfterSeconds: described.retryAfterSeconds,
+          retriable: described.retriable,
           raw: err,
         },
       };

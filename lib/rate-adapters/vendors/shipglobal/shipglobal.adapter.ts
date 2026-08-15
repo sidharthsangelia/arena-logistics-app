@@ -35,6 +35,7 @@
  */
 
 import { BaseVendorAdapter } from "../../core/base.adapter";
+import { RateAdapterError, errorFromResponse } from "../../core/errors";
 import type {
   CanonicalChargeBreakdown,
   CanonicalRateRequest,
@@ -102,15 +103,19 @@ export class ShipGlobalAdapter extends BaseVendorAdapter<
     // Failing here (before the network call) makes it one explicit, readable
     // vendorError rather than a 401 the reader has to interpret.
     if (!SHIPGLOBAL_USERNAME || !SHIPGLOBAL_PASSWORD) {
-      throw new Error(
+      throw new RateAdapterError(
+        this.vendorId,
         "ShipGlobal credentials are not configured. Set SHIPGLOBAL_USERNAME and SHIPGLOBAL_PASSWORD.",
+        { kind: "CONFIG_ERROR" },
       );
     }
 
     const countryCode = input.destination.countryCode?.trim().toUpperCase();
     if (!countryCode || countryCode.length !== 2) {
-      throw new Error(
+      throw new RateAdapterError(
+        this.vendorId,
         `ShipGlobal needs a 2-letter destination country code, received "${input.destination.countryCode ?? ""}".`,
+        { kind: "CONFIG_ERROR" },
       );
     }
 
@@ -158,8 +163,10 @@ export class ShipGlobalAdapter extends BaseVendorAdapter<
       });
     } catch (err) {
       if (err instanceof Error && err.name === "TimeoutError") {
-        throw new Error(
+        throw new RateAdapterError(
+          this.vendorId,
           `ShipGlobal did not respond within ${SHIPGLOBAL_TIMEOUT_MS}ms.`,
+          { kind: "TIMEOUT", cause: err },
         );
       }
       throw err;
@@ -168,38 +175,49 @@ export class ShipGlobalAdapter extends BaseVendorAdapter<
     const rawBody = await res.text();
 
     if (res.status === 401 || res.status === 403) {
-      throw new Error(
+      throw new RateAdapterError(
+        this.vendorId,
         `ShipGlobal rejected the credentials (${res.status}). Check SHIPGLOBAL_USERNAME / SHIPGLOBAL_PASSWORD.`,
+        { kind: "AUTH_ERROR", status: res.status },
       );
     }
 
     if (!res.ok) {
-      throw new Error(
-        `ShipGlobal API returned ${res.status} ${res.statusText}: ${truncate(rawBody)}`,
-      );
+      throw errorFromResponse(this.vendorId, "ShipGlobal API", res, rawBody);
     }
 
     let json: unknown;
     try {
       json = JSON.parse(rawBody);
-    } catch {
-      throw new Error(
+    } catch (err) {
+      throw new RateAdapterError(
+        this.vendorId,
         `Failed to parse ShipGlobal response: ${truncate(rawBody)}`,
+        { kind: "VENDOR_ERROR", cause: err },
       );
     }
 
     const parsed = shipGlobalRateResponseSchema.safeParse(json);
     if (!parsed.success) {
-      throw new Error(
+      // Their contract changed under us, or they returned something unexpected
+      // for this lane. Retriable because the two are indistinguishable here and
+      // a contract break is loud enough in the sweep's failure rows anyway.
+      throw new RateAdapterError(
+        this.vendorId,
         `ShipGlobal response did not match the expected shape: ${formatZodIssues(parsed.error)}`,
+        { kind: "VENDOR_ERROR" },
       );
     }
 
     // `success: false` is their soft failure (unserviceable lane, bad
     // postcode). It arrives with HTTP 200, so it has to be checked explicitly.
+    // NO_SERVICE: their own documentation describes it as the lane being
+    // unavailable, which is a fact to store rather than an error to retry.
     if (parsed.data.success === false) {
-      throw new Error(
+      throw new RateAdapterError(
+        this.vendorId,
         `ShipGlobal API error: ${parsed.data.message || parsed.data.error || "Unknown error"}`,
+        { kind: "NO_SERVICE" },
       );
     }
 

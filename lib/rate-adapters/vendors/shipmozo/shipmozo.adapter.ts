@@ -18,6 +18,11 @@
  */
 
 import { BaseVendorAdapter } from "../../core/base.adapter";
+import {
+  RateAdapterError,
+  errorFromResponse,
+  truncateBody,
+} from "../../core/errors";
 import type {
   CanonicalChargeBreakdown,
   CanonicalRateRequest,
@@ -76,8 +81,10 @@ export class ShipmozoAdapter extends BaseVendorAdapter<
 
   protected transformRequest(input: CanonicalRateRequest): ShipmozoRateRequest {
     if (!input.origin.pincode || !input.destination.pincode) {
-      throw new Error(
+      throw new RateAdapterError(
+        this.vendorId,
         "Shipmozo requires both origin and destination pincodes.",
+        { kind: "CONFIG_ERROR" },
       );
     }
 
@@ -149,20 +156,30 @@ export class ShipmozoAdapter extends BaseVendorAdapter<
     const rawBody = await res.text();
 
     if (!res.ok) {
-      throw new Error(
-        `Shipmozo API returned ${res.status} ${res.statusText}: ${rawBody}`,
-      );
+      throw errorFromResponse(this.vendorId, "Shipmozo API", res, rawBody);
     }
 
     let json: ShipmozoRateResponse;
     try {
       json = JSON.parse(rawBody) as ShipmozoRateResponse;
-    } catch {
-      throw new Error(`Failed to parse Shipmozo response: ${rawBody}`);
+    } catch (err) {
+      throw new RateAdapterError(
+        this.vendorId,
+        `Failed to parse Shipmozo response: ${truncateBody(rawBody)}`,
+        { kind: "VENDOR_ERROR", cause: err },
+      );
     }
 
+    // `result` other than 1 is Shipmozo's soft failure inside an HTTP 200: the
+    // request was understood and declined, which for the rate calculator means
+    // the lane, weight or purpose is not one they serve. NO_SERVICE so the
+    // sweep records it rather than retrying something that will not change.
     if (String(json.result) !== "1") {
-      throw new Error(`Shipmozo API error: ${json.message || "Unknown error"}`);
+      throw new RateAdapterError(
+        this.vendorId,
+        `Shipmozo API error: ${json.message || "Unknown error"}`,
+        { kind: "NO_SERVICE" },
+      );
     }
 
     return json;
@@ -257,10 +274,15 @@ export class ShipmozoAdapter extends BaseVendorAdapter<
     });
 
     if (!match) {
-      throw new Error(
+      // The catalogue loaded and this country is not in it, so Shipmozo does
+      // not ship there. A fact about the lane, not a fault, and retrying it
+      // every sweep would be pure waste.
+      throw new RateAdapterError(
+        this.vendorId,
         `Shipmozo: could not resolve delivery_country_id for "${countryCode}"` +
           (countryName ? ` (${countryName})` : "") +
           ". Check GET /countries for the exact supported name/code.",
+        { kind: "NO_SERVICE" },
       );
     }
 
@@ -296,23 +318,28 @@ export class ShipmozoAdapter extends BaseVendorAdapter<
     const rawBody = await res.text();
 
     if (!res.ok) {
-      throw new Error(
-        `Shipmozo /countries returned ${res.status} ${res.statusText}: ${rawBody}`,
-      );
+      throw errorFromResponse(this.vendorId, "Shipmozo /countries", res, rawBody);
     }
 
     let json: ShipmozoCountriesResponse;
     try {
       json = JSON.parse(rawBody) as ShipmozoCountriesResponse;
-    } catch {
-      throw new Error(
-        `Failed to parse Shipmozo /countries response: ${rawBody}`,
+    } catch (err) {
+      throw new RateAdapterError(
+        this.vendorId,
+        `Failed to parse Shipmozo /countries response: ${truncateBody(rawBody)}`,
+        { kind: "VENDOR_ERROR", cause: err },
       );
     }
 
     if (String(json.result) !== "1" || !Array.isArray(json.data)) {
-      throw new Error(
+      // Retriable, unlike the rate endpoint's soft failure. This one is the
+      // country catalogue itself being unavailable, which says nothing about
+      // any particular lane.
+      throw new RateAdapterError(
+        this.vendorId,
         `Shipmozo /countries error: ${json.message || "Unknown error"}`,
+        { kind: "VENDOR_ERROR" },
       );
     }
 

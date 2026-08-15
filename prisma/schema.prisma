@@ -1624,6 +1624,7 @@ enum NotificationKind {
   SHIPMENT_STUCK // sat in the same status past the tolerance
   QUOTE_EXPIRING // a sent quote about to lapse
   COURIER_BOOKING_FAILED // a paid booking the vendor would not take — domestic courier, export carrier or first-mile pickup
+  RATE_SWEEP_DEGRADED // the scheduled rate sweep finished with a vendor failing too much of its matrix
 
   // ── Tenant side ──
   SHIPMENT_STATUS // their shipment moved
@@ -2478,4 +2479,362 @@ model ManualInvoiceCharge {
 
   @@index([consignmentId, sortOrder])
   @@index([chargeTypeId])
+}
+
+// ---------------------------------------------------------------------------
+// International rate sweep
+// ---------------------------------------------------------------------------
+//
+// WHY THIS EXISTS
+// Every international vendor API prices exactly one shipment per call: one
+// destination, one weight, one box. A quotation that spans twelve countries and
+// twenty weights is two hundred and forty calls, which is not something anyone
+// can wait for and not something the vendors would tolerate at that rate during
+// business hours.
+//
+// So the calls are made on a schedule instead, every fifth night, and the
+// answers are kept. A quotation then becomes a query over a table we own, which
+// is the difference between "pick a country and wait" and "here is the whole
+// grid, sorted however you like".
+//
+// WHAT THESE NUMBERS ARE, AND ARE NOT
+// Raw vendor cost. No markup, ever. Markup is an org-level number applied at
+// read time in lib/services/rate-calculator.service.ts, and a marked-up figure
+// cached here would be wrong for every other org and silently wrong forever.
+//
+// They are also INDICATIVE. Up to five days old, quoted from one canonical
+// postcode per country against a synthetic box. Good enough to build a
+// quotation sheet a customer can plan against, not good enough to charge from.
+// Bookings price live, and that is not an optimisation left undone.
+//
+// THE FOUR TABLES
+//   RateSweepRun       one execution of the whole matrix
+//   RateSweepCall      one API call: run x vendor x country x weight
+//   VendorRateSnapshot one PRODUCT returned by a call (vendors return several)
+//   VendorRateCharge   one line of one product's breakdown
+//
+// Calls and snapshots are separate because a call that returns nothing is still
+// a fact worth keeping: "sKart does not fly 40kg to Brasília" is an answer, and
+// storing it stops the next sweep, and the sweep after that, from asking again
+// as though nobody had ever checked.
+//
+// Charges are rows rather than a JSON blob for one reason: `group by
+// canonicalName over capturedAt` is the analysis this whole system exists to
+// make possible. Watching a fuel surcharge move across six months is a plain
+// SQL query against this table and an unreadable JSON traversal against the
+// alternative.
+
+/// Where a sweep came from. Manual runs are re-drives an admin asked for.
+enum RateSweepTrigger {
+  CRON
+  MANUAL
+}
+
+enum RateSweepStatus {
+  RUNNING
+  /// Every lane finished and the failure rate stayed inside tolerance.
+  COMPLETED
+  /// Finished, but at least one vendor failed enough of its lanes to be worth
+  /// a person looking. Still usable data; the good lanes are still good.
+  PARTIAL
+  /// Could not be run or could not be finished. No usable data.
+  FAILED
+}
+
+/// Whether a quoted price includes destination duties and taxes. Parsed from
+/// the vendor's service label by lib/rateSweep/carrier.ts.
+///
+/// This is not a cosmetic attribute: ranking a DUTY_UNPAID rate against a
+/// DUTY_PAID one makes the unpaid rate look cheaper and leaves the customer a
+/// customs bill on delivery. Every fair comparison filters on it.
+enum RateDutyMode {
+  DUTY_PAID
+  DUTY_UNPAID
+  /// The label did not say. Most services do not, so this is the common case
+  /// and it means "unknown", never "unpaid".
+  UNKNOWN
+}
+
+/// Whether a service carries documents or goods. Vendors price the two
+/// differently and several publish both under near-identical names.
+enum RateContentType {
+  DOCUMENTS
+  NON_DOCUMENTS
+  UNKNOWN
+}
+
+/// The outcome of one vendor call, classified so a query can tell a lane that
+/// does not exist from a vendor that was down. See lib/rate-adapters/core/errors.ts.
+enum RateSweepCallStatus {
+  /// At least one quote came back.
+  OK
+  /// The vendor answered and declined the lane. Not a fault. Do not retry.
+  NO_SERVICE
+  /// 5xx, malformed body, socket failure. Transient, worth retrying.
+  VENDOR_ERROR
+  /// Credentials rejected. The sweep stops this vendor for the rest of the run.
+  AUTH_ERROR
+  /// 429. Backed off and continued at a slower pace.
+  RATE_LIMITED
+  /// No response inside the timeout.
+  TIMEOUT
+  /// Missing credentials or bad config on our side, not the vendor's.
+  CONFIG_ERROR
+  /// Never attempted, because the vendor had already been stopped for this run.
+  SKIPPED
+}
+
+model RateSweepRun {
+  id String @id @default(cuid())
+
+  trigger RateSweepTrigger @default(CRON)
+  /// Clerk userId for a manual re-drive, null for the cron.
+  triggeredBy String?
+
+  status RateSweepStatus @default(RUNNING)
+
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+
+  /// Bumped in lib/rateSweep/config.ts whenever the matrix definition changes
+  /// in a way that makes rows incomparable across runs (a slab moved, a
+  /// canonical postcode changed, the box formula changed). Without it, a trend
+  /// line silently mixes two different questions.
+  configVersion String
+
+  /// The full matrix definition this run used, verbatim: countries and their
+  /// canonical postcodes, the weight ladder, the box formula, the Shipmozo
+  /// purpose and declared value. Denormalised on purpose. In two years the
+  /// config file will have moved on and this is the only record of what the
+  /// numbers in this run actually mean.
+  config Json
+
+  originPincode String
+  originCity    String
+
+  /// Resolved from the adapter registry at plan time, not hardcoded, so a
+  /// vendor added later is swept without touching this job.
+  vendorIds String[]
+
+  /// vendors x countries. One Inngest run each.
+  laneCount      Int @default(0)
+  /// Atomically incremented by each lane as it finishes, success or failure.
+  /// When it reaches laneCount the last lane fires the finalise event, which is
+  /// why it is a counter and not a derived count: a derived count over a table
+  /// this size, polled, is the version of this that does not scale.
+  lanesCompleted Int @default(0)
+  lanesFailed    Int @default(0)
+
+  plannedCalls Int @default(0)
+  okCalls      Int @default(0)
+  failedCalls  Int @default(0)
+  /// Product rows written. Always >= okCalls, since one call yields several.
+  snapshotCount Int @default(0)
+
+  /// Set when the run ended abnormally, or when finalise had something to say.
+  notes String?
+
+  calls     RateSweepCall[]
+  snapshots VendorRateSnapshot[]
+
+  @@index([status, startedAt(sort: Desc)])
+  @@index([startedAt(sort: Desc)])
+}
+
+model RateSweepCall {
+  id String @id @default(cuid())
+
+  runId String
+  run   RateSweepRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  vendorId   String
+  vendorName String
+
+  // ── The exact question that was asked ──
+  originPincode    String
+  destCountryCode  String @db.Char(2)
+  destCity         String
+  destPostcode     String
+  /// True for destinations with no postal system (UAE, Qatar), where a
+  /// placeholder was sent because the vendor's API demands the field. If those
+  /// lanes come back empty, this is the first thing to check.
+  syntheticPostcode Boolean @default(false)
+
+  /// Chargeable weight in kg. The row key, and the axis every query groups on.
+  weightKg Decimal @db.Decimal(10, 3)
+
+  /// Which box formula produced the dimensions below. "cube-half-vol" today.
+  /// Present so bulky-shipment profiles can be added later without re-keying
+  /// every existing row.
+  boxProfile   String
+  boxLengthCm  Decimal @db.Decimal(8, 2)
+  boxWidthCm   Decimal @db.Decimal(8, 2)
+  boxHeightCm  Decimal @db.Decimal(8, 2)
+
+  /// Shipmozo alone prices on these. Stored for every vendor anyway, so a row
+  /// is self-describing without the reader knowing which vendor cares.
+  shipmentPurpose String
+  declaredValue   Decimal @db.Decimal(14, 2)
+
+  // ── What came back ──
+  status     RateSweepCallStatus
+  httpStatus Int?
+  /// The RateErrorKind, kept as text rather than an enum so a new kind in the
+  /// code does not need a migration before it can be recorded.
+  errorKind    String?
+  errorMessage String?
+
+  /// How many times the durable retry had to run this before it settled.
+  attempts  Int  @default(1)
+  latencyMs Int?
+
+  /// Products returned. Zero on every non-OK status.
+  quoteCount Int @default(0)
+
+  /// The vendor's response, verbatim, for re-deriving a breakdown after a
+  /// parsing fix and for answering questions this schema did not anticipate.
+  ///
+  /// NOTE THE ABSENCE OF A REQUEST PAYLOAD. sKart authenticates by putting
+  /// `user_name` and `password` in the request body, so storing what we sent
+  /// would put live vendor credentials in the database, in every backup, and in
+  /// front of anyone with read access to this table. The canonical question is
+  /// fully described by the columns above; the vendor-shaped payload adds
+  /// nothing worth that.
+  rawResponse Json?
+  /// Set when rawResponse was cleared by the pruning pass. Successful calls
+  /// keep their raw body for 30 days; failures keep theirs indefinitely,
+  /// because a failure is the one you come back to months later.
+  rawPrunedAt DateTime?
+
+  capturedAt DateTime @default(now())
+
+  snapshots VendorRateSnapshot[]
+
+  /// The natural key of one question in one run. Makes every write an upsert,
+  /// which matters because Inngest retries a step whose HTTP call landed but
+  /// whose commit did not, and the alternative is silent duplicate rows that
+  /// double-count in every aggregate afterwards.
+  @@unique([runId, vendorId, destCountryCode, destPostcode, weightKg, boxProfile, shipmentPurpose], name: "sweep_call_identity")
+  @@index([runId, status])
+  @@index([runId, vendorId, status])
+  @@index([vendorId, destCountryCode, capturedAt])
+  /// Serves the pruning pass: successful calls, oldest first, that still hold a body.
+  @@index([status, capturedAt])
+}
+
+model VendorRateSnapshot {
+  id String @id @default(cuid())
+
+  runId String
+  run   RateSweepRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  callId String
+  call   RateSweepCall @relation(fields: [callId], references: [id], onDelete: Cascade)
+
+  capturedAt DateTime @default(now())
+
+  vendorId   String
+  vendorName String
+  /// The vendor's own service label, e.g. "DHL Express". Stored RAW. Customer
+  /// surfaces mask it through lib/branding, per carrierBranding.md; masking it
+  /// here instead would make the data useless for working out which carrier is
+  /// actually cheapest on a lane.
+  productName String
+  /// The vendor's id for the service, when it has one. Null for those that do not.
+  courierId   String?
+
+  // ── The service, normalised ──
+  // Derived from productName at write time by lib/rateSweep/carrier.ts. Stored
+  // rather than computed per query because the whole point of the sweep is that
+  // "whose FedEx is cheapest to the US at 5kg" should be a GROUP BY, and three
+  // vendors spell FedEx three different ways.
+  //
+  // Kept as a String rather than an enum deliberately. A new carrier appearing
+  // in a vendor's catalogue is a rule change in code plus a backfill; making it
+  // a schema change as well would mean the sweep has to file it under OTHER
+  // until someone ships a migration.
+  /// Normalised carrier code: FEDEX, DHL, UPS, ARAMEX, ... or OTHER when the
+  /// label matched no rule. OTHER rows surface on the run screen's review list.
+  carrier String @default("OTHER")
+
+  /// Whether this price includes destination duties. See RateDutyMode.
+  dutyMode    RateDutyMode    @default(UNKNOWN)
+  contentType RateContentType @default(UNKNOWN)
+  /// Null when the label does not mention pickup, which is most of them.
+  /// Recording those as false would invent a fact about what the price covers.
+  pickupIncluded Boolean?
+  /// Caveats parsed from the label ("Gifts only", "B2B only"). A rate carrying
+  /// one must not go into a general quotation unflagged.
+  restrictionNote String?
+
+  // ── The lane, denormalised ──
+  // Repeated from RateSweepCall on purpose. This is the table every analytical
+  // query reads, and making each of them join to filter by country or weight
+  // would be a join per query for columns that are immutable once written.
+  originPincode   String
+  destCountryCode String @db.Char(2)
+  destPostcode    String
+  weightKg        Decimal @db.Decimal(10, 3)
+  boxProfile      String
+
+  currency String
+  /// False when the vendor quoted in something other than INR. Aramex can, and
+  /// a cheapest-of query that compared 400 USD against 4000 INR would return a
+  /// confident wrong answer. Every comparison filters on this.
+  isComparable Boolean @default(true)
+
+  /// Raw vendor cost. Never marked up. See the note at the top of this section.
+  totalWithTax    Decimal @db.Decimal(14, 2)
+  totalWithoutTax Decimal @db.Decimal(14, 2)
+  /// Derived at write time (withTax - withoutTax) so tax share is one column
+  /// rather than an expression repeated in every query.
+  taxAmount       Decimal @db.Decimal(14, 2)
+
+  /// Transit days. 0 means the vendor did not say, which is common and is not
+  /// the same as same-day.
+  tatDays Int @default(0)
+
+  charges VendorRateCharge[]
+
+  /// The quoting read: everything for one lane at one weight, cheapest first.
+  @@index([destCountryCode, weightKg, isComparable, totalWithTax])
+  /// The carrier read: "whose FedEx is cheapest on this lane at this weight",
+  /// which is the query the quotation sheet is built from.
+  @@index([carrier, destCountryCode, weightKg, isComparable, totalWithTax])
+  /// The trend read: one vendor's price for one lane over time.
+  @@index([vendorId, destCountryCode, weightKg, capturedAt])
+  @@index([runId])
+  @@index([callId])
+  @@index([capturedAt])
+}
+
+model VendorRateCharge {
+  id String @id @default(cuid())
+
+  snapshotId String
+  snapshot   VendorRateSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+
+  /// The vendor's own label, verbatim. Never shown to a customer.
+  name String
+  /// The same charge under the wording customers see, via
+  /// lib/invoices/tax/chargeNames.ts. Analysis groups on this, because
+  /// "FREIGHT", "Freight charges" and "logistic fee" are the same line from
+  /// three vendors and grouping on the raw name would make them three.
+  canonicalName String
+
+  amount   Decimal @db.Decimal(14, 2)
+  currency String
+
+  igst      Decimal? @db.Decimal(14, 2)
+  cgst      Decimal? @db.Decimal(14, 2)
+  sgst      Decimal? @db.Decimal(14, 2)
+  taxAmount Decimal? @db.Decimal(14, 2)
+
+  /// Preserves the vendor's own ordering, which usually runs freight first and
+  /// tax last, so a stored breakdown reads like the quote it came from.
+  sortOrder Int @default(0)
+
+  @@index([snapshotId, sortOrder])
+  /// The surcharge-trend read, which is most of why charges are rows.
+  @@index([canonicalName])
 }

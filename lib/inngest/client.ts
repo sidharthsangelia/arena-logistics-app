@@ -179,6 +179,73 @@ export const firstMileRetryRequested = eventType(
   },
 );
 
+// ---------------------------------------------------------------------------
+// International rate sweep
+//
+// Three events for one scheduled job, because the job has three genuinely
+// different units of work and collapsing them would break the one property that
+// makes it safe: the pacing.
+//
+//   requested → one planner run. Decides the matrix, opens the run row, fans out.
+//   lane      → one vendor against one country. EIGHTY of these per sweep, and
+//               the unit that carries the concurrency key, which is what limits
+//               a vendor to one lane at a time and therefore to a known rate.
+//   finalise  → one closing run. Counts, judges each vendor, alerts.
+//
+// The lane is the interesting one. It exists as its own event rather than as a
+// loop inside the planner because Inngest's concurrency and retry controls act
+// on RUNS: eighty runs keyed by vendor is a rate limit the platform enforces,
+// where one long run doing the same work is a rate limit we would have to write
+// ourselves and get right across every crash and redeploy.
+// ---------------------------------------------------------------------------
+
+/**
+ * Start a sweep. Fired by the cron on its own schedule, and by an Arena admin
+ * from the rate-sweep screen.
+ */
+export const rateSweepRequested = eventType("rates/sweep.requested", {
+  schema: z.object({
+    /** Clerk userId for a manual run, omitted for the cron. */
+    requestedByUserId: z.string().optional(),
+    /**
+     * Restricts the sweep to these vendors. Used by the admin re-run button
+     * after one vendor's credentials are fixed, so a repair costs 600 calls
+     * rather than 2,400. Omitted means every registered vendor.
+     */
+    vendorIds: z.array(z.string()).optional(),
+  }),
+});
+
+/** One vendor against one country: thirty weight slabs, paced. */
+export const rateSweepLaneRequested = eventType("rates/sweep.lane.requested", {
+  schema: z.object({
+    runId: z.string(),
+    vendorId: z.string(),
+    /** ISO alpha-2. The lane resolves the rest from lib/rateSweep/config.ts. */
+    countryCode: z.string(),
+  }),
+});
+
+/**
+ * Close a run out.
+ *
+ * Sent by whichever lane happens to finish last, and by the planner's backstop
+ * if the counter never gets there. Both paths are expected and the finalise
+ * function is safe to run twice, which is why this is an event rather than a
+ * call at the end of the lane: two lanes racing to finalise would be a bug, two
+ * events arriving is just idempotency doing its job.
+ */
+export const rateSweepFinaliseRequested = eventType(
+  "rates/sweep.finalise.requested",
+  {
+    schema: z.object({
+      runId: z.string(),
+      /** True when the planner gave up waiting rather than the last lane reporting. */
+      forced: z.boolean().optional(),
+    }),
+  },
+);
+
 export const inngest = new Inngest({
   id: "arena-cargo-logistics",
 

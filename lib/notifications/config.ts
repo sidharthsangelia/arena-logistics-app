@@ -22,6 +22,7 @@ export const NOTIFICATION_KINDS = [
   "SHIPMENT_STUCK",
   "QUOTE_EXPIRING",
   "COURIER_BOOKING_FAILED",
+  "RATE_SWEEP_DEGRADED",
   "SHIPMENT_STATUS",
   "ARENA_MESSAGE",
 ] as const;
@@ -55,6 +56,14 @@ export const NOTIFICATION_KIND_META: Record<
     scope: "ARENA",
     money: false,
   },
+  // Not a money kind, despite being about rates. It names a vendor and a
+  // failure count, never a price, so every ops member should see it: the person
+  // who notices the quote grid has gone stale is not necessarily an admin.
+  RATE_SWEEP_DEGRADED: {
+    label: "Rate sweeps that degraded",
+    scope: "ARENA",
+    money: false,
+  },
   SHIPMENT_STATUS: { label: "Shipment updates", scope: "ORG", money: false },
   ARENA_MESSAGE: { label: "Messages from Arena", scope: "ORG", money: false },
 };
@@ -77,6 +86,7 @@ export const ARENA_INBOX_FILTERS = {
       "COURIER_BOOKING_FAILED",
       "SHIPMENT_STUCK",
       "QUOTE_EXPIRING",
+      "RATE_SWEEP_DEGRADED",
     ],
   },
   bookings: { label: "New bookings", kinds: ["BOOKING_PLACED"] },

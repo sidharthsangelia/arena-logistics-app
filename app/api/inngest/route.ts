@@ -23,7 +23,10 @@ import { inngest } from "@/lib/inngest/client";
 import { bookDomesticCourier } from "@/lib/inngest/functions/bookDomesticCourier";
 import { bookFirstMilePickup } from "@/lib/inngest/functions/bookFirstMilePickup";
 import { bookInternationalCarrier } from "@/lib/inngest/functions/bookInternationalCarrier";
+import { finaliseRateSweep } from "@/lib/inngest/functions/finaliseRateSweep";
 import { generateShipmentInvoice } from "@/lib/inngest/functions/generateShipmentInvoice";
+import { planRateSweep } from "@/lib/inngest/functions/planRateSweep";
+import { sweepRateLane } from "@/lib/inngest/functions/sweepRateLane";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -35,5 +38,15 @@ export const { GET, POST, PUT } = serve({
     bookDomesticCourier,
     bookInternationalCarrier,
     bookFirstMilePickup,
+
+    // The scheduled international rate sweep. Three functions, one job: see
+    // lib/inngest/functions/planRateSweep.ts for how they fit together.
+    //
+    // maxDuration above still applies and is still fine. Each of these is a
+    // sequence of short steps; the long waits are step.sleep, which suspends the
+    // run rather than holding this handler open.
+    planRateSweep,
+    sweepRateLane,
+    finaliseRateSweep,
   ],
 });

@@ -8,6 +8,7 @@
  */
 
 import type { CanonicalPackage } from "@/lib/pricing/chargeableWeight";
+import type { RateErrorKind } from "./errors";
 
 export type { CanonicalPackage };
 
@@ -128,4 +129,18 @@ export interface VendorError {
   vendorName: string;
   message: string;
   raw?: unknown;  // original error for debugging; never expose to end users
+
+  // ── Classification (optional; see core/errors.ts) ──
+  // Added for the scheduled rate sweep, which runs unattended and must tell a
+  // transient 5xx from an unserviceable lane from expired credentials. Optional
+  // on purpose: every existing reader ignores them, and an adapter that throws
+  // a plain Error still produces a valid VendorError with these left undefined.
+  /** What kind of failure this is, independent of the vendor's wording. */
+  kind?: RateErrorKind;
+  /** HTTP status, when the failure came from a response. */
+  status?: number;
+  /** Seconds the vendor asked us to wait, parsed from Retry-After. */
+  retryAfterSeconds?: number;
+  /** False when retrying cannot possibly help (no service, bad credentials). */
+  retriable?: boolean;
 }

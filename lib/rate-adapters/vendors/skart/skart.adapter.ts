@@ -13,6 +13,7 @@
  */
 
 import { BaseVendorAdapter } from "../../core/base.adapter";
+import { RateAdapterError, errorFromResponse } from "../../core/errors";
 import type { CanonicalRateRequest, RateQuote } from "../../core/types";
 import type { SkartRateRequest, SkartRateResponse, SkartProduct } from "./skart.types";
 import {
@@ -91,15 +92,21 @@ export class SkartAdapter extends BaseVendorAdapter<
     });
 
     if (!res.ok) {
-      throw new Error(
-        `Skart API returned ${res.status} ${res.statusText}`
-      );
+      throw errorFromResponse(this.vendorId, "Skart API", res);
     }
 
     const json = await res.json() as SkartRateResponse;
 
+    // A non-200 statusCode inside an HTTP 200 is Skart's soft failure: the API
+    // was reached, understood the request, and declined it. Almost always an
+    // unserviceable lane or weight. Classified NO_SERVICE so the scheduled
+    // sweep records it as a fact and stops retrying a lane Skart does not fly.
     if (json.statusCode !== 200) {
-      throw new Error(`Skart API error: ${json.message}`);
+      throw new RateAdapterError(
+        this.vendorId,
+        `Skart API error: ${json.message}`,
+        { kind: "NO_SERVICE", status: json.statusCode },
+      );
     }
 
     return json;
