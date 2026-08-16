@@ -44,6 +44,8 @@ import {
   type QuotationData,
 } from "@/lib/rateSweep/excel/data";
 import { INTERNAL_STAMP, allTermsSections } from "@/lib/rateSweep/excel/terms";
+import { INTERNATIONAL_VOLUMETRIC_DIVISOR } from "@/lib/pricing/chargeableWeight";
+import { SWEEP_ORIGIN } from "@/lib/rateSweep/config";
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -493,6 +495,43 @@ describe("terms and disclaimers", () => {
     // timezone: without the explicit Asia/Kolkata in formatDate, a UTC server
     // renders the previous day and this assertion is what catches it.
     assert.ok(text.includes("14 September 2026"), "validity date is not on the cover");
+  });
+
+  it("never states an amount or a threshold in a clause", () => {
+    const sections = allTermsSections({
+      capturedOn: "14 August 2026",
+      validUntil: "29 August 2026",
+      markupApplied: true,
+    });
+
+    // The terms say which charges exist and who bears them, never what they
+    // cost. Every figure in a surcharge belongs to a carrier contract that gets
+    // renegotiated, and a stale number on a customer document is worse than no
+    // number: it is the number they will hold us to. The volumetric divisor is
+    // the one permitted figure, because it is a formula the reader has to be
+    // able to apply themselves.
+    const permitted = new Set([
+      String(INTERNATIONAL_VOLUMETRIC_DIVISOR),
+      SWEEP_ORIGIN.pincode,
+    ]);
+
+    for (const section of sections) {
+      for (const clause of section.clauses) {
+        // The date fields come from the context and are legitimately numeric.
+        const withoutDates = clause.replaceAll(/\d+ [A-Z][a-z]+ \d{4}/g, "");
+        // Trailing punctuation is excluded from the match, so "÷ 5000." reads
+        // as the divisor rather than as an unknown figure.
+        for (const [figure] of withoutDates.matchAll(/\d[\d,]*(?:\.\d+)?/g)) {
+          assert.ok(
+            permitted.has(figure),
+            `"${figure}" in ${section.heading}: terms must not carry amounts, weights or thresholds`,
+          );
+        }
+        // No separate currency assertion: naming INR as the currency of the
+        // quote is correct, and an amount in any currency is a digit, which the
+        // check above already refuses.
+      }
+    }
   });
 
   it("keeps every clause non-empty", () => {

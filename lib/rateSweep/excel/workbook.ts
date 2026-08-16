@@ -260,8 +260,8 @@ function addCoverSheet(
   row = writeFieldTable(sheet, row, contents);
   row += 1;
 
-  // The four warnings, on the cover, in full. Everything else in the workbook
-  // assumes these have been read.
+  // The standing warnings, on the cover, in full. Everything else in the
+  // workbook assumes these have been read.
   row = writeSectionLabel(sheet, row, "Please read before quoting from this document");
 
   const noteWidth = mergedWidth(sheet, CONTENT_COL, COVER_LAST_COL);

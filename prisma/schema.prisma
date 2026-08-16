@@ -258,6 +258,7 @@ model Client {
   documents ClientDocument[]
 
   billingParties BillingParty[]
+  rateQuotations RateQuotation[]
 
   @@index([orgId])
   @@index([orgId, companyName])
@@ -1985,9 +1986,9 @@ model BillingParty {
 
   /// Printed as the bill-to name. The registered legal name for a business, the
   /// person's full name for an individual.
-  legalName String
+  legalName    String
   /// Optional trading name, printed beneath the legal one when they differ.
-  tradeName String?
+  tradeName    String?
   /// The customer's code in Arena's own accounting system, if they have one.
   customerCode String?
 
@@ -2066,15 +2067,15 @@ model ChargeType {
 
   /// Stable kebab-case key, e.g. "fuel-surcharge". The seed upserts on this,
   /// so re-running it never duplicates a row or overwrites an edited rate.
-  code String @unique
+  code        String  @unique
   /// What prints on the invoice line.
-  label String
+  label       String
   /// Longer wording for the picker, when the label alone is ambiguous.
   description String?
 
   /// Services Accounting Code defaulted onto the line so an admin never types
   /// one. Overridable per line.
-  sacCode String @default("996812")
+  sacCode            String  @default("996812")
   /// Default GST rate for this charge, in percent. Overridable per line.
   defaultRatePercent Decimal @default(18) @db.Decimal(5, 2)
 
@@ -2188,16 +2189,16 @@ model ManualInvoice {
   orgId String?
   org   Org?    @relation(fields: [orgId], references: [id], onDelete: SetNull)
 
-  status  ManualInvoiceStatus @default(DRAFT)
+  status      ManualInvoiceStatus @default(DRAFT)
   /// Domestic or international. Drives default terms and which charge types the
   /// picker offers first. Not a tax decision: the rate is per line.
-  mode    ShipmentMode        @default(INTERNATIONAL)
+  mode        ShipmentMode        @default(INTERNATIONAL)
   /// CSB-4 / CSB-5 / commercial. A label for filtering, printed in the shipment
   /// block, changing nothing about the money.
   csbCategory String?
 
-  issueDate DateTime @default(now())
-  dueDate   DateTime?
+  issueDate    DateTime  @default(now())
+  dueDate      DateTime?
   /// One of the values in lib/invoices/manual/config.ts, e.g. "NET_30".
   paymentTerms String?
 
@@ -2209,7 +2210,7 @@ model ManualInvoice {
   /// EXCLUSIVE adds GST to what was typed; INCLUSIVE splits it out of the typed
   /// gross. One switch, one branch in the money engine, invariants hold both
   /// ways. See manualInvoicing.md §4.
-  taxMode      TaxMode @default(EXCLUSIVE)
+  taxMode       TaxMode @default(EXCLUSIVE)
   /// Printed and stated; true means the recipient pays the GST, so no tax is
   /// charged on the document.
   reverseCharge Boolean @default(false)
@@ -2243,21 +2244,21 @@ model ManualInvoice {
   irnAckNo   String?
   irnAckDate DateTime?
   /// The signed QR payload, rendered to a QR code on the document.
-  irnQrData  String? @db.Text
+  irnQrData  String?   @db.Text
 
-  notes String?
+  notes         String?
   /// Overrides the mode's default terms when an admin needs different ones.
   termsOverride String? @db.Text
 
   // ── frozen document content (null while DRAFT) ──
   /// Arena's issuer block, a copy of the same config the booking invoices use.
-  sellerSnapshot Json?
+  sellerSnapshot      Json?
   /// Bill-to block as it stood at issue.
-  buyerSnapshot  Json?
+  buyerSnapshot       Json?
   /// Consignments as printed, with their per-consignment charge lines.
   consignmentSnapshot Json?
   /// The rolled-up, taxed service lines. What the charges table prints.
-  lineItems      Json?
+  lineItems           Json?
 
   // ── the PDF ──
   // Same column shape as ShipmentDocument, Invoice and ShipmentInvoice so the
@@ -2284,8 +2285,8 @@ model ManualInvoice {
   createdById   String?
   createdByName String?
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
   /// Drafts are deletable. Once issued, deletedAt stays null forever: the
   /// correction path is a credit note.
   deletedAt DateTime?
@@ -2342,9 +2343,9 @@ model ManualInvoiceConsignment {
   sortOrder Int @default(0)
 
   /// House air waybill, or the courier's tracking number.
-  awbNumber  String?
+  awbNumber   String?
   /// Master air waybill, for consolidated air freight.
-  mawbNumber String?
+  mawbNumber  String?
   bookingDate DateTime?
 
   // ── route ──
@@ -2374,7 +2375,7 @@ model ManualInvoiceConsignment {
 
   /// "Express", "Air freight", "Sea LCL". Free text: the service names Arena
   /// sells off-platform are not the platform's service catalog.
-  serviceType String?
+  serviceType     String?
   /// Airport or port codes, when the lane is freight rather than courier.
   originPort      String?
   destinationPort String?
@@ -2390,9 +2391,9 @@ model ManualInvoiceConsignment {
   subAgent      String?
 
   /// Total No of Packages on the customer's paperwork.
-  pieces              Int?
-  grossWeightKg       Decimal? @db.Decimal(10, 3)
-  chargeableWeightKg  Decimal? @db.Decimal(10, 3)
+  pieces             Int?
+  grossWeightKg      Decimal? @db.Decimal(10, 3)
+  chargeableWeightKg Decimal? @db.Decimal(10, 3)
 
   /// Package breakdown, when the customer's own paperwork states it this way.
   /// Separate from `pieces` because a consignment of 3 pallets holding 40
@@ -2587,7 +2588,7 @@ enum RateSweepCallStatus {
 model RateSweepRun {
   id String @id @default(cuid())
 
-  trigger RateSweepTrigger @default(CRON)
+  trigger     RateSweepTrigger @default(CRON)
   /// Clerk userId for a manual re-drive, null for the cron.
   triggeredBy String?
 
@@ -2625,17 +2626,18 @@ model RateSweepRun {
   lanesCompleted Int @default(0)
   lanesFailed    Int @default(0)
 
-  plannedCalls Int @default(0)
-  okCalls      Int @default(0)
-  failedCalls  Int @default(0)
+  plannedCalls  Int @default(0)
+  okCalls       Int @default(0)
+  failedCalls   Int @default(0)
   /// Product rows written. Always >= okCalls, since one call yields several.
   snapshotCount Int @default(0)
 
   /// Set when the run ended abnormally, or when finalise had something to say.
   notes String?
 
-  calls     RateSweepCall[]
-  snapshots VendorRateSnapshot[]
+  calls      RateSweepCall[]
+  snapshots  VendorRateSnapshot[]
+  quotations RateQuotation[]
 
   @@index([status, startedAt(sort: Desc)])
   @@index([startedAt(sort: Desc)])
@@ -2651,10 +2653,10 @@ model RateSweepCall {
   vendorName String
 
   // ── The exact question that was asked ──
-  originPincode    String
-  destCountryCode  String @db.Char(2)
-  destCity         String
-  destPostcode     String
+  originPincode     String
+  destCountryCode   String  @db.Char(2)
+  destCity          String
+  destPostcode      String
   /// True for destinations with no postal system (UAE, Qatar), where a
   /// placeholder was sent because the vendor's API demands the field. If those
   /// lanes come back empty, this is the first thing to check.
@@ -2666,10 +2668,10 @@ model RateSweepCall {
   /// Which box formula produced the dimensions below. "cube-half-vol" today.
   /// Present so bulky-shipment profiles can be added later without re-keying
   /// every existing row.
-  boxProfile   String
-  boxLengthCm  Decimal @db.Decimal(8, 2)
-  boxWidthCm   Decimal @db.Decimal(8, 2)
-  boxHeightCm  Decimal @db.Decimal(8, 2)
+  boxProfile  String
+  boxLengthCm Decimal @db.Decimal(8, 2)
+  boxWidthCm  Decimal @db.Decimal(8, 2)
+  boxHeightCm Decimal @db.Decimal(8, 2)
 
   /// Shipmozo alone prices on these. Stored for every vendor anyway, so a row
   /// is self-describing without the reader knowing which vendor cares.
@@ -2677,8 +2679,8 @@ model RateSweepCall {
   declaredValue   Decimal @db.Decimal(14, 2)
 
   // ── What came back ──
-  status     RateSweepCallStatus
-  httpStatus Int?
+  status       RateSweepCallStatus
+  httpStatus   Int?
   /// The RateErrorKind, kept as text rather than an enum so a new kind in the
   /// code does not need a migration before it can be recorded.
   errorKind    String?
@@ -2733,8 +2735,8 @@ model VendorRateSnapshot {
 
   capturedAt DateTime @default(now())
 
-  vendorId   String
-  vendorName String
+  vendorId    String
+  vendorName  String
   /// The vendor's own service label, e.g. "DHL Express". Stored RAW. Customer
   /// surfaces mask it through lib/branding, per carrierBranding.md; masking it
   /// here instead would make the data useless for working out which carrier is
@@ -2758,11 +2760,11 @@ model VendorRateSnapshot {
   carrier String @default("OTHER")
 
   /// Whether this price includes destination duties. See RateDutyMode.
-  dutyMode    RateDutyMode    @default(UNKNOWN)
-  contentType RateContentType @default(UNKNOWN)
+  dutyMode        RateDutyMode    @default(UNKNOWN)
+  contentType     RateContentType @default(UNKNOWN)
   /// Null when the label does not mention pickup, which is most of them.
   /// Recording those as false would invent a fact about what the price covers.
-  pickupIncluded Boolean?
+  pickupIncluded  Boolean?
   /// Caveats parsed from the label ("Gifts only", "B2B only"). A rate carrying
   /// one must not go into a general quotation unflagged.
   restrictionNote String?
@@ -2772,12 +2774,12 @@ model VendorRateSnapshot {
   // query reads, and making each of them join to filter by country or weight
   // would be a join per query for columns that are immutable once written.
   originPincode   String
-  destCountryCode String @db.Char(2)
+  destCountryCode String  @db.Char(2)
   destPostcode    String
   weightKg        Decimal @db.Decimal(10, 3)
   boxProfile      String
 
-  currency String
+  currency     String
   /// False when the vendor quoted in something other than INR. Aramex can, and
   /// a cheapest-of query that compared 400 USD against 4000 INR would return a
   /// confident wrong answer. Every comparison filters on this.
@@ -2815,7 +2817,7 @@ model VendorRateCharge {
   snapshot   VendorRateSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
 
   /// The vendor's own label, verbatim. Never shown to a customer.
-  name String
+  name          String
   /// The same charge under the wording customers see, via
   /// lib/invoices/tax/chargeNames.ts. Analysis groups on this, because
   /// "FREIGHT", "Freight charges" and "logistic fee" are the same line from
@@ -2837,4 +2839,108 @@ model VendorRateCharge {
   @@index([snapshotId, sortOrder])
   /// The surcharge-trend read, which is most of why charges are rows.
   @@index([canonicalName])
+}
+
+// ─────────────────────────────────────────────
+// RateQuotation — generated quotation workbooks
+// ─────────────────────────────────────────────
+
+/// Who a generated workbook was built for. Mirrors the zod enum in
+/// lib/rateSweep/excel/spec.ts, and it is the field that decides whether the
+/// file holds marked-up customer prices or Arena's raw buying cost.
+enum RateQuotationAudience {
+  CUSTOMER
+  INTERNAL
+}
+
+/// Shape of the workbook: a sheet per carrier, or one best-price grid.
+enum RateQuotationLayout {
+  BY_SERVICE
+  CHEAPEST
+}
+
+/// One generated Excel rate card, and the settings that produced it.
+///
+/// Named RateQuotation rather than RateCard because RateCard is already the
+/// air-freight tariff table above. These are the quotation WORKBOOKS built off
+/// the international rate sweep.
+///
+/// ── WHY THIS IS NOT A Quote ─────────────────────────────────────────────────
+/// A Quote is one org's price for one shipment: one vendor, one lane, one
+/// weight, one total, with a DRAFT/SENT workflow and an expiry the customer can
+/// act on. A rate card is a grid — many countries by many weights by many
+/// carriers — with no single price, often no client, and no workflow. Putting
+/// the two in one table would mean making Quote.orgId nullable, and that column
+/// is the org-scoping boundary every existing quotes query depends on.
+///
+/// ── THE FILE IS ONLY STORED FOR CUSTOMER CARDS ──────────────────────────────
+/// UploadThing URLs are public and unguessable rather than access-controlled, so
+/// a leaked link is permanent and unrevocable. A customer card holds prices the
+/// customer is already allowed to see. An INTERNAL card is raw vendor cost with
+/// every vendor named — Arena's buying price — so the row is written for the
+/// audit trail but fileUrl stays null and the bytes only ever reach the browser
+/// that asked for them.
+///
+/// ── EVERY GENERATION IS A NEW ROW ───────────────────────────────────────────
+/// Never updated in place. "What did we actually send them in June" is the
+/// question a rate dispute turns on, and regenerating over the top destroys it.
+model RateQuotation {
+  id String @id @default(cuid())
+
+  /// Human-readable, sequential per year. What a person quotes back at us.
+  cardNumber String @unique
+
+  audience RateQuotationAudience
+  layout   RateQuotationLayout
+
+  /// The sweep this was priced from. Restricted rather than cascaded: deleting a
+  /// run must not silently erase the record of what was sent to a customer.
+  runId String
+  run   RateSweepRun @relation(fields: [runId], references: [id], onDelete: Restrict)
+
+  /// The spec, spread into queryable columns rather than a JSON blob, because
+  /// "which cards covered Germany" is a question the table needs to answer.
+  countryCodes String[]
+  weightsKg    Decimal[] @db.Decimal(8, 3)
+  carriers     String[]
+
+  markupPercent Decimal  @db.Decimal(6, 3)
+  validityDays  Int
+  validUntil    DateTime
+
+  includeDutyUnpaid Boolean @default(false)
+  includeRestricted Boolean @default(false)
+
+  /// Printed on the cover. Free text so a prospect who is not yet a client can
+  /// still be named.
+  preparedFor String?
+
+  /// Set when the card was built for somebody already on the books. SetNull, not
+  /// Cascade: removing a client must not delete the record of what we sent them.
+  clientId String?
+  client   Client? @relation(fields: [clientId], references: [id], onDelete: SetNull)
+
+  /// Clerk userId of the Arena staff member who generated it, and their name at
+  /// the time. The name is denormalised on purpose — it has to still read
+  /// correctly after somebody leaves and their Clerk record is gone.
+  generatedByUserId String
+  generatedByName   String?
+
+  fileName String
+  /// Null for INTERNAL cards, which are deliberately never persisted.
+  fileUrl  String?
+  fileKey  String?
+  fileSize Int?
+
+  /// What the file actually came out as, so the table can say "5 carriers, 12
+  /// weights" without reopening the workbook.
+  carrierCount Int
+  sheetCount   Int
+
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([audience, createdAt])
+  @@index([clientId])
+  @@index([generatedByUserId])
 }

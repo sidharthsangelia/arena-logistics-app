@@ -62,13 +62,19 @@ export default async function RateSweepsPage() {
 
         <div className="flex flex-wrap gap-2">
           {/* The reason the sweep exists, so it leads rather than hiding behind
-              the run history somebody only reads when something broke. */}
-          <Button asChild>
-            <Link href="/arena-dashboard/rate-sweeps/quotation">
-              <FileSpreadsheet className="size-4" />
-              Build a quotation
-            </Link>
-          </Button>
+              the run history somebody only reads when something broke. The
+              builder itself lives under Quotes — a rate card is a document that
+              goes to a customer, not a piece of sweep machinery. Admins only:
+              this screen is open to every member, the cards behind it are not,
+              and a link to a tab that will not render is worse than no link. */}
+          {isArenaAdmin ? (
+            <Button asChild variant="outline">
+              <Link href="/arena-dashboard/quotes?tab=rate-cards">
+                <FileSpreadsheet className="size-4" />
+                Rate cards
+              </Link>
+            </Button>
+          ) : null}
 
           <StartSweepButton canStart={isArenaAdmin} />
         </div>

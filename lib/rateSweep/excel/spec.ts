@@ -91,6 +91,16 @@ export const quotationSpecSchema = z
     /** Printed on the cover. Free text, e.g. the client's name. */
     preparedFor: z.string().trim().max(120).default(""),
 
+    /**
+     * Set when the card is for somebody already on the books, so it can be
+     * surfaced on their page later. Optional on purpose: the common case is a
+     * prospect who is not a client yet, and requiring one would block it.
+     *
+     * Never printed on the file — the cover shows preparedFor, which the picker
+     * fills in from the client's name. This is only the link for the history.
+     */
+    clientId: z.string().min(1).nullish().default(null),
+
     /** How long the quote is offered for. Printed prominently on every sheet. */
     validityDays: z.number().int().min(1).max(90).default(15),
 
@@ -131,6 +141,7 @@ export function defaultQuotationSpec(): QuotationSpec {
     carriers: [],
     markupPercent: 25,
     preparedFor: "",
+    clientId: null,
     validityDays: 15,
     includeDutyUnpaid: false,
     includeRestricted: false,

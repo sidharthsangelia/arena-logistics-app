@@ -58,18 +58,27 @@ interface CarrierOption {
   rows: number;
 }
 
+export interface ClientOption {
+  id: string;
+  companyName: string;
+  /** Which account they belong to. Two orgs can have a client of the same name. */
+  orgName: string;
+}
+
 export function QuotationBuilder({
   runId,
   capturedAt,
   ageDays,
   stale,
   availableCarriers,
+  clients,
 }: {
   runId: string;
   capturedAt: string;
   ageDays: number;
   stale: boolean;
   availableCarriers: CarrierOption[];
+  clients: ClientOption[];
 }) {
   const [spec, setSpec] = useState<QuotationSpec>(defaultQuotationSpec);
   const [busy, setBusy] = useState(false);
@@ -126,6 +135,10 @@ export function QuotationBuilder({
           .get("Content-Disposition")
           ?.match(/filename="(.+)"/)?.[1] ?? "arena-rates.xlsx";
 
+      // The route files the history row before it answers, and hands the card
+      // number back on a header so this does not need a second round trip.
+      const cardNumber = response.headers.get("X-Rate-Card-Number");
+
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
@@ -135,7 +148,26 @@ export function QuotationBuilder({
       link.remove();
       URL.revokeObjectURL(url);
 
-      toast.success(`${filename} downloaded`);
+      // Customer cards are also stored, so saying so closes the loop: the person
+      // knows they can find it again without keeping the download. Internal
+      // cards are deliberately not stored, and the toast says that rather than
+      // leaving them to discover a missing row later.
+      //
+      // No card number means the route could not file the history row. That is
+      // deliberately not fatal to the download, but it must not read as success
+      // either: a card that never reaches the list looks like the list is broken.
+      if (cardNumber) {
+        toast.success(`${cardNumber} generated`, {
+          description: isCustomer
+            ? "Downloaded and saved to the rate card history."
+            : "Downloaded and logged. Internal cost cards are never stored as files, so keep this one safe.",
+        });
+      } else {
+        toast.warning(`${filename} downloaded`, {
+          description:
+            "The workbook is fine, but it could not be added to the rate card history and will not appear in the list.",
+        });
+      }
     } catch {
       toast.error("Could not reach the server.");
     } finally {
@@ -314,6 +346,33 @@ export function QuotationBuilder({
               <p className="mt-1.5 text-xs text-muted-foreground">
                 Appears on the cover and in the filename. Leave blank for a
                 generic rate card.
+              </p>
+            </div>
+
+            <div className="sm:col-span-2">
+              <Label>Link to a client</Label>
+              <div className="mt-1.5">
+                <ClientPicker
+                  clients={clients}
+                  selectedId={spec.clientId ?? null}
+                  onChange={(client) =>
+                    patch({
+                      clientId: client?.id ?? null,
+                      // Fill the cover from the client's name, but never
+                      // overwrite something already typed: somebody who wrote
+                      // "Acme Exports — Mumbai office" meant that.
+                      preparedFor:
+                        client && !spec.preparedFor
+                          ? client.companyName
+                          : spec.preparedFor,
+                    })
+                  }
+                />
+              </div>
+              <p className="mt-1.5 text-xs text-muted-foreground">
+                Optional. Links this card to a client so it shows in their
+                history. Not printed on the file, and not needed for a prospect
+                who is not on the books yet.
               </p>
             </div>
           </div>
@@ -532,6 +591,83 @@ function CountryPicker({
             );
           })}
         </div>
+      ) : null}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Client picker
+// ---------------------------------------------------------------------------
+
+/**
+ * Single-select over every client on the platform, searchable.
+ *
+ * Searchable rather than a plain select because this list spans every account
+ * and is the one control here that grows without bound. The account name sits
+ * beside each client because two BAs can both have a client called "Global
+ * Traders", and picking the wrong one files the card under the wrong customer.
+ */
+function ClientPicker({
+  clients,
+  selectedId,
+  onChange,
+}: {
+  clients: ClientOption[];
+  selectedId: string | null;
+  onChange: (client: ClientOption | null) => void;
+}) {
+  const [open, setOpen] = useState(false);
+
+  const selected = clients.find((client) => client.id === selectedId) ?? null;
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <Button variant="outline" role="combobox" aria-expanded={open}>
+            {selected ? selected.companyName : "No client linked"}
+            <ChevronsUpDown className="size-4 opacity-50" />
+          </Button>
+        </PopoverTrigger>
+
+        <PopoverContent className="w-80 p-0" align="start">
+          <Command>
+            <CommandInput placeholder="Search clients" />
+            <CommandList>
+              <CommandEmpty>No client matches.</CommandEmpty>
+              <CommandGroup>
+                {clients.map((client) => (
+                  <CommandItem
+                    key={client.id}
+                    value={`${client.companyName} ${client.orgName}`}
+                    onSelect={() => {
+                      onChange(client.id === selectedId ? null : client);
+                      setOpen(false);
+                    }}
+                  >
+                    <Check
+                      className={cn(
+                        "size-4",
+                        client.id === selectedId ? "opacity-100" : "opacity-0",
+                      )}
+                    />
+                    <span className="flex-1 truncate">{client.companyName}</span>
+                    <span className="truncate text-xs text-muted-foreground">
+                      {client.orgName}
+                    </span>
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            </CommandList>
+          </Command>
+        </PopoverContent>
+      </Popover>
+
+      {selected ? (
+        <Button variant="ghost" size="sm" onClick={() => onChange(null)}>
+          Clear
+        </Button>
       ) : null}
     </div>
   );

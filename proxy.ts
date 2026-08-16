@@ -22,6 +22,9 @@ const isTenantRoute = createRouteMatcher(["/((?!api).*)"]); // excludes all /api
 const isArenaMoneyRoute = createRouteMatcher([
   "/arena-dashboard/wallets(.*)",
   "/arena-dashboard/invoices(.*)",
+  // Building a rate card sets the markup on a document a customer receives, and
+  // the internal audience produces our buying price as a file.
+  "/arena-dashboard/quotes/new-rate-card(.*)",
 ]);
 
 const ARENA_ORG_ID = process.env.ARENA_ORG_ID!;
