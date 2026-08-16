@@ -1,26 +1,27 @@
-import { Skeleton } from "@/components/ui/skeleton";
-import { InvoiceSummaryCardsSkeleton } from "@/components/invoices/InvoiceSummaryCards";
-import { InvoicesTableSkeleton } from "@/components/invoices/InvoicesTableSkeleton";
+import { AdminInvoiceFeedSkeleton } from "@/components/invoices/AdminInvoiceFeedSkeleton";
+import { DEFAULT_INVOICE_PAGE_SIZE } from "@/lib/invoices/admin/config";
 
+/**
+ * Covers the instant between clicking Invoices in the sidebar and the route
+ * rendering.
+ *
+ * The heading and the sentence under it are the page's own fixed copy, so they
+ * are here as text and the page repeats them unchanged. Below that, the same
+ * feed skeleton the page's Suspense boundary uses, so the two hand over to each
+ * other without the placeholder itself changing shape on the way.
+ */
 export default function Loading() {
   return (
     <div className="mx-auto max-w-7xl px-6 py-8">
       <div className="mb-6">
-        <Skeleton className="h-7 w-40" />
-        <Skeleton className="mt-2 h-4 w-96" />
+        <h1 className="text-2xl font-bold tracking-tight">Invoices</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Every bill Arena has raised: booking invoices, invoices raised by hand,
+          and bills uploaded from outside. Track what is owed and mark it paid.
+        </p>
       </div>
-      <div className="space-y-5">
-        <InvoiceSummaryCardsSkeleton />
-        <div className="flex items-center justify-between">
-          <Skeleton className="h-9 w-full max-w-xs" />
-          <div className="flex gap-2">
-            <Skeleton className="h-9 w-[150px]" />
-            <Skeleton className="h-9 w-[200px]" />
-            <Skeleton className="h-9 w-28" />
-          </div>
-        </div>
-        <InvoicesTableSkeleton columns={8} />
-      </div>
+
+      <AdminInvoiceFeedSkeleton rows={DEFAULT_INVOICE_PAGE_SIZE} />
     </div>
   );
 }

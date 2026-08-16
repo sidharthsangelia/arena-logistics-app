@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
@@ -6,6 +7,7 @@ import { getArenaAuth } from "@/utils/arena-auth";
 import { prisma } from "@/utils/db";
 import { getMatrixFreshness } from "@/lib/rateSweep/queries";
 import { QuotationBuilder } from "@/components/rate-quotations/QuotationBuilder";
+import { QuotationBuilderSkeleton } from "./skeletons";
 
 export const metadata = {
   title: "Build a rate card",
@@ -35,68 +37,12 @@ export const metadata = {
  * that counts, and the API route behind the button checks for itself.
  */
 export default async function BuildRateCardPage() {
+  // The role check is the only thing between arriving and seeing the page. It
+  // reads the session, not the database, so the back link, the heading and the
+  // form's own questions are on screen while the four reads behind the builder
+  // are still in flight.
   const { isArenaAdmin } = await getArenaAuth();
   if (!isArenaAdmin) redirect("/arena-dashboard/quotes");
-
-  const run = await prisma.rateSweepRun.findFirst({
-    where: {
-      status: { in: ["COMPLETED", "PARTIAL"] },
-      snapshotCount: { gt: 0 },
-    },
-    orderBy: { startedAt: "desc" },
-    select: { id: true, startedAt: true },
-  });
-
-  if (!run) {
-    return (
-      <div className="mx-auto max-w-3xl px-6 py-16 text-center">
-        <h1 className="text-2xl font-bold tracking-tight">
-          No rates to quote from yet
-        </h1>
-        <p className="mt-2 text-muted-foreground">
-          A rate sweep has to finish before a rate card can be built. Start one
-          from the sweeps screen, or wait for tonight&apos;s scheduled run.
-        </p>
-        <Link
-          href="/arena-dashboard/rate-sweeps"
-          className="mt-6 inline-block underline underline-offset-4"
-        >
-          Go to rate sweeps
-        </Link>
-      </div>
-    );
-  }
-
-  // Carrier counts come from the data rather than the rule list, so the picker
-  // never offers a carrier that would produce an empty sheet.
-  const carrierGroups = await prisma.vendorRateSnapshot.groupBy({
-    by: ["carrier"],
-    where: { runId: run.id, isComparable: true },
-    _count: { _all: true },
-  });
-
-  const availableCarriers = carrierGroups
-    .map((group) => ({ code: group.carrier, rows: group._count._all }))
-    .sort((a, b) => b.rows - a.rows);
-
-  // Every client on the platform, for the optional link on a generated card.
-  // Not org-scoped: Arena staff build cards for any account's client, and the
-  // account name travels with each one so two clients of the same name stay
-  // distinguishable in the picker.
-  const clients = await prisma.client.findMany({
-    where: { deletedAt: null },
-    orderBy: { companyName: "asc" },
-    select: {
-      id: true,
-      companyName: true,
-      org: { select: { name: true } },
-    },
-  });
-
-  // Freshness comes from the query layer rather than a Date.now() in the render
-  // path: a component that reads the clock is not idempotent, and this is the
-  // same number the sweeps screen shows, so it should come from one place.
-  const freshness = await getMatrixFreshness();
 
   return (
     <div className="mx-auto max-w-7xl px-6 py-8">
@@ -117,18 +63,88 @@ export default async function BuildRateCardPage() {
         </p>
       </div>
 
-      <QuotationBuilder
-        runId={run.id}
-        capturedAt={run.startedAt.toISOString()}
-        ageDays={freshness.ageDays ?? 0}
-        stale={freshness.stale}
-        availableCarriers={availableCarriers}
-        clients={clients.map((client) => ({
-          id: client.id,
-          companyName: client.companyName,
-          orgName: client.org.name,
-        }))}
-      />
+      <Suspense fallback={<QuotationBuilderSkeleton />}>
+        <BuilderSection />
+      </Suspense>
     </div>
+  );
+}
+
+async function BuilderSection() {
+  const run = await prisma.rateSweepRun.findFirst({
+    where: {
+      status: { in: ["COMPLETED", "PARTIAL"] },
+      snapshotCount: { gt: 0 },
+    },
+    orderBy: { startedAt: "desc" },
+    select: { id: true, startedAt: true },
+  });
+
+  if (!run) {
+    return (
+      <div className="mx-auto max-w-3xl py-8 text-center">
+        <h2 className="text-2xl font-bold tracking-tight">
+          No rates to quote from yet
+        </h2>
+        <p className="mt-2 text-muted-foreground">
+          A rate sweep has to finish before a rate card can be built. Start one
+          from the sweeps screen, or wait for tonight&apos;s scheduled run.
+        </p>
+        <Link
+          href="/arena-dashboard/rate-sweeps"
+          className="mt-6 inline-block underline underline-offset-4"
+        >
+          Go to rate sweeps
+        </Link>
+      </div>
+    );
+  }
+
+  // Only the carrier counts depend on which run won above; the client list and
+  // the freshness read do not, so all three go together rather than in series.
+  const [carrierGroups, clients, freshness] = await Promise.all([
+    // Carrier counts come from the data rather than the rule list, so the picker
+    // never offers a carrier that would produce an empty sheet.
+    prisma.vendorRateSnapshot.groupBy({
+      by: ["carrier"],
+      where: { runId: run.id, isComparable: true },
+      _count: { _all: true },
+    }),
+    // Every client on the platform, for the optional link on a generated card.
+    // Not org-scoped: Arena staff build cards for any account's client, and the
+    // account name travels with each one so two clients of the same name stay
+    // distinguishable in the picker.
+    prisma.client.findMany({
+      where: { deletedAt: null },
+      orderBy: { companyName: "asc" },
+      select: {
+        id: true,
+        companyName: true,
+        org: { select: { name: true } },
+      },
+    }),
+    // Freshness comes from the query layer rather than a Date.now() in the render
+    // path: a component that reads the clock is not idempotent, and this is the
+    // same number the sweeps screen shows, so it should come from one place.
+    getMatrixFreshness(),
+  ]);
+
+  const availableCarriers = carrierGroups
+    .map((group) => ({ code: group.carrier, rows: group._count._all }))
+    .sort((a, b) => b.rows - a.rows);
+
+  return (
+    <QuotationBuilder
+      runId={run.id}
+      capturedAt={run.startedAt.toISOString()}
+      ageDays={freshness.ageDays ?? 0}
+      stale={freshness.stale}
+      availableCarriers={availableCarriers}
+      clients={clients.map((client) => ({
+        id: client.id,
+        companyName: client.companyName,
+        orgName: client.org.name,
+      }))}
+    />
   );
 }

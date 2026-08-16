@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import { getArenaAuth } from "@/utils/arena-auth";
 import { AdminInvoiceFeedTable } from "@/components/invoices/AdminInvoiceFeedTable";
+import { AdminInvoiceFeedSkeleton } from "@/components/invoices/AdminInvoiceFeedSkeleton";
 import { TaxInvoiceHealthPanel } from "@/components/invoices/TaxInvoiceHealthPanel";
 import { getShipmentsMissingInvoices } from "@/lib/invoices/tax/queries";
 import { getAdminInvoiceFeed } from "@/lib/invoices/admin/feed";
@@ -36,17 +37,6 @@ export default async function ArenaInvoicesPage() {
   const { isArenaAdmin } = await getArenaAuth();
   if (!isArenaAdmin) redirect("/arena-dashboard");
 
-  // The first page of the default view, handed to react-query so the table
-  // paints with real rows instead of fetching after hydration.
-  const firstPage = await getAdminInvoiceFeed({
-    page: 1,
-    pageSize: DEFAULT_INVOICE_PAGE_SIZE,
-    sortField: "issueDate",
-    sortDir: "desc",
-    statusFilter: "ALL",
-    kindFilter: "ALL",
-  });
-
   return (
     <div className="mx-auto max-w-7xl px-6 py-8">
       <div className="mb-6">
@@ -65,7 +55,12 @@ export default async function ArenaInvoicesPage() {
         <MissingInvoices />
       </Suspense>
 
-      <AdminInvoiceFeedTable initialData={firstPage} />
+      {/* The heading above renders immediately; the feed is one query across
+          three tables and waits behind a table-shaped fallback rather than
+          holding the whole screen. */}
+      <Suspense fallback={<AdminInvoiceFeedSkeleton rows={DEFAULT_INVOICE_PAGE_SIZE} />}>
+        <InvoiceFeed />
+      </Suspense>
     </div>
   );
 }
@@ -73,4 +68,19 @@ export default async function ArenaInvoicesPage() {
 async function MissingInvoices() {
   const missing = await getShipmentsMissingInvoices();
   return <TaxInvoiceHealthPanel missing={missing} />;
+}
+
+async function InvoiceFeed() {
+  // The first page of the default view, handed to react-query so the table
+  // paints with real rows instead of fetching after hydration.
+  const firstPage = await getAdminInvoiceFeed({
+    page: 1,
+    pageSize: DEFAULT_INVOICE_PAGE_SIZE,
+    sortField: "issueDate",
+    sortDir: "desc",
+    statusFilter: "ALL",
+    kindFilter: "ALL",
+  });
+
+  return <AdminInvoiceFeedTable initialData={firstPage} />;
 }

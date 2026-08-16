@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { ArrowLeft, Download } from "lucide-react";
@@ -19,6 +20,14 @@ import { CarrierComparison } from "@/components/rate-sweeps/CarrierComparison";
 import { UnmappedServicesTable } from "@/components/rate-sweeps/UnmappedServicesTable";
 import { MatrixBrowser } from "@/components/rate-sweeps/MatrixBrowser";
 import { ForceFinaliseButton } from "@/components/rate-sweeps/ForceFinaliseButton";
+import {
+  CarrierComparisonSkeleton,
+  MatrixBrowserSkeleton,
+  SweepFailuresTableSkeleton,
+  SweepHeroSkeleton,
+  UnmappedServicesTableSkeleton,
+  VendorHealthTableSkeleton,
+} from "./skeletons";
 
 export const metadata = {
   title: "Rate sweep",
@@ -37,6 +46,18 @@ export const metadata = {
  * The matrix browser at the bottom defaults to the cheapest comparable rate per
  * lane, because that is the shape a quotation is built from and therefore the
  * shape most worth eyeballing for something obviously wrong.
+ *
+ * ── HOW IT LOADS ────────────────────────────────────────────────────────────
+ * Six queries, of very different weights: reading the run row is one indexed
+ * lookup, browsing the matrix pulls up to 500 rows. Awaiting them together meant
+ * the whole screen, headings included, waited on the slowest.
+ *
+ * So each section streams on its own, and every heading and every paragraph of
+ * explanation renders before any of them. Those never depended on the database:
+ * they are the same words on every sweep ever run. The effect is that the page
+ * has its full height and all of its prose from the first frame, and the tables
+ * fill into boxes that are already the right size. Nothing below what you are
+ * reading moves when something above it lands.
  */
 export default async function RateSweepDetailPage({
   params,
@@ -51,16 +72,11 @@ export default async function RateSweepDetailPage({
   const { id } = await params;
   const query = await searchParams;
 
-  const detail = await getSweepRunDetail(id);
-  if (!detail) notFound();
-
   const country = firstString(query.country);
   const vendor = firstString(query.vendor);
   const carrier = firstString(query.carrier);
   const weightParam = firstString(query.weight);
   const showAll = firstString(query.all) === "1";
-
-  const weightKg = weightParam ? Number(weightParam) : undefined;
 
   // The carrier comparison has its own lane and weight, kept on separate query
   // keys from the matrix browser's. They answer different questions and are
@@ -68,30 +84,6 @@ export default async function RateSweepDetailPage({
   // the bottom of the page changed what the top of it said.
   const cmpCountry = firstString(query.cmpCountry) ?? "US";
   const cmpWeight = firstString(query.cmpWeight) ?? "5";
-
-  const [failures, matrix, carriers, carrierCells, unmapped] = await Promise.all([
-    listSweepFailures(id, { includeNoService: showAll }),
-    browseMatrix({
-      runId: id,
-      countryCode: country,
-      vendorId: vendor,
-      carrier,
-      weightKg: Number.isFinite(weightKg) ? weightKg : undefined,
-      // A carrier filter is itself a "show me every option" request: the point
-      // of picking FedEx is to see all of them, not one winner per lane.
-      cheapestOnly: !vendor && !carrier,
-      limit: 500,
-    }),
-    listRunCarriers(id),
-    compareCarriers({
-      runId: id,
-      countryCode: cmpCountry,
-      weightKg: Number(cmpWeight),
-    }),
-    listUnmappedServices(id),
-  ]);
-
-  const { run } = detail;
 
   return (
     <div className="mx-auto max-w-7xl px-6 py-8">
@@ -103,6 +95,147 @@ export default async function RateSweepDetailPage({
         All sweeps
       </Link>
 
+      <Suspense fallback={<SweepHeroSkeleton />}>
+        <SweepHero id={id} isArenaAdmin={isArenaAdmin} />
+      </Suspense>
+
+      <section className="mt-8">
+        <h2 className="text-sm font-semibold">Per vendor</h2>
+        <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
+          The failure rate excludes lanes a vendor simply does not serve. A
+          vendor that declines Brazil on all 30 weights answered those calls
+          correctly, and counting them as failures would put every honest vendor
+          permanently near the alert threshold.
+        </p>
+
+        <div className="mt-4">
+          <Suspense fallback={<VendorHealthTableSkeleton />}>
+            <VendorHealthSection id={id} />
+          </Suspense>
+        </div>
+      </section>
+
+      <section className="mt-8">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h2 className="text-sm font-semibold">
+            Failures {showAll ? "and unserved lanes" : ""}
+          </h2>
+
+          {/* Built from the id in the URL rather than from the run row, so the
+              toggle is clickable before any query has come back. */}
+          <Link
+            href={`/arena-dashboard/rate-sweeps/${id}${showAll ? "" : "?all=1"}`}
+            className="text-sm underline underline-offset-2"
+          >
+            {showAll ? "Hide unserved lanes" : "Include unserved lanes"}
+          </Link>
+        </div>
+
+        <div className="mt-4">
+          <Suspense key={String(showAll)} fallback={<SweepFailuresTableSkeleton />}>
+            <FailuresSection id={id} showAll={showAll} />
+          </Suspense>
+        </div>
+      </section>
+
+      <section className="mt-8" id="carriers">
+        <h2 className="text-sm font-semibold">Same carrier, every vendor</h2>
+        <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
+          Three of our vendors resell FedEx and each spells it differently, so
+          this groups on the normalised carrier rather than the service label.
+          Reseller own-brand networks are left out: only one vendor sells each of
+          them, so there is nothing to compare. The spread column is how much
+          dearer the worst option is than the best.
+        </p>
+
+        <div className="mt-4">
+          <Suspense
+            key={`${cmpCountry}-${cmpWeight}`}
+            fallback={<CarrierComparisonSkeleton />}
+          >
+            <CarrierComparisonSection
+              id={id}
+              cmpCountry={cmpCountry}
+              cmpWeight={cmpWeight}
+            />
+          </Suspense>
+        </div>
+      </section>
+
+      <section className="mt-8">
+        <h2 className="text-sm font-semibold">Unmapped services</h2>
+        <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
+          Service names that matched no carrier rule. Each one is either a
+          carrier we have no rule for, in which case its rates are missing from
+          the comparison above, or a reseller product that belongs where it is.
+          Add a rule in lib/rateSweep/carrier.ts and re-run the backfill.
+        </p>
+
+        <div className="mt-4">
+          <Suspense fallback={<UnmappedServicesTableSkeleton />}>
+            <UnmappedSection id={id} />
+          </Suspense>
+        </div>
+      </section>
+
+      <section className="mt-8">
+        <h2 className="text-sm font-semibold">What landed</h2>
+        <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
+          Raw vendor cost, no markup. Showing the cheapest comparable rate per
+          lane by default; pick a vendor or a carrier to see every product
+          behind it. Rates in a currency other than INR are excluded from the
+          cheapest-of comparison rather than converted, because nothing here
+          invents an exchange rate.
+        </p>
+
+        <div className="mt-4">
+          <Suspense
+            key={`${country}-${vendor}-${carrier}-${weightParam}`}
+            fallback={<MatrixBrowserSkeleton />}
+          >
+            <MatrixSection
+              id={id}
+              country={country}
+              vendor={vendor}
+              carrier={carrier}
+              weightParam={weightParam}
+            />
+          </Suspense>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Sections
+//
+// One query per boundary, so the cheap reads are on screen while the expensive
+// ones are still running. The two filtered sections carry a key on their
+// boundary — unlike the list screens, where a key would flash a skeleton on
+// every keystroke, these filters are links and each click asks a genuinely
+// different question, so bringing the skeleton back is the honest answer.
+// ---------------------------------------------------------------------------
+
+/**
+ * The run row itself, and the only place notFound is raised. Every other section
+ * reads the same run through the same memoised call, so a bad id costs one
+ * lookup and the whole route is replaced before anything else can paint.
+ */
+async function SweepHero({
+  id,
+  isArenaAdmin,
+}: {
+  id: string;
+  isArenaAdmin: boolean;
+}) {
+  const detail = await getSweepRunDetail(id);
+  if (!detail) notFound();
+
+  const { run } = detail;
+
+  return (
+    <>
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">
@@ -157,96 +290,105 @@ export default async function RateSweepDetailPage({
           {run.notes}
         </p>
       ) : null}
+    </>
+  );
+}
 
-      <section className="mt-8">
-        <h2 className="text-sm font-semibold">Per vendor</h2>
-        <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-          The failure rate excludes lanes a vendor simply does not serve. A
-          vendor that declines Brazil on all 30 weights answered those calls
-          correctly, and counting them as failures would put every honest vendor
-          permanently near the alert threshold.
-        </p>
+async function VendorHealthSection({ id }: { id: string }) {
+  const detail = await getSweepRunDetail(id);
+  if (!detail) return null;
 
-        <div className="mt-4">
-          <VendorHealthTable vendors={detail.vendors} />
-        </div>
-      </section>
+  return <VendorHealthTable vendors={detail.vendors} />;
+}
 
-      <section className="mt-8">
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h2 className="text-sm font-semibold">
-            Failures {showAll ? "and unserved lanes" : ""}
-          </h2>
+async function FailuresSection({
+  id,
+  showAll,
+}: {
+  id: string;
+  showAll: boolean;
+}) {
+  const failures = await listSweepFailures(id, { includeNoService: showAll });
+  return <SweepFailuresTable failures={failures} />;
+}
 
-          <Link
-            href={`/arena-dashboard/rate-sweeps/${run.id}${showAll ? "" : "?all=1"}`}
-            className="text-sm underline underline-offset-2"
-          >
-            {showAll ? "Hide unserved lanes" : "Include unserved lanes"}
-          </Link>
-        </div>
+async function CarrierComparisonSection({
+  id,
+  cmpCountry,
+  cmpWeight,
+}: {
+  id: string;
+  cmpCountry: string;
+  cmpWeight: string;
+}) {
+  const [detail, cells] = await Promise.all([
+    getSweepRunDetail(id),
+    compareCarriers({
+      runId: id,
+      countryCode: cmpCountry,
+      weightKg: Number(cmpWeight),
+    }),
+  ]);
 
-        <div className="mt-4">
-          <SweepFailuresTable failures={failures} />
-        </div>
-      </section>
+  if (!detail) return null;
 
-      <section className="mt-8" id="carriers">
-        <h2 className="text-sm font-semibold">Same carrier, every vendor</h2>
-        <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-          Three of our vendors resell FedEx and each spells it differently, so
-          this groups on the normalised carrier rather than the service label.
-          Reseller own-brand networks are left out: only one vendor sells each of
-          them, so there is nothing to compare. The spread column is how much
-          dearer the worst option is than the best.
-        </p>
+  return (
+    <CarrierComparison
+      cells={cells}
+      vendorIds={detail.run.vendorIds}
+      runId={detail.run.id}
+      country={cmpCountry}
+      weight={cmpWeight}
+    />
+  );
+}
 
-        <div className="mt-4">
-          <CarrierComparison
-            cells={carrierCells}
-            vendorIds={run.vendorIds}
-            runId={run.id}
-            country={cmpCountry}
-            weight={cmpWeight}
-          />
-        </div>
-      </section>
+async function UnmappedSection({ id }: { id: string }) {
+  const unmapped = await listUnmappedServices(id);
+  return <UnmappedServicesTable rows={unmapped} />;
+}
 
-      <section className="mt-8">
-        <h2 className="text-sm font-semibold">Unmapped services</h2>
-        <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-          Service names that matched no carrier rule. Each one is either a
-          carrier we have no rule for, in which case its rates are missing from
-          the comparison above, or a reseller product that belongs where it is.
-          Add a rule in lib/rateSweep/carrier.ts and re-run the backfill.
-        </p>
+async function MatrixSection({
+  id,
+  country,
+  vendor,
+  carrier,
+  weightParam,
+}: {
+  id: string;
+  country: string | undefined;
+  vendor: string | undefined;
+  carrier: string | undefined;
+  weightParam: string | undefined;
+}) {
+  const weightKg = weightParam ? Number(weightParam) : undefined;
 
-        <div className="mt-4">
-          <UnmappedServicesTable rows={unmapped} />
-        </div>
-      </section>
+  const [detail, rows, carriers] = await Promise.all([
+    getSweepRunDetail(id),
+    browseMatrix({
+      runId: id,
+      countryCode: country,
+      vendorId: vendor,
+      carrier,
+      weightKg: Number.isFinite(weightKg) ? weightKg : undefined,
+      // A carrier filter is itself a "show me every option" request: the point
+      // of picking FedEx is to see all of them, not one winner per lane.
+      cheapestOnly: !vendor && !carrier,
+      limit: 500,
+    }),
+    listRunCarriers(id),
+  ]);
 
-      <section className="mt-8">
-        <h2 className="text-sm font-semibold">What landed</h2>
-        <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-          Raw vendor cost, no markup. Showing the cheapest comparable rate per
-          lane by default; pick a vendor or a carrier to see every product
-          behind it. Rates in a currency other than INR are excluded from the
-          cheapest-of comparison rather than converted, because nothing here
-          invents an exchange rate.
-        </p>
+  if (!detail) return null;
 
-        <div className="mt-4">
-          <MatrixBrowser
-            rows={matrix}
-            runId={run.id}
-            vendorIds={run.vendorIds}
-            carriers={carriers}
-            selected={{ country, vendor, carrier, weight: weightParam }}
-          />
-        </div>
-      </section>
-    </div>
+  return (
+    <MatrixBrowser
+      rows={rows}
+      runId={detail.run.id}
+      vendorIds={detail.run.vendorIds}
+      carriers={carriers}
+      selected={{ country, vendor, carrier, weight: weightParam }}
+    />
   );
 }
 

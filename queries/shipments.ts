@@ -1,5 +1,7 @@
 import "server-only";
 
+import { cache } from "react";
+
 import { prisma } from "@/utils/db";
 import { Prisma, ShipmentStatus, ShipmentMode } from "@/generated/prisma";
 import { redirect } from "next/navigation";
@@ -286,10 +288,17 @@ const fetchShipmentStatusCounts = unstable_cache(
   { revalidate: CACHE_TTL_SECONDS, tags: [SHIPMENTS_COUNTS_TAG] },
 );
 
-export async function getShipmentStatusCounts(
+/**
+ * Wrapped in React's `cache` on top of the `unstable_cache` above, because the
+ * two do different jobs. `unstable_cache` keeps the counts warm between requests;
+ * this de-duplicates within one render, so the ops queues can ask for them from
+ * three separate Suspense boundaries — the total badge, the counter row and the
+ * table's status filter — and still resolve them once.
+ */
+export const getShipmentStatusCounts = cache(async function getShipmentStatusCounts(
   client = false,
   mode?: ShipmentMode,
 ) {
   const orgId = client ? await resolveClientOrgId() : null;
   return fetchShipmentStatusCounts(orgId, mode);
-}
+});

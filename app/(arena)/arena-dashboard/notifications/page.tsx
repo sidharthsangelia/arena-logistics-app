@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { redirect } from "next/navigation";
 
 import { resolveInboxAudience } from "@/lib/notifications/audience";
@@ -8,6 +9,7 @@ import {
   coerceArenaFilter,
 } from "@/lib/notifications/config";
 import { NotificationHistory } from "@/components/notifications/NotificationHistory";
+import { NotificationHistorySkeleton } from "@/components/notifications/NotificationHistorySkeleton";
 
 /**
  * The arena inbox: new bookings, and everything that needs somebody to act.
@@ -46,14 +48,6 @@ export default async function ArenaNotificationsPage({
   const rawPage = Number(readString(sp.page));
   const page = Number.isFinite(rawPage) && rawPage > 0 ? Math.floor(rawPage) : 1;
 
-  const data = await getInboxPage({
-    audience,
-    kinds: ARENA_INBOX_FILTERS[filter].kinds,
-    page,
-    pageSize: INBOX_PAGE_SIZE,
-    unreadOnly,
-  });
-
   return (
     <div className="mx-auto max-w-4xl space-y-6 px-6 py-8">
       <header>
@@ -63,13 +57,51 @@ export default async function ArenaNotificationsPage({
         </p>
       </header>
 
-      <NotificationHistory
-        variant="arena"
-        data={data}
-        activeFilter={filter}
-        unreadOnly={unreadOnly}
-        page={Math.min(page, data.pageCount)}
-      />
+      {/* The heading stays put while the inbox is read. Keyed on what was asked
+          for, so changing filter or page brings the skeleton back rather than
+          leaving the previous page's rows on screen under a filter that no
+          longer describes them. */}
+      <Suspense
+        key={`${filter}-${unreadOnly}-${page}`}
+        fallback={<NotificationHistorySkeleton rows={7} />}
+      >
+        <InboxSection
+          audience={audience}
+          filter={filter}
+          unreadOnly={unreadOnly}
+          page={page}
+        />
+      </Suspense>
     </div>
+  );
+}
+
+async function InboxSection({
+  audience,
+  filter,
+  unreadOnly,
+  page,
+}: {
+  audience: NonNullable<Awaited<ReturnType<typeof resolveInboxAudience>>>;
+  filter: ReturnType<typeof coerceArenaFilter>;
+  unreadOnly: boolean;
+  page: number;
+}) {
+  const data = await getInboxPage({
+    audience,
+    kinds: ARENA_INBOX_FILTERS[filter].kinds,
+    page,
+    pageSize: INBOX_PAGE_SIZE,
+    unreadOnly,
+  });
+
+  return (
+    <NotificationHistory
+      variant="arena"
+      data={data}
+      activeFilter={filter}
+      unreadOnly={unreadOnly}
+      page={Math.min(page, data.pageCount)}
+    />
   );
 }

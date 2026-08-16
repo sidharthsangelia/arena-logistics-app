@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { AlertCircle, Banknote, Clock, Package } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -18,6 +19,12 @@ import {
 
 import StatCard from "@/components/StatCard";
 import { ShipmentsTable } from "@/components/shipments/ShipmentsTable";
+import { DataTableSkeleton } from "@/components/data-table/DataTableSkeleton";
+import {
+  DOMESTIC_STAT_TILES,
+  ShipmentStatsSkeleton,
+  TotalBadgeSkeleton,
+} from "@/components/shipments/ShipmentListSkeletons";
 
 // ---------------------------------------------------------------------------
 // Domestic bookings — the ops queue for India → India courier shipments.
@@ -113,21 +120,6 @@ export default async function ArenaDomesticBookingsPage({
   const sp = await searchParams;
   const params = parseSearchParams(sp);
 
-  const [{ rows, totalRows, pageCount }, statusCounts, opsCounts] =
-    await Promise.all([
-      getShipmentsPage({ ...params, mode: ShipmentMode.DOMESTIC }),
-      getShipmentStatusCounts(false, ShipmentMode.DOMESTIC),
-      getDomesticOpsCounts(),
-    ]);
-
-  const totalAll = Object.values(statusCounts).reduce(
-    (sum, n) => sum + (n ?? 0),
-    0,
-  );
-  const totalInTransit = statusCounts.IN_TRANSIT ?? 0;
-  const needsAttention =
-    (statusCounts.DOCUMENTS_PENDING ?? 0) + (statusCounts.ON_HOLD ?? 0);
-
   return (
     <div className="mx-auto max-w-screen-2xl px-6 py-8 space-y-6">
       {/* ── Header ── */}
@@ -142,51 +134,109 @@ export default async function ArenaDomesticBookingsPage({
             e-way bill on file.
           </p>
         </div>
-        <Badge variant="outline" className="mt-1 font-mono">
-          {totalAll} total
-        </Badge>
+        <Suspense fallback={<TotalBadgeSkeleton />}>
+          <TotalBadge />
+        </Suspense>
       </div>
 
-      {/* ── Summary stats (unfiltered — always the full picture) ── */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <StatCard
-          label="Awaiting AWB"
-          value={opsCounts.awaitingAwb}
-          icon={Clock}
-          sub={
-            opsCounts.failedCourier > 0
-              ? `${opsCounts.failedCourier} the courier refused`
-              : "Usually clears in a minute"
-          }
-        />
-        <StatCard label="In transit" value={totalInTransit} icon={Package} />
-        <StatCard
-          label="Cash on delivery"
-          value={opsCounts.codOpen}
-          icon={Banknote}
-          sub="Collection pending"
-        />
-        <StatCard
-          label="Needs attention"
-          value={needsAttention}
-          icon={AlertCircle}
-          sub="Hold / docs"
-        />
-      </div>
+      {/* ── Summary stats (unfiltered — always the full picture) ──
+          Three ops counts and a status rollup, which is four counting queries
+          against the shipment table. The table beside them is a different four,
+          so the two wait separately rather than the counters holding up the rows
+          ops actually came to work through. */}
+      <Suspense fallback={<ShipmentStatsSkeleton tiles={DOMESTIC_STAT_TILES} />}>
+        <StatsSection />
+      </Suspense>
 
       {/* ── Table ── */}
-      <ShipmentsTable
-        data={rows}
-        page={params.page}
-        pageSize={params.pageSize}
-        totalRows={totalRows}
-        pageCount={pageCount}
-        sortField={params.sortField}
-        sortDir={params.sortDir}
-        statuses={params.statuses ?? []}
-        query={params.query ?? ""}
-        statusCounts={statusCounts}
+      <Suspense fallback={<DataTableSkeleton columns={9} rows={10} withToolbar />}>
+        <TableSection params={params} />
+      </Suspense>
+    </div>
+  );
+}
+
+async function StatsSection() {
+  const [statusCounts, opsCounts] = await Promise.all([
+    getShipmentStatusCounts(false, ShipmentMode.DOMESTIC),
+    getDomesticOpsCounts(),
+  ]);
+
+  const needsAttention =
+    (statusCounts.DOCUMENTS_PENDING ?? 0) + (statusCounts.ON_HOLD ?? 0);
+
+  return (
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <StatCard
+        label="Awaiting AWB"
+        value={opsCounts.awaitingAwb}
+        icon={Clock}
+        sub={
+          opsCounts.failedCourier > 0
+            ? `${opsCounts.failedCourier} the courier refused`
+            : "Usually clears in a minute"
+        }
+      />
+      <StatCard
+        label="In transit"
+        value={statusCounts.IN_TRANSIT ?? 0}
+        icon={Package}
+      />
+      <StatCard
+        label="Cash on delivery"
+        value={opsCounts.codOpen}
+        icon={Banknote}
+        sub="Collection pending"
+      />
+      <StatCard
+        label="Needs attention"
+        value={needsAttention}
+        icon={AlertCircle}
+        sub="Hold / docs"
       />
     </div>
+  );
+}
+
+async function TotalBadge() {
+  const statusCounts = await getShipmentStatusCounts(
+    false,
+    ShipmentMode.DOMESTIC,
+  );
+  const totalAll = Object.values(statusCounts).reduce(
+    (sum, n) => sum + (n ?? 0),
+    0,
+  );
+
+  return (
+    <Badge variant="outline" className="mt-1 font-mono">
+      {totalAll} total
+    </Badge>
+  );
+}
+
+async function TableSection({
+  params,
+}: {
+  params: ReturnType<typeof parseSearchParams>;
+}) {
+  const [{ rows, totalRows, pageCount }, statusCounts] = await Promise.all([
+    getShipmentsPage({ ...params, mode: ShipmentMode.DOMESTIC }),
+    getShipmentStatusCounts(false, ShipmentMode.DOMESTIC),
+  ]);
+
+  return (
+    <ShipmentsTable
+      data={rows}
+      page={params.page}
+      pageSize={params.pageSize}
+      totalRows={totalRows}
+      pageCount={pageCount}
+      sortField={params.sortField}
+      sortDir={params.sortDir}
+      statuses={params.statuses ?? []}
+      query={params.query ?? ""}
+      statusCounts={statusCounts}
+    />
   );
 }

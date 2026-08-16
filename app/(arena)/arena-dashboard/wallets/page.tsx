@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
@@ -32,6 +33,10 @@ import { MoneyPeriodSelect } from "@/components/wallet/admin/MoneyPeriodSelect";
 import { OrgBalancesTable } from "@/components/wallet/admin/OrgBalancesTable";
 import { WalletOverviewTab } from "@/components/wallet/admin/WalletOverviewTab";
 import { WalletTabsNav } from "@/components/wallet/admin/WalletTabsNav";
+import {
+  WalletOverviewSkeleton,
+  WalletTableSkeleton,
+} from "@/components/wallet/admin/WalletPanelSkeletons";
 
 /**
  * ARENA WALLETS
@@ -125,12 +130,22 @@ export default async function ArenaWalletsPage({
 
         <WalletTabsNav active={tab} />
 
-        {tab === "overview" && <OverviewPanel period={period} />}
-        {tab === "organisations" && <OrganisationsPanel sp={sp} period={period} />}
-        {tab === "transactions" && <TransactionsPanel sp={sp} />}
-        {tab === "collections" && (
-          <CollectionsPanel sp={sp} isArenaAdmin={isArenaAdmin} />
-        )}
+        {/* The heading, the period select and the tab bar are above this
+            boundary and stay mounted, so switching tabs swaps only the panel and
+            the nav never flickers. The key is the tab, so each switch shows the
+            fallback shaped like the tab being opened rather than holding the
+            previous one's rows on screen under a new heading.
+
+            Only the visible tab's query runs, which is why the fallback has to be
+            chosen here too: there is no generic wallet panel to stand in for. */}
+        <Suspense key={tab} fallback={<PanelSkeleton tab={tab} />}>
+          {tab === "overview" && <OverviewPanel period={period} />}
+          {tab === "organisations" && <OrganisationsPanel sp={sp} period={period} />}
+          {tab === "transactions" && <TransactionsPanel sp={sp} />}
+          {tab === "collections" && (
+            <CollectionsPanel sp={sp} isArenaAdmin={isArenaAdmin} />
+          )}
+        </Suspense>
       </div>
     </TooltipProvider>
   );
@@ -140,6 +155,18 @@ export default async function ArenaWalletsPage({
 // Tab panels. Each owns its own query, so switching tabs never pays for the
 // others.
 // ---------------------------------------------------------------------------
+
+/**
+ * The fallback for whichever tab is being opened. Column counts match the real
+ * tables so the placeholder rows are the width they will be, and the filter
+ * counts match the controls each table renders above itself.
+ */
+function PanelSkeleton({ tab }: { tab: ReturnType<typeof coerceWalletTab> }) {
+  if (tab === "overview") return <WalletOverviewSkeleton />;
+  if (tab === "organisations") return <WalletTableSkeleton columns={6} filters={2} />;
+  if (tab === "collections") return <WalletTableSkeleton columns={7} filters={2} />;
+  return <WalletTableSkeleton columns={8} filters={4} />;
+}
 
 async function OverviewPanel({ period }: { period: ReturnType<typeof coerceMoneyPeriod> }) {
   const data = await getWalletOverview(period);

@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
@@ -16,6 +17,7 @@ import {
   listServiceTypes,
 } from "@/lib/invoices/manual/queries";
 import { ManualInvoiceBuilder } from "@/components/invoices/manual/ManualInvoiceBuilder";
+import { ManualInvoiceBuilderSkeleton } from "@/components/invoices/manual/ManualInvoiceBuilderSkeleton";
 
 export const metadata = {
   title: "New invoice",
@@ -32,12 +34,10 @@ export default async function NewManualInvoicePage() {
   const { isArenaAdmin } = await getArenaAuth();
   if (!isArenaAdmin) redirect("/arena-dashboard");
 
-  const [catalog, presets, serviceHistory] = await Promise.all([
-    listChargeTypes(),
-    listChargePresets(),
-    listServiceTypes(),
-  ]);
-
+  // Read from the environment, not the database, so both warnings below are
+  // decided before anything is fetched. They are also the two things on this
+  // screen that must not arrive late: someone who starts typing an invoice
+  // before being told the issuer details are missing has wasted the entry.
   const issuer = getInvoiceIssuer();
   const configured = issuerIsConfigured(issuer);
 
@@ -92,13 +92,30 @@ export default async function NewManualInvoicePage() {
         </div>
       ) : null}
 
-      <ManualInvoiceBuilder
-        initial={null}
-        catalog={catalog}
-        presets={presets}
-        serviceHistory={serviceHistory}
-        sellerStateCode={issuer.stateCode}
-      />
+      {/* The form's own labels are in the fallback, so the shape of what is
+          being asked for is on screen while the charge catalogue, the presets
+          and the service history are read. */}
+      <Suspense fallback={<ManualInvoiceBuilderSkeleton />}>
+        <BuilderSection sellerStateCode={issuer.stateCode} />
+      </Suspense>
     </div>
+  );
+}
+
+async function BuilderSection({ sellerStateCode }: { sellerStateCode: string }) {
+  const [catalog, presets, serviceHistory] = await Promise.all([
+    listChargeTypes(),
+    listChargePresets(),
+    listServiceTypes(),
+  ]);
+
+  return (
+    <ManualInvoiceBuilder
+      initial={null}
+      catalog={catalog}
+      presets={presets}
+      serviceHistory={serviceHistory}
+      sellerStateCode={sellerStateCode}
+    />
   );
 }

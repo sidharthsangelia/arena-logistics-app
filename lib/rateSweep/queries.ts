@@ -13,6 +13,8 @@
 
 import "server-only";
 
+import { cache } from "react";
+
 import {
   Prisma,
   type RateContentType,
@@ -105,7 +107,17 @@ export interface SweepRunDetail {
   progress: { callsMade: number; plannedCalls: number } | null;
 }
 
-export async function getSweepRunDetail(
+/**
+ * One run, with its per-vendor breakdown.
+ *
+ * Memoised per request with React's `cache`. The detail screen reads it from
+ * four separate Suspense boundaries — the header, the vendor table, the carrier
+ * comparison and the matrix browser all need the run's vendor list — and each of
+ * those has to be able to ask for it independently or they could not stream
+ * independently. De-duplication within one render, not a cache across requests:
+ * a sweep in flight changes every few seconds and the screen polls to show it.
+ */
+export const getSweepRunDetail = cache(async function getSweepRunDetail(
   runId: string,
 ): Promise<SweepRunDetail | null> {
   const run = await prisma.rateSweepRun.findUnique({
@@ -195,7 +207,7 @@ export async function getSweepRunDetail(
         ? { callsMade, plannedCalls: run.plannedCalls }
         : null,
   };
-}
+});
 
 // ---------------------------------------------------------------------------
 // Failures
@@ -530,8 +542,13 @@ export async function listUnmappedServices(
  * The header of the rate-sweep screen reads from this. It answers the question
  * that actually matters day to day, which is not "did last night's run work"
  * but "is what I would quote from right now still true".
+ *
+ * Wrapped in React's `cache` so the sweeps screen can read it from two separate
+ * Suspense boundaries — the banner and the stored-rate count — and still pay for
+ * one round trip. Per request, not across requests: this is de-duplication, not
+ * caching, and a value this page exists to keep honest must never be stale.
  */
-export async function getMatrixFreshness(): Promise<{
+export const getMatrixFreshness = cache(async function getMatrixFreshness(): Promise<{
   lastGoodRunAt: string | null;
   ageDays: number | null;
   stale: boolean;
@@ -561,7 +578,7 @@ export async function getMatrixFreshness(): Promise<{
     stale: ageDays > MAX_QUOTABLE_AGE_DAYS,
     totalSnapshots: total,
   };
-}
+});
 
 // ---------------------------------------------------------------------------
 // Export

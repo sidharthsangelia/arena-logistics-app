@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { FileSpreadsheet } from "lucide-react";
@@ -13,6 +14,11 @@ import { SWEEP_COUNTRIES, WEIGHT_SLABS_KG } from "@/lib/rateSweep/config";
 import { StartSweepButton } from "@/components/rate-sweeps/StartSweepButton";
 import { SweepRunsTable } from "@/components/rate-sweeps/SweepRunsTable";
 import { FreshnessBanner } from "@/components/rate-sweeps/FreshnessBanner";
+import {
+  FreshnessBannerSkeleton,
+  StatValueSkeleton,
+  SweepRunsTableSkeleton,
+} from "./skeletons";
 
 export const metadata = {
   title: "Rate sweeps",
@@ -37,13 +43,12 @@ export const metadata = {
  * enforces it and so does the action behind it.
  */
 export default async function RateSweepsPage() {
+  // The only await before the shell. It reads the session Clerk already resolved
+  // in middleware, so the heading, the buttons and the three stats that come out
+  // of config paint on the first frame; the two database reads happen inside the
+  // boundaries below and never hold any of that up.
   const { isArenaMember, isArenaAdmin } = await getArenaAuth();
   if (!isArenaMember) redirect("/dashboard");
-
-  const [runs, freshness] = await Promise.all([
-    listSweepRuns(25),
-    getMatrixFreshness(),
-  ]);
 
   const matrix = describeMatrix();
 
@@ -80,15 +85,21 @@ export default async function RateSweepsPage() {
         </div>
       </div>
 
-      <FreshnessBanner freshness={freshness} />
+      <Suspense fallback={<FreshnessBannerSkeleton />}>
+        <FreshnessSection />
+      </Suspense>
 
+      {/* Three of these four are read straight out of lib/rateSweep/config, so
+          they are already known and never wait on anything. Only the stored-rate
+          count needs the database, and it is the only value that suspends. */}
       <dl className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
         <Stat label="Countries" value={String(SWEEP_COUNTRIES.length)} />
         <Stat label="Weight slabs" value={String(WEIGHT_SLABS_KG.length)} />
-        <Stat
-          label="Rates stored"
-          value={freshness.totalSnapshots.toLocaleString("en-IN")}
-        />
+        <Stat label="Rates stored">
+          <Suspense fallback={<StatValueSkeleton />}>
+            <StoredRatesValue />
+          </Suspense>
+        </Stat>
         <Stat label="Matrix version" value={matrix.configVersion} />
       </dl>
 
@@ -99,8 +110,12 @@ export default async function RateSweepsPage() {
           that worked. FAILED means nothing usable came back at all.
         </p>
 
+        {/* The heading and the caveat above are the same on every visit, so they
+            sit outside the boundary and the table alone waits for its rows. */}
         <div className="mt-4">
-          <SweepRunsTable runs={runs} />
+          <Suspense fallback={<SweepRunsTableSkeleton />}>
+            <RunHistorySection />
+          </Suspense>
         </div>
       </div>
 
@@ -118,11 +133,47 @@ export default async function RateSweepsPage() {
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+// Each boundary owns exactly one query, so the banner and the run history land
+// whenever each is ready rather than both waiting on the slower of the two.
+// getMatrixFreshness is read twice within one render and is memoised per request
+// by the query layer, so the second boundary costs nothing extra.
+
+async function FreshnessSection() {
+  const freshness = await getMatrixFreshness();
+  return <FreshnessBanner freshness={freshness} />;
+}
+
+async function StoredRatesValue() {
+  const freshness = await getMatrixFreshness();
+  return <>{freshness.totalSnapshots.toLocaleString("en-IN")}</>;
+}
+
+async function RunHistorySection() {
+  const runs = await listSweepRuns(25);
+  return <SweepRunsTable runs={runs} />;
+}
+
+/**
+ * Takes either a resolved value or children, so a tile whose number is still
+ * loading keeps its label, its border and its height. The <dd> is the same
+ * element either way, which is what stops the row from resizing when the count
+ * arrives.
+ */
+function Stat({
+  label,
+  value,
+  children,
+}: {
+  label: string;
+  value?: string;
+  children?: React.ReactNode;
+}) {
   return (
     <div className="rounded-lg border p-4">
       <dt className="text-xs text-muted-foreground">{label}</dt>
-      <dd className="mt-1 text-xl font-semibold tabular-nums">{value}</dd>
+      <dd className="mt-1 text-xl font-semibold tabular-nums">
+        {children ?? value}
+      </dd>
     </div>
   );
 }

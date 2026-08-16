@@ -1,41 +1,39 @@
-import { Card, CardContent } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
+import { DataTableSkeleton } from "@/components/data-table/DataTableSkeleton";
+import {
+  INTERNATIONAL_STAT_TILES,
+  ShipmentStatsSkeleton,
+  TotalBadgeSkeleton,
+} from "@/components/shipments/ShipmentListSkeletons";
 
+/**
+ * Covers the instant between clicking International bookings in the sidebar and
+ * the route rendering.
+ *
+ * The heading, the sentence under it and the four counter labels are printed
+ * here as themselves rather than as grey bars, because they are the same on
+ * every visit and there is nothing to wait for. What replaces this a moment
+ * later is the same markup with the numbers filled in, so nothing on screen
+ * moves or redraws — only the placeholders inside the boxes are swapped.
+ */
 export default function BookingsLoading() {
   return (
     <div className="mx-auto max-w-screen-2xl px-6 py-8 space-y-6">
       <div className="flex items-start justify-between">
-        <div className="space-y-2">
-          <Skeleton className="h-7 w-32" />
-          <Skeleton className="h-4 w-72" />
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">
+            International bookings
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Export shipments submitted by clients, across every business
+            associate. Domestic bookings live on their own page.
+          </p>
         </div>
-        <Skeleton className="h-6 w-20" />
+        <TotalBadgeSkeleton />
       </div>
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <Card key={i}>
-            <CardContent className="p-5 space-y-2">
-              <Skeleton className="h-3 w-20" />
-              <Skeleton className="h-7 w-12" />
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+      <ShipmentStatsSkeleton tiles={INTERNATIONAL_STAT_TILES} />
 
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <Skeleton className="h-8 w-72" />
-          <Skeleton className="h-8 w-20" />
-        </div>
-        <div className="rounded-md border">
-          <div className="space-y-3 p-4">
-            {Array.from({ length: 8 }).map((_, i) => (
-              <Skeleton key={i} className="h-10 w-full" />
-            ))}
-          </div>
-        </div>
-      </div>
+      <DataTableSkeleton columns={9} rows={10} withToolbar />
     </div>
   );
 }
