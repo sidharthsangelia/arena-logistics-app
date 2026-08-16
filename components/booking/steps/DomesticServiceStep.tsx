@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useEffectEvent, useState, useTransition } from "react";
 import {
   Truck,
   AlertTriangle,
@@ -243,9 +243,20 @@ export default function DomesticServiceStep({
     });
   };
 
-  useEffect(() => {
+  // Fetch once when the step first opens, and never again on its own — a
+  // refetch is a deliberate act (the Refresh button, or a changed input), not
+  // something a re-render should trigger against a paid vendor API.
+  //
+  // `fetchRates` is redefined every render and `hasFetched` changes as a direct
+  // result of calling it, so listing either would make this effect re-enter
+  // itself. Wrapping the body in an effect event states "not reactive" in the
+  // code, and leaves an empty dependency list that is genuinely complete.
+  const fetchOnOpen = useEffectEvent(() => {
     if (!hasFetched) fetchRates();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  });
+
+  useEffect(() => {
+    fetchOnOpen();
   }, []);
 
   // Switching payment mode reprices everything, so the previous selection is

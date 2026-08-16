@@ -4,7 +4,7 @@ import { auth } from "@clerk/nextjs/server";
 
 import { getOrgMarkupPercent } from "@/utils/tenant";
 import { getRates } from "@/lib/services/rate-calculator.service";
-import { rateLimit } from "@/lib/rateLimit";
+import { checkRateLimit, rateLimitMessage } from "@/lib/rateLimit";
 
 import { AVAILABLE_VENDORS } from "@/lib/types";
 
@@ -86,13 +86,13 @@ export async function getRatesAction(
     // Each call fans out to live, paid vendor APIs. Throttle per org so a
     // tenant hammering the calculator can't drive real upstream cost/quota.
     // The form debounces client-side, but that isn't a server-side control.
-    const throttle = rateLimit(`getRates:${orgId}`, 30, 60_000);
+    const throttle = checkRateLimit("ratesInternational", orgId);
     if (!throttle.ok) {
       return {
         success: false,
         quotes: [],
         vendorErrors: [],
-        error: `Too many rate requests. Please wait ${throttle.retryAfterSeconds}s and try again.`,
+        error: rateLimitMessage(throttle),
       };
     }
 

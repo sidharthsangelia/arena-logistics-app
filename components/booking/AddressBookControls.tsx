@@ -94,7 +94,7 @@ function addressSearchText(a: AddressSummary): string {
 }
 
 export function AddressBookControls({
-  party,
+  party: partyProp,
   kind,
   prefix,
   watch,
@@ -110,11 +110,31 @@ export function AddressBookControls({
   const [saving, setSaving] = useState(false);
   const [addressName, setAddressName] = useState("");
 
-  const forClient = party.partyType === "CLIENT";
+  const forClient = partyProp.partyType === "CLIENT";
 
   // Key the party into the effect via its id so re-fetches happen when a BA
   // switches which client they're booking for.
-  const partyKey = party.partyType === "ORG" ? party.orgId : party.clientId;
+  const partyKey =
+    partyProp.partyType === "ORG" ? partyProp.orgId : partyProp.clientId;
+
+  /**
+   * The caller builds `party` inline, so the prop is a new object every render
+   * even when it names the same party. That is what made an honest dependency
+   * list impossible: `[party]` would refetch the address book on every
+   * keystroke in the wizard, so the list said `[partyKey]` and the suppression
+   * covered the gap.
+   *
+   * Rebuilding the object from the fields it is made of removes the cause. The
+   * identity now changes exactly when the party does, and `load` below can name
+   * everything it reads.
+   */
+  const party = useMemo<Party>(
+    () =>
+      partyProp.partyType === "ORG"
+        ? { partyType: "ORG", orgId: partyKey }
+        : { partyType: "CLIENT", clientId: partyKey },
+    [partyProp.partyType, partyKey],
+  );
 
   const applyAddress = useCallback((a: AddressSummary) => {
     setSelectedId(a.id);
@@ -154,9 +174,7 @@ export function AddressBookControls({
     } finally {
       setLoading(false);
     }
-    // party is reconstructed each render; partyKey captures the identity we care about
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [partyKey]);
+  }, [party, partyKey, kind, prefix, watch, applyAddress]);
 
   useEffect(() => {
     load();

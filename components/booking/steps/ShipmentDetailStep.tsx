@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useEffectEvent, useRef } from "react";
 import { Info } from "lucide-react";
 
 import { Label } from "@/components/ui/label";
@@ -82,7 +82,11 @@ export default function ShipmentDetailsStep({ data, onChange, error }: Props) {
   // Keep the customs category honest with the declared value, both ways:
   //  • at/above ₹25,000 a CSB-IV shipment must become CSB-V;
   //  • back below ₹25,000, if we were the ones who bumped it, revert to CSB-IV.
-  useEffect(() => {
+  // `onChange` is a new arrow on every parent render, so listing it would make
+  // this run constantly. It is also not something the rule should react TO —
+  // the two facts that decide the category are the declared value crossing the
+  // threshold and the current type, and those are the dependencies.
+  const reconcileCustomsCategory = useEffectEvent(() => {
     if (!csb4Allowed && data.shipmentType === "CSB4") {
       autoBumpedRef.current = true;
       onChange({ shipmentType: "CSB5" });
@@ -90,7 +94,10 @@ export default function ShipmentDetailsStep({ data, onChange, error }: Props) {
       autoBumpedRef.current = false;
       onChange({ shipmentType: "CSB4" });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  });
+
+  useEffect(() => {
+    reconcileCustomsCategory();
   }, [csb4Allowed, data.shipmentType]);
 
   const selectType = (value: ShipmentTypeValue) => {

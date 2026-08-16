@@ -8,6 +8,7 @@ import {
 } from "@react-pdf/renderer";
 
 import { RateQuote, RateRequest } from "@/lib/types";
+import { displayServiceName } from "@/lib/branding/serviceName";
 import { ClientInfo } from "./QuoteSheet";
 
 interface Props {
@@ -146,10 +147,15 @@ export default function QuoteDocument({
         <Text style={s.subtitle}>Arena Cargo & Logistics India Pvt Ltd</Text>
       </View>
 
+      {/* This template has no `showVendor` prop and no viewer to branch on: a
+          quotation PDF goes to a buyer, so it is customer-facing by definition.
+          It printed `quote.vendorName` and the raw `productName`, which is the
+          leak carrierBranding.md exists to prevent, stated as plainly as it can
+          be. Nothing imports this file today — the live template is
+          QuoteDocument.tsx — but a dead template is the thing someone copies. */}
       <View style={s.quoteBox}>
         <Text>Quote No: {quoteNumber}</Text>
-        <Text>Carrier: {quote.vendorName}</Text>
-        <Text>Service: {quote.productName}</Text>
+        <Text>Service: {displayServiceName(quote.productName, false)}</Text>
         <Text>Currency: {quote.currency}</Text>
       </View>
     </View>

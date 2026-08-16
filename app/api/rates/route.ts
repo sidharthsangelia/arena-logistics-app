@@ -2,18 +2,68 @@
  * NEXT.JS API ROUTE  —  POST /api/rates
  * -----------------------------------------------------------------------------
  * This is a deliberately thin layer. Its only jobs are:
- *   1. Parse and validate the incoming request body
- *   2. Call the service
- *   3. Return the response
+ *   1. Throttle the caller
+ *   2. Parse and validate the incoming request body
+ *   3. Call the service
+ *   4. Return the response
  *
  * All business logic lives in the service and adapters, not here.
+ *
+ * ── WHY THIS ROUTE IS THROTTLED TWICE ───────────────────────────────────────
+ * Every call here fans out to live vendor APIs that bill us per request. The
+ * two server actions that do the same fan-out are throttled per org, because a
+ * Clerk session gives them a stable identity to count against. This route has
+ * no session: `/api/*` is excluded from the tenant matcher in proxy.ts, so
+ * anyone who can reach the host can spend our vendor quota here.
+ *
+ * A per-IP window is the only per-caller identity available, and an IP is
+ * rotatable — on its own it caps an honest client and nothing else. So there is
+ * a second, process-wide window as well. That one is the real bound: it caps
+ * what this route can cost per instance per minute no matter how the traffic is
+ * spread. Neither number is reachable by legitimate use.
+ *
+ * This is a cost control, not an access control. The route still answers
+ * unauthenticated callers and still returns un-marked-up buying cost — that is
+ * a separate open finding (N1 in the launch-readiness report) with a real
+ * decision behind it: whether this endpoint should exist at all, or should be
+ * authenticated and marked up like the actions. Throttling it does not settle
+ * that, and is not meant to look like it has.
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { getRates } from "@/lib/services/rate-calculator.service";
+import { checkRateLimit } from "@/lib/rateLimit";
 import type { CanonicalRateRequest } from "@/lib/rate-adapters/core/types";
 
+/**
+ * Best-effort caller identity. `x-forwarded-for` is client-controllable, so a
+ * determined caller can forge or rotate it — hence the global window above.
+ * Everything unattributable shares one bucket, which is the conservative
+ * direction: unknown callers are throttled together, not exempted.
+ */
+function callerKey(req: NextRequest): string {
+  const forwarded = req.headers.get("x-forwarded-for");
+  const ip = forwarded?.split(",")[0]?.trim() || req.headers.get("x-real-ip")?.trim();
+  return ip || "unknown";
+}
+
+function throttled(retryAfterSeconds: number) {
+  return NextResponse.json(
+    { error: `Too many requests. Retry in ${retryAfterSeconds}s.` },
+    { status: 429, headers: { "Retry-After": String(retryAfterSeconds) } },
+  );
+}
+
 export async function POST(req: NextRequest) {
+  // -- Throttle first -------------------------------------------------------
+  // Ahead of body parsing on purpose: a throttled request should cost us as
+  // little as possible, and JSON parsing an attacker-supplied body is work.
+  const perCaller = checkRateLimit("ratesApiCaller", callerKey(req));
+  if (!perCaller.ok) return throttled(perCaller.retryAfterSeconds);
+
+  const global = checkRateLimit("ratesApiGlobal", "all");
+  if (!global.ok) return throttled(global.retryAfterSeconds);
+
   let body: unknown;
 
   try {

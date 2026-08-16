@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition, useEffect } from "react";
+import { useState, useTransition, useEffect, useEffectEvent } from "react";
 import {
   Dialog,
   DialogContent,
@@ -155,9 +155,17 @@ export default function SendQuoteDialog({
 
   const router = useRouter();
 
-  // Fetch fresh client email from DB on open
-  useEffect(() => {
-    if (!open) return;
+  /**
+   * Refetching should be driven by the dialog opening and by which quote it is
+   * showing — not by `quote` being a new object literal on every parent render,
+   * and not by `isArena` resolving a moment later. Listing those would re-run a
+   * server action and overwrite whatever the user had typed into the body.
+   *
+   * The identity that matters (`quote.id`) stays a dependency; the values the
+   * fetch merely reads move into the effect event, where they are always
+   * current instead of frozen at the last open.
+   */
+  const loadClientEmail = useEffectEvent(() => {
     setFetchingEmail(true);
     getQuoteClientEmailAction(quote.id)
       .then((result) => {
@@ -173,7 +181,13 @@ export default function SendQuoteDialog({
         }
       })
       .finally(() => setFetchingEmail(false));
-  }, [open, quote.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  });
+
+  // Fetch fresh client email from DB on open
+  useEffect(() => {
+    if (!open) return;
+    loadClientEmail();
+  }, [open, quote.id]);
 
   function reset() {
     setClient(clientProp);

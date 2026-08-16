@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useEffectEvent } from "react";
 import { Plus, Trash2, Info, Scale } from "lucide-react";
 import { nanoid } from "nanoid";
 
@@ -78,11 +78,17 @@ export function BoxEditor({
   const boxCount = totalBoxCount(boxes);
   const chargeableWeight = totalChargeableWeight(boxes);
 
-  // Seed one starter box so the step never opens empty.
-  useEffect(() => {
+  // Seed one starter box so the step never opens empty. Deliberately mount-only:
+  // listing `boxes` would re-seed the instant the user deletes their last box,
+  // which is not the same thing as opening an empty step. The effect event is
+  // what lets the dependency list be empty AND honest — the callback reads the
+  // current boxes and onChange at fire time without being reactive to either.
+  const seedFirstBox = useEffectEvent(() => {
     if (boxes.length === 0) onChange([newBox()]);
-    // run once on mount
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  });
+
+  useEffect(() => {
+    seedFirstBox();
   }, []);
 
   const patchBox = (bi: number, patch: Partial<CargoBox>) => {

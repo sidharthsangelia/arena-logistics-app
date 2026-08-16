@@ -71,7 +71,7 @@ interface Props {
   party: Party;
 }
 
-export function AddressBookManager({ party }: Props) {
+export function AddressBookManager({ party: partyProp }: Props) {
   const [addresses, setAddresses] = useState<AddressSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<AddressKind | "ALL">("ALL");
@@ -81,7 +81,28 @@ export function AddressBookManager({ party }: Props) {
   const [toDelete, setToDelete] = useState<AddressSummary | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
-  const partyKey = party.partyType === "ORG" ? party.orgId : party.clientId;
+  /**
+   * The caller builds `party` inline, so the prop is a new object on every
+   * render even when it describes the same party. That unstable identity is
+   * what forced the suppression: an honest `[party]` dependency would refetch
+   * the address book on every parent render, and `[partyKey]` alone lies about
+   * what the callback reads.
+   *
+   * Rebuilding it here from the fields it is made of fixes the cause rather
+   * than the symptom — the memo depends on exactly what it reads, the result is
+   * referentially stable while the party is unchanged, and `load` can then
+   * declare a complete dependency list with nothing suppressed.
+   */
+  const partyKey =
+    partyProp.partyType === "ORG" ? partyProp.orgId : partyProp.clientId;
+
+  const party = useMemo<Party>(
+    () =>
+      partyProp.partyType === "ORG"
+        ? { partyType: "ORG", orgId: partyKey }
+        : { partyType: "CLIENT", clientId: partyKey },
+    [partyProp.partyType, partyKey],
+  );
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -91,9 +112,7 @@ export function AddressBookManager({ party }: Props) {
     } finally {
       setLoading(false);
     }
-    // partyKey captures the identity we re-fetch on
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [partyKey]);
+  }, [party]);
 
   useEffect(() => {
     load();

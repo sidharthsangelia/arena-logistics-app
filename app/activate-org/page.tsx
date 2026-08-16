@@ -27,7 +27,7 @@ export default function ActivateOrg() {
       // Not actually an Arena member — send to dashboard
       router.replace("/");
     }
-  }, [isLoaded, userMemberships]);
+  }, [isLoaded, userMemberships, setActive, router]);
 
   return (
     <div className="min-h-screen flex items-center justify-center">

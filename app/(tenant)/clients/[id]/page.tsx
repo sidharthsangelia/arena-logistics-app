@@ -78,10 +78,34 @@ function Field({
 // ─── Data fetcher (single query, shared via promise) ────────────────────────
 // One DB call — we pass the same promise to all sub-components
 // so they all resolve from the same request, not N separate queries.
+//
+// ── THE ORG SCOPE IS RESOLVED IN HERE, NOT PASSED IN ────────────────────────
+// This function used to query on `{ id, deletedAt: null }` alone, which meant
+// any signed-in tenant could open /clients/<any-id> and read another
+// organisation's client: contacts, addresses, full quote history including
+// vendorName, and the file URLs of their KYC documents — which are public
+// UploadThing links, fetchable by anyone who learns them.
+//
+// The fix deliberately does NOT take orgId as a parameter. An orgId argument is
+// something a future call site can forget to pass, or pass from the wrong
+// place; resolving it from the session inside the query is something nobody can
+// skip. getCurrentOrg() is memoised with React `cache`, so the sidebar's own
+// call below shares this one lookup rather than issuing a second.
+//
+// The scope goes in the WHERE clause rather than into an ownership check
+// afterwards, so there is no window in which another org's row exists in
+// memory, and no branch that can be reordered into being a no-op.
+//
+// notFound() on a miss, not a "forbidden" — a client that is not yours should
+// be indistinguishable from a client that does not exist, so probing ids
+// reveals nothing about who else is on the platform.
 
 async function fetchClient(id: string) {
+  const org = await getCurrentOrg();
+  if (!org) notFound();
+
   const client = await prisma.client.findFirst({
-    where: { id, deletedAt: null },
+    where: { id, orgId: org.id, deletedAt: null },
     include: {
       quotes: {
         orderBy: { createdAt: "desc" },

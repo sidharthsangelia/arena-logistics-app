@@ -57,25 +57,36 @@ export function AsyncCombobox({
   const [loading, setLoading] = React.useState(false);
   const reqId = React.useRef(0);
 
+  /**
+   * `fetcher` is a prop, and callers pass an inline arrow, so it is a new
+   * function on every render. As a dependency it would cancel and restart the
+   * 250ms debounce on every parent render — the search would never fire while
+   * anything above kept re-rendering. Reading it through an effect event keeps
+   * the debounce keyed on what the user actually changed (`query`, `open`) while
+   * always calling the current fetcher.
+   */
+  const runSearch = React.useEffectEvent(async (id: number, term: string) => {
+    setLoading(true);
+    try {
+      const res = await fetcher(term);
+      // Ignore results from a stale request that resolved out of order.
+      if (id === reqId.current) setOptions(res);
+    } catch {
+      if (id === reqId.current) setOptions([]);
+    } finally {
+      if (id === reqId.current) setLoading(false);
+    }
+  });
+
   React.useEffect(() => {
     if (!open) return;
     const id = ++reqId.current;
     // setLoading lives inside the debounce callback (not the effect body) so the
     // load flag is set asynchronously — same shape as the other comboboxes.
-    const handle = setTimeout(async () => {
-      setLoading(true);
-      try {
-        const res = await fetcher(query);
-        // Ignore results from a stale request that resolved out of order.
-        if (id === reqId.current) setOptions(res);
-      } catch {
-        if (id === reqId.current) setOptions([]);
-      } finally {
-        if (id === reqId.current) setLoading(false);
-      }
+    const handle = setTimeout(() => {
+      void runSearch(id, query);
     }, 250);
     return () => clearTimeout(handle);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query, open]);
 
   return (

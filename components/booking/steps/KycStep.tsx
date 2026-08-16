@@ -25,7 +25,7 @@
  * never scrolls a long list to reach Next.
  */
 
-import { useState, useEffect, useMemo, useTransition } from "react";
+import { useState, useEffect, useEffectEvent, useMemo, useTransition } from "react";
 import { useUploadThing } from "@/utils/uploadthing";
 import {
   Upload, X, FileCheck2, AlertCircle, CheckCircle2,
@@ -448,8 +448,12 @@ export default function KycStep({
   const kycWaived = waiverAnswer?.partyKey === partyKey && waiverAnswer.waived;
 
   // Fetch existing vault docs for this party — does NOT touch RHF form state.
-  // Refetches if the party changes (BA switching which client they book for).
-  useEffect(() => {
+  // Refetches if the party changes (BA switching which client they book for),
+  // and at no other time: `party` is rebuilt by the caller on every render, so
+  // depending on it would refetch the vault on every keystroke in the wizard.
+  // The effect event reads the current party without being reactive to its
+  // identity, which is what the suppression was standing in for.
+  const loadKycDocs = useEffectEvent(() => {
     startLoad(async () => {
       const result = await getKycDocs(party);
       if (!result.success) {
@@ -460,7 +464,10 @@ export default function KycStep({
       setExistingDocs(result.docs);
       setWaiverAnswer({ partyKey, waived: result.kycWaived });
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  });
+
+  useEffect(() => {
+    loadKycDocs();
   }, [partyKey]);
 
   // Keep the wizard's copy in step, so "Next" validates against the same list

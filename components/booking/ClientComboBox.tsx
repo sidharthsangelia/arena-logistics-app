@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useEffectEvent, useState, useTransition } from "react";
 import { Check, ChevronsUpDown, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -38,16 +38,20 @@ export function ClientCombobox({
   const [results, setResults] = useState<ClientSummary[]>([]);
   const [isPending, startTransition] = useTransition();
 
+  // The search itself is not reactive — it should run when the user types or
+  // opens the popover, and at no other time. Pulling it into an effect event
+  // says that in the code instead of in a suppression comment.
+  const runSearch = useEffectEvent((term: string) => {
+    startTransition(async () => {
+      const res = await searchClientsAction(term);
+      if (res) setResults(res);
+    });
+  });
+
   useEffect(() => {
     if (!open) return;
-    const handle = setTimeout(() => {
-      startTransition(async () => {
-        const res = await searchClientsAction(query);
-        if (res) setResults(res);
-      });
-    }, 250);
+    const handle = setTimeout(() => runSearch(query), 250);
     return () => clearTimeout(handle);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query, open]);
 
   return (

@@ -269,22 +269,24 @@ export default function BookingWizard({
     defaultValues: formData,
   });
 
-  // Keep a ref to the latest formData so the reset effect below doesn't need
-  // `formData` in its dependency array — previously, `reset(formData)` ran
-  // on EVERY keystroke while on the self-managed Shipment Details step
-  // (because that step calls updateFormData on every change), needlessly
-  // resetting the entire RHF form tree dozens of times per second.
-  const formDataRef = React.useRef(formData);
-  React.useEffect(() => {
-    formDataRef.current = formData;
-  }, [formData]);
+  /**
+   * Re-seed the RHF tree from the wizard's own state, but only when the step
+   * changes. `reset(formData)` with `formData` in the dependency list ran on
+   * EVERY keystroke while on the self-managed Shipment Details step (that step
+   * calls updateFormData on every change), resetting the entire form tree
+   * dozens of times a second.
+   *
+   * This used to be a latest-ref plus a mirroring effect to keep it fed. That is
+   * precisely what an effect event does, so both are gone: `formData` is read
+   * when the event fires, always current, and never a reason to re-run.
+   */
+  const syncFormToStep = React.useEffectEvent(() => {
+    reset(formData);
+  });
 
   React.useEffect(() => {
-    reset(formDataRef.current);
-    // Only re-sync the RHF form when navigating between steps, not on every
-    // formData mutation.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentStep, reset]);
+    syncFormToStep();
+  }, [currentStep]);
 
   // ── Submit ───────────────────────────────────────────────────────────────
   const handleSubmit = async (finalData: BookingFormData) => {

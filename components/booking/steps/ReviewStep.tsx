@@ -20,7 +20,7 @@ import type {
 } from "@/types/booking.types";
 import { WalletPaymentSummary } from "../WalletPaymentSummary";
 import { useIsArenaOrg } from "@/hooks/useIsArenaOrg";
-import { brandServiceName } from "@/lib/branding/serviceName";
+import { brandServiceName, displayServiceName } from "@/lib/branding/serviceName";
 import {
   KYC_DOC_CONFIGS,
   requiredKycKeys,
@@ -414,7 +414,14 @@ function FirstMileBlock({ data }: { data: BookingFormData }) {
     <div className="rounded-lg border bg-muted/30 px-4 py-3">
       <div className="flex items-start justify-between gap-4">
         <div className="space-y-1.5">
-          <p className="font-semibold text-foreground">{firstMile.productName}</p>
+          {/* Masked on the same terms as the main leg above. This block printed
+              the raw name because the first mile is normally a courier brand
+              ("Delhivery Surface") rather than a vendor one — but it is sourced
+              through Shipmozo, and "normally" is not a guarantee about a string
+              a vendor controls. */}
+          <p className="font-semibold text-foreground">
+            {displayServiceName(firstMile.productName, isArena)}
+          </p>
           {isArena && (
             <Badge variant="outline" className="text-xs">{firstMile.vendorName}</Badge>
           )}

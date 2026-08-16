@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useRef } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
@@ -637,12 +637,19 @@ export function AppSidebar({
   // Resolve full href by prepending basePath to relative hrefs
   // e.g. basePath="/arena-dashboard", href="/clients" → "/arena-dashboard/clients"
   // e.g. href="/" → basePath itself (the index route)
-  const resolveHref = (href: string) => {
-    if (href === "/") return basePath;
-    // Avoid a double slash when basePath is the app root
-    if (basePath === "/") return href;
-    return `${basePath}${href}`;
-  };
+  // Memoised so the activeHref calculation below can depend on it honestly.
+  // It was previously an inline function, which the memo could not list without
+  // recomputing every render — hence the suppression. It is a pure function of
+  // basePath, so a useCallback makes that true in the dependency graph too.
+  const resolveHref = useCallback(
+    (href: string) => {
+      if (href === "/") return basePath;
+      // Avoid a double slash when basePath is the app root
+      if (basePath === "/") return href;
+      return `${basePath}${href}`;
+    },
+    [basePath],
+  );
 
   // Exactly one row is ever active: the longest nav href that the current path
   // sits on or under. Matching on a plain startsWith would light up two rows at
@@ -664,9 +671,7 @@ export function AppSidebar({
     }
 
     return best;
-    // resolveHref is a pure function of basePath, which is in the dep list.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sections, pathname, basePath]);
+  }, [sections, pathname, resolveHref]);
 
   const displayName =
     user?.fullName ??

@@ -56,8 +56,11 @@ interface DomesticRateResultsListProps {
 export default function DomesticRateResultsList({
   result,
 }: DomesticRateResultsListProps) {
-  const quotes = result?.quotes ?? [];
-  const vendorErrors = result?.vendorErrors ?? [];
+  // `result?.quotes ?? []` produces a fresh array whenever result is null, so
+  // every memo downstream that depends on `quotes` recomputed on every render —
+  // including the sort and the carrier filter over the full result set.
+  const quotes = useMemo(() => result?.quotes ?? [], [result]);
+  const vendorErrors = useMemo(() => result?.vendorErrors ?? [], [result]);
 
   // Only Business Associates (and Arena staff) can turn a rate into a quote.
   const canGenerateQuote = useCanGenerateQuote();

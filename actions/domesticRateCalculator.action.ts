@@ -16,6 +16,7 @@
 import { auth } from "@clerk/nextjs/server";
 
 import { getOrgMarkupPercent } from "@/utils/tenant";
+import { checkRateLimit, rateLimitMessage } from "@/lib/rateLimit";
 import { getRates } from "@/lib/services/rate-calculator.service";
 import { domesticAdapterRegistry } from "@/lib/rate-adapters/vendors/domestic.index";
 
@@ -58,6 +59,26 @@ export async function getDomesticRatesAction(
         quotes: [],
         vendorErrors: [],
         error: "No active organization found.",
+      };
+    }
+
+    // Throttled on the same terms as the international calculator, and for the
+    // same reason: this fans out to live Shipmozo and SpeedoPost accounts that
+    // bill us per call. It was missing here — the international action was
+    // throttled when M4 was first raised and this one, added later, inherited
+    // the shape but not the control, which left the domestic booking step as an
+    // unmetered door to the same kind of paid API.
+    //
+    // A separate budget rather than a shared one: different vendor accounts, and
+    // pricing a domestic parcel should not eat the export calculator's
+    // allowance. See RATE_LIMIT_POLICIES.
+    const throttle = checkRateLimit("ratesDomestic", orgId);
+    if (!throttle.ok) {
+      return {
+        success: false,
+        quotes: [],
+        vendorErrors: [],
+        error: rateLimitMessage(throttle),
       };
     }
 
