@@ -94,7 +94,7 @@ export interface SweepCountry {
 }
 
 /**
- * The twenty. Capital-city postcodes throughout.
+ * The destination list. Capital-city postcodes throughout.
  *
  * ── THE KNOWN WEAKNESS ──────────────────────────────────────────────────────
  * A capital is not always the commercial centre, and express carriers price
@@ -117,7 +117,18 @@ export const SWEEP_COUNTRIES: readonly SweepCountry[] = [
   { code: "IT", name: "Italy", city: "Rome", postcode: "00118", reason: "volume" },
   { code: "ES", name: "Spain", city: "Madrid", postcode: "28001", reason: "coverage" },
 
-  // Gulf. Two of these have no postal system at all.
+  // Asia
+  { code: "CN", name: "China", city: "Beijing", postcode: "100000", reason: "volume" },
+  {
+    code: "HK",
+    name: "Hong Kong",
+    city: "Hong Kong",
+    postcode: "00000",
+    syntheticPostcode: true,
+    reason: "volume",
+  },
+
+  // Gulf
   {
     code: "AE",
     name: "United Arab Emirates",
@@ -142,11 +153,17 @@ export const SWEEP_COUNTRIES: readonly SweepCountry[] = [
   { code: "SG", name: "Singapore", city: "Singapore", postcode: "018956", reason: "volume" },
   { code: "MY", name: "Malaysia", city: "Kuala Lumpur", postcode: "50050", reason: "coverage" },
   { code: "JP", name: "Japan", city: "Tokyo", postcode: "100-0001", reason: "coverage" },
+  { code: "TH", name: "Thailand", city: "Bangkok", postcode: "10200", reason: "volume" },
   { code: "AU", name: "Australia", city: "Canberra", postcode: "2600", reason: "volume" },
   { code: "NZ", name: "New Zealand", city: "Wellington", postcode: "6011", reason: "coverage" },
 
-  // Africa and South America, present so the grid is not blind to either.
+  // Africa
   { code: "ZA", name: "South Africa", city: "Pretoria", postcode: "0002", reason: "coverage" },
+  { code: "LK", name: "Sri Lanka", city: "Colombo", postcode: "00100", reason: "coverage" },
+  { code: "KE", name: "Kenya", city: "Nairobi", postcode: "00100", reason: "coverage" },
+  { code: "NG", name: "Nigeria", city: "Abuja", postcode: "900001", reason: "coverage" },
+
+  // South America
   { code: "BR", name: "Brazil", city: "Brasilia", postcode: "70040-010", reason: "coverage" },
 ] as const;
 
@@ -388,8 +405,9 @@ export function plannedCallCount(vendorCount: number): number {
 /**
  * Roughly how long one vendor needs for its whole share, in minutes. Used to
  * size the finalise backstop, and worth reading before changing the cadence:
- * sKart at eight a minute is the long pole at about 75 minutes, everyone else
- * finishes in twenty.
+ * sKart at eight a minute is the long pole by a wide margin; every other vendor
+ * finishes in a fraction of its time. Both numbers move when a country is added,
+ * so read them off this function rather than off this comment.
  */
 export function estimatedVendorMinutes(vendorId: string): number {
   const calls = SWEEP_COUNTRIES.length * WEIGHT_SLABS_KG.length;

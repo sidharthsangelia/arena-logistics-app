@@ -217,7 +217,7 @@ export async function finaliseSweepRun(runId: string): Promise<SweepSummary | nu
     const snapshots = snapshotsByVendor.get(vendorId) ?? 0;
 
     // NO_SERVICE comes out of the denominator, not just the numerator. A vendor
-    // that does not fly to five of the twenty countries answers 150 calls
+    // that does not fly to five of the destinations answers every call for them
     // correctly by declining them, and counting those as attempts it failed
     // would put an honest vendor permanently near the alert threshold.
     const judged = attempted - noService;

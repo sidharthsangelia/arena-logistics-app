@@ -5,7 +5,7 @@
  *
  * PURE MODULE, and separate from execute.ts for exactly that reason: execute.ts
  * is `server-only` because it touches Prisma, and these two functions are the
- * part of it most worth testing. Rules that decide whether 2,400 unattended
+ * part of it most worth testing. Rules that decide whether thousands of unattended
  * calls get retried should not be reachable only through a database.
  */
 

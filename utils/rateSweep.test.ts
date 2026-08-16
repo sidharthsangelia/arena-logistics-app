@@ -161,11 +161,13 @@ describe("weight ladder", () => {
 // ---------------------------------------------------------------------------
 
 describe("countries", () => {
-  it("holds twenty unique ISO alpha-2 codes", () => {
-    assert.equal(SWEEP_COUNTRIES.length, 20);
-
+  it("holds only unique ISO alpha-2 codes", () => {
+    // No fixed count here. The list is meant to grow, and a hard number turned
+    // every added destination into four unrelated red tests. What must not
+    // change is that a code appears once: a duplicate silently halves the
+    // lanes for that country and reads as a vendor that stopped answering.
     const codes = new Set(SWEEP_COUNTRIES.map((c) => c.code));
-    assert.equal(codes.size, 20, "duplicate country code in the matrix");
+    assert.equal(codes.size, SWEEP_COUNTRIES.length, "duplicate country code in the matrix");
 
     for (const country of SWEEP_COUNTRIES) {
       assert.match(country.code, /^[A-Z]{2}$/, `${country.code} is not alpha-2`);
@@ -184,14 +186,14 @@ describe("countries", () => {
   });
 
   it("flags exactly the destinations with no postal system", () => {
-    // UAE and Qatar genuinely have none, so their postcodes are placeholders.
-    // Anything else carrying this flag means somebody guessed a postcode and
-    // hid it behind the same excuse.
+    // UAE, Qatar and Hong Kong genuinely have none, so their postcodes are
+    // placeholders. Anything else carrying this flag means somebody guessed a
+    // postcode and hid it behind the same excuse.
     const synthetic = SWEEP_COUNTRIES.filter((c) => c.syntheticPostcode).map(
       (c) => c.code,
     );
 
-    assert.deepEqual(synthetic.sort(), ["AE", "QA"]);
+    assert.deepEqual(synthetic.sort(), ["AE", "HK", "QA"]);
   });
 });
 
@@ -226,8 +228,20 @@ describe("matrix", () => {
     assert.equal(new Set(lanes.map((l) => `${l.vendorId}:${l.country.code}`)).size, lanes.length);
   });
 
-  it("plans 2,400 calls for four vendors", () => {
-    assert.equal(plannedCallCount(4), 2400);
+  it("plans one call per vendor, country and weight", () => {
+    assert.equal(
+      plannedCallCount(4),
+      4 * SWEEP_COUNTRIES.length * WEIGHT_SLABS_KG.length,
+    );
+
+    // The number itself is the reason a sweep is confirmed before it runs, so
+    // it is worth knowing it stayed in the thousands rather than the tens of
+    // thousands. Adding a dozen countries is fine; a change that multiplies the
+    // bill by ten should be noticed here first.
+    assert.ok(
+      plannedCallCount(4) < 10_000,
+      `a four-vendor sweep now costs ${plannedCallCount(4)} calls`,
+    );
   });
 
   it("paces sKart under its published ten a minute", () => {
@@ -258,8 +272,8 @@ describe("matrix", () => {
     // The run row has to remain readable years after this file has moved on.
     const snapshot = snapshotSweepConfig();
 
-    assert.equal(snapshot.countries.length, 20);
-    assert.equal(snapshot.weightSlabsKg.length, 30);
+    assert.equal(snapshot.countries.length, SWEEP_COUNTRIES.length);
+    assert.equal(snapshot.weightSlabsKg.length, WEIGHT_SLABS_KG.length);
     assert.equal(snapshot.boxProfile, BOX_PROFILE);
     assert.ok(snapshot.version);
     assert.ok(snapshot.declaredValue > 0);

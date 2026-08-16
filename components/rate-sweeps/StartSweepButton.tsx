@@ -6,6 +6,7 @@ import { Play } from "lucide-react";
 import { toast } from "sonner";
 
 import { startRateSweepAction } from "@/actions/rateSweep.action";
+import { SWEEP_COUNTRIES, WEIGHT_SLABS_KG } from "@/lib/rateSweep/config";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
@@ -22,10 +23,11 @@ import {
 /**
  * Start a sweep by hand.
  *
- * Behind a confirmation, which is not ceremony: pressing this spends about
- * 2,400 calls against vendor accounts that bill us and rate-limit us, one of
+ * Behind a confirmation, which is not ceremony: pressing this spends several
+ * thousand calls against vendor accounts that bill us and rate-limit us, one of
  * which publishes a limit of ten a minute. The dialog says the cost out loud so
- * nobody discovers it afterwards.
+ * nobody discovers it afterwards, counted from the config so it stays true as
+ * the country list grows.
  *
  * Non-admins see it disabled rather than not at all, so it is obvious the
  * capability exists and who to ask. The action re-checks the role regardless: a
@@ -73,9 +75,19 @@ export function StartSweepButton({ canStart }: { canStart: boolean }) {
           <AlertDialogTitle>Run a full sweep now?</AlertDialogTitle>
           <AlertDialogDescription asChild>
             <div className="space-y-2 text-sm">
+              {/* Counted from the config rather than written out, because the
+                  country list grows and a stale number here is a cost the
+                  person is told is smaller than it is. Stated per vendor: the
+                  vendor list is resolved from the adapter registry on the
+                  server and is not worth pulling into a client bundle. */}
               <p>
-                This asks every registered vendor for all 20 countries at all 30
-                weights: about 2,400 calls in total.
+                This asks every registered vendor for all{" "}
+                {SWEEP_COUNTRIES.length} countries at all{" "}
+                {WEIGHT_SLABS_KG.length} weights, which is{" "}
+                {(SWEEP_COUNTRIES.length * WEIGHT_SLABS_KG.length).toLocaleString(
+                  "en-IN",
+                )}{" "}
+                calls per vendor.
               </p>
               <p>
                 It takes roughly an hour, paced to stay under each vendor&apos;s
