@@ -14,35 +14,45 @@ import {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Route label maps — tenant and arena have different route vocabularies
+//
+// Each entry mirrors the nav row title in AppSideBar.tsx, so the crumb reads
+// back the label the user just clicked. Rename a nav item, rename it here too.
+// A segment with no entry falls back to title-cased words, which is why the
+// map only has to cover routes whose label is not just their slug.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const TENANT_LABELS: Record<string, string> = {
-  dashboard: "Overview",
-  clients: "Clients",
-  rates: "Rate Calculator",
+  rates: "International Rates",
   "domestic-rates": "Domestic Rates",
   book: "Book Shipment",
   track: "Track Shipment",
   shipments: "Shipments",
+  clients: "Clients",
   quotes: "Quotes",
+  addressbook: "Address Book",
+  "document-vault": "Document Vault",
+  wallet: "Wallet",
   invoices: "Invoices",
   settings: "Settings",
-  "document-vault": "Document Vault",
-  debug: "Debug",
-  upload: "Upload",
+  notifications: "Notifications",
 };
 
 const ARENA_LABELS: Record<string, string> = {
-  "arena-dashboard": "Overview",
-  bookings: "Bookings",
-  clients: "Clients",
-  "rate-cards": "Rate Cards",
-  upload: "Upload Rates",
-  settings: "Settings",
-  orgs: "Organisations",
-  notices: "Dashboard Notices",
-  "business-associates": "Business Associates",
+  bookings: "International Bookings",
+  "domestic-bookings": "Domestic Bookings",
+  track: "Track Shipment",
+  rates: "International Rates",
+  "domestic-rates": "Domestic Rates",
   accounts: "Accounts",
+  "business-associates": "Business Associates",
+  clients: "Clients",
+  quotes: "Quotes",
+  "document-vault": "Document Vault",
+  "rate-sweeps": "Rate Sweeps",
+  wallets: "Wallets",
+  invoices: "Invoices",
+  notices: "Notices",
+  notifications: "Notifications",
 };
 
 const LABEL_MAPS: Record<string, Record<string, string>> = {
@@ -50,9 +60,9 @@ const LABEL_MAPS: Record<string, Record<string, string>> = {
   arena: ARENA_LABELS,
 };
 
-// Root label shown as the first crumb
+// Root label shown as the first crumb — matches the top nav row of each variant
 const ROOT_LABELS: Record<string, string> = {
-  tenant: "Overview",
+  tenant: "Dashboard",
   arena: "Overview",
 };
 

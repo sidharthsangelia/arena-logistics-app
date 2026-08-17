@@ -18,7 +18,6 @@ import {
   LayoutDashboard,
   Building2,
   FileUser,
-  Shield,
   Calculator,
   PackagePlus,
   MapPin,
@@ -86,7 +85,11 @@ interface NavItem {
 }
 
 interface NavSection {
-  label: string;
+  /** Stable React key. Also what an unlabelled section is identified by. */
+  id: string;
+  /** Heading shown above the group when expanded. Omitted for the top section,
+   *  which holds the single dashboard row and needs no heading to explain it. */
+  label?: string;
   items: NavItem[];
 }
 
@@ -100,12 +103,21 @@ interface NavConfig {
 // Server → Client boundary. Only the string variant key is passed as a prop.
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Both variants use the same four-group shape so the two apps read alike:
+//   (no heading)  the one dashboard row
+//   Shipping      the daily flow: quote, book, track, look up
+//   Clients       who the work is for
+//   Library       saved records you reuse rather than act on
+//   Account/Admin money and configuration
+//
+// Groups are kept to five rows or fewer. A group that grows past that is the
+// signal to split it, not to append.
 const NAV_CONFIGS: Record<string, NavConfig> = {
   tenant: {
     subtitle: "Freight Operations",
     sections: [
       {
-        label: "Operations",
+        id: "home",
         items: [
           {
             title: "Dashboard",
@@ -113,33 +125,10 @@ const NAV_CONFIGS: Record<string, NavConfig> = {
             icon: LayoutDashboard,
             description: "Your shipping activity at a glance",
           },
-          {
-            title: "Clients",
-            href: "/clients",
-            icon: Building2,
-            description: "Companies you ship on behalf of",
-          },
-          {
-            title: "Address Book",
-            href: "/addressbook",
-            icon: BookMarked,
-            description: "Saved pickup and delivery addresses",
-          },
-          {
-            title: "Quotes",
-            href: "/quotes",
-            icon: FileUser,
-            description: "Prices you have quoted to your clients",
-          },
-          {
-            title: "Document Vault",
-            href: "/document-vault",
-            icon: FolderOpen,
-            description: "All your shipping paperwork in one place",
-          },
         ],
       },
       {
+        id: "shipping",
         label: "Shipping",
         items: [
           {
@@ -175,6 +164,43 @@ const NAV_CONFIGS: Record<string, NavConfig> = {
         ],
       },
       {
+        id: "clients",
+        label: "Clients",
+        items: [
+          {
+            title: "Clients",
+            href: "/clients",
+            icon: Building2,
+            description: "Companies you ship on behalf of",
+          },
+          {
+            title: "Quotes",
+            href: "/quotes",
+            icon: FileUser,
+            description: "Prices you have quoted to your clients",
+          },
+        ],
+      },
+      {
+        id: "library",
+        label: "Library",
+        items: [
+          {
+            title: "Address Book",
+            href: "/addressbook",
+            icon: BookMarked,
+            description: "Saved pickup and delivery addresses",
+          },
+          {
+            title: "Document Vault",
+            href: "/document-vault",
+            icon: FolderOpen,
+            description: "All your shipping paperwork in one place",
+          },
+        ],
+      },
+      {
+        id: "account",
         label: "Account",
         items: [
           {
@@ -204,7 +230,7 @@ const NAV_CONFIGS: Record<string, NavConfig> = {
     subtitle: "Internal Ops",
     sections: [
       {
-        label: "Operations",
+        id: "home",
         items: [
           {
             title: "Overview",
@@ -212,18 +238,50 @@ const NAV_CONFIGS: Record<string, NavConfig> = {
             icon: LayoutDashboard,
             description: "Today's activity across every account",
           },
+        ],
+      },
+      {
+        id: "shipping",
+        label: "Shipping",
+        items: [
+          // "International" and "Domestic" alone read as rate pages next to the
+          // two rate rows below, so the queues carry the noun.
           {
-            title: "International",
+            title: "International Bookings",
             href: "/bookings",
             icon: PackageCheck,
             description: "Export shipments waiting to be processed",
           },
           {
-            title: "Domestic",
+            title: "Domestic Bookings",
             href: "/domestic-bookings",
             icon: Truck,
             description: "India to India courier shipments",
           },
+          {
+            title: "Track Shipment",
+            href: "/track",
+            icon: MapPin,
+            description: "See where a parcel has reached",
+          },
+          {
+            title: "International Rates",
+            href: "/rates",
+            icon: Calculator,
+            description: "Check prices for parcels going abroad",
+          },
+          {
+            title: "Domestic Rates",
+            href: "/domestic-rates",
+            icon: SquareSigma,
+            description: "Check prices for parcels inside India",
+          },
+        ],
+      },
+      {
+        id: "clients",
+        label: "Customers",
+        items: [
           {
             title: "Accounts",
             href: "/accounts",
@@ -237,45 +295,28 @@ const NAV_CONFIGS: Record<string, NavConfig> = {
             description: "Partner firms that book for their own clients",
           },
           {
-            title: "All Clients",
+            title: "Clients",
             href: "/clients",
             icon: Users,
             description: "Customers that business associates book for",
           },
           {
-            title: "All Quotes",
+            title: "Quotes",
             href: "/quotes",
             icon: FileUser,
             description: "Quotes raised by every account",
           },
+        ],
+      },
+      {
+        id: "library",
+        label: "Library",
+        items: [
           {
             title: "Document Vault",
             href: "/document-vault",
             icon: FolderOpen,
             description: "Shipping paperwork uploaded by accounts",
-          },
-        ],
-      },
-      {
-        label: "Shipping",
-        items: [
-          {
-            title: "International Rates",
-            href: "/rates",
-            icon: Calculator,
-            description: "Check prices for parcels going abroad",
-          },
-          {
-            title: "Domestic Rates",
-            href: "/domestic-rates",
-            icon: SquareSigma,
-            description: "Check prices for parcels inside India",
-          },
-          {
-            title: "Track Shipment",
-            href: "/track",
-            icon: MapPin,
-            description: "See where a parcel has reached",
           },
           {
             title: "Rate Sweeps",
@@ -286,6 +327,7 @@ const NAV_CONFIGS: Record<string, NavConfig> = {
         ],
       },
       {
+        id: "admin",
         label: "Admin",
         items: [
           {
@@ -332,9 +374,11 @@ export interface AppSidebarProps {
 }
 
 // Tenant nav visibility by org classification.
-//   - BAs manage addresses per-client, so the org-wide Address Book is hidden.
+//   - BAs manage addresses per-client, so the org-wide Address Book is hidden
+//     and the Library group is left holding the Document Vault alone.
 //   - Standard (non-BA) orgs don't manage their own clients or receive quotes,
-//     so those routes are hidden for them.
+//     so those routes are hidden for them. That empties the Clients group
+//     outright, and the empty-group filter below drops its heading with it.
 //
 // Client emails used to be listed here as its own route. It is now a tab inside
 // Settings, hidden by the page itself for standard orgs, so there is nothing for
@@ -756,7 +800,7 @@ export function AppSidebar({
           px-3 on the rail centres the 40px rows inside the 64px column. */}
       <SidebarContent className="gap-0 px-2 pb-3 group-data-[collapsible=icon]:px-3">
         {sections.map((section, index) => (
-          <Fragment key={section.label}>
+          <Fragment key={section.id}>
             {/* The rail has no group headings, so a hairline is what keeps the
                 groups readable there. Expanded, the headings do that job. */}
             {index > 0 && (
@@ -769,12 +813,19 @@ export function AppSidebar({
             <SidebarGroup
               className={cn(
                 "p-0",
-                index > 0 && "mt-4 group-data-[collapsible=icon]:mt-0",
+                // Four gaps now sit between five groups, so the run is kept
+                // tighter than it was at three: the whole list still has to
+                // clear the footer on a laptop viewport without scrolling.
+                index > 0 && "mt-3 group-data-[collapsible=icon]:mt-0",
               )}
             >
-              <SidebarGroupLabel className="h-7 px-2.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-sidebar-foreground/45 group-data-[collapsible=icon]:-mt-7">
-                {section.label}
-              </SidebarGroupLabel>
+              {/* The first section is the lone dashboard row. A heading over a
+                  single self-explanatory link is noise, so it goes without. */}
+              {section.label && (
+                <SidebarGroupLabel className="h-7 px-2.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-sidebar-foreground/45 group-data-[collapsible=icon]:-mt-7">
+                  {section.label}
+                </SidebarGroupLabel>
+              )}
 
               <SidebarGroupContent>
                 <SidebarMenu className="gap-0.5">
