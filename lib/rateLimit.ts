@@ -2,7 +2,7 @@
  * IN-MEMORY SLIDING-WINDOW RATE LIMITER
  * -----------------------------------------------------------------------------
  * A dependency-free throttle for the paths that fan out to paid upstream vendor
- * APIs (Shipmozo, sKart, Aramex, ShipGlobal, SpeedoPost). Every call on those
+ * APIs (Shipmozo, sKart, Aramex, ShipGlobal). Every call on those
  * paths costs real money and real quota, so the cap is a cost control first and
  * an abuse control second.
  *
@@ -102,7 +102,7 @@ function sweep(now: number): void {
 export const RATE_LIMIT_POLICIES = {
   /** getRatesAction — Shipmozo, sKart, Aramex, ShipGlobal. Per org. */
   ratesInternational: { limit: 30, windowMs: 60_000 },
-  /** getDomesticRatesAction — Shipmozo domestic, SpeedoPost. Per org. */
+  /** getDomesticRatesAction — Shipmozo domestic. Per org. */
   ratesDomestic: { limit: 30, windowMs: 60_000 },
   /** POST /api/rates, per caller. Same fan-out, so the same per-caller budget. */
   ratesApiCaller: { limit: 30, windowMs: 60_000 },

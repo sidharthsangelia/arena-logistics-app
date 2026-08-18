@@ -42,9 +42,10 @@ import {
  * the door → hub leg of an international shipment unplaced.
  *
  * So this list is "vendors that can quote AND book", not "vendors that can
- * quote". SpeedoPost is deliberately absent: it quotes today and cannot book
- * (see speedopostBooking.md). Add it here the moment its booking adapter is
- * registered, and not before.
+ * quote". SpeedoPost is absent twice over: it never had a booking adapter, and
+ * as of the withdrawal noted in lib/rate-adapters/vendors/domestic.index.ts it
+ * no longer quotes either (see speedopostBooking.md). Add it here only after
+ * both its rate adapter and its booking adapter are registered, and not before.
  */
 export const FIRST_MILE_VENDOR_IDS = ["shipmozo"] as const;
 

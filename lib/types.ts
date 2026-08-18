@@ -114,16 +114,23 @@ export type VendorId = (typeof AVAILABLE_VENDORS)[number]["id"];
 // -- Domestic calculator vendors -----------------------------------------------
 // The carriers queried by the DOMESTIC rate calculator. These map to the
 // separate domestic adapter registry (lib/rate-adapters/vendors/domestic.index).
-// Both adapters return many courier options as individual quotes under one
-// vendor id; add another entry here only when a third domestic adapter ships.
+// An adapter returns many courier options as individual quotes under one vendor
+// id; add another entry here only when another domestic adapter ships.
 //
-// The same underlying courier can appear twice, once per vendor, at different
-// prices — a Delhivery quoted via Shipmozo and via SpeedoPost are two real,
-// separately purchasable options, and the cheaper one wins on sort. That is the
-// point of sourcing from two aggregators, not a duplicate to collapse.
+// This list must stay in step with what that registry actually registers. An id
+// here with no registered adapter is a filter checkbox that quietly returns
+// nothing; an adapter with no id here can never be filtered to.
+//
+// When more than one aggregator is registered, the same underlying courier can
+// appear twice at different prices — a Delhivery quoted via two aggregators is
+// two real, separately purchasable options, and the cheaper one wins on sort.
+// That is the point of sourcing from several, not a duplicate to collapse.
 export const DOMESTIC_CALCULATOR_VENDORS = [
   { id: "shipmozo", label: "Shipmozo" },
-  { id: "speedopost", label: "SpeedoPost" },
+  // SpeedoPost is unregistered in the domestic rate registry (see the block in
+  // lib/rate-adapters/vendors/domestic.index.ts). Restore this line at the same
+  // time as that registration, not before.
+  // { id: "speedopost", label: "SpeedoPost" },
 ] as const;
 
 export type DomesticCalculatorVendorId =

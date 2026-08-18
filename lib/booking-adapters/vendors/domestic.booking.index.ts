@@ -22,6 +22,12 @@ import { ShipmozoBookingAdapter } from "./shipmozo/shipmozo.booking.adapter";
 
 bookingAdapterRegistry.register(new ShipmozoBookingAdapter());
 
+// SpeedoPost has never had a booking adapter, and it is no longer registered on
+// the rate side either (lib/rate-adapters/vendors/domestic.index.ts), so no
+// shipment can reach this layer carrying vendorId "speedopost" any more. Its
+// booking API is written up in speedopostBooking.md; the adapter would be
+// registered here, under that exact vendorId, whenever it is built.
+
 // ↓ Future domestic vendors — add as needed
 // import { DelhiveryBookingAdapter } from "./delhivery/delhivery.booking.adapter";
 // bookingAdapterRegistry.register(new DelhiveryBookingAdapter());

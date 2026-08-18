@@ -15,7 +15,7 @@
 
 import { AdapterRegistry } from "../core/registry";
 import { ShipmozoDomesticAdapter } from "./shipmozo-domestic/shipmozo-domestic.adapter";
-import { SpeedoPostDomesticAdapter } from "./speedopost/speedopost.adapter";
+// import { SpeedoPostDomesticAdapter } from "./speedopost/speedopost.adapter";
 
 /**
  * Singleton domestic registry, pinned to globalThis (same rationale as the
@@ -37,21 +37,29 @@ globalForDomesticRegistry.__arenaDomesticAdapterRegistry =
 domesticAdapterRegistry.register(new ShipmozoDomesticAdapter());
 
 /**
- * SpeedoPost quotes but CANNOT YET BOOK, and that asymmetry is deliberate.
+ * SPEEDOPOST — WITHDRAWN FROM THE CALCULATOR, NOT DELETED.
  *
- * There is no entry for "speedopost" in
- * lib/booking-adapters/vendors/domestic.booking.index.ts, so a customer who
- * selects one of these quotes in the booking wizard will pay, and
- * bookDomesticCourier will stop at `resolveBookingAdapter` returning null. The
- * money stays held (domesticCourierBooking.md D5), ops get a CRITICAL
- * COURIER_BOOKING_FAILED, and the order is placed by hand.
+ * Its rate adapter still lives under ./speedopost/ and still compiles and
+ * type-checks; it is simply not registered, so `getRates` never fans out to it
+ * and no customer is offered a SpeedoPost service. The reason it went is the
+ * asymmetry documented in speedopostBooking.md: SpeedoPost could quote but
+ * never book, so every quote it won was a shipment paid for and then placed by
+ * hand.
  *
- * That was chosen knowingly: the rates are worth having in front of customers
- * before the booking integration lands. Registering a SpeedoPost booking
- * adapter under the same vendorId is the whole fix, and nothing here changes
- * when it does.
+ * To bring it back, uncomment the import above and the register below. Two
+ * other places opt in alongside it, and all three are needed for a working
+ * vendor:
+ *   1. DOMESTIC_CALCULATOR_VENDORS in lib/types.ts   (the calculator filter)
+ *   2. A SpeedoPost adapter in
+ *      lib/booking-adapters/vendors/domestic.booking.index.ts, without which
+ *      the same take-the-money-and-stall behaviour returns
+ *   3. FIRST_MILE_VENDOR_IDS in lib/booking/firstMile.ts, only once (2) is done
+ *
+ * Tracking is untouched on purpose — it stays registered in
+ * lib/tracking-adapters/vendors/tracking.index.ts so SpeedoPost shipments
+ * already in flight keep reporting scans.
  */
-domesticAdapterRegistry.register(new SpeedoPostDomesticAdapter());
+// domesticAdapterRegistry.register(new SpeedoPostDomesticAdapter());
 
 // ↓ Future domestic vendors — add as needed
 // import { DelhiveryDomesticAdapter } from "./delhivery-domestic/delhivery-domestic.adapter";

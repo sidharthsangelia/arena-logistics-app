@@ -63,7 +63,7 @@ export async function getDomesticRatesAction(
     }
 
     // Throttled on the same terms as the international calculator, and for the
-    // same reason: this fans out to live Shipmozo and SpeedoPost accounts that
+    // same reason: this fans out to live domestic vendor accounts that
     // bill us per call. It was missing here — the international action was
     // throttled when M4 was first raised and this one, added later, inherited
     // the shape but not the control, which left the domestic booking step as an

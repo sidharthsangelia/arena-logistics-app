@@ -3,8 +3,17 @@
 What it would take to place a SpeedoPost order from Arena, and what stops that
 being written today.
 
-Nothing in this document is built. The rate adapter and the tracking adapter are
-live; the booking adapter is deliberately absent. This is the reading of their
+> **Status as of 2026-08-18: SpeedoPost is switched off.** Its rate adapter is
+> no longer registered in `lib/rate-adapters/vendors/domestic.index.ts`, so it
+> quotes nothing and no customer can select it. The code is all still in the
+> repo and still compiles; re-enabling is uncommenting the import and the
+> `register` call there, plus the entry in `DOMESTIC_CALCULATOR_VENDORS`
+> (`lib/types.ts`). Tracking stays registered so shipments already moving keep
+> reporting scans. The rest of this document describes the position before that
+> change and is the starting point for whoever builds the booking adapter.
+
+Nothing in this document is built. The tracking adapter is live and the rate
+adapter works but is unregistered; the booking adapter is deliberately absent. This is the reading of their
 booking API that the eventual implementation should start from, plus the list of
 answers we need from SpeedoPost before it can be written honestly.
 
@@ -14,7 +23,7 @@ answers we need from SpeedoPost before it can be written honestly.
 
 | Layer | SpeedoPost | Status |
 | --- | --- | --- |
-| Rates | `lib/rate-adapters/vendors/speedopost/` | Live. Prices B2C and B2B in parallel, merged into the domestic calculator. |
+| Rates | `lib/rate-adapters/vendors/speedopost/` | Built, unregistered. Prices B2C and B2B in parallel; not merged into the domestic calculator while it stays unregistered. |
 | Tracking | `lib/tracking-adapters/vendors/speedopost/` | Live. In the `/track` vendor fan-out. |
 | Booking | none | Not built. `resolveBookingAdapter("speedopost")` returns null. |
 
