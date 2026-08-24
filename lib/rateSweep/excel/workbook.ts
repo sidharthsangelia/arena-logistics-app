@@ -494,7 +494,7 @@ function addCarrierSheet(
 
   let row = headerRow + data.weights.length + 2;
 
-  row = writeSectionLabel(sheet, row, "Service, transit and coverage");
+  row = writeSectionLabel(sheet, row, "Service and coverage");
 
   // Header. Each column starts where its span puts it, so the product name gets
   // two grid columns and the grid above keeps its even rhythm.
@@ -519,7 +519,6 @@ function addCarrierSheet(
     const values: string[] = [
       country.name,
       sample ? sample.serviceName : "Not available",
-      sample && sample.tatDays > 0 ? `${sample.tatDays} days` : "On request",
       sample?.pickupIncluded === true
         ? "Included"
         : sample?.pickupIncluded === false
@@ -574,7 +573,6 @@ function serviceTableLayout(
   const spans: [string, number, boolean][] = [
     ["Destination", 1, false],
     ["Service", 2, false],
-    ["Transit", 1, true],
     ["Pickup", 1, true],
     ["Available", 1, true],
   ];

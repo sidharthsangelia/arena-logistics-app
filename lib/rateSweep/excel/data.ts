@@ -21,6 +21,14 @@
  *
  * Each exclusion is counted and reported back, because a quietly thinner sheet
  * is worse than a thinner sheet somebody was told about.
+ *
+ * ── TRANSIT TIME IS NOT CARRIED AT ALL ──────────────────────────────────────
+ * A rate card states prices and nothing about how long a shipment takes. The
+ * carrier's tatDays is deliberately not selected here and is not on
+ * PricedOption, so the workbook builder has no number it could print even by
+ * accident. Transit is answered on a call, against the specific lane and
+ * booking date, and is never written into a document a customer can hold us to.
+ * Do not add it back.
  */
 
 import "server-only";
@@ -47,7 +55,6 @@ export interface PricedOption {
   vendorId: string | null;
   /** Already marked up for the audience. */
   price: number;
-  tatDays: number;
   dutyPaid: boolean;
   pickupIncluded: boolean | null;
 }
@@ -159,7 +166,6 @@ export async function loadQuotationData(spec: QuotationSpec): Promise<QuotationD
       isComparable: true,
       totalWithTax: true,
       totalWithoutTax: true,
-      tatDays: true,
       dutyMode: true,
       contentType: true,
       pickupIncluded: true,
@@ -211,7 +217,6 @@ export async function loadQuotationData(spec: QuotationSpec): Promise<QuotationD
       serviceName: isCustomer ? brandServiceName(row.productName) : row.productName,
       vendorId: isCustomer ? null : row.vendorId,
       price,
-      tatDays: row.tatDays,
       dutyPaid: row.dutyMode === RateDutyMode.DUTY_PAID,
       pickupIncluded: row.pickupIncluded,
     };

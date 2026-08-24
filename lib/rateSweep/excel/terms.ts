@@ -15,8 +15,11 @@
  *      customs bill goes to the receiver. This surprises people at the door.
  *   3. Surcharges. Fuel moves monthly, remote-area applies on postcodes the
  *      customer thought were ordinary, and neither is in the headline rate.
- *   4. Transit time. Carrier estimates exclude customs. Quoting them without
- *      that qualifier turns an estimate into a promise.
+ *   4. Delivery timing. This document states no transit time at all. A day
+ *      count in writing is read as a promise, and the customs, uplift and
+ *      consolidation delays that break it are outside any carrier's control.
+ *      Timing is given on a call, against the lane and the booking date. Do
+ *      not add a transit column, a day count or an estimate to this workbook.
  *
  * ── WHERE THE LATER CLAUSES CAME FROM ───────────────────────────────────────
  * The surcharge, documentation and back-billing clauses were written against a
@@ -173,18 +176,25 @@ export function surchargesSection(): TermsSection {
   };
 }
 
-/** Transit. Stated as an estimate every time it is stated at all. */
-export function transitSection(): TermsSection {
+/**
+ * Uplift. What can hold a shipment up, and who carries the cost when it does.
+ *
+ * This section deliberately states NO transit time. The workbook quotes prices
+ * only; timing is discussed on a call against the specific lane and booking
+ * date. The clauses that remain are the liability ones: they say a delay does
+ * not change what is payable, which is the protection the old transit section
+ * was really carrying.
+ */
+export function upliftSection(): TermsSection {
   return {
-    heading: "Transit times",
+    heading: "Uplift and delivery",
     clauses: [
-      `Transit times shown are the carrier's published estimates in working days from the date of departure, not from the date of pickup or handover.`,
-      `They EXCLUDE the time taken for export clearance in India and import clearance at the destination, which is outside any carrier's control.`,
-      `They exclude weekends and public holidays at origin, transit and destination.`,
+      `This quotation states prices only. No transit or delivery time is quoted in it, and any indication of timing given separately is an estimate based on the carrier's own published schedule, is not part of this quotation, and is not guaranteed.`,
+      `Timing is in every case subject to export clearance in India and import clearance at the destination, which is outside any carrier's control.`,
       `Uplift is subject to space being available on the carrier's flights. A flight cancellation, a delay, an embargo or a load restriction imposed by an airline is outside our control and does not alter the freight payable.`,
       `Economy and consolidated services depart once a minimum load has been built for the destination, so a light shipment on such a service can wait for the next consolidation.`,
       `Same-day pickup is arranged where the request reaches us before the cut-off for that day. A request after the cut-off is collected on the next working day.`,
-      `Transit times are estimates and are not guaranteed. Arena does not offer money-back service guarantees and does not accept liability for losses arising from late delivery.`,
+      `Arena does not offer money-back service guarantees and does not accept liability for losses arising from late delivery.`,
     ],
   };
 }
@@ -244,7 +254,7 @@ export function allTermsSections(context: TermsContext): TermsSection[] {
     inclusionsSection(),
     exclusionsSection(),
     surchargesSection(),
-    transitSection(),
+    upliftSection(),
     documentationSection(),
     commercialSection(),
   ];
@@ -263,7 +273,7 @@ export const SHEET_FOOTNOTES: string[] = [
   `Chargeable weight = greater of actual and volumetric weight (L×W×H cm ÷ ${INTERNATIONAL_VOLUMETRIC_DIVISOR}). Carriers reweigh and rebill any difference.`,
   `Destination duties, taxes and customs charges are NOT included unless the service is marked Duty Paid. They are payable by the consignee before delivery.`,
   `Carrier surcharges are not included: fuel, demand and currency, remote area, residential, elevated-risk destinations, additional handling for oversize, irregular or non-stackable pieces, and address correction. Most are raised on us after a shipment has moved.`,
-  `Transit times exclude customs clearance and are not guaranteed. Uplift is subject to space on the carrier's flights.`,
+  `No transit or delivery time is quoted in this document. Uplift is subject to space on the carrier's flights, and clearance at both ends is outside any carrier's control.`,
   `Indicative rates, subject to reconfirmation at booking. Full terms are on the "Terms & Conditions" sheet of this workbook.`,
 ];
 

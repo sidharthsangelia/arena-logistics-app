@@ -68,7 +68,6 @@ function option(overrides: Partial<PricedOption> & Pick<PricedOption, "carrier" 
     serviceName: `${overrides.carrier} Express`,
     vendorId: null,
     price: 1000,
-    tatDays: 4,
     dutyPaid: true,
     pickupIncluded: null,
     ...overrides,
@@ -343,6 +342,39 @@ describe("workbook structure", () => {
     // A customer scanning the tab bar looks for the carrier they already use.
     assert.ok(names.indexOf("DHL") < names.indexOf(CUSTOMER_OWN_BRAND_LABEL));
     assert.ok(names.indexOf("FedEx") < names.indexOf(CUSTOMER_OWN_BRAND_LABEL));
+  });
+
+  it("states no transit or delivery time anywhere in the workbook", async () => {
+    // A rate card quotes prices. A day count in writing is read as a promise,
+    // and the customs, uplift and consolidation delays that break it are
+    // outside any carrier's control, so timing is given on a call instead.
+    // This scans every cell of both audiences: the service table used to carry
+    // a "Transit" column, and the carrier's tatDays is no longer loaded at all.
+    for (const spec of [customerSpec(), internalSpec()]) {
+      const workbook = await open(await buildQuotationWorkbook(spec, makeData(spec)));
+
+      for (const sheet of workbook.worksheets) {
+        sheet.eachRow((row, rowNumber) => {
+          row.eachCell((cell, colNumber) => {
+            const value = typeof cell.value === "string" ? cell.value : "";
+            if (!value) return;
+
+            const where = `"${sheet.name}" row ${rowNumber} column ${colNumber}`;
+
+            assert.ok(
+              value.trim().toLowerCase() !== "transit",
+              `${where} is a transit column header`,
+            );
+            // "next working day" is a pickup cut-off, not a transit estimate,
+            // so the count has to be a number for this to fire.
+            assert.ok(
+              !/\b\d+[\s-]*(?:to[\s-]*\d+[\s-]*)?(?:working[\s-]*)?days?\b/i.test(value),
+              `${where} states a day count: ${JSON.stringify(value)}`,
+            );
+          });
+        });
+      }
+    }
   });
 
   it("keeps every logo out of the frozen first column", async () => {
