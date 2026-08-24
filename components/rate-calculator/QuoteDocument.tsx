@@ -439,7 +439,7 @@ const TERMS = [
   "Remote area, dangerous goods, oversized cargo, and restricted commodity surcharges may apply.",
   "Shipment billing will be based on actual chargeable weight confirmed at cargo acceptance.",
   "Cargo insurance is not included unless specifically requested in writing.",
-  "Payment terms: Net 7 days from invoice date unless otherwise agreed.",
+  "Charges are payable in advance of handover, unless credit terms have been agreed in writing.",
   "Subject to Delhi / Gurgaon jurisdiction only.",
 ];
 

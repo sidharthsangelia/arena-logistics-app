@@ -371,6 +371,19 @@ describe("workbook structure", () => {
               !/\b\d+[\s-]*(?:to[\s-]*\d+[\s-]*)?(?:working[\s-]*)?days?\b/i.test(value),
               `${where} states a day count: ${JSON.stringify(value)}`,
             );
+            // Written-out counts too, otherwise "delivery in four days" walks
+            // straight past the check above. The claim-notice periods in the
+            // liability terms are the one legitimate use of a day count on the
+            // page, so a cell carrying one has to be about a claim.
+            const spelled =
+              /\b(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fourteen|fifteen|twenty|thirty|forty[\s-]?five|sixty|ninety)[\s-]+(?:working[\s-]+)?days?\b/i;
+            if (spelled.test(value)) {
+              assert.match(
+                value,
+                /claim|notif|notice/i,
+                `${where} states a day count that is not a claim period: ${JSON.stringify(value)}`,
+              );
+            }
           });
         });
       }
@@ -545,6 +558,10 @@ describe("terms and disclaimers", () => {
     const permitted = new Set([
       String(INTERNATIONAL_VOLUMETRIC_DIVISOR),
       SWEEP_ORIGIN.pincode,
+      // Statutory citations. A year in "the Carriage by Air Act, 1972" names the
+      // instrument the liability cap is measured against; it is not a figure
+      // anybody can be billed. Add to this list only for another statute.
+      "1972",
     ]);
 
     for (const section of sections) {

@@ -56,6 +56,7 @@ import {
   optionKey,
 } from "./data";
 import type { QuotationSpec } from "./spec";
+import { getInvoiceIssuer, issuerIsConfigured } from "@/lib/invoices/tax/config";
 
 /** Logo key per carrier code. Missing means the Arena mark is used. */
 const CARRIER_LOGO_KEY: Record<string, string> = {
@@ -212,9 +213,18 @@ function addCoverSheet(
     row += 2;
   }
 
+  // Who the customer is actually contracting with. A terms page that limits
+  // liability and takes a lien, issued by a trade name that is not a registered
+  // entity, is the weakest version of both. Falls back to the trade name alone
+  // where the issuer block has not been configured yet.
+  const issuer = getInvoiceIssuer();
+  const issuedBy = issuerIsConfigured()
+    ? `${issuer.legalName} (trading as Arena Cargo Logistics)`
+    : "Arena Cargo Logistics";
+
   const fields: [string, string][] = [
     ["Prepared for", spec.preparedFor || "—"],
-    ["Prepared by", "Arena Cargo Logistics"],
+    ["Issued by", issuedBy],
     ["Date of issue", context.capturedOn],
     ["Valid until", context.validUntil],
     ["Origin", `${SWEEP_ORIGIN.city} (PIN ${SWEEP_ORIGIN.pincode}), India`],
@@ -692,8 +702,14 @@ function addTermsSheet(
 
   sheet.mergeCells(row, CONTENT_COL, row, TERMS_LAST_COL);
   const closing = sheet.getCell(row, CONTENT_COL);
+  // The GSTIN belongs here rather than in a clause: it identifies the entity
+  // the limits and the lien above belong to, and the clause text is held to no
+  // figures at all.
+  const closingIssuer = getInvoiceIssuer();
   const closingText =
-    "Arena Cargo Logistics · " +
+    (issuerIsConfigured()
+      ? `${closingIssuer.legalName} (Arena Cargo Logistics) · GSTIN ${closingIssuer.gstin} · `
+      : "Arena Cargo Logistics · ") +
     `${SWEEP_ORIGIN.line1}, ${SWEEP_ORIGIN.city} ${SWEEP_ORIGIN.pincode}, India · ` +
     "Questions about any clause on this page are welcome before you book.";
   closing.value = closingText;
@@ -1148,6 +1164,10 @@ function termsContext(spec: QuotationSpec, data: QuotationData): TermsContext {
     capturedOn: formatDate(data.capturedAt),
     validUntil: formatDate(validUntil),
     markupApplied: spec.audience === "CUSTOMER",
+    // Only where the issuer block has been filled in. A terms page naming
+    // "REPLACE ME PRIVATE LIMITED" as the contracting company is worse than one
+    // naming nobody, so an unconfigured environment omits the clause entirely.
+    issuerLegalName: issuerIsConfigured() ? getInvoiceIssuer().legalName : undefined,
   };
 }
 
