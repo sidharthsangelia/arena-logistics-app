@@ -375,7 +375,7 @@ export function buildInvoiceForShipment(
   // at least 1: a box row that claims zero boxes would print a zero weight and
   // a zero value against real cargo.
   const packages: PackageSnapshot[] = shipment.packages.map((box) => ({
-    description: box.description?.trim() || "Package",
+    description: box.description?.trim() || "Piece",
     quantity: Math.max(1, box.quantity ?? 1),
     lengthCm: toNumber(box.lengthCm),
     widthCm: toNumber(box.widthCm),

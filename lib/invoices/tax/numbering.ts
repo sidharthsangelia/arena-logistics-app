@@ -33,6 +33,23 @@
  * ALLOCATE LATE. Nothing calls this until the invoice is genuinely about to be
  * issued. Allocating at booking time and rendering afterwards would mean a
  * render that fails every retry leaves a numbered document that does not exist.
+ *
+ * ── ONE SERIES FOR THE WHOLE BUSINESS ───────────────────────────────────────
+ * Booking invoices and manually raised invoices draw from the SAME counter and
+ * print the SAME prefix. They used to be two series, ARN and ARM, each with its
+ * own counter: that was legal, but it meant ARN/26-27/00001 and ARM/26-27/00001
+ * both existed, and "invoice one" named two different documents. Two people
+ * reading two invoice books is the confusion this now removes.
+ *
+ * Credit notes are the one deliberate exception. They keep their own counter,
+ * shared by both paths, because a credit note is not an invoice and GSTR-1
+ * reports them separately. One invoice series, one credit note series, and
+ * nothing keyed on where the document was raised.
+ *
+ * A consequence worth stating: any caller that allocates from the shared
+ * counter holds its row lock until the caller's transaction commits, and every
+ * other invoice in the business waits behind it. Allocate, then commit, then do
+ * the slow work. See the note on transaction length above.
  */
 
 import "server-only";
@@ -46,7 +63,7 @@ import {
   INVOICE_NUMBER_PAD,
   INVOICE_NUMBER_PREFIX,
 } from "./config";
-import { financialYearOf } from "./gst";
+import { financialYearOf, istParts } from "./gst";
 
 export interface AllocatedNumber {
   invoiceNumber: string;
@@ -55,23 +72,48 @@ export interface AllocatedNumber {
 }
 
 /**
- * Format: ARN/26-27/00042
+ * Format: ARN082600047 — prefix, then MMYY, then the running number.
  *
- * Fifteen characters, inside the sixteen GST allows. The financial year is in
- * the number itself rather than only in a column, so a printed invoice is
- * self-describing and two invoices from different years can never look alike.
+ * Twelve characters, well inside the sixteen GST allows, and plain: no slashes,
+ * so it survives a filename, a URL, a spreadsheet cell and a phone call without
+ * anything having to escape it.
+ *
+ * ── WHY MONTH AND YEAR, NOT THE FINANCIAL YEAR ──────────────────────────────
+ * The old format carried "26-27". Six characters to say a thing the invoice
+ * date already says, and it located a document no better than the year alone.
+ * MMYY is two characters shorter and strictly more informative: it says WHICH
+ * MONTH the document belongs to, which is the unit a GSTR-1 return is filed in
+ * and the unit anybody actually looks for an invoice by.
+ *
+ * The financial year has not gone anywhere. It is still stored on the row, it
+ * is still what the counter is keyed on, and it is still what the document is
+ * filed under. It is simply not printed twice.
+ *
+ * ── THE SEQUENCE DOES NOT RESET WITH THE MONTH ──────────────────────────────
+ * MMYY is a label, not a counter key. The running number climbs through the
+ * whole financial year and resets only in April, so the series stays ONE
+ * consecutive run per year rather than twelve. That is the version of "a
+ * consecutive serial number" that is simplest to demonstrate at assessment: a
+ * monthly reset is equally legal but turns one series into twelve, and makes
+ * "invoice 12" a number that means nothing without its month.
+ *
+ * So April 2026 opens at ARN042600001 and the September invoice after it is
+ * ARN092600138, not ARN092600001.
  */
 export function formatInvoiceNumber(
-  docType: TaxDocType,
-  financialYear: string,
+  prefix: string,
+  issueDate: Date,
   sequence: number,
 ): string {
-  const prefix =
-    docType === TaxDocType.CREDIT_NOTE
-      ? CREDIT_NOTE_NUMBER_PREFIX
-      : INVOICE_NUMBER_PREFIX;
+  const { year, month } = istParts(issueDate);
+  const mmyy = `${String(month).padStart(2, "0")}${String(year % 100).padStart(2, "0")}`;
 
-  return `${prefix}/${financialYear}/${String(sequence).padStart(INVOICE_NUMBER_PAD, "0")}`;
+  return `${prefix}${mmyy}${String(sequence).padStart(INVOICE_NUMBER_PAD, "0")}`;
+}
+
+/** The printed prefix for a document type. Booking and manual share both. */
+export function prefixFor(isCreditNote: boolean): string {
+  return isCreditNote ? CREDIT_NOTE_NUMBER_PREFIX : INVOICE_NUMBER_PREFIX;
 }
 
 /**
@@ -91,34 +133,48 @@ export async function allocateInvoiceNumber(
   docType: TaxDocType,
   issueDate: Date,
 ): Promise<AllocatedNumber> {
-  const prefix =
-    docType === TaxDocType.CREDIT_NOTE
-      ? CREDIT_NOTE_NUMBER_PREFIX
-      : INVOICE_NUMBER_PREFIX;
-
-  return allocateSeriesNumber(tx, docType, prefix, issueDate);
+  return allocateSeriesNumber(
+    tx,
+    seriesFor(docType === TaxDocType.CREDIT_NOTE),
+    issueDate,
+  );
 }
 
 /**
- * The counter itself, for any series.
+ * The counter key for a document type. TWO keys exist in the whole codebase.
  *
- * Booking invoices key on TaxDocType; manual invoices key on their own
- * MANUAL_TAX_INVOICE and MANUAL_CREDIT_NOTE (lib/invoices/manual/config.ts).
- * They are separate series on purpose: GST wants each series internally
- * consecutive, not one series for the whole business, and keeping them apart
- * means a manual draft abandoned at 6pm cannot leave a hole in the series live
- * bookings are writing into.
+ * These are the literal strings "TAX_INVOICE" and "CREDIT_NOTE", which are also
+ * the TaxDocType member names. That is not a coincidence and it must not be
+ * "tidied": the TAX_INVOICE row is the counter booking invoices have been
+ * writing into since the first one was issued, and naming it anything else here
+ * would start a fresh count at 1 and re-issue numbers that are already on
+ * documents customers hold.
+ */
+export function seriesFor(isCreditNote: boolean): string {
+  return isCreditNote
+    ? TaxDocType.CREDIT_NOTE
+    : TaxDocType.TAX_INVOICE;
+}
+
+/**
+ * The counter itself.
+ *
+ * Both invoice paths call this with the same two series keys, so a booking
+ * invoice and a manually raised one are consecutive entries in one book. See
+ * the module header for why that replaced the two-series arrangement.
  *
  * `series` is a free string rather than an enum because InvoiceCounter is keyed
- * on `(series, financialYear)` and creates rows on demand, so a new series needs
- * nothing but a name nothing else uses.
+ * on `(series, financialYear)` and creates rows on demand. Pass a key from
+ * seriesFor() rather than inventing one: a name nothing else uses starts a new
+ * count at 1, which on a tax invoice means re-issuing a number.
  *
- * MUST be called inside a transaction, for the reason in the module header.
+ * MUST be called inside a transaction, for the reason in the module header, and
+ * that transaction must commit promptly. Every invoice in the business, from
+ * either path, now queues behind this one row.
  */
 export async function allocateSeriesNumber(
   tx: Prisma.TransactionClient,
   series: string,
-  prefix: string,
   issueDate: Date,
 ): Promise<AllocatedNumber> {
   const financialYear = financialYearOf(issueDate);
@@ -148,10 +204,46 @@ export async function allocateSeriesNumber(
   }
 
   return {
-    invoiceNumber: `${prefix}/${financialYear}/${String(sequence).padStart(INVOICE_NUMBER_PAD, "0")}`,
+    invoiceNumber: formatInvoiceNumber(
+      prefixFor(series === TaxDocType.CREDIT_NOTE),
+      issueDate,
+      sequence,
+    ),
     financialYear,
     sequence,
   };
+}
+
+/**
+ * Hand a number back after the work it was taken for failed.
+ *
+ * Only ever succeeds when ours is still the highest number in the series, which
+ * is the ordinary case: the render that failed took a second, and most of the
+ * time nothing else asked for a number in that second. When something did, the
+ * decrement matches nothing and the number stays spent, because reclaiming it
+ * then would hand the SAME number to two documents, and a duplicated invoice
+ * number is far worse than a missing one.
+ *
+ * Deliberately best-effort and deliberately silent about failing. The caller is
+ * already on an error path and a failed reclaim must not replace the real error
+ * with a confusing one.
+ */
+export async function releaseSeriesNumber(
+  tx: Prisma.TransactionClient,
+  series: string,
+  financialYear: string,
+  sequence: number,
+): Promise<boolean> {
+  const affected = await tx.$executeRaw`
+    UPDATE "InvoiceCounter"
+       SET "lastNumber" = "lastNumber" - 1,
+           "updatedAt"  = now()
+     WHERE "series" = ${series}
+       AND "financialYear" = ${financialYear}
+       AND "lastNumber" = ${sequence}
+  `;
+
+  return affected > 0;
 }
 
 export class InvoiceNumberingError extends Error {

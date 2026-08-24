@@ -217,11 +217,17 @@ export function issuerStateMatchesGstin(
 // Document presentation
 // ---------------------------------------------------------------------------
 
-/** Prefix on every tax invoice serial, e.g. ARN/26-27/00042. */
+/**
+ * Prefix on every tax invoice serial, e.g. ARN082600047.
+ *
+ * Every tax invoice: booked or raised by hand. There is no second prefix. See
+ * lib/invoices/tax/numbering.ts for the format and for why the two series were
+ * merged into one.
+ */
 export const INVOICE_NUMBER_PREFIX = "ARN";
-/** Prefix on every credit note serial, when that is built. */
+/** Prefix on every credit note serial, from either path. e.g. ARNCN082600003. */
 export const CREDIT_NOTE_NUMBER_PREFIX = "ARNCN";
-/** Zero-padded width of the per-year running number. */
+/** Zero-padded width of the per-financial-year running number. */
 export const INVOICE_NUMBER_PAD = 5;
 
 /**

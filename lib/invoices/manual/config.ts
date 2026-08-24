@@ -31,28 +31,24 @@ import {
 // Numbering
 // ---------------------------------------------------------------------------
 //
-// Its own series, deliberately not the booking invoices' ARN. GST wants each
-// series internally consecutive; it does not want one series for the whole
-// business. Separate series keep the two independently auditable, and mean a
-// draft abandoned at 6pm cannot leave a hole in the series live bookings are
-// writing into. See manualInvoicing.md §2.
+// There is no manual series. A manually raised invoice takes its number from
+// the same counter as a booking invoice and prints the same ARN prefix, so the
+// two are consecutive entries in one book.
+//
+// It was its own ARM series until 2026-08-24, on the reasoning that GST wants
+// each series internally consecutive rather than one series per business. True,
+// but it also meant ARN/26-27/00001 and ARM/26-27/00001 both existed and
+// "invoice one" named two documents. One book is worth more than two auditable
+// halves. See lib/invoices/tax/numbering.ts for the whole rule.
+//
+// ARM/26-27/00001 was issued before the change and keeps its number: an issued
+// tax invoice is never renumbered. Its old MANUAL_TAX_INVOICE counter row is
+// left in the table as the record of it.
 
-/** Series key stored in InvoiceCounter.series. Never printed. */
-export const MANUAL_INVOICE_SERIES = "MANUAL_TAX_INVOICE";
-export const MANUAL_CREDIT_NOTE_SERIES = "MANUAL_CREDIT_NOTE";
-
-/** Printed prefix, e.g. ARM/26-27/00042. */
-export const MANUAL_INVOICE_PREFIX = "ARM";
-export const MANUAL_CREDIT_NOTE_PREFIX = "ARMCN";
-
-export function manualSeriesFor(docType: ManualInvoiceDocType): {
-  series: string;
-  prefix: string;
-} {
-  return docType === ManualInvoiceDocType.CREDIT_NOTE
-    ? { series: MANUAL_CREDIT_NOTE_SERIES, prefix: MANUAL_CREDIT_NOTE_PREFIX }
-    : { series: MANUAL_INVOICE_SERIES, prefix: MANUAL_INVOICE_PREFIX };
-}
+// Nothing is exported from here for it. The issue path calls seriesFor() in
+// lib/invoices/tax/numbering.ts directly, which is "server-only" and cannot be
+// re-exported through this module: this one is imported by client components
+// and pulling the numbering module in would drag the server bundle with it.
 
 // ---------------------------------------------------------------------------
 // Payment terms

@@ -102,7 +102,7 @@ function internationalSample(): InvoiceDocumentData {
   report("international", money, 23200);
 
   return {
-    invoiceNumber: "ARN/26-27/00042",
+    invoiceNumber: "ARN082600047",
     docType: "TAX_INVOICE",
     issueDate: new Date("2026-07-31T06:30:00Z").toISOString(),
     financialYear: "26-27",
@@ -259,7 +259,7 @@ function domesticSample(): InvoiceDocumentData {
   report("domestic", money, 742.5);
 
   return {
-    invoiceNumber: "ARN/26-27/00043",
+    invoiceNumber: "ARN082600048",
     docType: "TAX_INVOICE",
     issueDate: new Date("2026-08-01T09:10:00Z").toISOString(),
     financialYear: "26-27",
@@ -360,14 +360,24 @@ async function main() {
   );
 
   const samples: Array<[string, InvoiceDocumentData]> = [
-    ["./sample-invoice.pdf", internationalSample()],
-    ["./sample-invoice-domestic.pdf", domesticSample()],
+    ["sample-invoice", internationalSample()],
+    ["sample-invoice-domestic", domesticSample()],
   ];
 
-  for (const [out, data] of samples) {
-    const buffer = await renderToBuffer(<TaxInvoiceDocument data={data} />);
-    writeFileSync(out, buffer);
-    console.log(`\nwrote ${out} (${buffer.length} bytes)`);
+  // Both variants every time. A change that reads well in the grid can leave a
+  // stranded hairline or a doubled rule in the arena one, and the only way that
+  // is ever noticed is by having both on disk to open side by side.
+  const variants = ["grid", "arena"] as const;
+
+  for (const [name, data] of samples) {
+    for (const variant of variants) {
+      const out = `./${name}-${variant}.pdf`;
+      const buffer = await renderToBuffer(
+        <TaxInvoiceDocument data={data} variant={variant} />,
+      );
+      writeFileSync(out, buffer);
+      console.log(`\nwrote ${out} (${buffer.length} bytes)`);
+    }
   }
 }
 

@@ -19,6 +19,7 @@ import "server-only";
 import { renderToBuffer } from "@react-pdf/renderer";
 import { UTApi } from "uploadthing/server";
 
+import { invoiceVariant } from "../../pdf/variant";
 import type { ManualInvoiceDocumentData } from "../types";
 import {
   ManualInvoiceDocument,
@@ -28,13 +29,19 @@ import {
 /**
  * Which template issued invoices are rendered with.
  *
- * One constant rather than a per-invoice column: two invoices to the same
- * customer in two different layouts looks like two different companies. Change
- * it here and every invoice issued after that point follows; the ones already
- * issued keep the PDF they were issued with, which is the correct behaviour for
- * a document somebody is holding.
+ * Now read from the one global setting both invoice documents follow rather
+ * than declared here, because a manual invoice and the booking invoice for the
+ * same customer in two different layouts looks like two different companies.
+ * See lib/invoices/pdf/variant.ts.
+ *
+ * Read per call rather than captured at module load, so a deployment that
+ * changes the setting takes effect without a cold start and a test can set it
+ * around a render. Invoices already issued keep the PDF they were issued with,
+ * which is the correct behaviour for a document somebody is holding.
  */
-export const MANUAL_INVOICE_VARIANT: ManualInvoiceVariant = "arena";
+export function manualInvoiceVariant(): ManualInvoiceVariant {
+  return invoiceVariant();
+}
 
 export interface RenderedManualInvoice {
   buffer: Buffer;
@@ -42,9 +49,9 @@ export interface RenderedManualInvoice {
 }
 
 /**
- * A number like ARM/26-27/00042 contains slashes, which are not something to
- * put in a filename. The dashes read fine and the number is still recoverable
- * by eye, which is what matters when a customer emails asking about a file.
+ * Invoice numbers are plain alphanumerics now (ARN082600047), so this is a
+ * no-op on anything issued today. It is kept because the numbers issued before
+ * 2026-08-24 carry slashes, and those rows are still re-downloaded by number.
  */
 export function manualInvoiceFileName(invoiceNumber: string): string {
   const safe = invoiceNumber
@@ -55,7 +62,7 @@ export function manualInvoiceFileName(invoiceNumber: string): string {
 
 export async function renderManualInvoicePdf(
   data: ManualInvoiceDocumentData,
-  variant: ManualInvoiceVariant = MANUAL_INVOICE_VARIANT,
+  variant: ManualInvoiceVariant = manualInvoiceVariant(),
 ): Promise<RenderedManualInvoice> {
   const buffer = await renderToBuffer(
     <ManualInvoiceDocument data={data} variant={variant} />,

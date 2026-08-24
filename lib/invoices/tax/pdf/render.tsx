@@ -19,6 +19,7 @@ import "server-only";
 import { renderToBuffer } from "@react-pdf/renderer";
 import { UTApi } from "uploadthing/server";
 
+import { type InvoiceVariant, invoiceVariant } from "../../pdf/variant";
 import type { InvoiceDocumentData } from "../types";
 import { TaxInvoiceDocument } from "./TaxInvoiceDocument";
 
@@ -28,9 +29,9 @@ export interface RenderedInvoice {
 }
 
 /**
- * A number like ARN/26-27/00042 contains slashes, which are not something to
- * put in a filename. The dashes read fine and the number is still recoverable
- * by eye, which is what matters when a customer emails asking about a file.
+ * Invoice numbers are plain alphanumerics now (ARN082600047), so this is a
+ * no-op on anything issued today. It is kept because the numbers issued before
+ * 2026-08-24 carry slashes, and those rows are still re-downloaded by number.
  */
 export function invoiceFileName(
   invoiceNumber: string,
@@ -40,10 +41,19 @@ export function invoiceFileName(
   return shipmentNumber ? `${safe}-${shipmentNumber}.pdf` : `${safe}.pdf`;
 }
 
+/**
+ * The variant is taken from the one global setting both invoice documents
+ * follow rather than passed in by the generation job, which has no admin
+ * present to choose and no business making the choice. Overridable only so a
+ * script can render both for comparison. See lib/invoices/pdf/variant.ts.
+ */
 export async function renderInvoicePdf(
   data: InvoiceDocumentData,
+  variant: InvoiceVariant = invoiceVariant(),
 ): Promise<RenderedInvoice> {
-  const buffer = await renderToBuffer(<TaxInvoiceDocument data={data} />);
+  const buffer = await renderToBuffer(
+    <TaxInvoiceDocument data={data} variant={variant} />,
+  );
 
   if (!buffer?.length) {
     // renderToBuffer resolving with nothing means the template produced an

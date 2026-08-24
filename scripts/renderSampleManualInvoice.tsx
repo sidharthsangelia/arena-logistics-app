@@ -231,7 +231,7 @@ function assemble(opts: {
 // ---------------------------------------------------------------------------
 
 const EXPORT_SAMPLE = assemble({
-  invoiceNumber: "ARM/26-27/00042",
+  invoiceNumber: "ARN082600049",
   mode: ShipmentMode.INTERNATIONAL,
   placeOfSupplyCode: "07",
   placeOfSupplyName: "Delhi",
@@ -346,7 +346,7 @@ const EXPORT_SAMPLE = assemble({
 // ---------------------------------------------------------------------------
 
 const DOMESTIC_SAMPLE = assemble({
-  invoiceNumber: "ARM/26-27/00043",
+  invoiceNumber: "ARN082600050",
   mode: ShipmentMode.DOMESTIC,
   placeOfSupplyCode: "06",
   placeOfSupplyName: "Haryana",

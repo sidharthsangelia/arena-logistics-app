@@ -57,34 +57,47 @@ import {
 
 import { ManualInvoiceDocType, TaxMode } from "@/generated/prisma";
 
+import {
+  Band,
+  C,
+  Chip,
+  Fact,
+  type InvoiceVariant,
+  PaymentPanel,
+  TotalsRow,
+  chunked,
+  money,
+  splitLegalName,
+  t,
+  trim,
+} from "../../pdf/theme";
+import { DEFAULT_INVOICE_VARIANT } from "../../pdf/variant";
 import { ARENA_LOGO_DATA_URI } from "../../tax/pdf/logo";
 import type {
   ManualConsignmentSnapshot,
   ManualInvoiceDocumentData,
 } from "../types";
 
-export type ManualInvoiceVariant = "arena" | "grid";
+/**
+ * Kept as an alias rather than a second definition: the variant is a property
+ * of the house style, which both invoice documents share, and letting this one
+ * drift from the shared type is exactly how the two templates end up offering
+ * different sets of formats.
+ */
+export type ManualInvoiceVariant = InvoiceVariant;
 
 // ---------------------------------------------------------------------------
 // Tokens
 // ---------------------------------------------------------------------------
 
-const C = {
-  ink: "#101828",
-  muted: "#667085",
-  faint: "#98A2B3",
-  rule: "#E4E7EC",
-  ruleStrong: "#98A2B3",
-  panel: "#F8FAFB",
-  alert: "#B42318",
-  /** The grid variant's banded heads. Structural, not decorative. */
-  band: "#1D4E89",
-  bandInk: "#FFFFFF",
-  gridRule: "#C6CDD5",
-  gridZebra: "#F4F6F8",
-};
-
-/** Charges table columns. Shared by the head and the rows in both variants. */
+/**
+ * Charges table columns. Shared by the head and the rows in both variants.
+ *
+ * Local because they are sized against THIS document's content: a manual
+ * invoice carries quantity and rate columns the booking invoice has no use
+ * for. The palette, the shapes and the formatting all come from the shared
+ * theme, which is what keeps the two looking like one company.
+ */
 const COL = {
   sac: 44,
   qty: 30,
@@ -131,61 +144,10 @@ const s = StyleSheet.create({
     marginTop: 4,
   },
 
-  // ── bands ──
-  band: { marginTop: 10 },
-  bandHead: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-end",
-    marginBottom: 4,
-  },
-  label: { fontSize: 7, color: C.muted, letterSpacing: 1.1 },
-  labelNote: { fontSize: 7, color: C.faint, letterSpacing: 0.4 },
-  rule: { borderTopWidth: 0.5, borderTopColor: C.rule },
-
-  // The grid variant's filled section head.
-  gridBandHead: {
-    backgroundColor: C.band,
-    paddingVertical: 3,
-    paddingHorizontal: 6,
-    marginBottom: 0,
-  },
-  gridBandLabel: {
-    fontSize: 7,
-    color: C.bandInk,
-    letterSpacing: 1.1,
-    fontFamily: "Helvetica-Bold",
-  },
-
-  // ── party panel ──
-  panel: {
-    marginTop: 8,
-    flexDirection: "row",
-    backgroundColor: C.panel,
-    borderWidth: 0.5,
-    borderColor: C.rule,
-    borderRadius: 4,
-    paddingVertical: 9,
-    paddingHorizontal: 13,
-  },
-  panelGrid: {
-    marginTop: 0,
-    flexDirection: "row",
-    borderWidth: 0.5,
-    borderColor: C.gridRule,
-    borderRadius: 0,
-    paddingVertical: 8,
-    paddingHorizontal: 8,
-  },
-  panelColumn: { width: "50%", paddingRight: 12 },
-  panelLabel: { fontSize: 6.5, color: C.faint, letterSpacing: 0.9, marginBottom: 4 },
+  // ── party panel content ──
+  // Sizing only. The panel itself, its label and its fact lines are shared.
   partyName: { fontSize: 9.5, fontFamily: "Helvetica-Bold", lineHeight: 1.3 },
   detail: { fontSize: 7.5, color: C.muted, lineHeight: 1.5 },
-
-  factLine: { flexDirection: "row", marginTop: 2 },
-  factLabel: { width: 62, fontSize: 7, color: C.faint },
-  factValue: { flex: 1, fontSize: 7.5, lineHeight: 1.35 },
-  factValueStrong: { flex: 1, fontSize: 7.5, fontFamily: "Helvetica-Bold" },
 
   // ── consignments ──
   consignment: { marginTop: 7 },
@@ -195,9 +157,6 @@ const s = StyleSheet.create({
   consignmentRoute: { fontSize: 8, marginLeft: 6, color: C.ink },
   consignmentNet: { marginLeft: "auto", fontSize: 8.5, fontFamily: "Helvetica-Bold" },
   consignmentFacts: { flexDirection: "row", flexWrap: "wrap", marginLeft: 16, marginTop: 2 },
-  chip: { paddingRight: 16, paddingTop: 2 },
-  chipLabel: { fontSize: 6, color: C.faint, letterSpacing: 0.8 },
-  chipValue: { fontSize: 7.5, lineHeight: 1.3 },
 
   consignmentGrid: {
     marginTop: 0,
@@ -260,9 +219,6 @@ const s = StyleSheet.create({
     paddingHorizontal: 13,
   },
   totalsPanelGrid: { borderRadius: 0, borderColor: C.gridRule, backgroundColor: "#FFFFFF" },
-  totalsRow: { flexDirection: "row", justifyContent: "space-between", marginBottom: 3 },
-  totalsLabel: { fontSize: 8, color: C.muted },
-  totalsValue: { fontSize: 8, textAlign: "right" },
   totalsRule: {
     borderTopWidth: 0.75,
     borderTopColor: C.ruleStrong,
@@ -275,7 +231,6 @@ const s = StyleSheet.create({
   words: { fontSize: 7, color: C.muted, marginTop: 5, textAlign: "right" },
   taxNote: { fontSize: 7.5, color: C.muted, marginTop: 6, textAlign: "right", lineHeight: 1.4 },
 
-  bankLine: { fontSize: 7.5, color: C.muted, lineHeight: 1.5 },
   termLine: { fontSize: 7, color: C.muted, lineHeight: 1.5, marginTop: 2 },
 
   signatureRow: {
@@ -324,26 +279,6 @@ const s = StyleSheet.create({
 // Formatting
 // ---------------------------------------------------------------------------
 
-/** 1,23,456.78 for INR; plain grouping for everything else. */
-function money(amount: number, currency: string): string {
-  const negative = amount < 0;
-  const fixed = Math.abs(amount).toFixed(2);
-  const [whole, fraction] = fixed.split(".");
-
-  const grouped =
-    currency === "INR"
-      ? (() => {
-          const last3 = whole.slice(-3);
-          const rest = whole.slice(0, -3);
-          return rest
-            ? `${rest.replace(/\B(?=(\d{2})+(?!\d))/g, ",")},${last3}`
-            : last3;
-        })()
-      : whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-
-  return `${negative ? "-" : ""}${grouped}.${fraction}`;
-}
-
 function formatDate(iso: string | null): string | null {
   if (!iso) return null;
   return new Intl.DateTimeFormat("en-GB", {
@@ -352,22 +287,6 @@ function formatDate(iso: string | null): string | null {
     year: "numeric",
     timeZone: "Asia/Kolkata",
   }).format(new Date(iso));
-}
-
-function trim(value: number): string {
-  return Number(value.toFixed(2)).toString();
-}
-
-/**
- * An IRN is 64 unbroken hex characters, and @react-pdf/renderer will not break
- * a word without a break opportunity in it: left alone it runs straight out of
- * the panel and off the page. Grouping into eights inserts the break
- * opportunities and is also how the portal displays it, so it stays checkable
- * against the source by eye.
- */
-function chunked(value: string | null, size = 8): string | null {
-  if (!value) return null;
-  return value.replace(new RegExp(`(.{${size}})`, "g"), "$1 ").trim();
 }
 
 /**
@@ -411,24 +330,6 @@ function route(c: ManualConsignmentSnapshot): string | null {
 
   if (from && to) return `${from} to ${to}`;
   return from ?? to ?? null;
-}
-
-function splitLegalName(name: string): [string] | [string, string] {
-  const words = name.trim().split(/\s+/);
-  if (words.length < 2) return [name.trim()];
-
-  let bestIndex = 1;
-  let bestDelta = Infinity;
-  for (let i = 1; i < words.length; i += 1) {
-    const delta = Math.abs(
-      words.slice(0, i).join(" ").length - words.slice(i).join(" ").length,
-    );
-    if (delta < bestDelta) {
-      bestDelta = delta;
-      bestIndex = i;
-    }
-  }
-  return [words.slice(0, bestIndex).join(" "), words.slice(bestIndex).join(" ")];
 }
 
 /**
@@ -475,89 +376,12 @@ function inWords(value: number): string {
 }
 
 // ---------------------------------------------------------------------------
-// Pieces
-// ---------------------------------------------------------------------------
-
-function Band({
-  label,
-  note,
-  variant,
-  keepTogether,
-  children,
-}: {
-  label: string;
-  note?: string | null;
-  variant: ManualInvoiceVariant;
-  keepTogether?: boolean;
-  children: React.ReactNode;
-}) {
-  if (variant === "grid") {
-    return (
-      <View style={s.band} wrap={!keepTogether}>
-        <View style={s.gridBandHead}>
-          <Text style={s.gridBandLabel}>{label.toUpperCase()}</Text>
-        </View>
-        {children}
-      </View>
-    );
-  }
-
-  return (
-    <View style={s.band} wrap={!keepTogether}>
-      <View style={s.bandHead}>
-        <Text style={s.label}>{label.toUpperCase()}</Text>
-        {note ? <Text style={s.labelNote}>{note}</Text> : null}
-      </View>
-      <View style={s.rule} />
-      {children}
-    </View>
-  );
-}
-
-function Fact({
-  label,
-  value,
-  strong,
-}: {
-  label: string;
-  value: string | null;
-  strong?: boolean;
-}) {
-  if (!value) return null;
-  return (
-    <View style={s.factLine}>
-      <Text style={s.factLabel}>{label}</Text>
-      <Text style={strong ? s.factValueStrong : s.factValue}>{value}</Text>
-    </View>
-  );
-}
-
-function Chip({ label, value }: { label: string; value: string | null }) {
-  if (!value) return null;
-  return (
-    <View style={s.chip}>
-      <Text style={s.chipLabel}>{label.toUpperCase()}</Text>
-      <Text style={s.chipValue}>{value}</Text>
-    </View>
-  );
-}
-
-function TotalsRow({ label, value }: { label: string; value: string }) {
-  return (
-    <View style={s.totalsRow}>
-      <Text style={s.totalsLabel}>{label}</Text>
-      <Text style={s.totalsValue}>{value}</Text>
-    </View>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Document
 // ---------------------------------------------------------------------------
 
 export function ManualInvoiceDocument({
   data,
-  variant = "arena",
+  variant = DEFAULT_INVOICE_VARIANT,
 }: {
   data: ManualInvoiceDocumentData;
   variant?: ManualInvoiceVariant;
@@ -581,6 +405,23 @@ export function ManualInvoiceDocument({
   // no rate. That figure multiplies out to nothing on the page, and a number a
   // reader cannot reconcile is worse than a column that is not there.
   const showRate = taxedLines.some((l) => l.rate !== null && l.rate > 0);
+
+  // The rate is named on the totals rows only when the whole invoice is at ONE
+  // rate, which is the ordinary case. A manual invoice can mix rates across its
+  // lines, and "CGST @ 9%" over a figure that is 9% of some lines and 2.5% of
+  // others is a number that does not reconcile. The per-line GST column carries
+  // the rates in that case, which is where a mixed-rate invoice has to be read
+  // from anyway.
+  const rates = new Set(
+    taxedLines.filter((l) => l.ratePercent > 0).map((l) => l.ratePercent),
+  );
+  const singleRate = rates.size === 1 ? [...rates][0] : null;
+
+  const taxLabel = (head: "CGST" | "SGST" | "IGST") => {
+    if (singleRate === null) return head;
+    const rate = head === "IGST" ? singleRate : singleRate / 2;
+    return `${head} @ ${trim(rate)}%`;
+  };
   const showQty = showRate && taxedLines.some((l) => l.quantity !== 1);
 
   const sellerAddress = [
@@ -641,9 +482,9 @@ export function ManualInvoiceDocument({
 
         {/* ── who and what ─────────────────────────────────────────────── */}
         <Band label="Invoice details" variant={variant} keepTogether>
-          <View style={grid ? s.panelGrid : s.panel}>
-            <View style={s.panelColumn}>
-              <Text style={s.panelLabel}>BILLED TO</Text>
+          <View style={grid ? t.panelGrid : t.panel}>
+            <View style={t.panelColumn}>
+              <Text style={t.panelLabel}>BILLED TO</Text>
               <Text style={s.partyName}>{buyer.legalName}</Text>
               {buyer.tradeName ? (
                 <Text style={s.detail}>{buyer.tradeName}</Text>
@@ -677,8 +518,8 @@ export function ManualInvoiceDocument({
               <Fact label="Customer code" value={buyer.customerCode} />
             </View>
 
-            <View style={s.panelColumn}>
-              <Text style={s.panelLabel}>INVOICE</Text>
+            <View style={t.panelColumn}>
+              <Text style={t.panelLabel}>INVOICE</Text>
               <Fact label="Reference" value={data.reference} />
               <Fact label="Terms" value={data.paymentTermsLabel} />
               <Fact label="Category" value={data.csbLabel} />
@@ -918,24 +759,19 @@ export function ManualInvoiceDocument({
         {/* ── terms and total ──────────────────────────────────────────── */}
         <View style={s.bottomRow} wrap={false}>
           <View style={s.bottomLeft}>
-            {seller.bank ? (
-              <>
-                <Text style={s.label}>PAYMENT</Text>
-                <View style={[s.rule, { marginBottom: 4 }]} />
-                <Text style={s.bankLine}>{seller.bank.accountName}</Text>
-                <Text style={s.bankLine}>
-                  {seller.bank.bankName}
-                  {seller.bank.branch ? `, ${seller.bank.branch}` : ""}
-                </Text>
-                <Text style={s.bankLine}>A/C {seller.bank.accountNumber}</Text>
-                <Text style={s.bankLine}>IFSC {seller.bank.ifsc}</Text>
-              </>
-            ) : null}
+            {/* Where to send the money, in the one tinted block on the page.
+                See C.payPanel in the shared theme for why this is allowed to
+                stand out when everything around it is deliberately quiet. */}
+            <PaymentPanel
+              bank={seller.bank}
+              issuerName={seller.legalName}
+              variant={variant}
+            />
 
             {data.terms.length > 0 ? (
               <View style={{ marginTop: seller.bank ? 9 : 0 }}>
-                <Text style={s.label}>TERMS</Text>
-                <View style={[s.rule, { marginBottom: 4 }]} />
+                <Text style={t.label}>TERMS</Text>
+                <View style={[t.rule, { marginBottom: 4 }]} />
                 {data.terms.map((term, i) => (
                   <Text key={i} style={s.termLine}>
                     {term}
@@ -946,8 +782,8 @@ export function ManualInvoiceDocument({
 
             {data.notes ? (
               <View style={{ marginTop: 9 }}>
-                <Text style={s.label}>NOTES</Text>
-                <View style={[s.rule, { marginBottom: 4 }]} />
+                <Text style={t.label}>NOTES</Text>
+                <View style={[t.rule, { marginBottom: 4 }]} />
                 <Text style={s.termLine}>{data.notes}</Text>
               </View>
             ) : null}
@@ -958,13 +794,27 @@ export function ManualInvoiceDocument({
               label="Taxable value"
               value={money(data.taxableValue, cur)}
             />
+            {/* Within the state the tax splits half to the centre and half to
+                the state and both must be shown; across a state border it is
+                one IGST line. Never both, and never a single "GST" line
+                standing in for either: the split is what the recipient claims
+                the credit against. */}
             {data.isIntraState ? (
               <>
-                <TotalsRow label="CGST" value={money(data.cgstAmount, cur)} />
-                <TotalsRow label="SGST" value={money(data.sgstAmount, cur)} />
+                <TotalsRow
+                  label={taxLabel("CGST")}
+                  value={money(data.cgstAmount, cur)}
+                />
+                <TotalsRow
+                  label={taxLabel("SGST")}
+                  value={money(data.sgstAmount, cur)}
+                />
               </>
             ) : (
-              <TotalsRow label="IGST" value={money(data.igstAmount, cur)} />
+              <TotalsRow
+                label={taxLabel("IGST")}
+                value={money(data.igstAmount, cur)}
+              />
             )}
             {data.reimbursements > 0 ? (
               <TotalsRow

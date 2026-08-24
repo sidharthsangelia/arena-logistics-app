@@ -20,7 +20,7 @@ export const SHIPMENT_TOGGLEABLE_COLUMNS: { id: string; label: string }[] = [
   { id: "org", label: "BA / Client" },
   { id: "route", label: "Route" },
   { id: "carrier", label: "Carrier" },
-  { id: "packages", label: "Packages" },
+  { id: "packages", label: "Pieces" },
   { id: "totalActualWeightKg", label: "Weight" },
   { id: "quotedTotal", label: "Freight" },
   { id: "bookedAt", label: "Booked" },
@@ -154,7 +154,7 @@ export function getShipmentColumns(client = false): ColumnDef<ShipmentRow>[] {
     },
     {
       id: "packages",
-      header: () => <div className="text-center">Pkgs</div>,
+      header: () => <div className="text-center">Pcs</div>,
       enableSorting: false,
       cell: ({ row }) => (
         <div className="text-center text-xs tabular-nums text-foreground">

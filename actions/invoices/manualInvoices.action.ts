@@ -37,7 +37,11 @@ import {
 } from "@/generated/prisma";
 import { getInvoiceIssuer, issuerIsConfigured } from "@/lib/invoices/tax/config";
 import { resolvePlaceOfSupply } from "@/lib/invoices/tax/gst";
-import { allocateSeriesNumber } from "@/lib/invoices/tax/numbering";
+import {
+  allocateSeriesNumber,
+  releaseSeriesNumber,
+  seriesFor,
+} from "@/lib/invoices/tax/numbering";
 import {
   billingPartySchema,
   chargePresetSchema,
@@ -45,7 +49,6 @@ import {
   dueDateFor,
   DRAFT_NUMBER_PLACEHOLDER,
   manualInvoiceSchema,
-  manualSeriesFor,
   type BillingPartyDefaults,
   type BillingPartyDetail,
   type BillingPartyOption,
@@ -929,24 +932,25 @@ export async function previewManualInvoiceAction(
  * Issue a draft: allocate the serial, freeze the snapshots, render the PDF,
  * upload it, and make the row immutable.
  *
- * ── WHY THE RENDER IS INSIDE THE TRANSACTION ────────────────────────────────
- * The counter row is locked from the moment the number is taken until this
- * transaction commits, so holding it across a render is normally exactly the
- * wrong thing to do. The booking invoice job splits them for that reason.
+ * ── WHY THE RENDER IS OUTSIDE THE TRANSACTION ───────────────────────────────
+ * The counter row is locked from the moment the number is taken until the
+ * transaction that took it commits. This used to hold that lock across the
+ * render and the upload, which was defensible only while manual invoices had a
+ * counter of their own: the row was one no booking ever touched, so the lock
+ * could not delay a customer.
  *
- * It is right here, and only here, because the alternative is worse: a render
- * that fails after the number is committed leaves a permanent hole in a series
- * whose whole purpose is not having holes. The contention that buys is nil.
- * Manual invoices are issued by a handful of admins at human speed, and the ARM
- * counter is a different row from the booking series, so this lock cannot
- * delay a single customer booking.
+ * Since 2026-08-24 both paths share one counter, and that reasoning is gone
+ * with it. A shared row held for seconds is every booking invoice in that
+ * window queueing behind an admin's PDF render and timing out. So the number is
+ * taken in its own tiny transaction, committed, and the slow work happens
+ * outside. The body of the function has the full trade written out.
  *
- * The money is verified BEFORE the transaction opens, so an invoice that does
+ * The money is verified BEFORE anything is allocated, so an invoice that does
  * not add up fails without ever reaching the counter.
  *
- * One thing this does leak: an upload that succeeds and is then rolled back
- * leaves an orphaned file on UploadThing. That is garbage, not corruption, and
- * it is the right side of the trade against a gap in the series.
+ * One thing this leaks: an upload that succeeds and is then followed by a failed
+ * persist leaves an orphaned file on UploadThing. That is garbage, not
+ * corruption, and the invoice stays a draft that can be issued again.
  */
 export async function issueManualInvoiceAction(
   id: string,
@@ -982,24 +986,44 @@ export async function issueManualInvoiceAction(
     // invariant, which toMessage passes through verbatim.
     buildManualInvoiceDocument(invoice, { invoiceNumber: "PREFLIGHT" });
 
-    const { series, prefix } = manualSeriesFor(invoice.docType);
+    const series = seriesFor(
+      invoice.docType === ManualInvoiceDocType.CREDIT_NOTE,
+    );
 
-    const result = await prisma.$transaction(
-      async (tx) => {
-        const allocated = await allocateSeriesNumber(
-          tx,
-          series,
-          prefix,
-          invoice.issueDate,
-        );
+    // ── THREE STEPS, NOT ONE TRANSACTION ────────────────────────────────────
+    // This used to allocate, render, upload and persist inside a single 60
+    // second transaction. That was safe while manual invoices had a counter to
+    // themselves: the row it locked was one nothing else touched.
+    //
+    // It is not safe now that the counter is shared. A lock held across a PDF
+    // render and a network upload is a lock held across seconds, and every
+    // booking invoice generated in that window would queue behind it and time
+    // its own short transaction out. So: take the number and COMMIT, do the
+    // slow work outside any transaction, then persist.
+    //
+    // The cost of that is a window in which a number is spent on a document
+    // that never got written. It is closed two ways. The preflight above has
+    // already built this exact document once, so a build that was going to
+    // throw has thrown before anything was allocated; and the catch below hands
+    // the number back when nothing else has taken one since. Neither is
+    // airtight, and that is the accepted trade: a rare gap in the series is a
+    // question at assessment, whereas a booking that cannot be invoiced is a
+    // shipment that cannot be released.
+    const allocated = await prisma.$transaction(async (tx) =>
+      allocateSeriesNumber(tx, series, invoice.issueDate),
+    );
 
-        const { data, money } = buildManualInvoiceDocument(invoice, {
-          invoiceNumber: allocated.invoiceNumber,
-        });
+    let result: { invoiceNumber: string; fileUrl: string };
 
-        const rendered = await renderManualInvoicePdf(data);
-        const uploaded = await uploadManualInvoicePdf(rendered);
+    try {
+      const { data, money } = buildManualInvoiceDocument(invoice, {
+        invoiceNumber: allocated.invoiceNumber,
+      });
 
+      const rendered = await renderManualInvoicePdf(data);
+      const uploaded = await uploadManualInvoicePdf(rendered);
+
+      await prisma.$transaction(async (tx) => {
         await tx.manualInvoice.update({
           where: { id },
           data: {
@@ -1033,15 +1057,31 @@ export async function issueManualInvoiceAction(
             mimeType: uploaded.mimeType,
           },
         });
+      });
 
-        return {
-          invoiceNumber: allocated.invoiceNumber,
-          fileUrl: uploaded.fileUrl,
-        };
-      },
-      // A render plus an upload comfortably exceeds Prisma's 5s default.
-      { timeout: 60_000, maxWait: 15_000 },
-    );
+      result = {
+        invoiceNumber: allocated.invoiceNumber,
+        fileUrl: uploaded.fileUrl,
+      };
+    } catch (error) {
+      // Best effort, and never allowed to mask the real failure. Succeeds only
+      // while ours is still the highest number in the series; see
+      // releaseSeriesNumber for why it refuses to do anything otherwise.
+      try {
+        await prisma.$transaction(async (tx) =>
+          releaseSeriesNumber(
+            tx,
+            series,
+            allocated.financialYear,
+            allocated.sequence,
+          ),
+        );
+      } catch {
+        // Swallowed on purpose. The invoice is still a draft and can be issued
+        // again; the only casualty is one number in the series.
+      }
+      throw error;
+    }
 
     revalidateBoth();
     return { ok: true, data: result };
@@ -1051,7 +1091,11 @@ export async function issueManualInvoiceAction(
       error: toMessage(
         error,
         "issueManualInvoiceAction",
-        "Could not issue the invoice. Nothing was numbered; try again.",
+        // Not "nothing was numbered" any more. The number is taken before the
+        // render now, and handed back only when nothing else has claimed one
+        // since, so the honest promise is about the invoice rather than the
+        // counter: it is still a draft and issuing again is safe.
+        "Could not issue the invoice. It is still a draft; try again.",
       ),
     };
   }
