@@ -1,8 +1,22 @@
 "use client";
 
-import { AlertCircle, Building2, Info, ReceiptText, User } from "lucide-react";
+import { useState } from "react";
+import {
+  AlertCircle,
+  Building2,
+  ChevronDown,
+  Info,
+  Plus,
+  ReceiptText,
+  User,
+} from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
@@ -29,8 +43,10 @@ import { FileUploadField } from "../FileUploadField";
 //     move, so there is nothing to opt into
 //   • values are always rupees, so no currency picker
 //
-// In their place sits the GST paperwork. Which documents are required is
-// derived, not asked: the company-name fields on the two address steps say who
+// In their place sits the GST paperwork. Only the documents this consignment
+// actually needs are open on arrival; the rest are folded away behind one row
+// and open when the customer wants to attach one. Which documents are required
+// is derived, not asked: the company-name fields on the two address steps say who
 // is a company, and the boxes say what the consignment is worth. The rules live
 // in lib/booking/domesticDocs.ts, which the wizard's schema and the server-side
 // check read too, so what this step shows and what the booking enforces cannot
@@ -142,6 +158,38 @@ export default function DomesticShipmentDetailStep({
   // an empty required upload is not an error the moment the page opens.
   const showErrors = !!error;
 
+  const requiredConfigs = DOMESTIC_DOC_CONFIGS.filter((c) =>
+    required.includes(c.key),
+  );
+  const optionalConfigs = DOMESTIC_DOC_CONFIGS.filter(
+    (c) => !required.includes(c.key),
+  );
+  const optionalAdded = optionalConfigs.filter((c) => !!docs?.[c.key]).length;
+
+  // Optional paperwork is closed by default. It is the bulk of this step by
+  // height, and every one of those upload boxes is for a document this
+  // particular consignment does not need — an individual sending under the
+  // e-way bill threshold was being asked to scroll past three of them to reach
+  // Next. Nothing that blocks the booking can hide in here: only required docs
+  // are ever missing, and those are always open above.
+  const hasOptionalFile = optionalAdded > 0;
+  const [optionalOpen, setOptionalOpen] = useState(hasOptionalFile);
+
+  // It opens itself the moment there is something in there worth seeing: a
+  // resumed draft that already attached one, or a document that stopped being
+  // required while its file was still on it (drop the declared value back under
+  // the threshold and the e-way bill you uploaded moves down into this group).
+  //
+  // Adjusted during render off a remembered previous value rather than in an
+  // effect, which is React's own answer for state that reacts to a change in
+  // derived data: it fires on the transition alone, so a customer who then
+  // closes the group is left alone, and it never paints the closed state first.
+  const [sawOptionalFile, setSawOptionalFile] = useState(hasOptionalFile);
+  if (sawOptionalFile !== hasOptionalFile) {
+    setSawOptionalFile(hasOptionalFile);
+    if (hasOptionalFile) setOptionalOpen(true);
+  }
+
   const setDoc = (key: DomesticDocKey) => (file: DomesticDocs[DomesticDocKey]) => {
     onChange({ domesticDocs: { ...docs, [key]: file } });
   };
@@ -229,24 +277,72 @@ export default function DomesticShipmentDetailStep({
             reads wrong.
           </p>
 
-          <div className="space-y-2.5">
-            {DOMESTIC_DOC_CONFIGS.map((config) => {
-              const isRequired = required.includes(config.key);
-              return (
+          {/* Required: open, in the order the rules list them. */}
+          {requiredConfigs.length > 0 ? (
+            <div className="space-y-2.5">
+              {requiredConfigs.map((config) => (
                 <DocRow
                   key={config.key}
                   docKey={config.key}
                   label={config.label}
                   hint={config.hint}
-                  required={isRequired}
+                  required
                   reason={REASON[config.key]}
                   value={docs?.[config.key] ?? null}
                   onChange={setDoc(config.key)}
-                  invalid={showErrors && isRequired && !docs?.[config.key]}
+                  invalid={showErrors && !docs?.[config.key]}
                 />
-              );
-            })}
-          </div>
+              ))}
+            </div>
+          ) : (
+            <p className="rounded-lg border border-dashed px-4 py-3 text-xs text-muted-foreground">
+              This consignment does not need any paperwork attached. Add
+              anything you want travelling with the parcel below.
+            </p>
+          )}
+
+          {/* Everything else: folded away, one click from open. */}
+          {optionalConfigs.length > 0 && (
+            <Collapsible open={optionalOpen} onOpenChange={setOptionalOpen}>
+              <CollapsibleTrigger asChild>
+                <button
+                  type="button"
+                  className="flex w-full items-center justify-between rounded-lg border border-dashed px-4 py-3 text-left transition-colors hover:bg-muted/40"
+                >
+                  <span className="flex items-center gap-2 text-sm">
+                    <Plus className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <span className="font-medium">Add optional documents</span>
+                    <span className="text-xs text-muted-foreground">
+                      Not needed to continue
+                      {optionalAdded > 0 && ` · ${optionalAdded} added`}
+                    </span>
+                  </span>
+                  <ChevronDown
+                    className={cn(
+                      "h-4 w-4 shrink-0 text-muted-foreground transition-transform",
+                      optionalOpen && "rotate-180",
+                    )}
+                  />
+                </button>
+              </CollapsibleTrigger>
+
+              <CollapsibleContent className="space-y-2.5 pt-2.5">
+                {optionalConfigs.map((config) => (
+                  <DocRow
+                    key={config.key}
+                    docKey={config.key}
+                    label={config.label}
+                    hint={config.hint}
+                    required={false}
+                    value={docs?.[config.key] ?? null}
+                    onChange={setDoc(config.key)}
+                    // An optional document is never the reason a step fails.
+                    invalid={false}
+                  />
+                ))}
+              </CollapsibleContent>
+            </Collapsible>
+          )}
         </div>
 
         {error && (
