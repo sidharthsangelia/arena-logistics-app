@@ -39,15 +39,14 @@ import {
 import { prisma } from "@/utils/db";
 
 import {
-  ALERT_ON_ZERO_ROWS,
   SWEEP_CONFIG_VERSION,
   SWEEP_COUNTRIES,
   SWEEP_ORIGIN,
-  VENDOR_FAILURE_ALERT_RATIO,
   WEIGHT_SLABS_KG,
   plannedCallCount,
   snapshotSweepConfig,
 } from "./config";
+import { describeVendorHealth, judgeVendor, type VendorHealth } from "./health";
 
 // ---------------------------------------------------------------------------
 // Opening a run
@@ -146,50 +145,65 @@ export async function completeLane(params: {
 // Finalising
 // ---------------------------------------------------------------------------
 
-export interface VendorHealth {
-  vendorId: string;
-  attempted: number;
-  ok: number;
-  /** Answered and declined. Excluded from the failure ratio; see below. */
-  noService: number;
-  /** Real failures: vendor errors, timeouts, auth, rate limits, skips. */
-  failed: number;
-  snapshots: number;
-  /** failed / (attempted - noService), or 0 when nothing was attempted. */
-  failureRatio: number;
-  /** True when this vendor produced no usable rows at all. */
-  silent: boolean;
-  degraded: boolean;
-}
+/** Re-exported so callers keep importing the judgement from one place. */
+export type { VendorHealth };
 
 export interface SweepSummary {
   runId: string;
   status: RateSweepStatus;
   okCalls: number;
   failedCalls: number;
+  /** Cells the run planned but never recorded at all. */
+  missingCalls: number;
   snapshotCount: number;
   vendors: VendorHealth[];
   degradedVendors: string[];
+  /** Human-readable, and exactly what lands in the run's notes column. */
+  note: string | null;
 }
 
 /**
- * Close the run: count what landed, judge each vendor, write the totals.
+ * Close the run: count what landed against what was planned, judge each vendor,
+ * write the totals.
  *
- * Safe to call twice. The planner's backstop and the last lane can both reach
- * here, and finalising an already-finalised run recomputes the same numbers
- * rather than corrupting them.
+ * Safe to call twice, and it has to be: the planner's backstop and the last lane
+ * can both reach here. Everything it writes, the notes included, is derived from
+ * the rows and the run's own plan, so calling it again recomputes the same
+ * answer instead of overwriting a better one with a blanker one. That was a real
+ * bug: the backstop wrote "force-finalised with 100/104 lanes reported" and the
+ * follow-up call, seeing no degraded vendor, set notes back to null.
  */
-export async function finaliseSweepRun(runId: string): Promise<SweepSummary | null> {
+export async function finaliseSweepRun(
+  runId: string,
+  opts: { forced?: boolean } = {},
+): Promise<SweepSummary | null> {
   const run = await prisma.rateSweepRun.findUnique({
     where: { id: runId },
-    select: { id: true, vendorIds: true, status: true },
+    select: {
+      id: true,
+      vendorIds: true,
+      status: true,
+      laneCount: true,
+      lanesCompleted: true,
+      plannedCalls: true,
+    },
   });
 
   if (!run) return null;
 
-  const [callGroups, snapshotGroups] = await Promise.all([
+  const [callGroups, laneGroups, snapshotGroups] = await Promise.all([
     prisma.rateSweepCall.groupBy({
       by: ["vendorId", "status"],
+      where: { runId },
+      _count: { _all: true },
+    }),
+    // The lane-level view, which is the one that catches a whole country going
+    // missing. A vendor can lose every USA cell — thirty of seven hundred and
+    // eighty, under four percent — and no ratio computed over cells will ever
+    // notice, because losing a country is not a small failure, it is a total
+    // failure of a small part.
+    prisma.rateSweepCall.groupBy({
+      by: ["vendorId", "destCountryCode"],
       where: { runId },
       _count: { _all: true },
     }),
@@ -204,47 +218,48 @@ export async function finaliseSweepRun(runId: string): Promise<SweepSummary | nu
     snapshotGroups.map((g) => [g.vendorId, g._count._all]),
   );
 
+  // Taken from the run's own stored plan, never from the current config file.
+  // A country added to config.ts between this run starting and finishing must
+  // not retrospectively turn a complete run into an incomplete one.
+  const vendorCount = Math.max(1, run.vendorIds.length);
+  const expectedPerVendor = Math.floor(run.plannedCalls / vendorCount);
+  const lanesPerVendor = Math.floor(run.laneCount / vendorCount);
+  const slabsPerLane =
+    run.laneCount > 0 ? Math.floor(run.plannedCalls / run.laneCount) : 0;
+
   const vendors: VendorHealth[] = run.vendorIds.map((vendorId) => {
     const forVendor = callGroups.filter((g) => g.vendorId === vendorId);
 
     const countOf = (status: RateSweepCallStatus) =>
       forVendor.find((g) => g.status === status)?._count._all ?? 0;
 
-    const ok = countOf(RateSweepCallStatus.OK);
-    const noService = countOf(RateSweepCallStatus.NO_SERVICE);
-    const attempted = forVendor.reduce((sum, g) => sum + g._count._all, 0);
-    const failed = attempted - ok - noService;
-    const snapshots = snapshotsByVendor.get(vendorId) ?? 0;
+    const lanes = laneGroups.filter((g) => g.vendorId === vendorId);
 
-    // NO_SERVICE comes out of the denominator, not just the numerator. A vendor
-    // that does not fly to five of the destinations answers every call for them
-    // correctly by declining them, and counting those as attempts it failed
-    // would put an honest vendor permanently near the alert threshold.
-    const judged = attempted - noService;
-    const failureRatio = judged > 0 ? failed / judged : 0;
-
-    // Never attempted is not the same as silent. A run cancelled before a
-    // vendor started should not report that vendor as down.
-    const silent = attempted > 0 && ok === 0;
-
-    return {
+    return judgeVendor({
       vendorId,
-      attempted,
-      ok,
-      noService,
-      failed,
-      snapshots,
-      failureRatio,
-      silent,
-      degraded:
-        (silent && ALERT_ON_ZERO_ROWS) || failureRatio > VENDOR_FAILURE_ALERT_RATIO,
-    };
+      expected: expectedPerVendor,
+      attempted: forVendor.reduce((sum, g) => sum + g._count._all, 0),
+      ok: countOf(RateSweepCallStatus.OK),
+      noService: countOf(RateSweepCallStatus.NO_SERVICE),
+      snapshots: snapshotsByVendor.get(vendorId) ?? 0,
+      lanesExpected: lanesPerVendor,
+      lanesWithRows: lanes.length,
+      lanesComplete:
+        slabsPerLane > 0
+          ? lanes.filter((g) => g._count._all >= slabsPerLane).length
+          : 0,
+    });
   });
 
   const okCalls = vendors.reduce((sum, v) => sum + v.ok, 0);
-  const failedCalls = vendors.reduce((sum, v) => sum + v.failed, 0);
+  // Rows that recorded a failure. Kept as the meaning of this column, so old
+  // rows still mean what they meant; the cells that never got a row at all are
+  // counted separately and say so.
+  const failedCalls = vendors.reduce((sum, v) => sum + v.failedRows, 0);
+  const missingCalls = vendors.reduce((sum, v) => sum + v.missing, 0);
   const snapshotCount = vendors.reduce((sum, v) => sum + v.snapshots, 0);
-  const degradedVendors = vendors.filter((v) => v.degraded).map((v) => v.vendorId);
+  const degraded = vendors.filter((v) => v.degraded);
+  const degradedVendors = degraded.map((v) => v.vendorId);
 
   // No usable data at all is FAILED, not PARTIAL. The distinction matters to
   // anything that reads these rows later: PARTIAL still has good lanes worth
@@ -256,6 +271,16 @@ export async function finaliseSweepRun(runId: string): Promise<SweepSummary | nu
         ? RateSweepStatus.PARTIAL
         : RateSweepStatus.COMPLETED;
 
+  const note = buildRunNote({
+    forced: Boolean(opts.forced),
+    lanesCompleted: run.lanesCompleted,
+    laneCount: run.laneCount,
+    okCalls,
+    plannedCalls: run.plannedCalls,
+    missingCalls,
+    degraded,
+  });
+
   await prisma.rateSweepRun.update({
     where: { id: runId },
     data: {
@@ -264,9 +289,7 @@ export async function finaliseSweepRun(runId: string): Promise<SweepSummary | nu
       okCalls,
       failedCalls,
       snapshotCount,
-      notes: degradedVendors.length
-        ? `Degraded: ${degradedVendors.join(", ")}`
-        : null,
+      notes: note,
     },
   });
 
@@ -275,10 +298,53 @@ export async function finaliseSweepRun(runId: string): Promise<SweepSummary | nu
     status,
     okCalls,
     failedCalls,
+    missingCalls,
     snapshotCount,
     vendors,
     degradedVendors,
+    note,
   };
+}
+
+/**
+ * The one sentence a person reads when they open a run that went wrong.
+ *
+ * Built here rather than at each call site so that whoever finalises the run —
+ * the last lane, the backstop, or an admin pressing the button — writes exactly
+ * the same thing, and so re-finalising cannot downgrade the explanation.
+ */
+function buildRunNote(input: {
+  forced: boolean;
+  lanesCompleted: number;
+  laneCount: number;
+  okCalls: number;
+  plannedCalls: number;
+  missingCalls: number;
+  degraded: VendorHealth[];
+}): string | null {
+  const parts: string[] = [];
+
+  if (input.forced) {
+    parts.push(
+      `Force-finalised with ${input.lanesCompleted}/${input.laneCount} lanes reported.`,
+    );
+  }
+
+  if (input.missingCalls > 0) {
+    parts.push(
+      `${input.okCalls}/${input.plannedCalls} cells recorded, ${input.missingCalls} never attempted.`,
+    );
+  }
+
+  if (input.degraded.length > 0) {
+    parts.push(
+      `Degraded: ${input.degraded.map(describeVendorHealth).join("; ")}.`,
+    );
+  }
+
+  // A clean run says nothing, so the column stays a signal rather than becoming
+  // a line of prose on every row that nobody reads.
+  return parts.length > 0 ? parts.join(" ") : null;
 }
 
 /**
@@ -308,22 +374,12 @@ export async function forceFinaliseIfStuck(
     },
   });
 
-  const summary = await finaliseSweepRun(runId);
-
-  if (summary) {
-    await prisma.rateSweepRun.update({
-      where: { id: runId },
-      data: {
-        notes: `Force-finalised with ${run.lanesCompleted}/${run.laneCount} lanes reported.${
-          summary.degradedVendors.length
-            ? ` Degraded: ${summary.degradedVendors.join(", ")}`
-            : ""
-        }`,
-      },
-    });
-  }
-
-  return summary;
+  // The `forced` flag goes IN rather than the note being patched on afterwards.
+  // Patching is what lost the explanation: this function wrote a good note, then
+  // the finalise event ran finaliseSweepRun again and, finding no degraded
+  // vendor, reset notes to null. Both paths now compose the same note from the
+  // same inputs, so whichever runs last says the same thing.
+  return finaliseSweepRun(runId, { forced: true });
 }
 
 // ---------------------------------------------------------------------------

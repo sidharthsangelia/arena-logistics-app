@@ -44,12 +44,15 @@ export function SweepHeroSkeleton() {
   );
 }
 
+// Must stay column-for-column identical to VendorHealthTable, headers included,
+// or the table jumps sideways when the real data replaces it.
 const VENDOR_COLUMNS: SkeletonColumn[] = [
   { label: "Vendor", width: "w-24" },
-  { label: "Attempted", align: "right", width: "w-12" },
+  { label: "Expected", align: "right", width: "w-12" },
   { label: "Quoted", align: "right", width: "w-12" },
   { label: "Not served", align: "right", width: "w-12" },
   { label: "Failed", align: "right", width: "w-10" },
+  { label: "Missing", align: "right", width: "w-10" },
   { label: "Failure rate", align: "right", width: "w-12" },
   { label: "Rates stored", align: "right", width: "w-14" },
 ];

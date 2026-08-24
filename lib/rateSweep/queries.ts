@@ -26,6 +26,7 @@ import { prisma } from "@/utils/db";
 
 import { UNMAPPED_CARRIER, isOwnBrandNetwork } from "./carrier";
 import { MAX_QUOTABLE_AGE_DAYS } from "./config";
+import { judgeVendor, type VendorHealth } from "./health";
 
 // ---------------------------------------------------------------------------
 // Runs list
@@ -88,17 +89,17 @@ export async function listSweepRuns(limit = 25): Promise<SweepRunRow[]> {
 // One run
 // ---------------------------------------------------------------------------
 
-export interface VendorBreakdownRow {
-  vendorId: string;
-  attempted: number;
-  ok: number;
-  noService: number;
-  failed: number;
-  snapshots: number;
-  /** Excludes NO_SERVICE from the denominator; see finaliseSweepRun. */
-  failureRatio: number;
+/**
+ * The judgement, plus the status spread the table shows underneath it.
+ *
+ * The judgement itself comes from lib/rateSweep/health.ts rather than being
+ * recomputed here. It used to be recomputed here, with `attempted` as the
+ * denominator, which meant this screen showed a vendor a 0% failure rate on a
+ * run where it had silently recorded nothing for eleven countries.
+ */
+export type VendorBreakdownRow = VendorHealth & {
   byStatus: Record<string, number>;
-}
+};
 
 export interface SweepRunDetail {
   run: SweepRunRow;
@@ -142,9 +143,17 @@ export const getSweepRunDetail = cache(async function getSweepRunDetail(
 
   if (!run) return null;
 
-  const [callGroups, snapshotGroups] = await Promise.all([
+  const [callGroups, laneGroups, snapshotGroups] = await Promise.all([
     prisma.rateSweepCall.groupBy({
       by: ["vendorId", "status"],
+      where: { runId },
+      _count: { _all: true },
+    }),
+    // Lane-level coverage. One more grouped read on an indexed column, and it
+    // is the read that makes "this vendor has no USA rows at all" visible on
+    // the screen instead of hiding inside a healthy-looking percentage.
+    prisma.rateSweepCall.groupBy({
+      by: ["vendorId", "destCountryCode"],
       where: { runId },
       _count: { _all: true },
     }),
@@ -159,6 +168,14 @@ export const getSweepRunDetail = cache(async function getSweepRunDetail(
     snapshotGroups.map((g) => [g.vendorId, g._count._all]),
   );
 
+  // From the run's own stored plan, so a run swept before a country was added
+  // is still judged against the matrix it actually set out to cover.
+  const vendorCount = Math.max(1, run.vendorIds.length);
+  const expectedPerVendor = Math.floor(run.plannedCalls / vendorCount);
+  const lanesPerVendor = Math.floor(run.laneCount / vendorCount);
+  const slabsPerLane =
+    run.laneCount > 0 ? Math.floor(run.plannedCalls / run.laneCount) : 0;
+
   // Driven off the run's own vendorIds rather than off whatever happens to have
   // rows, so a vendor that produced nothing at all still appears as a line of
   // zeroes. A vendor that silently vanished from the report is the exact failure
@@ -171,20 +188,26 @@ export const getSweepRunDetail = cache(async function getSweepRunDetail(
       byStatus[group.status] = group._count._all;
     }
 
-    const ok = byStatus[RateSweepCallStatus.OK] ?? 0;
-    const noService = byStatus[RateSweepCallStatus.NO_SERVICE] ?? 0;
-    const attempted = forVendor.reduce((sum, g) => sum + g._count._all, 0);
-    const failed = attempted - ok - noService;
-    const judged = attempted - noService;
+    const lanes = laneGroups.filter((g) => g.vendorId === vendorId);
 
     return {
-      vendorId,
-      attempted,
-      ok,
-      noService,
-      failed,
-      snapshots: snapshotsByVendor.get(vendorId) ?? 0,
-      failureRatio: judged > 0 ? failed / judged : 0,
+      ...judgeVendor({
+        // A sweep in progress is judged on what it has done so far. The full
+        // expected-versus-recorded accounting only makes sense once it is over.
+        inFlight: run.status === RateSweepStatus.RUNNING,
+        vendorId,
+        expected: expectedPerVendor,
+        attempted: forVendor.reduce((sum, g) => sum + g._count._all, 0),
+        ok: byStatus[RateSweepCallStatus.OK] ?? 0,
+        noService: byStatus[RateSweepCallStatus.NO_SERVICE] ?? 0,
+        snapshots: snapshotsByVendor.get(vendorId) ?? 0,
+        lanesExpected: lanesPerVendor,
+        lanesWithRows: lanes.length,
+        lanesComplete:
+          slabsPerLane > 0
+            ? lanes.filter((g) => g._count._all >= slabsPerLane).length
+            : 0,
+      }),
       byStatus,
     };
   });

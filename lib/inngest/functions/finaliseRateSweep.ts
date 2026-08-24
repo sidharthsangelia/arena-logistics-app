@@ -47,7 +47,13 @@ export const finaliseRateSweep = inngest.createFunction(
   async ({ event, step, logger }) => {
     const { runId, forced } = event.data;
 
-    const summary = await step.run("finalise", () => finaliseSweepRun(runId));
+    // `forced` is threaded in rather than being applied to the row afterwards.
+    // The backstop has usually already finalised this run once; without the flag
+    // this second pass recomputes a clean-looking summary and erases the note
+    // explaining that lanes never reported.
+    const summary = await step.run("finalise", () =>
+      finaliseSweepRun(runId, { forced: Boolean(forced) }),
+    );
 
     if (!summary) {
       logger.warn("Rate sweep finalise found no run", { runId });
@@ -59,6 +65,7 @@ export const finaliseRateSweep = inngest.createFunction(
       status: summary.status,
       okCalls: summary.okCalls,
       failedCalls: summary.failedCalls,
+      missingCalls: summary.missingCalls,
       snapshots: summary.snapshotCount,
       degraded: summary.degradedVendors,
     });
@@ -82,12 +89,18 @@ export const finaliseRateSweep = inngest.createFunction(
           runId,
           forced: Boolean(forced),
           snapshotCount: summary.snapshotCount,
+          missingCalls: summary.missingCalls,
+          note: summary.note,
           vendors: summary.vendors.map((v) => ({
             vendorId: v.vendorId,
+            expected: v.expected,
             attempted: v.attempted,
             ok: v.ok,
             noService: v.noService,
-            failed: v.failed,
+            failedRows: v.failedRows,
+            missing: v.missing,
+            lanesEmpty: v.lanesEmpty,
+            lanesPartial: v.lanesPartial,
             failureRatio: Number(v.failureRatio.toFixed(3)),
             silent: v.silent,
           })),

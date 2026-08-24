@@ -403,15 +403,61 @@ export function plannedCallCount(vendorCount: number): number {
 }
 
 /**
- * Roughly how long one vendor needs for its whole share, in minutes. Used to
- * size the finalise backstop, and worth reading before changing the cadence:
- * sKart at eight a minute is the long pole by a wide margin; every other vendor
- * finishes in a fraction of its time. Both numbers move when a country is added,
- * so read them off this function rather than off this comment.
+ * The pacing FLOOR: how long one vendor's share would take if the configured
+ * calls-per-minute were the only constraint.
+ *
+ * This is a lower bound and nothing else. It is not how long the sweep takes.
+ * See estimatedVendorRuntimeMinutes below for that, and read the note there
+ * before using either to size a timeout.
  */
 export function estimatedVendorMinutes(vendorId: string): number {
   const calls = SWEEP_COUNTRIES.length * WEIGHT_SLABS_KG.length;
   return Math.ceil(calls / callsPerMinuteFor(vendorId));
+}
+
+/**
+ * ── HOW LONG A VENDOR'S SHARE ACTUALLY TAKES ────────────────────────────────
+ * Seconds per recorded cell, measured off real runs rather than derived from
+ * the pacing above. The difference between the two is not academic: sizing the
+ * backstop off the pacing figure is what force-closed the 20 Aug sweep at 158
+ * minutes while sKart was still working, and threw away the rest of its matrix.
+ *
+ * Why the pacing figure is not the answer: every lane for a vendor shares one
+ * execution slot (see lib/inngest/functions/sweepRateLane.ts), so the real rate
+ * is one cell per (vendor latency + platform step overhead), and the pacing
+ * sleeps are a ceiling that has never been the binding constraint. Measured on
+ * the 20 Aug run:
+ *
+ *   aramex      4.0 s/cell   (1.1 s vendor latency)
+ *   shipglobal  4.8 s/cell   (0.6 s)
+ *   shipmozo    8.1 s/cell   (0.7 s, inflated by the failures of that run)
+ *   skart      11.3 s/cell   (5.0 s — sKart is simply a slow API)
+ *
+ * The values below are those measurements rounded up, with room for a vendor
+ * having a bad night. Re-measure rather than guess: the query is
+ * `capturedAt` spread over `count(*)` grouped by vendor for one run.
+ */
+export const DEFAULT_SECONDS_PER_CALL = 8;
+
+export const VENDOR_SECONDS_PER_CALL: Readonly<Record<string, number>> = {
+  skart: 13,
+  shipmozo: 9,
+};
+
+export function secondsPerCallFor(vendorId: string): number {
+  return VENDOR_SECONDS_PER_CALL[vendorId] ?? DEFAULT_SECONDS_PER_CALL;
+}
+
+/**
+ * How long one vendor's whole share should be expected to take, in minutes, at
+ * its measured throughput. This is the number to size timeouts against.
+ *
+ * It moves when a country is added, so read it off this function rather than
+ * off any figure written down in a comment.
+ */
+export function estimatedVendorRuntimeMinutes(vendorId: string): number {
+  const calls = SWEEP_COUNTRIES.length * WEIGHT_SLABS_KG.length;
+  return Math.ceil((calls * secondsPerCallFor(vendorId)) / 60);
 }
 
 /**

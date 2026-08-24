@@ -32,7 +32,7 @@ import { adapterRegistry } from "@/lib/rate-adapters/vendors/index";
 import {
   RAW_RESPONSE_RETENTION_DAYS,
   SWEEP_COUNTRIES,
-  estimatedVendorMinutes,
+  estimatedVendorRuntimeMinutes,
 } from "@/lib/rateSweep/config";
 import {
   createSweepRun,
@@ -52,18 +52,31 @@ import {
  * How long to wait past the slowest vendor's estimate before deciding a run is
  * stuck rather than slow.
  *
- * The estimate assumes no retries and no queueing. Both happen, and a backstop
- * that fires while lanes are still legitimately working would close a run that
- * was about to finish and mark healthy vendors as silent.
+ * ── THIS IS A SAFETY NET, NOT A DEADLINE ────────────────────────────────────
+ * The failure it exists to prevent is a run stuck in RUNNING for ever, which
+ * blocks every future sweep. The failure it can CAUSE, if it is too tight, is
+ * far worse and has already happened: on 20 Aug it fired at 158 minutes, one
+ * minute after the estimate ran out, while sKart was still legitimately working
+ * through its lanes. The run was closed, marked COMPLETED, and the rest of the
+ * matrix was simply never collected.
+ *
+ * So the estimate is now measured rather than idealised (see
+ * estimatedVendorRuntimeMinutes) and the margin on top of it is generous. A
+ * backstop that fires an hour late costs nothing; one that fires ten minutes
+ * early costs a third of the matrix.
  */
-const BACKSTOP_MARGIN_MINUTES = 60;
+const BACKSTOP_MARGIN_MINUTES = 90;
 
 /**
  * A run that started less than this ago blocks a new one. Older than this and
  * something has gone badly wrong, so the cron proceeds rather than being
  * blocked for ever by one bad night.
+ *
+ * Must stay comfortably above the backstop, or the next cron would declare a
+ * still-healthy run stale and start a second sweep alongside it — which is the
+ * one thing that could get a vendor account rate-limited.
  */
-const STALE_RUN_HOURS = 6;
+const STALE_RUN_HOURS = 8;
 
 export const planRateSweep = inngest.createFunction(
   {
@@ -171,12 +184,18 @@ export const planRateSweep = inngest.createFunction(
       plannedCalls: run.plannedCalls,
     });
 
-    // Sized off the slowest vendor's own pacing rather than a fixed number, so
-    // adding a heavily rate-limited vendor extends the backstop automatically
-    // instead of quietly making it too short.
+    // Sized off the slowest vendor's MEASURED throughput rather than its
+    // configured pacing, so adding a slow vendor or another country extends the
+    // backstop automatically instead of quietly making it too short.
     const backstopMinutes =
-      Math.max(...vendorIds.map((id: string) => estimatedVendorMinutes(id))) +
-      BACKSTOP_MARGIN_MINUTES;
+      Math.max(
+        ...vendorIds.map((id: string) => estimatedVendorRuntimeMinutes(id)),
+      ) + BACKSTOP_MARGIN_MINUTES;
+
+    logger.info("Rate sweep backstop armed", {
+      runId: run.runId,
+      backstopMinutes,
+    });
 
     await step.sleep("await-lanes", `${backstopMinutes}m`);
 

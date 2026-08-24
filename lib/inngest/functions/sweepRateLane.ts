@@ -1,52 +1,59 @@
 /**
  * lib/inngest/functions/sweepRateLane.ts
  *
- * One vendor, one country, thirty weights. Eighty of these run per sweep.
+ * One vendor, one country, thirty weights. One of these per lane per sweep.
  *
- * ── THIS FUNCTION IS THE RATE LIMITER ───────────────────────────────────────
- * Everything about how fast the sweep hits a vendor is decided by two lines of
- * config on this function and nothing else, so they are worth reading carefully
- * before changing either.
+ * ── HOW FAST THIS ACTUALLY HITS A VENDOR ────────────────────────────────────
+ * Two things shape it, and an earlier version of this comment was wrong about
+ * both, in a way that mattered. What follows is what the run data says.
  *
  *   concurrency: { limit: 1, key: "event.data.vendorId" }
- *       One lane per vendor in flight at a time. The other nineteen queue.
- *       Without this, eighty lanes would start at once and every pacing sleep
- *       below would be multiplied by twenty.
+ *       Exactly one step per vendor EXECUTES at a time. It does NOT mean one
+ *       lane at a time: a run that is sleeping is not executing, so it gives up
+ *       the slot, and all twenty-six of a vendor's lanes interleave through that
+ *       single slot from the moment they are fanned out. Measured on the 20 Aug
+ *       run, every lane for a vendor started within five minutes of the others
+ *       and then advanced in lockstep.
  *
  *   step.sleep(pacingDelayMsFor(vendorId)) between cells
- *       Turns "one lane at a time" into a known calls-per-minute figure.
+ *       Paces one LANE. It does not pace the vendor, because the other
+ *       twenty-five lanes are free to use the slot while this one sleeps.
  *
- * Together: exactly one call per vendor per pacing interval, across the whole
- * sweep, enforced by the platform rather than by anything we have to keep
- * correct across crashes and deploys.
- *
- * sKart publishes ten requests a minute and is paced at eight, so its share of
- * the matrix takes about 75 minutes. Everyone else is at thirty and finishes in
- * twenty. All four vendors run in parallel because the concurrency key is the
- * vendor, so the sweep is done in a little over an hour.
+ * So the real call rate per vendor is one call per (vendor latency + platform
+ * step overhead), and the pacing figures in config.ts are a ceiling that has
+ * never been reached rather than the rate being achieved. Measured: aramex
+ * 15/min, shipglobal 12/min, skart 5.3/min against a configured 8. If a vendor
+ * ever needs a genuinely enforced ceiling, it needs a throttle, not a sleep.
  *
  * ── WHY THE SLEEPS ARE DURABLE STEPS ────────────────────────────────────────
- * A `setTimeout` would hold an HTTP handler open for 75 minutes and die with the
- * first deploy. `step.sleep` suspends the run entirely and resumes it later,
- * which is the difference between a job that survives a Friday deploy and one
- * that silently stops halfway through the matrix.
+ * A `setTimeout` would hold a serverless handler open for the duration and burn
+ * billed compute doing nothing. `step.sleep` suspends the run entirely and
+ * resumes it later, which is also the difference between a job that survives a
+ * deploy and one that silently stops halfway through the matrix.
  *
- * ── WHAT HAPPENS WHEN A VENDOR MISBEHAVES ───────────────────────────────────
- *   429            RetryAfterError with the vendor's own interval. Because this
- *                  run holds the vendor's only concurrency slot while it waits,
- *                  every other lane for that vendor waits with it. One 429
- *                  pauses the vendor, not just this lane.
+ * ── WHAT HAPPENS WHEN A CELL GOES WRONG ─────────────────────────────────────
+ * The governing rule, and the one this file exists to enforce: A BAD CELL COSTS
+ * ONE CELL. It used to cost the rest of the lane. `retries` is per step, but an
+ * exhausted step throws into the function body, and a body that does not catch
+ * it ends the run with its remaining slabs unasked and unrecorded. That is how
+ * a single failing write at 0.25kg turned into a country with no rates at all.
+ * Every cell is therefore wrapped, and a cell that gives up is recorded as a
+ * gap and stepped over.
+ *
+ *   429            RetryAfterError with the vendor's own interval, so the step
+ *                  waits exactly as long as they asked before trying again.
  *   401 / 403      the whole vendor is abandoned for this run. The remaining
- *                  cells are written as SKIPPED so the gap is explained, and the
- *                  other nineteen lanes for that vendor stop as they start.
- *                  Continuing would be 600 more failures against a dead key.
+ *                  cells are written as SKIPPED in one insert so the gap is
+ *                  explained. Continuing would be hundreds more failures
+ *                  against a dead key.
  *   5xx / timeout  Inngest retries that one cell. The cells already done are
- *                  memoised, so a retry costs one call, not thirty.
- *   no service     recorded and skipped. Not an error, and not retried.
+ *                  memoised, so a retry costs one call, not thirty. If the
+ *                  retries run out, the lane carries on to the next slab.
+ *   no service     recorded and stepped over. Not an error, and not retried.
  */
 
 import * as Sentry from "@sentry/nextjs";
-import { RetryAfterError } from "inngest";
+import { RetryAfterError, StepError } from "inngest";
 
 import { RateSweepCallStatus, RateSweepStatus } from "@/generated/prisma";
 import { prisma } from "@/utils/db";
@@ -60,7 +67,8 @@ import {
 import {
   SweepCellRetriableError,
   executeSweepCell,
-  recordSkippedCell,
+  recordBlankCells,
+  type SweepCellOutcome,
 } from "@/lib/rateSweep/execute";
 import { completeLane } from "@/lib/rateSweep/run";
 
@@ -77,19 +85,21 @@ export const sweepRateLane = inngest.createFunction(
 
     triggers: [rateSweepLaneRequested],
 
-    // THE rate limit. See the note at the top of this file before touching it.
+    // One executing step per vendor at a time. Read the note at the top of this
+    // file before touching it: it does less than its name suggests.
     concurrency: [{ limit: 1, key: "event.data.vendorId" }],
 
-    // Per cell, not per lane: a cell that fails is retried on its own and the
-    // twenty-nine already done stay memoised. Three is enough for a transient
-    // 5xx and small enough that a genuinely broken lane fails while the sweep
-    // still has night left to finish the others.
+    // Per step: a cell that fails is retried on its own and the twenty-nine
+    // already done stay memoised, so a retry costs one vendor call, not thirty.
+    // Three is enough for a transient 5xx, and the body now catches a cell that
+    // exhausts them rather than letting it end the lane.
     retries: 3,
 
-    // A lane cannot take longer than its own pacing plus slack. Without this,
-    // one wedged lane holds a vendor's concurrency slot forever and silently
-    // costs that vendor the entire sweep.
-    timeouts: { finish: "3h" },
+    // Every lane for a vendor shares one execution slot, so a lane's wall-clock
+    // life is most of the vendor's whole share of the matrix: measured at just
+    // over two hours for sKart, the slowest. This is the outer bound that stops
+    // a genuinely wedged lane from sitting there for ever, not a target.
+    timeouts: { finish: "5h" },
 
     /**
      * The lane died with its retries exhausted, so the counter increment at the
@@ -177,26 +187,17 @@ export const sweepRateLane = inngest.createFunction(
     }
 
     const pacingMs = pacingDelayMsFor(vendorId);
+
     let stopReason: string | null = null;
+    /** Where the loop gave up, so the untouched tail can be recorded in one go. */
+    let stoppedAt = WEIGHT_SLABS_KG.length;
+    /** Slabs whose cell exhausted its retries. Recorded together at the end. */
+    const abandonedSlabs: number[] = [];
+    /** The first thing that went wrong, which is usually the only interesting one. */
+    let firstFailureMessage: string | null = null;
 
     for (let index = 0; index < WEIGHT_SLABS_KG.length; index += 1) {
       const weightKg = WEIGHT_SLABS_KG[index];
-
-      // Every remaining cell after a stop is written as SKIPPED rather than
-      // left absent, so the table never has an unexplained hole. A gap that
-      // says why is worth the row it costs.
-      if (stopReason) {
-        await step.run(`skip-${weightKg}`, () =>
-          recordSkippedCell({
-            runId,
-            vendorId,
-            vendorName: adapter.vendorName,
-            cell: { country, weightKg },
-            reason: stopReason!,
-          }),
-        );
-        continue;
-      }
 
       // Before the call, not after, so the pace holds even when a cell fails
       // fast. Skipped on the first cell because the queue wait already spaced
@@ -205,43 +206,180 @@ export const sweepRateLane = inngest.createFunction(
         await step.sleep(`pace-${weightKg}`, pacingMs);
       }
 
-      const outcome = await step.run(`quote-${weightKg}`, async () => {
-        try {
-          return await executeSweepCell({
-            runId,
-            adapter,
-            cell: { country, weightKg },
-            attempt: attempt + 1,
-          });
-        } catch (error) {
-          if (error instanceof SweepCellRetriableError) {
-            // Hand a 429 back to the platform with the vendor's own interval.
-            // This run keeps the vendor's concurrency slot while it waits, so
-            // the pause applies to every lane for that vendor, not just this one.
-            if (error.kind === "RATE_LIMITED") {
-              const seconds =
-                error.retryAfterSeconds ?? DEFAULT_RETRY_AFTER_SECONDS;
-              throw new RetryAfterError(error.message, `${seconds}s`);
+      let outcome: SweepCellOutcome;
+
+      try {
+        outcome = await step.run(`quote-${weightKg}`, async () => {
+          try {
+            return await executeSweepCell({
+              runId,
+              adapter,
+              cell: { country, weightKg },
+              attempt: attempt + 1,
+            });
+          } catch (error) {
+            if (error instanceof SweepCellRetriableError) {
+              // Hand a 429 back to the platform with the vendor's own interval,
+              // so this cell waits exactly as long as they asked before its next
+              // attempt instead of guessing.
+              if (error.kind === "RATE_LIMITED") {
+                const seconds =
+                  error.retryAfterSeconds ?? DEFAULT_RETRY_AFTER_SECONDS;
+                throw new RetryAfterError(error.message, `${seconds}s`);
+              }
             }
+            throw error;
           }
-          throw error;
-        }
-      });
+        });
+      } catch (error) {
+        // THE POINT OF THIS CATCH. The step has used up all its retries, and
+        // Inngest has rejected it into the body for us to decide about. Letting
+        // it propagate ends the run — the SDK treats a step's own StepError as
+        // non-retriable, so the lane simply stops — which forfeits every slab
+        // after this one, unasked and unrecorded. One bad write at 0.25kg is
+        // how a country ends up with no rates at all. So the cell is noted as a
+        // gap and the lane moves on to the next weight.
+        //
+        // Nothing is swallowed: the slab is recorded below, counted into the
+        // lane's failure, and reported to Sentry.
+        //
+        // ── ONLY A FAILED STEP ────────────────────────────────────────────
+        // Narrow on purpose. A step that has not run yet does not reject at all
+        // (the SDK suspends the run on an unsettled promise), so nothing here
+        // can interfere with normal control flow. But anything that is NOT this
+        // step reporting its own failure is a bug in our code or in the SDK, and
+        // must be allowed to fail the lane loudly rather than be filed away as
+        // thirty cells of "the vendor was flaky".
+        if (!isFailedStep(error)) throw error;
+
+        abandonedSlabs.push(weightKg);
+
+        firstFailureMessage ??=
+          error instanceof Error ? error.message : String(error);
+
+        continue;
+      }
 
       if (outcome.stopVendor) {
         stopReason = `${vendorId} returned ${outcome.status} on ${country.code} at ${weightKg}kg; abandoned for this run.`;
+        stoppedAt = index + 1;
 
         Sentry.captureMessage("Rate sweep abandoned a vendor mid-run", {
           level: "error",
           tags: { location: "sweepRateLane", vendorId },
           extra: { runId, countryCode, weightKg, status: outcome.status },
         });
+
+        // Nothing after this can succeed, so there is no reason to keep paying
+        // a pacing sleep and a step for each remaining slab just to write the
+        // same row thirty times. The tail is recorded in one insert below.
+        break;
       }
     }
 
-    return finishLane(stopReason !== null, stopReason);
+    // ── Account for every cell that did not record itself ────────────────────
+    // Absence in this table has to mean "never attempted" and nothing else, so
+    // the two kinds of gap are filled in before the lane reports. Both are one
+    // batched insert that skips any cell which did manage to write its own row,
+    // because that row carries the real vendor error and this one would not.
+    //
+    // Best-effort on purpose: these are an explanation of a failure, and a lane
+    // must never be lost because its explanation could not be written down.
+    const gaps: Array<{
+      slabs: number[];
+      status: RateSweepCallStatus;
+      errorKind: string;
+      reason: string;
+      stepId: string;
+    }> = [];
+
+    if (abandonedSlabs.length > 0) {
+      gaps.push({
+        slabs: abandonedSlabs,
+        status: RateSweepCallStatus.VENDOR_ERROR,
+        errorKind: "RETRIES_EXHAUSTED",
+        reason:
+          firstFailureMessage ??
+          "Cell exhausted its retries without recording a result.",
+        stepId: "record-abandoned-cells",
+      });
+    }
+
+    if (stopReason && stoppedAt < WEIGHT_SLABS_KG.length) {
+      gaps.push({
+        slabs: WEIGHT_SLABS_KG.slice(stoppedAt),
+        status: RateSweepCallStatus.SKIPPED,
+        errorKind: "SKIPPED",
+        reason: stopReason,
+        stepId: "record-skipped-cells",
+      });
+    }
+
+    for (const gap of gaps) {
+      try {
+        await step.run(gap.stepId, () =>
+          recordBlankCells({
+            runId,
+            vendorId,
+            vendorName: adapter.vendorName,
+            cells: gap.slabs.map((weightKg) => ({ country, weightKg })),
+            status: gap.status,
+            errorKind: gap.errorKind,
+            reason: gap.reason,
+          }),
+        );
+      } catch (error) {
+        if (!isFailedStep(error)) throw error;
+
+        Sentry.captureException(error, {
+          level: "warning",
+          tags: { location: "sweepRateLane.recordGaps", vendorId },
+          extra: { runId, countryCode, kind: gap.errorKind, cells: gap.slabs.length },
+        });
+      }
+    }
+
+    if (abandonedSlabs.length > 0) {
+      Sentry.captureMessage("Rate sweep lane lost cells to exhausted retries", {
+        level: "warning",
+        tags: { location: "sweepRateLane", vendorId },
+        extra: {
+          runId,
+          countryCode,
+          lostCells: abandonedSlabs.length,
+          slabs: abandonedSlabs,
+          firstError: firstFailureMessage,
+        },
+      });
+    }
+
+    return finishLane(
+      stopReason !== null || abandonedSlabs.length > 0,
+      stopReason ??
+        (abandonedSlabs.length > 0
+          ? `${abandonedSlabs.length} cells exhausted their retries`
+          : null),
+    );
   },
 );
+
+/**
+ * Is this a step reporting that it has run out of retries?
+ *
+ * `instanceof` first, then the name, because the SDK itself duck-types its own
+ * error classes this way (see `retriability` in inngest's execution engine) and
+ * a bundler that ends up with two copies of the package would otherwise make
+ * the instance check quietly false — which here would mean failing a whole lane
+ * over one bad cell, the exact thing this is here to prevent.
+ */
+function isFailedStep(error: unknown): boolean {
+  return (
+    error instanceof StepError ||
+    (typeof error === "object" &&
+      error !== null &&
+      (error as { name?: string }).name === "StepError")
+  );
+}
 
 /**
  * How many cells of a run are still unaccounted for. Read by the admin screen

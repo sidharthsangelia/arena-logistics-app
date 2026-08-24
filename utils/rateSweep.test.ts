@@ -27,13 +27,16 @@ import {
   WEIGHT_SLABS_KG,
   callsPerMinuteFor,
   estimatedVendorMinutes,
+  estimatedVendorRuntimeMinutes,
   expandLanes,
   nominalBoxForWeight,
   pacingDelayMsFor,
   plannedCallCount,
+  secondsPerCallFor,
   snapshotSweepConfig,
   volumetricWeightOf,
 } from "@/lib/rateSweep/config";
+import { judgeVendor } from "@/lib/rateSweep/health";
 import { buildSweepRequest, describeCell } from "@/lib/rateSweep/request";
 import { FIRST_MILE_HUBS } from "@/lib/booking/firstMile";
 import {
@@ -265,7 +268,38 @@ describe("matrix", () => {
     const others = estimatedVendorMinutes("shipglobal");
 
     assert.ok(skart > others, "sKart should be the slowest vendor to sweep");
-    assert.ok(skart < 120, `sKart estimated at ${skart} minutes, too slow for one night`);
+  });
+
+  it("never lets the pacing floor be mistaken for the real runtime", () => {
+    // The whole reason estimatedVendorRuntimeMinutes exists. The pacing figure
+    // is a lower bound that assumes zero latency and zero platform overhead;
+    // sizing the backstop off it force-closed the 20 Aug sweep while sKart was
+    // still working, and the rest of its matrix was never collected.
+    for (const vendorId of ["skart", "shipmozo", "shipglobal", "aramex"]) {
+      assert.ok(
+        estimatedVendorRuntimeMinutes(vendorId) >= estimatedVendorMinutes(vendorId),
+        `${vendorId}: measured runtime must never be under the pacing floor`,
+      );
+    }
+  });
+
+  it("bases the runtime estimate on measured seconds per call", () => {
+    const calls = SWEEP_COUNTRIES.length * WEIGHT_SLABS_KG.length;
+
+    assert.equal(
+      estimatedVendorRuntimeMinutes("skart"),
+      Math.ceil((calls * secondsPerCallFor("skart")) / 60),
+    );
+
+    // sKart really is the slow one: 5s of vendor latency per call, measured.
+    assert.ok(
+      secondsPerCallFor("skart") > secondsPerCallFor("aramex"),
+      "sKart should be modelled as slower per call than Aramex",
+    );
+
+    // An unknown vendor must not be modelled as instant, or adding one would
+    // silently shorten the backstop for everybody.
+    assert.ok(secondsPerCallFor("some-new-vendor") >= 8);
   });
 
   it("snapshots a config that fully describes a run", () => {
@@ -330,6 +364,201 @@ describe("sweep request", () => {
 // ---------------------------------------------------------------------------
 // Failure classification
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Vendor health. This is the arithmetic that let a broken sweep look healthy.
+// ---------------------------------------------------------------------------
+
+describe("vendor health", () => {
+  /** A vendor that did everything it was asked. */
+  const clean = {
+    vendorId: "aramex",
+    expected: 780,
+    attempted: 780,
+    ok: 750,
+    noService: 30,
+    snapshots: 750,
+    lanesExpected: 26,
+    lanesWithRows: 26,
+    lanesComplete: 26,
+  };
+
+  it("leaves a clean vendor alone", () => {
+    const health = judgeVendor(clean);
+
+    assert.equal(health.missing, 0);
+    assert.equal(health.failed, 0);
+    assert.equal(health.failureRatio, 0);
+    assert.equal(health.degraded, false);
+  });
+
+  it("does not count a declined lane against the vendor", () => {
+    // A vendor that does not fly to Brazil answers all thirty Brazilian slabs
+    // correctly by declining them. Counting those as failures would put every
+    // honest vendor permanently in alarm.
+    const health = judgeVendor({ ...clean, ok: 750, noService: 30 });
+
+    assert.equal(health.failureRatio, 0);
+    assert.equal(health.degraded, false);
+  });
+
+  it("counts cells that never produced a row", () => {
+    // THE BUG. shipmozo's real numbers from the 20 Aug run: it recorded 370 of
+    // its 780 cells and the old arithmetic, which divided by what it had rather
+    // than by what was planned, scored that a 0% failure rate.
+    const health = judgeVendor({
+      vendorId: "shipmozo",
+      expected: 780,
+      attempted: 370,
+      ok: 346,
+      noService: 24,
+      snapshots: 2000,
+      lanesExpected: 26,
+      lanesWithRows: 15,
+      lanesComplete: 12,
+    });
+
+    assert.equal(health.missing, 410);
+    assert.equal(health.failed, 410, "410 unrecorded cells, no failed rows");
+    assert.ok(
+      health.failureRatio > 0.5,
+      `scored ${(health.failureRatio * 100).toFixed(1)}%, which is not a healthy run`,
+    );
+    assert.equal(health.degraded, true);
+  });
+
+  it("treats a lane that recorded nothing as a failure on its own", () => {
+    // skart lost every USA cell on both production runs: 30 of 780, under 4%,
+    // nowhere near any sane ratio threshold, and the single worst thing that can
+    // happen to this dataset. A whole country must never fail quietly.
+    const health = judgeVendor({
+      ...clean,
+      vendorId: "skart",
+      attempted: 750,
+      ok: 750,
+      noService: 0,
+      lanesWithRows: 25,
+      lanesComplete: 25,
+    });
+
+    assert.equal(health.lanesEmpty, 1);
+    assert.ok(
+      health.failureRatio < 0.2,
+      "this is deliberately under the ratio threshold, so the ratio must not be what catches it",
+    );
+    assert.equal(health.degraded, true, "an empty lane is a degradation by itself");
+  });
+
+  it("separates a lane that stopped short from one that never started", () => {
+    const health = judgeVendor({
+      ...clean,
+      attempted: 700,
+      ok: 670,
+      lanesWithRows: 26,
+      lanesComplete: 20,
+    });
+
+    assert.equal(health.lanesEmpty, 0);
+    assert.equal(health.lanesPartial, 6);
+  });
+
+  it("calls a vendor that produced nothing silent", () => {
+    const health = judgeVendor({
+      ...clean,
+      attempted: 0,
+      ok: 0,
+      noService: 0,
+      snapshots: 0,
+      lanesWithRows: 0,
+      lanesComplete: 0,
+    });
+
+    assert.equal(health.silent, true);
+    assert.equal(health.degraded, true);
+  });
+
+  it("does not report a vendor that was never asked as down", () => {
+    // A run cancelled before a vendor started has nothing to say about it.
+    const health = judgeVendor({
+      ...clean,
+      expected: 0,
+      attempted: 0,
+      ok: 0,
+      noService: 0,
+      snapshots: 0,
+      lanesExpected: 0,
+      lanesWithRows: 0,
+      lanesComplete: 0,
+    });
+
+    assert.equal(health.silent, false);
+    assert.equal(health.degraded, false);
+    assert.equal(health.failureRatio, 0);
+  });
+
+  it("does not call a sweep in progress degraded for work it has not done yet", () => {
+    // Opening the run screen on a healthy sweep that is ten minutes in must not
+    // show every vendor as degraded with hundreds of cells missing.
+    const midRun = {
+      ...clean,
+      attempted: 90,
+      ok: 90,
+      noService: 0,
+      snapshots: 500,
+      lanesWithRows: 3,
+      lanesComplete: 3,
+    };
+
+    const inFlight = judgeVendor({ ...midRun, inFlight: true });
+    assert.equal(inFlight.missing, 0);
+    assert.equal(inFlight.lanesEmpty, 0);
+    assert.equal(inFlight.lanesPartial, 0);
+    assert.equal(inFlight.degraded, false);
+
+    // The very same numbers, once the run is over, are a disaster.
+    const finished = judgeVendor(midRun);
+    assert.equal(finished.missing, 690);
+    assert.equal(finished.lanesEmpty, 23);
+    assert.equal(finished.degraded, true);
+  });
+
+  it("still flags a real failure while the run is in flight", () => {
+    // In-flight forgiveness applies to work not yet done, never to work that
+    // was done and went wrong.
+    const health = judgeVendor({
+      ...clean,
+      inFlight: true,
+      attempted: 100,
+      ok: 10,
+      noService: 0,
+      lanesWithRows: 4,
+      lanesComplete: 4,
+    });
+
+    assert.equal(health.failedRows, 90);
+    assert.ok(health.failureRatio > 0.2);
+    assert.equal(health.degraded, true);
+  });
+
+  it("never returns a negative count from inconsistent inputs", () => {
+    // Rows can outnumber the plan if the country list grew mid-run. That is
+    // odd, and it must not produce a negative "missing" that quietly cancels
+    // out a real failure somewhere else in the sum.
+    const health = judgeVendor({
+      ...clean,
+      expected: 780,
+      attempted: 900,
+      ok: 900,
+      noService: 0,
+      lanesWithRows: 30,
+    });
+
+    assert.equal(health.missing, 0);
+    assert.equal(health.failedRows, 0);
+    assert.equal(health.lanesEmpty, 0);
+    assert.ok(health.failureRatio >= 0);
+  });
+});
 
 describe("error classification", () => {
   it("separates the four outcomes the sweep acts on differently", () => {

@@ -584,55 +584,107 @@ from ShipGlobal directly.
 
 # OPEN QUESTIONS FOR SHIPGLOBAL'S TECH TEAM
 
-Raised 2026-08-11. The booking adapter is deliberately NOT built until these are
-answered — each one changes what the code must do, and guessing on an export
-booking costs a real customer real money. Tracking (`/apiv1/tools/tracking`) is
-fully specified above and needs none of this.
+Raised 2026-08-11, re-verified 2026-08-24 against the live Postman collection
+(nothing in it has changed; `order/add` still has no saved response example).
 
-**Blocking — booking cannot be written without these**
+The booking adapter is deliberately NOT built until the blocking items are
+answered. Each one changes what the code must do, and guessing on an export
+booking costs a real customer real money. Tracking (`/apiv1/tools/tracking`) and
+cancellation (`/apiv1/order/cancelRefundOrder`) are fully specified and need
+none of this.
 
-1. **Multi-piece consignments.** `order/add` takes one flat box
+## A. Blocking. Booking cannot be written without these.
+
+1. **`order/add` response body.** The exact success and error JSON. Does it
+   return the `SG…` tracking number directly, and under which key? Does a
+   validation failure come back as HTTP 4xx, or as HTTP 200 with
+   `success: false` the way `rates/calculate` does? This is the call that
+   returns the handle every later call needs, and it is the only request in your
+   Postman collection with no saved example.
+
+2. **Multi-piece consignments.** `order/add` takes one flat box
    (`package_weight` / `_length` / `_breadth` / `_height`), not an array. How do
-   we book a consignment of 3 boxes? Is there a repeatable packages field, or
-   one order per box, or is multi-piece simply unsupported on the API?
-2. **`order/add` response body.** Exact success and error JSON. Does it return
-   the `SG…` tracking number directly, and under which key? What does a
-   validation failure look like — HTTP 4xx, or HTTP 200 with `success: false`
-   like `rates/calculate` does?
-3. **Idempotency of `order/add` on `order_reference`.** If our first call
-   reaches you but the response is lost and we retry with the same
-   `order_reference`, do we get the existing order back, or a second one? This
+   we book a consignment of 3 boxes? Is there a repeatable packages field, one
+   order per box, or is multi-piece unsupported on the API? If it is one order
+   per box, do the boxes travel as one consignment or as three separate
+   shipments through customs?
+
+3. **Idempotency of `order/add` on `order_reference`.** If our call reaches you
+   but the response is lost in transit and we retry with the same
+   `order_reference`, do we get the existing order back, or a second order? This
    decides whether a retry is safe or books a duplicate export.
-4. **Idempotency of `getLabel`.** It is documented as "Pay & Get Label". Does
+
+4. **An order lookup by `order_reference`.** Separate from 3, and the cheapest
+   fix for it. Is there any endpoint that answers "do you already hold an order
+   with this reference, and what is its tracking number?" Without one, a lost
+   response is indistinguishable from a failed request and we have to stop the
+   booking for a human.
+
+5. **Idempotency of `getLabel`.** It is documented as "Pay & Get Label". Does
    calling it twice for the same `tracking` debit the wallet twice, or is the
-   second call free and just returns the same PDF?
+   second call free and simply returns the same PDF? Our retry logic depends on
+   the answer.
 
-**Important — these change field mapping**
+## B. Field mapping. These change what we send.
 
-5. **`service` matching.** Must it be the exact `title` string from
-   `rates/calculate`? Your own docs spell it `ShipGlobal Direct` in the rate
-   response but `Shipglobal Direct` in the order body — is the match
-   case-sensitive, and which spelling is authoritative? Is there a stable
-   service code we could send instead of a display name?
-6. **CSB-4 and commercial exports.** `csb5_status` is 0 or 1 only. We classify
-   shipments as CSB4 / CSB5 / COMMERCIAL. Which value covers CSB-4, and how is
-   a commercial (non-courier) export declared?
-7. **Incoterms.** There is no DDP/DDU field in `order/add`. Is duty-paid set on
-   the account, implied by the service, or unavailable?
-8. **Exporter identity.** `order/add` carries no IEC, AD code, GSTIN or LUT and
-   no shipper address — only `customer_shipping_*` (the consignee). Confirm all
-   exporter details come from the account, and tell us which of them must be
-   registered before an API booking will clear customs.
-9. **`currency_code` scope.** Does it apply only to
-   `vendor_order_item_unit_price`, or to anything else in the order?
-10. **`vendor_order_item_tax_rate`.** What is expected for a zero-rated export
-    under LUT — `0`, or the domestic GST rate of the goods?
+6. **Shipper and pickup address.** `order/add` carries only
+   `customer_shipping_*`, which is the consignee. There is no shipper block at
+   all. Is the pickup address fixed on the account? We book on behalf of
+   multiple exporters with different pickup addresses, so we need to know
+   whether a per-order pickup address is possible, and how.
 
-**Operational**
+7. **Pickup itself.** Does ShipGlobal collect from the pickup address, or do we
+   hand the parcel over at your hub? Is there a pickup request endpoint, or a
+   per-order flag? Nothing in `order/add` addresses this.
 
-11. **Tracking webhook.** Is `/apiv1/tools/tracking` polling the only option, or
-    can you push status updates to a URL we host? Polling every shipment on a
-    schedule is workable but a webhook is materially better.
-12. **Rate limits** on all five endpoints, and the expected 429 behaviour.
-13. **Sandbox / test credentials** that exercise `order/add` and `getLabel`
-    without debiting the live wallet.
+8. **Exporter identity.** `order/add` carries no IEC, AD code, GSTIN or LUT.
+   Confirm these all come from the account, and tell us exactly which must be
+   registered with you before an API booking will clear customs.
+
+9. **CSB-4 and commercial exports.** `csb5_status` is 0 or 1 only. We classify
+   shipments as CSB4 / CSB5 / COMMERCIAL. Which value covers CSB-4, and how is a
+   commercial (non-courier) export declared?
+
+10. **Incoterms.** There is no DDP/DDU or DAP field in `order/add`. Is duty-paid
+    set on the account, implied by the service, or unavailable?
+
+11. **`service` matching.** Must it be the exact `title` string from
+    `rates/calculate`? Your own docs spell it `ShipGlobal Direct` in the rate
+    response but `Shipglobal Direct` in the order body. Is the match
+    case-sensitive, which spelling is authoritative, and is there a stable
+    service code we can send instead of a display name? A display name that
+    changes on your side would silently break every booking.
+
+12. **`currency_code` scope.** Does it apply only to
+    `vendor_order_item_unit_price`, or to anything else in the order?
+
+13. **`vendor_order_item_tax_rate`.** What is expected for a zero-rated export
+    under LUT: `0`, or the domestic GST rate of the goods? Your sample uses `0`
+    but we would rather have the rule than infer it.
+
+14. **Undocumented fields.** `customer_shipping_company` appears in your sample
+    body but not in your field list, and `customer_nickname` is described only
+    as "required for franchise". Please send the complete field list for
+    `order/add`, including anything the sample omits, with each field marked
+    required, conditional or optional.
+
+## C. Pricing. This one is commercial, not technical.
+
+15. **Quoted price versus billed price.** `rates/calculate` accepts only
+    `package_weight`, `country_iso_code_2` and `postcode`, with no dimensions,
+    so it cannot compute volumetric weight. `order/add` does take dimensions.
+    Do you recompute the chargeable weight from those dimensions at booking, and
+    bill the difference? If so, what is the volumetric divisor, and is there any
+    way to get a dimension-aware quote before booking? We quote customers a
+    fixed price up front, so a recomputation at booking comes out of our margin.
+
+## D. Operational.
+
+16. **Tracking webhook.** Is polling `/apiv1/tools/tracking` the only option, or
+    can you push status updates to a URL we host? Polling every live shipment on
+    a schedule is workable, but a webhook is materially better for both sides.
+
+17. **Rate limits** on all five endpoints, and the expected 429 behaviour.
+
+18. **Sandbox or test credentials** that exercise `order/add` and `getLabel`
+    without moving real money or creating a real export.

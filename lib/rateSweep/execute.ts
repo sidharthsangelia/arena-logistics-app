@@ -35,6 +35,8 @@
 
 import "server-only";
 
+import { randomUUID } from "node:crypto";
+
 import * as Sentry from "@sentry/nextjs";
 
 import {
@@ -195,25 +197,70 @@ export class SweepCellRetriableError extends Error {
   }
 }
 
-/** Written when a vendor has been stopped and its remaining cells are skipped. */
-export async function recordSkippedCell(params: {
+/**
+ * Fill in the cells that produced no row of their own: the ones skipped after a
+ * vendor was abandoned, and the ones whose write never landed.
+ *
+ * ── WHY THIS IS BATCHED, AND WHY IT SKIPS DUPLICATES ────────────────────────
+ * This used to be one function call, one transaction and one durable step per
+ * cell, so abandoning a vendor on its first slab cost 29 more round trips and
+ * 29 more steps to say nothing happened. It is one insert now.
+ *
+ * `skipDuplicates` is what makes it safe to call over a range that may be
+ * partly recorded already. A cell that did manage to write its own row keeps
+ * it — that row carries the real vendor error and this one would only say
+ * "something went wrong" — and a cell with nothing gets its placeholder. The
+ * table's natural key does the deciding, so this is safe to run twice.
+ *
+ * Returns how many rows it actually created, which is the count of cells that
+ * really were unaccounted for.
+ */
+export async function recordBlankCells(params: {
   runId: string;
   vendorId: string;
   vendorName: string;
-  cell: SweepCell;
+  cells: readonly SweepCell[];
+  status: RateSweepCallStatus;
+  errorKind: string;
   reason: string;
-}): Promise<void> {
-  await persistCall({
-    runId: params.runId,
-    adapter: { vendorId: params.vendorId, vendorName: params.vendorName },
-    descriptor: describeCell(params.cell),
-    status: RateSweepCallStatus.SKIPPED,
-    attempt: 0,
-    errorKind: "SKIPPED",
-    errorMessage: truncate(params.reason, 1000),
-    quotes: [],
-    rawResponse: null,
+}): Promise<number> {
+  if (params.cells.length === 0) return 0;
+
+  const reason = truncate(params.reason, 1000);
+
+  const rows: Prisma.RateSweepCallCreateManyInput[] = params.cells.map((cell) => {
+    const descriptor = describeCell(cell);
+
+    return {
+      runId: params.runId,
+      vendorId: params.vendorId,
+      vendorName: params.vendorName,
+      originPincode: descriptor.originPincode,
+      destCountryCode: descriptor.destCountryCode,
+      destCity: descriptor.destCity,
+      destPostcode: descriptor.destPostcode,
+      syntheticPostcode: descriptor.syntheticPostcode,
+      weightKg: new Prisma.Decimal(descriptor.weightKg),
+      boxProfile: descriptor.boxProfile,
+      boxLengthCm: new Prisma.Decimal(descriptor.box.lengthCm),
+      boxWidthCm: new Prisma.Decimal(descriptor.box.widthCm),
+      boxHeightCm: new Prisma.Decimal(descriptor.box.heightCm),
+      shipmentPurpose: descriptor.shipmentPurpose,
+      declaredValue: new Prisma.Decimal(descriptor.declaredValue),
+      status: params.status,
+      errorKind: params.errorKind,
+      errorMessage: reason,
+      attempts: 0,
+      quoteCount: 0,
+    };
   });
+
+  const result = await prisma.rateSweepCall.createMany({
+    data: rows,
+    skipDuplicates: true,
+  });
+
+  return result.count;
 }
 
 // ---------------------------------------------------------------------------
@@ -250,6 +297,27 @@ interface PersistCallInput {
  *
  * All of it in one transaction: a call marked OK whose snapshots are missing is
  * worse than no row at all, because it counts as a success everywhere.
+ *
+ * ── WHY THIS IS SHAPED AROUND ROUND TRIPS ───────────────────────────────────
+ * This function is the reason the sweep had no USA rates, so it is worth being
+ * explicit about the cost model it now obeys.
+ *
+ * It used to create each snapshot in a loop, with its charges nested. Prisma
+ * turns that into roughly three sequential statements per product, and inside
+ * an interactive transaction every one of them is a separate round trip to the
+ * database. Eight products, which is what every well-served lane returns, came
+ * to 27 round trips. From a serverless function talking to Neon across regions
+ * that is comfortably over Prisma's five-second default transaction budget, so
+ * the transaction expired, the entire cell rolled back, and after three retries
+ * the lane died having written nothing at all. The lanes that survived were the
+ * thin ones: the failure selected precisely against the destinations with the
+ * most carriers on them.
+ *
+ * So: everything that can be computed without the database is computed before
+ * the transaction opens, ids for the snapshots are generated here rather than
+ * read back, and the children go in as two batched inserts. That is six round
+ * trips for any cell, whether it carries one product or fifty, and it no longer
+ * scales with how good the lane is.
  */
 async function persistCall(input: PersistCallInput): Promise<void> {
   const { runId, adapter, descriptor, quotes } = input;
@@ -272,6 +340,96 @@ async function persistCall(input: PersistCallInput): Promise<void> {
     quoteCount: quotes.length,
     rawResponse: input.rawResponse ?? Prisma.DbNull,
   };
+
+  // ── Everything below this line is pure, and happens before BEGIN ──────────
+  // Carrier classification, canonical charge naming and decimal coercion are
+  // CPU work with no database in them. Doing them inside the transaction, as
+  // the old loop did, held the transaction open across work that had no reason
+  // to be in it.
+  //
+  // Snapshot ids are generated here rather than read back from the insert.
+  // The charges need their parent's id, and asking the database for it would
+  // mean either a round trip per product or relying on a multi-row INSERT
+  // returning its rows in the order they were given, which nothing promises.
+  // A generated id is one less thing to be wrong about, and the column takes
+  // any string.
+  const snapshotRows: Prisma.VendorRateSnapshotCreateManyInput[] = [];
+  const chargeRows: Prisma.VendorRateChargeCreateManyInput[] = [];
+
+  for (const quote of quotes) {
+    const snapshotId = randomUUID();
+
+    const totalWithTax = safeAmount(quote.totalWithTax);
+    const totalWithoutTax = safeAmount(quote.totalWithoutTax);
+    const currency = (quote.currency || "INR").toUpperCase();
+    const productName = quote.productName || adapter.vendorName;
+
+    // Normalised here, at write time, from the label the vendor just gave us.
+    // Three vendors resell FedEx under three spellings, so without this the
+    // question the sweep exists to answer — whose FedEx is cheapest on this
+    // lane — cannot be expressed as a GROUP BY. See ./carrier.ts.
+    const service = classifyService(productName);
+
+    snapshotRows.push({
+      id: snapshotId,
+      runId,
+      // callId is the one field that cannot be known yet. It is filled in
+      // below, once the upsert has told us which call row this is.
+      callId: "",
+      vendorId: adapter.vendorId,
+      vendorName: adapter.vendorName,
+      productName,
+      courierId: quote.courierId ?? null,
+
+      carrier: service.carrier,
+      dutyMode: service.dutyMode as RateDutyMode,
+      contentType: service.contentType as RateContentType,
+      pickupIncluded: service.pickupIncluded,
+      restrictionNote: service.restrictionNote,
+
+      originPincode: descriptor.originPincode,
+      destCountryCode: descriptor.destCountryCode,
+      destPostcode: descriptor.destPostcode,
+      weightKg: new Prisma.Decimal(descriptor.weightKg),
+      boxProfile: descriptor.boxProfile,
+
+      currency,
+      // Only INR rows are safely comparable with each other. Aramex can
+      // quote in something else, and a cheapest-of query that put 400 USD
+      // against 4000 INR would be confidently wrong rather than merely
+      // unhelpful. Nothing here invents an exchange rate.
+      isComparable: currency === "INR",
+
+      totalWithTax: new Prisma.Decimal(totalWithTax),
+      totalWithoutTax: new Prisma.Decimal(totalWithoutTax),
+      // Derived once at write time rather than as an expression in every
+      // query. Clamped at zero because a vendor whose pre-tax total exceeds
+      // its post-tax total has given us nonsense, and a negative tax column
+      // would poison every SUM downstream.
+      taxAmount: new Prisma.Decimal(
+        Math.max(0, round2(totalWithTax - totalWithoutTax)),
+      ),
+
+      tatDays: Number.isFinite(quote.tatDays)
+        ? Math.max(0, Math.trunc(quote.tatDays))
+        : 0,
+    });
+
+    (quote.charges ?? []).forEach((charge, index) => {
+      chargeRows.push({
+        snapshotId,
+        name: truncate(charge.name ?? "", 200),
+        canonicalName: describeCharge(charge.name ?? ""),
+        amount: new Prisma.Decimal(safeAmount(charge.amount)),
+        currency: (charge.currency || currency).toUpperCase(),
+        igst: optionalDecimal(charge.igst),
+        cgst: optionalDecimal(charge.cgst),
+        sgst: optionalDecimal(charge.sgst),
+        taxAmount: optionalDecimal(charge.taxAmount),
+        sortOrder: index,
+      });
+    });
+  }
 
   await prisma.$transaction(async (tx) => {
     const call = await tx.rateSweepCall.upsert({
@@ -300,76 +458,21 @@ async function persistCall(input: PersistCallInput): Promise<void> {
       select: { id: true },
     });
 
-    // Clears whatever a previous attempt wrote. Cascades to the charges.
+    // Unconditional, and worth one round trip. A previous attempt at this cell
+    // may already have written products, and skipping the delete on the strength
+    // of "this looks like a first attempt" is how the same call ends up holding
+    // two sets of rates that every aggregate then double-counts.
+    // Cascades to the charges.
     await tx.vendorRateSnapshot.deleteMany({ where: { callId: call.id } });
 
-    for (const quote of quotes) {
-      const totalWithTax = safeAmount(quote.totalWithTax);
-      const totalWithoutTax = safeAmount(quote.totalWithoutTax);
-      const currency = (quote.currency || "INR").toUpperCase();
-      const productName = quote.productName || adapter.vendorName;
-
-      // Normalised here, at write time, from the label the vendor just gave us.
-      // Three vendors resell FedEx under three spellings, so without this the
-      // question the sweep exists to answer — whose FedEx is cheapest on this
-      // lane — cannot be expressed as a GROUP BY. See ./carrier.ts.
-      const service = classifyService(productName);
-
-      await tx.vendorRateSnapshot.create({
-        data: {
-          runId,
-          callId: call.id,
-          vendorId: adapter.vendorId,
-          vendorName: adapter.vendorName,
-          productName,
-          courierId: quote.courierId ?? null,
-
-          carrier: service.carrier,
-          dutyMode: service.dutyMode as RateDutyMode,
-          contentType: service.contentType as RateContentType,
-          pickupIncluded: service.pickupIncluded,
-          restrictionNote: service.restrictionNote,
-
-          originPincode: descriptor.originPincode,
-          destCountryCode: descriptor.destCountryCode,
-          destPostcode: descriptor.destPostcode,
-          weightKg: new Prisma.Decimal(descriptor.weightKg),
-          boxProfile: descriptor.boxProfile,
-
-          currency,
-          // Only INR rows are safely comparable with each other. Aramex can
-          // quote in something else, and a cheapest-of query that put 400 USD
-          // against 4000 INR would be confidently wrong rather than merely
-          // unhelpful. Nothing here invents an exchange rate.
-          isComparable: currency === "INR",
-
-          totalWithTax: new Prisma.Decimal(totalWithTax),
-          totalWithoutTax: new Prisma.Decimal(totalWithoutTax),
-          // Derived once at write time rather than as an expression in every
-          // query. Clamped at zero because a vendor whose pre-tax total exceeds
-          // its post-tax total has given us nonsense, and a negative tax column
-          // would poison every SUM downstream.
-          taxAmount: new Prisma.Decimal(
-            Math.max(0, round2(totalWithTax - totalWithoutTax)),
-          ),
-
-          tatDays: Number.isFinite(quote.tatDays) ? Math.max(0, Math.trunc(quote.tatDays)) : 0,
-
-          charges: {
-            create: (quote.charges ?? []).map((charge, index) => ({
-              name: truncate(charge.name ?? "", 200),
-              canonicalName: describeCharge(charge.name ?? ""),
-              amount: new Prisma.Decimal(safeAmount(charge.amount)),
-              currency: (charge.currency || currency).toUpperCase(),
-              igst: optionalDecimal(charge.igst),
-              cgst: optionalDecimal(charge.cgst),
-              sgst: optionalDecimal(charge.sgst),
-              taxAmount: optionalDecimal(charge.taxAmount),
-              sortOrder: index,
-            })),
-          },
-        },
+    if (snapshotRows.length > 0) {
+      await tx.vendorRateSnapshot.createMany({
+        data: snapshotRows.map((row) => ({ ...row, callId: call.id })),
       });
+
+      if (chargeRows.length > 0) {
+        await tx.vendorRateCharge.createMany({ data: chargeRows });
+      }
     }
   });
 }
