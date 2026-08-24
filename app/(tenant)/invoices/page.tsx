@@ -1,11 +1,11 @@
 import { Suspense } from "react";
 
 import { TenantInvoicesTable } from "@/components/invoices/TenantInvoicesTable";
-import { InvoicesTableSkeleton } from "@/components/invoices/InvoicesTableSkeleton";
-import { InvoiceSummaryCards } from "@/components/invoices/InvoiceSummaryCards";
 import { getDbOrgId } from "@/utils/tenant";
 import { getOrgInvoiceFeed } from "@/lib/invoices/feed";
 import { DEFAULT_INVOICE_PAGE_SIZE } from "@/lib/invoices/config";
+
+import { InvoicesPageHeading } from "./heading";
 
 export const metadata = {
   title: "Invoices",
@@ -26,21 +26,19 @@ export const metadata = {
  * browser would have to download the chunk, hydrate, and only then wait out a
  * round trip before a single invoice appeared on a page that had otherwise
  * finished loading.
+ *
+ * The fallback is the table itself with its query switched off, not a separate
+ * arrangement of grey boxes. Everything that does not come from the database —
+ * tile labels, the filters, the column headings, the paging controls — is
+ * therefore already on screen and in its final position during the fetch, and
+ * only the cells and figures are standing in.
  */
 export default function InvoicesPage() {
   return (
     <div className="mx-auto max-w-6xl px-6 py-8">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
-          Invoices
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Everything Arena has billed you: a tax invoice for every shipment,
-          plus any bills raised to your account. Open or download any of them.
-        </p>
-      </div>
+      <InvoicesPageHeading />
 
-      <Suspense fallback={<InvoicesPanelSkeleton />}>
+      <Suspense fallback={<TenantInvoicesTable skeleton />}>
         <InvoicesPanel />
       </Suspense>
     </div>
@@ -63,14 +61,4 @@ async function InvoicesPanel() {
   });
 
   return <TenantInvoicesTable initialData={initialData} />;
-}
-
-/** Mirrors the table's own layout: summary tiles, toolbar, then rows. */
-function InvoicesPanelSkeleton() {
-  return (
-    <div className="space-y-5">
-      <InvoiceSummaryCards summary={undefined} isLoading />
-      <InvoicesTableSkeleton columns={8} />
-    </div>
-  );
 }

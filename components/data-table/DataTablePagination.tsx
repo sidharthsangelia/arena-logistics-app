@@ -3,6 +3,7 @@
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Select,
   SelectContent,
@@ -20,6 +21,13 @@ interface DataTablePaginationProps {
   pageCount: number;
   onPageChange: (page: number) => void;
   onPageSizeChange: (pageSize: number) => void;
+  /**
+   * First load: the row count and the page count are the only two things here
+   * that are not known yet. "Rows per page", the size select and the four
+   * arrows are chrome and stay put; the two counts stand in at the exact width
+   * of the text that replaces them.
+   */
+  isLoading?: boolean;
 }
 
 export function DataTablePagination({
@@ -29,15 +37,20 @@ export function DataTablePagination({
   pageCount,
   onPageChange,
   onPageSizeChange,
+  isLoading,
 }: DataTablePaginationProps) {
   const from = totalRows === 0 ? 0 : (page - 1) * pageSize + 1;
   const to = Math.min(page * pageSize, totalRows);
 
   return (
     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-      <p className="text-sm text-muted-foreground">
-        {totalRows === 0 ? "No rows" : `Showing ${from}–${to} of ${totalRows}`}
-      </p>
+      {isLoading ? (
+        <Skeleton className="h-5 w-40" />
+      ) : (
+        <p className="text-sm text-muted-foreground">
+          {totalRows === 0 ? "No rows" : `Showing ${from}–${to} of ${totalRows}`}
+        </p>
+      )}
 
       <div className="flex flex-wrap items-center gap-4">
         <div className="flex items-center gap-2">
@@ -45,6 +58,7 @@ export function DataTablePagination({
           <Select
             value={String(pageSize)}
             onValueChange={(value) => onPageSizeChange(Number(value))}
+            disabled={isLoading}
           >
             <SelectTrigger className="h-8 w-[70px]">
               <SelectValue placeholder={String(pageSize)} />
@@ -59,9 +73,13 @@ export function DataTablePagination({
           </Select>
         </div>
 
-        <div className="text-sm font-medium tabular-nums">
-          Page {page} of {Math.max(pageCount, 1)}
-        </div>
+        {isLoading ? (
+          <Skeleton className="h-5 w-24" />
+        ) : (
+          <div className="text-sm font-medium tabular-nums">
+            Page {page} of {Math.max(pageCount, 1)}
+          </div>
+        )}
 
         <div className="flex items-center gap-1">
           <Button
@@ -69,7 +87,7 @@ export function DataTablePagination({
             size="icon"
             className="h-8 w-8"
             onClick={() => onPageChange(1)}
-            disabled={page <= 1}
+            disabled={isLoading || page <= 1}
           >
             <ChevronsLeft className="h-4 w-4" />
           </Button>
@@ -78,7 +96,7 @@ export function DataTablePagination({
             size="icon"
             className="h-8 w-8"
             onClick={() => onPageChange(page - 1)}
-            disabled={page <= 1}
+            disabled={isLoading || page <= 1}
           >
             <ChevronLeft className="h-4 w-4" />
           </Button>
@@ -87,7 +105,7 @@ export function DataTablePagination({
             size="icon"
             className="h-8 w-8"
             onClick={() => onPageChange(page + 1)}
-            disabled={page >= pageCount}
+            disabled={isLoading || page >= pageCount}
           >
             <ChevronRight className="h-4 w-4" />
           </Button>
@@ -96,7 +114,7 @@ export function DataTablePagination({
             size="icon"
             className="h-8 w-8"
             onClick={() => onPageChange(pageCount)}
-            disabled={page >= pageCount}
+            disabled={isLoading || page >= pageCount}
           >
             <ChevronsRight className="h-4 w-4" />
           </Button>

@@ -3,6 +3,7 @@
 import * as React from "react";
 import {
   type ColumnDef,
+  type RowData,
   type RowSelectionState,
   type SortingState,
   type VisibilityState,
@@ -19,8 +20,22 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { DataTablePagination } from "./DataTablePagination";
+
+/**
+ * A column may describe the shape of its own placeholder cell. It is the only
+ * way a first-load skeleton can keep the column widths the real rows will
+ * settle on — a badge column and a date column are not the same width, and a
+ * row of identical grey bars guarantees the table jumps once the data lands.
+ */
+declare module "@tanstack/react-table" {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  interface ColumnMeta<TData extends RowData, TValue> {
+    skeleton?: React.ReactNode;
+  }
+}
 
 interface DataTableProps<TData, TValue> {
   columns: ColumnDef<TData, TValue>[];
@@ -41,6 +56,15 @@ interface DataTableProps<TData, TValue> {
 
   /** True while a server request for new data is in flight (e.g. router transition). */
   isLoading?: boolean;
+  /**
+   * True before the FIRST rows have ever arrived. The table keeps its own
+   * chrome — header labels, pagination controls, the border — and stands in
+   * only the cells, so nothing that is already known has to wait for the
+   * fetch, and nothing moves when it finishes.
+   */
+  isFirstLoad?: boolean;
+  /** How many placeholder rows to draw while `isFirstLoad`. */
+  skeletonRows?: number;
 
   toolbar?: React.ReactNode;
   emptyState?: React.ReactNode;
@@ -73,6 +97,8 @@ export function DataTable<TData, TValue>({
   columnVisibility,
   onColumnVisibilityChange,
   isLoading,
+  isFirstLoad,
+  skeletonRows = 6,
   toolbar,
   emptyState,
   rowSelection,
@@ -135,7 +161,22 @@ export function DataTable<TData, TValue>({
               ))}
             </TableHeader>
             <TableBody>
-              {rows.length ? (
+              {isFirstLoad ? (
+                Array.from({ length: skeletonRows }).map((_, i) => (
+                  <TableRow
+                    key={`skeleton-${i}`}
+                    className={cn("hover:bg-transparent", i % 2 !== 0 && "bg-muted/10")}
+                  >
+                    {table.getVisibleLeafColumns().map((column) => (
+                      <TableCell key={column.id}>
+                        {column.columnDef.meta?.skeleton ?? (
+                          <Skeleton className="h-5 w-24" />
+                        )}
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                ))
+              ) : rows.length ? (
                 rows.map((row, i) => (
                   <TableRow
                     key={row.id}
@@ -160,7 +201,7 @@ export function DataTable<TData, TValue>({
           </Table>
         </div>
 
-        {isLoading && (
+        {isLoading && !isFirstLoad && (
           <div className="absolute inset-0 flex items-center justify-center bg-background/60 backdrop-blur-[1px]">
             <div className="h-5 w-5 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-foreground" />
           </div>
@@ -168,6 +209,7 @@ export function DataTable<TData, TValue>({
       </div>
 
       <DataTablePagination
+        isLoading={isFirstLoad}
         page={page}
         pageSize={pageSize}
         totalRows={totalRows}

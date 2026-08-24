@@ -1,32 +1,22 @@
-import { InvoicesTableSkeleton } from "@/components/invoices/InvoicesTableSkeleton";
-import { InvoiceSummaryCards } from "@/components/invoices/InvoiceSummaryCards";
+import { TenantInvoicesTable } from "@/components/invoices/TenantInvoicesTable";
+
+import { InvoicesPageHeading } from "./heading";
 
 /**
- * The heading is static content the page renders with no data behind it, so it
- * is reproduced verbatim here rather than skeletoned — it is already correct,
- * and showing it immediately is the point. Only the summary tiles and the rows,
- * which do come from a query, stand in as skeletons.
+ * Nothing on this screen is skeletoned unless it genuinely comes from the
+ * database. The heading is static content the route already knows, so it is
+ * rendered outright; the panel below is the real table with its query switched
+ * off, so its filters, column headings and paging controls are painted and
+ * final while only the cells and figures stand in.
  *
- * Matches the page's own Suspense fallback, so there is no second layout shift
- * when the route takes over from this file.
+ * Identical to the page's own Suspense fallback — the same component, not a
+ * copy of it — so the route taking over from this file moves nothing.
  */
 export default function InvoicesLoading() {
   return (
     <div className="mx-auto max-w-6xl px-6 py-8">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
-          Invoices
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Everything Arena has billed you: a tax invoice for every shipment,
-          plus any bills raised to your account. Open or download any of them.
-        </p>
-      </div>
-
-      <div className="space-y-5">
-        <InvoiceSummaryCards summary={undefined} isLoading />
-        <InvoicesTableSkeleton columns={8} />
-      </div>
+      <InvoicesPageHeading />
+      <TenantInvoicesTable skeleton />
     </div>
   );
 }

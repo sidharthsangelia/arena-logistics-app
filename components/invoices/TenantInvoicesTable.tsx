@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import type { ColumnDef } from "@tanstack/react-table";
+import type { ColumnDef, SortingState } from "@tanstack/react-table";
 import {
   ArrowUpRight,
   Download,
@@ -14,6 +14,7 @@ import {
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Tooltip,
   TooltipContent,
@@ -26,17 +27,18 @@ import { listOrgInvoiceFeedAction } from "@/actions/invoices/invoices.action";
 import { cn } from "@/lib/utils";
 import { formatDate, formatMoney } from "@/utils/format";
 import {
+  DEFAULT_INVOICE_PAGE_SIZE,
   INVOICE_KIND_FILTERS,
   invoiceDownloadHref,
   type InvoiceFeedPage,
   type InvoiceFeedRow,
   type InvoiceKind,
   type InvoiceKindFilter,
+  type InvoiceStatusFilter,
 } from "@/lib/invoices/config";
 
 import { InvoiceViewStatusBadge } from "./InvoiceStatusBadge";
 import { InvoiceSummaryCards } from "./InvoiceSummaryCards";
-import { InvoicesTableSkeleton } from "./InvoicesTableSkeleton";
 import { InvoiceEmptyState, InvoiceToolbar } from "./InvoiceToolbar";
 import { useInvoiceFeedQuery } from "./useInvoiceFeedQuery";
 
@@ -52,17 +54,95 @@ import { useInvoiceFeedQuery } from "./useInvoiceFeedQuery";
  *
  * Read-only. Everything about an invoice is controlled by Arena; the customer
  * opens it, downloads it, or finds it.
+ *
+ * Loading is per-cell, not per-page. Everything on this screen that is fixed by
+ * the design rather than by the data — the tile labels and icons, the search
+ * box, the type switch, the column headings, "Rows per page", the paging arrows
+ * — is rendered on the first frame; only the figures and the row cells stand in
+ * as skeletons, each sized to the content that replaces it.
+ *
+ * `skeleton` renders the same panel with a standing-still view in place of the
+ * query, which is what the route uses for loading.tsx and its Suspense
+ * fallback. One tree serves both states, so there is no lookalike to keep in
+ * step and nothing moves when the real data takes over.
  */
 export function TenantInvoicesTable({
   initialData,
+  skeleton,
 }: {
   initialData?: InvoiceFeedPage;
+  skeleton?: boolean;
 }) {
-  const t = useInvoiceFeedQuery({
+  return skeleton ? (
+    <InvoicesPanel view={IDLE_VIEW} />
+  ) : (
+    <LiveInvoicesPanel initialData={initialData} />
+  );
+}
+
+/**
+ * Everything the panel reads off the feed. Narrower than the hook's return on
+ * purpose: it is also what the idle view has to satisfy, and a placeholder that
+ * had to stub `refetch` would be inventing behaviour it does not have.
+ */
+interface InvoiceFeedView {
+  page: number;
+  setPage: (page: number) => void;
+  pageSize: number;
+  setPageSize: (size: number) => void;
+  sorting: SortingState;
+  setSorting: (sorting: SortingState) => void;
+  status: InvoiceStatusFilter;
+  setStatus: (status: InvoiceStatusFilter) => void;
+  kind: InvoiceKindFilter;
+  setKind: (kind: InvoiceKindFilter) => void;
+  searchInput: string;
+  onSearchChange: (value: string) => void;
+  reset: () => void;
+  filtered: boolean;
+  isFirstLoad: boolean;
+  isFetching: boolean;
+  data: InvoiceFeedPage | undefined;
+}
+
+const noop = () => {};
+
+/**
+ * The skeleton's stand-in for the feed. It deliberately does NOT run the query
+ * hook: a disabled useQuery still registers its key in the cache, and the entry
+ * it leaves behind would make react-query ignore the `initialData` the server
+ * fetched — the fallback would cost us the very handover it is standing in for.
+ */
+const IDLE_VIEW: InvoiceFeedView = {
+  page: 1,
+  setPage: noop,
+  pageSize: DEFAULT_INVOICE_PAGE_SIZE,
+  setPageSize: noop,
+  sorting: [{ id: "issueDate", desc: true }],
+  setSorting: noop,
+  status: "ALL",
+  setStatus: noop,
+  kind: "ALL",
+  setKind: noop,
+  searchInput: "",
+  onSearchChange: noop,
+  reset: noop,
+  filtered: false,
+  isFirstLoad: true,
+  isFetching: false,
+  data: undefined,
+};
+
+function LiveInvoicesPanel({ initialData }: { initialData?: InvoiceFeedPage }) {
+  const view = useInvoiceFeedQuery({
     fetcher: listOrgInvoiceFeedAction,
     initialData,
   });
 
+  return <InvoicesPanel view={view} />;
+}
+
+function InvoicesPanel({ view: t }: { view: InvoiceFeedView }) {
   const columns = React.useMemo<ColumnDef<InvoiceFeedRow>[]>(
     () => [
       {
@@ -70,12 +150,15 @@ export function TenantInvoicesTable({
         enableSorting: false,
         header: () => <span className="text-xs">Invoice</span>,
         cell: ({ row }) => <InvoiceNumberCell row={row.original} />,
+        meta: { skeleton: <Skeleton className="h-5 w-28" /> },
       },
       {
         accessorKey: "kind",
         enableSorting: false,
         header: () => <span className="text-xs">Type</span>,
         cell: ({ row }) => <KindTag row={row.original} />,
+        // Badge-shaped, or the column starts narrow and widens on arrival.
+        meta: { skeleton: <Skeleton className="h-5 w-24 rounded-full" /> },
       },
       {
         accessorKey: "shipmentNumber",
@@ -98,6 +181,7 @@ export function TenantInvoicesTable({
           ) : (
             <span className="text-muted-foreground/60">—</span>
           ),
+        meta: { skeleton: <Skeleton className="h-5 w-24" /> },
       },
       {
         accessorKey: "amount",
@@ -109,6 +193,7 @@ export function TenantInvoicesTable({
             {formatMoney(row.original.amount, row.original.currency)}
           </span>
         ),
+        meta: { skeleton: <Skeleton className="h-5 w-20" /> },
       },
       {
         accessorKey: "issueDate",
@@ -120,6 +205,7 @@ export function TenantInvoicesTable({
             {formatDate(row.original.issueDate)}
           </span>
         ),
+        meta: { skeleton: <Skeleton className="h-5 w-24" /> },
       },
       {
         accessorKey: "dueDate",
@@ -133,17 +219,28 @@ export function TenantInvoicesTable({
           ) : (
             <span className="text-muted-foreground/60">—</span>
           ),
+        meta: { skeleton: <Skeleton className="h-5 w-24" /> },
       },
       {
         accessorKey: "status",
         enableSorting: false,
         header: () => <span className="text-xs">Status</span>,
         cell: ({ row }) => <InvoiceViewStatusBadge view={row.original.status} />,
+        meta: { skeleton: <Skeleton className="h-5 w-20 rounded-full" /> },
       },
       {
         id: "actions",
         header: () => <span className="sr-only">Actions</span>,
         cell: ({ row }) => <RowActions row={row.original} />,
+        // The icon button is the tallest thing in a row and therefore sets the
+        // row height. Matching it here is what keeps the rows from shrinking.
+        meta: {
+          skeleton: (
+            <div className="flex items-center justify-end">
+              <Skeleton className="h-8 w-8 rounded-md" />
+            </div>
+          ),
+        },
       },
     ],
     [],
@@ -162,35 +259,35 @@ export function TenantInvoicesTable({
           status={t.status}
           onStatusChange={t.setStatus}
           isFetching={t.isFetching && !t.isFirstLoad}
+          disabled={t.isFirstLoad}
           leading={
             <KindSwitch
               value={t.kind}
               onChange={t.setKind}
               counts={t.data?.kindCounts}
+              disabled={t.isFirstLoad}
             />
           }
         />
 
-        {t.isFirstLoad ? (
-          <InvoicesTableSkeleton columns={8} />
-        ) : (
-          <DataTable
-            columns={columns}
-            data={rows}
-            page={t.page}
-            pageSize={t.pageSize}
-            totalRows={t.data?.total ?? 0}
-            pageCount={t.data?.pageCount ?? 1}
-            onPageChange={t.setPage}
-            onPageSizeChange={t.setPageSize}
-            sorting={t.sorting}
-            onSortingChange={t.setSorting}
-            isLoading={t.isFetching}
-            emptyState={
-              <InvoiceEmptyState filtered={t.filtered} onReset={t.reset} />
-            }
-          />
-        )}
+        <DataTable
+          columns={columns}
+          data={rows}
+          page={t.page}
+          pageSize={t.pageSize}
+          totalRows={t.data?.total ?? 0}
+          pageCount={t.data?.pageCount ?? 1}
+          onPageChange={t.setPage}
+          onPageSizeChange={t.setPageSize}
+          sorting={t.sorting}
+          onSortingChange={t.setSorting}
+          isLoading={t.isFetching}
+          isFirstLoad={t.isFirstLoad}
+          skeletonRows={t.pageSize > 10 ? 10 : t.pageSize}
+          emptyState={
+            <InvoiceEmptyState filtered={t.filtered} onReset={t.reset} />
+          }
+        />
       </div>
     </TooltipProvider>
   );
@@ -351,10 +448,12 @@ function KindSwitch({
   value,
   onChange,
   counts,
+  disabled,
 }: {
   value: InvoiceKindFilter;
   onChange: (next: InvoiceKindFilter) => void;
   counts?: Record<InvoiceKind, number>;
+  disabled?: boolean;
 }) {
   const countFor = (kind: InvoiceKindFilter) => {
     if (!counts) return null;
@@ -378,15 +477,22 @@ function KindSwitch({
             role="radio"
             aria-checked={selected}
             onClick={() => onChange(kind)}
+            disabled={disabled}
             className={cn(
               "inline-flex h-8 items-center gap-1.5 rounded px-2.5 text-xs font-medium transition-colors",
               selected
                 ? "bg-muted text-foreground"
                 : "text-muted-foreground hover:text-foreground",
+              disabled && "cursor-default",
             )}
           >
+            {/* The label is fixed; only its tally waits, and it waits in a box
+                the same width, so the switch does not grow underneath a
+                pointer that is already on it. */}
             {KIND_LABEL[kind]}
-            {count !== null && (
+            {count === null ? (
+              <Skeleton className="h-3 w-4" />
+            ) : (
               <span className="tabular-nums text-muted-foreground">{count}</span>
             )}
           </button>

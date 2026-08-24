@@ -36,6 +36,7 @@ export function InvoiceToolbar({
   status,
   onStatusChange,
   isFetching,
+  disabled,
   leading,
   children,
 }: {
@@ -45,6 +46,12 @@ export function InvoiceToolbar({
   status: InvoiceStatusFilter;
   onStatusChange: (value: InvoiceStatusFilter) => void;
   isFetching?: boolean;
+  /**
+   * First load. The controls are real and painted immediately — placeholder
+   * boxes here would only hide labels we already know — but there is nothing
+   * to filter yet, so they are inert until the first page lands.
+   */
+  disabled?: boolean;
   /** Controls that belong BEFORE the status filter (the tenant kind switch). */
   leading?: React.ReactNode;
   children?: React.ReactNode;
@@ -58,6 +65,7 @@ export function InvoiceToolbar({
           onChange={(e) => onSearchChange(e.target.value)}
           placeholder={searchPlaceholder}
           className="h-9 pl-8 pr-8"
+          disabled={disabled}
         />
         {search && (
           <button
@@ -79,6 +87,7 @@ export function InvoiceToolbar({
         <Select
           value={status}
           onValueChange={(v) => onStatusChange(v as InvoiceStatusFilter)}
+          disabled={disabled}
         >
           <SelectTrigger className="h-9 w-[150px]">
             <SelectValue />
