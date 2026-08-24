@@ -1,45 +1,21 @@
-import { Card, CardContent } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
+import BookingWizardSkeleton from "@/components/booking/BookingWizardSkeleton";
 
-// Instant fallback while the booking page loads the org context and any saved
-// draft the wizard resumes from. Matches the header and the wizard's stepper +
-// form shell so the layout holds steady when the real wizard mounts.
+import { BookPageHeading } from "./heading";
+
+/**
+ * Nothing here is a placeholder, because nothing on the booking wizard's first
+ * screen comes from the server. The heading is static; the wizard shell below
+ * is the real stepper, the real mode question and the real navigation, drawn in
+ * their final positions while the org context and any saved draft load.
+ *
+ * Identical to the page's own Suspense fallback — the same component, not a
+ * copy of it — so the route taking over from this file moves nothing.
+ */
 export default function BookLoading() {
   return (
     <div className="max-w-5xl mx-auto px-6 py-8">
-      <div className="mb-8 space-y-2">
-        <Skeleton className="h-8 w-40" />
-        <Skeleton className="h-4 w-72 max-w-full" />
-      </div>
-
-      {/* Step indicator */}
-      <div className="mb-8 flex items-center justify-between gap-2">
-        {Array.from({ length: 5 }).map((_, i) => (
-          <div key={i} className="flex flex-1 items-center gap-2">
-            <Skeleton className="h-8 w-8 shrink-0 rounded-full" />
-            <Skeleton className="hidden h-3 w-20 sm:block" />
-          </div>
-        ))}
-      </div>
-
-      {/* Current step form */}
-      <Card>
-        <CardContent className="space-y-6 p-6">
-          <Skeleton className="h-5 w-48" />
-          <div className="grid gap-4 sm:grid-cols-2">
-            {Array.from({ length: 6 }).map((_, i) => (
-              <div key={i} className="space-y-2">
-                <Skeleton className="h-3 w-24" />
-                <Skeleton className="h-10 w-full" />
-              </div>
-            ))}
-          </div>
-          <div className="flex justify-between pt-2">
-            <Skeleton className="h-10 w-24 rounded-md" />
-            <Skeleton className="h-10 w-28 rounded-md" />
-          </div>
-        </CardContent>
-      </Card>
+      <BookPageHeading />
+      <BookingWizardSkeleton />
     </div>
   );
 }

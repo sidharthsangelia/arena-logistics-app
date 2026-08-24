@@ -1,10 +1,11 @@
 import { Suspense } from "react";
 
 import BookingWizard from "@/components/booking/BookingWizard";
+import BookingWizardSkeleton from "@/components/booking/BookingWizardSkeleton";
 import { getBookingOrgContext } from "@/actions/book/bookingContext.action";
 import { getBookingDraft } from "@/actions/book/bookingDraft.action";
-import { Card, CardContent } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
+
+import { BookPageHeading } from "./heading";
 
 // The heading is static, so it paints immediately; the wizard streams in once
 // its org context and any saved draft resolve.
@@ -14,15 +15,15 @@ import { Skeleton } from "@/components/ui/skeleton";
 // risks silently discarding what they last typed. The org context carries the
 // payment mode a booking is about to be charged against. Both belong in the
 // "must always be fresh" bucket.
+//
+// The fallback is the wizard's own shell rather than an arrangement of grey
+// boxes: the stepper, the mode question and the navigation are fixed content,
+// so they are on screen and in their final positions for the whole fetch. See
+// components/booking/BookingWizardSkeleton.tsx.
 export default function BookPage() {
   return (
     <div className="max-w-5xl mx-auto px-6 py-8">
-      <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
-        Book Order
-      </h1>
-      <p className="text-sm text-slate-500 mt-1">
-        Create and confirm a new shipment booking.
-      </p>
+      <BookPageHeading />
 
       <Suspense fallback={<BookingWizardSkeleton />}>
         <BookingWizardSection />
@@ -43,38 +44,4 @@ async function BookingWizardSection() {
   const initialDraft = draftResult.ok ? draftResult.data : null;
 
   return <BookingWizard orgContext={orgContext} initialDraft={initialDraft} />;
-}
-
-/** Matches the wizard's stepper + current-step form card. */
-function BookingWizardSkeleton() {
-  return (
-    <div className="mt-8">
-      <div className="mb-8 flex items-center justify-between gap-2">
-        {Array.from({ length: 5 }).map((_, i) => (
-          <div key={i} className="flex flex-1 items-center gap-2">
-            <Skeleton className="h-8 w-8 shrink-0 rounded-full" />
-            <Skeleton className="hidden h-3 w-20 sm:block" />
-          </div>
-        ))}
-      </div>
-
-      <Card>
-        <CardContent className="space-y-6 p-6">
-          <Skeleton className="h-5 w-48" />
-          <div className="grid gap-4 sm:grid-cols-2">
-            {Array.from({ length: 6 }).map((_, i) => (
-              <div key={i} className="space-y-2">
-                <Skeleton className="h-3.5 w-24" />
-                <Skeleton className="h-10 w-full" />
-              </div>
-            ))}
-          </div>
-          <div className="flex justify-end gap-2">
-            <Skeleton className="h-10 w-24 rounded-md" />
-            <Skeleton className="h-10 w-24 rounded-md" />
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-  );
 }

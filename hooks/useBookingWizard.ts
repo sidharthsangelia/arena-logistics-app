@@ -102,7 +102,7 @@ export function getActiveSteps(data: {
   );
 }
 
-const initialFormData: BookingFormData = {
+export const initialFormData: BookingFormData = {
   // Deliberately NOT defaulted to a mode that lets the user skip the choice:
   // the step is always shown and always answered. INTERNATIONAL here is just
   // the shape the rest of the form starts in, and matches how every shipment
