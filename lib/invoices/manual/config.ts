@@ -453,6 +453,268 @@ export interface BillingPartyDefaults {
   chargeTypeCodes?: string[];
 }
 
+// ---------------------------------------------------------------------------
+// The customer list
+// ---------------------------------------------------------------------------
+//
+// Until the customers page existed, a BillingParty could only be reached
+// through the invoice form's picker: created in a dialog, never edited again,
+// and never listed anywhere. That made a wrong GSTIN unfixable without raising
+// an invoice to get at the form, and made a company entered twice under two
+// spellings impossible to notice.
+//
+// These are the shapes that page renders. Money and counts are computed per
+// page rather than stored, because a party has no balance of its own: what it
+// owes is the sum of the invoices raised to it, and a cached copy of that would
+// be wrong the first time one was marked paid.
+
+/**
+ * How a party's own record compares with the org or client it was adopted from.
+ *
+ * A party is a COPY, taken once (see adoptCustomerAction), and that is
+ * deliberate: a tax invoice states what was true when it was issued, and a
+ * customer correcting their address next month must not silently rewrite it.
+ * The cost of that choice is drift, and drift you cannot see is drift that ends
+ * up on a document. So the difference is surfaced and left for a person to
+ * accept, rather than either hidden or applied behind their back.
+ */
+export interface BillingPartyDriftField {
+  /** Field on the party, so the refresh writes back to the right column. */
+  field: "legalName" | "gstin" | "email" | "phone" | "contactName" | "addressLine1" | "city" | "state" | "postalCode";
+  label: string;
+  /** What the party record says today. This is what an invoice would print. */
+  ours: string | null;
+  /**
+   * What the linked org or client says today. Never null: a value the source
+   * has never had is not drift, it is an answer nobody has given yet, and
+   * reporting it would fill the notice with rows offering to erase good data.
+   */
+  theirs: string;
+}
+
+/**
+ * Two values differ in a way worth reporting.
+ *
+ * Case and inner whitespace are noise: "PVT LTD" and "Pvt  Ltd" are the same
+ * company, and offering to rewrite one into the other would train people to
+ * ignore the notice. A blank on THEIR side is never drift — a value the source
+ * has not been given is not a correction, and treating it as one would offer to
+ * erase a good address because the org record has none.
+ */
+export function partyValueDiffers(
+  ours: string | null,
+  theirs: string | null,
+): boolean {
+  const norm = (v: string | null) => (v ?? "").trim().replace(/\s+/g, " ");
+  const b = norm(theirs);
+  if (b === "") return false;
+  return norm(ours).toLowerCase() !== b.toLowerCase();
+}
+
+/**
+ * The fields compared between a party and the account it was adopted from, in
+ * the order the notice lists them: identity first, then how to reach them, then
+ * where they are.
+ */
+export const BILLING_PARTY_DRIFT_FIELDS: ReadonlyArray<
+  readonly [BillingPartyDriftField["field"], string]
+> = [
+  ["legalName", "Name"],
+  ["gstin", "GSTIN"],
+  ["email", "Email"],
+  ["phone", "Phone"],
+  ["contactName", "Contact"],
+  ["addressLine1", "Address"],
+  ["city", "City"],
+  ["state", "State"],
+  ["postalCode", "Postal code"],
+];
+
+export function driftBetween(
+  ours: Partial<Record<BillingPartyDriftField["field"], string | null>>,
+  theirs: Partial<Record<BillingPartyDriftField["field"], string | null>>,
+): BillingPartyDriftField[] {
+  return BILLING_PARTY_DRIFT_FIELDS.flatMap(([field, label]) => {
+    const mine = ours[field] ?? null;
+    const yours = theirs[field] ?? null;
+    // The null check is redundant with partyValueDiffers, which already treats
+    // a blank source value as "not drift". It is here so the narrowing is
+    // visible to the type rather than only true in practice.
+    if (yours === null || !partyValueDiffers(mine, yours)) return [];
+    return [{ field, label, ours: mine, theirs: yours }];
+  });
+}
+
+export interface BillingPartyLink {
+  source: Exclude<CustomerSource, "PARTY">;
+  id: string;
+  name: string;
+  /** For a CLIENT: the business associate whose client it is. */
+  ownerName: string | null;
+  /** Whether the source record still exists. A deleted one keeps the history. */
+  present: boolean;
+  drift: BillingPartyDriftField[];
+}
+
+export interface BillingPartyRow {
+  id: string;
+  kind: BillingPartyKind;
+  legalName: string;
+  tradeName: string | null;
+  customerCode: string | null;
+  gstin: string | null;
+  city: string | null;
+  state: string | null;
+  email: string | null;
+  phone: string | null;
+
+  /** Linked account, if this party was adopted from one. Context on the row. */
+  linkKind: CustomerSource | null;
+  linkName: string | null;
+
+  invoiceCount: number;
+  draftCount: number;
+  /** Issued plus paid plus cancelled: everything that took a serial. */
+  issuedCount: number;
+
+  /**
+   * Totals within this party's own dominant currency. A customer billed in both
+   * INR and USD reports the larger set and says so, rather than adding them.
+   */
+  currency: string;
+  mixedCurrency: boolean;
+  billedAmount: number;
+  outstandingAmount: number;
+  overdueCount: number;
+
+  lastInvoicedAt: string | null;
+  createdAt: string;
+}
+
+export interface BillingPartyListSummary {
+  /** Every party on file, ignoring the filters below the tiles. */
+  total: number;
+  billed: number;
+  neverBilled: number;
+  linked: number;
+}
+
+export interface BillingPartyPage {
+  rows: BillingPartyRow[];
+  total: number;
+  pageCount: number;
+  page: number;
+  pageSize: number;
+  summary: BillingPartyListSummary;
+}
+
+/**
+ * Sortable columns.
+ *
+ * Deliberately no "amount billed" and no "last invoiced". Both are summed or
+ * maxed from a customer's invoices at request time rather than held in a
+ * column, so the database cannot order by either. Offering them as sorts would
+ * mean ranking one page of results against itself and calling it an order.
+ */
+export type BillingPartySortField = "legalName" | "createdAt" | "invoiceCount";
+
+export const BILLING_PARTY_SORT_FIELDS: readonly BillingPartySortField[] = [
+  "legalName",
+  "createdAt",
+  "invoiceCount",
+];
+
+export function coerceBillingPartySortField(
+  value: unknown,
+): BillingPartySortField {
+  return BILLING_PARTY_SORT_FIELDS.includes(value as BillingPartySortField)
+    ? (value as BillingPartySortField)
+    : "legalName";
+}
+
+export const BILLING_PARTY_PAGE_SIZE_OPTIONS = [10, 20, 30, 50] as const;
+export const DEFAULT_BILLING_PARTY_PAGE_SIZE = 20;
+
+export function coerceBillingPartyPageSize(value: number | undefined): number {
+  return (BILLING_PARTY_PAGE_SIZE_OPTIONS as readonly number[]).includes(
+    value as number,
+  )
+    ? (value as number)
+    : DEFAULT_BILLING_PARTY_PAGE_SIZE;
+}
+
+/**
+ * The one filter the list needs that a search box cannot express.
+ *
+ * BILLED and NEVER_BILLED are the pair that matters: a party with no invoice is
+ * either a customer who has not been billed yet or a duplicate somebody created
+ * by mistake, and both are only findable by asking for them.
+ */
+export const BILLING_PARTY_FILTERS = [
+  "ALL",
+  "BILLED",
+  "NEVER_BILLED",
+  "OWES",
+  "LINKED",
+  "UNLINKED",
+] as const;
+export type BillingPartyFilter = (typeof BILLING_PARTY_FILTERS)[number];
+
+export function coerceBillingPartyFilter(value: unknown): BillingPartyFilter {
+  return (BILLING_PARTY_FILTERS as readonly string[]).includes(value as string)
+    ? (value as BillingPartyFilter)
+    : "ALL";
+}
+
+export const BILLING_PARTY_FILTER_LABEL: Record<BillingPartyFilter, string> = {
+  ALL: "All",
+  BILLED: "Invoiced",
+  NEVER_BILLED: "Never invoiced",
+  OWES: "Owes money",
+  LINKED: "Has an account",
+  UNLINKED: "Off platform",
+};
+
+export interface BillingPartyListParams {
+  page?: number;
+  pageSize?: number;
+  sortField?: BillingPartySortField;
+  sortDir?: "asc" | "desc";
+  search?: string;
+  kind?: BillingPartyKind | null;
+  filter?: BillingPartyFilter;
+}
+
+/**
+ * One party's billing history, in totals.
+ *
+ * Manual invoices only. Booking invoices belong to an Org and are raised by the
+ * platform against a shipment; a party linked to that org can point at them
+ * (see `bookingInvoiceCount`) but must not add them into a figure headed "what
+ * this customer owes us", because those are settled from a wallet on a
+ * different schedule and by a different mechanism.
+ */
+export interface BillingPartyStats {
+  invoiceCount: number;
+  draftCount: number;
+  issuedCount: number;
+  cancelledCount: number;
+
+  currency: string;
+  mixedCurrency: boolean;
+  billedAmount: number;
+  paidAmount: number;
+  outstandingAmount: number;
+  overdueAmount: number;
+  overdueCount: number;
+
+  firstInvoicedAt: string | null;
+  lastInvoicedAt: string | null;
+
+  /** Booking invoices raised to the linked org, if there is one. Null when not. */
+  bookingInvoiceCount: number | null;
+}
+
 export interface ChargeTypeOption {
   id: string;
   code: string;

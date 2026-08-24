@@ -12,6 +12,7 @@ import {
 } from "@/lib/invoices/tax/config";
 import { gstStateName } from "@/lib/invoices/tax/gst";
 import {
+  getBillingParty,
   listChargePresets,
   listChargeTypes,
   listServiceTypes,
@@ -30,9 +31,18 @@ export const metadata = {
  * optimistic redirect, and every action re-checks besides. See
  * utils/arena-auth.ts.
  */
-export default async function NewManualInvoicePage() {
+export default async function NewManualInvoicePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ party?: string }>;
+}) {
   const { isArenaAdmin } = await getArenaAuth();
   if (!isArenaAdmin) redirect("/arena-dashboard");
+
+  // Arriving from a customer's own page with them already chosen. Only ever an
+  // id: the party is read from the database, so a hand-edited query string can
+  // choose a different customer but never invent one or their GSTIN.
+  const { party: partyId } = await searchParams;
 
   // Read from the environment, not the database, so both warnings below are
   // decided before anything is fetched. They are also the two things on this
@@ -96,22 +106,35 @@ export default async function NewManualInvoicePage() {
           being asked for is on screen while the charge catalogue, the presets
           and the service history are read. */}
       <Suspense fallback={<ManualInvoiceBuilderSkeleton />}>
-        <BuilderSection sellerStateCode={issuer.stateCode} />
+        <BuilderSection
+          sellerStateCode={issuer.stateCode}
+          partyId={partyId ?? null}
+        />
       </Suspense>
     </div>
   );
 }
 
-async function BuilderSection({ sellerStateCode }: { sellerStateCode: string }) {
-  const [catalog, presets, serviceHistory] = await Promise.all([
+async function BuilderSection({
+  sellerStateCode,
+  partyId,
+}: {
+  sellerStateCode: string;
+  partyId: string | null;
+}) {
+  const [catalog, presets, serviceHistory, party] = await Promise.all([
     listChargeTypes(),
     listChargePresets(),
     listServiceTypes(),
+    // A customer that has since been deleted resolves to null and the form
+    // opens with the picker empty, which is the same as arriving without one.
+    partyId ? getBillingParty(partyId) : Promise.resolve(null),
   ]);
 
   return (
     <ManualInvoiceBuilder
       initial={null}
+      initialParty={party}
       catalog={catalog}
       presets={presets}
       serviceHistory={serviceHistory}

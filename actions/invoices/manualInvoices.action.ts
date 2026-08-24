@@ -51,7 +51,9 @@ import {
   manualInvoiceSchema,
   type BillingPartyDefaults,
   type BillingPartyDetail,
+  type BillingPartyListParams,
   type BillingPartyOption,
+  type BillingPartyPage,
   type ChargePresetOption,
   type ChargeTypeOption,
   type CustomerSearchResult,
@@ -67,7 +69,9 @@ import {
   ManualInvoiceBuildError,
 } from "@/lib/invoices/manual/build";
 import {
+  getBillingPartiesPage,
   getBillingParty,
+  getBillingPartyLink,
   getManualInvoiceDetail,
   getManualInvoicesPage,
   getOrgManualInvoicesPage,
@@ -453,22 +457,61 @@ export async function createBillingPartyAction(
   }
 }
 
+/**
+ * Correct a customer's details from the customers page.
+ *
+ * Resolves the state code the same way createBillingPartyAction does, because a
+ * GSTIN corrected here has to move the place of supply with it. A party whose
+ * GSTIN was fixed but whose state code still said the old thing would keep
+ * splitting tax under the wrong heads, silently, on every future invoice.
+ *
+ * ALREADY-ISSUED INVOICES DO NOT MOVE. Every document snapshots the party onto
+ * itself at issue time and the PDF is stored, not re-rendered, so editing here
+ * changes what the NEXT invoice prints and nothing that has already reached a
+ * customer. That is the correct behaviour for a tax document and the reason
+ * this screen is safe to hand to whoever answers the phone.
+ *
+ * The org and client links are not editable here. Pointing a party at a
+ * different account is what adoptCustomerAction does, deliberately and once;
+ * letting a text form do it would let a typo re-file somebody's billing history
+ * under another company.
+ */
 export async function updateBillingPartyAction(
   id: string,
   input: unknown,
-): Promise<ActionResult> {
+): Promise<ActionResult<BillingPartyOption>> {
   try {
     await requireArenaAdmin();
     const parsed = billingPartySchema.safeParse(input);
     if (!parsed.success) return { ok: false, error: firstIssue(parsed.error) };
 
-    await prisma.billingParty.update({
-      where: { id },
-      data: parsed.data,
+    // The links are dropped from whatever was posted rather than trusted.
+    // Prisma treats undefined as "leave this column alone", so an edit can
+    // never re-point a party at a different account. See the note above.
+    const v = { ...parsed.data, orgId: undefined, clientId: undefined };
+
+    const issuer = getInvoiceIssuer();
+    const place = resolvePlaceOfSupply({
+      gstin: v.gstin,
+      stateCode: v.stateCode,
+      stateName: v.state,
+      sellerStateCode: issuer.stateCode,
     });
 
-    revalidatePath(ARENA_PATH);
-    return { ok: true };
+    const updated = await prisma.billingParty.update({
+      where: { id, deletedAt: null },
+      data: {
+        ...v,
+        // Only stamp a resolved code when it came from something the customer
+        // actually told us. See createBillingPartyAction.
+        stateCode:
+          place.source === "sellerFallback" ? v.stateCode ?? null : place.code,
+      },
+      include: { org: { select: { name: true, companyName: true } } },
+    });
+
+    revalidateCustomers(id);
+    return { ok: true, data: toOption(updated) };
   } catch (error) {
     return {
       ok: false,
@@ -476,6 +519,143 @@ export async function updateBillingPartyAction(
         error,
         "updateBillingPartyAction",
         "Could not update the customer. Try again.",
+      ),
+    };
+  }
+}
+
+// ===========================================================================
+// CUSTOMERS
+// ===========================================================================
+//
+// The customers page, /arena-dashboard/invoices/customers. Until it existed a
+// BillingParty could only be reached through the invoice form's picker, which
+// meant a wrong GSTIN could not be corrected without starting an invoice.
+
+const CUSTOMERS_PATH = "/arena-dashboard/invoices/customers";
+
+function revalidateCustomers(id?: string) {
+  revalidatePath(ARENA_PATH);
+  revalidatePath(CUSTOMERS_PATH);
+  if (id) revalidatePath(`${CUSTOMERS_PATH}/${id}`);
+}
+
+export async function listBillingPartiesAction(
+  params: BillingPartyListParams,
+): Promise<BillingPartyPage> {
+  await requireArenaAdmin();
+  return getBillingPartiesPage(params);
+}
+
+/**
+ * Copy the linked org's or client's current details back onto the party.
+ *
+ * The link is a snapshot on purpose (see adoptCustomerAction): a tax invoice
+ * states what was true when it was issued, and a customer correcting their
+ * address must not silently rewrite one. The cost of that is drift, and this is
+ * the deliberate, admin-pressed way to clear it — never automatic, and never on
+ * read.
+ *
+ * Only the fields that actually differ are written, and only from a source row
+ * that still exists. Invoices already issued keep what they printed.
+ */
+export async function refreshBillingPartyFromLinkAction(
+  id: string,
+): Promise<ActionResult<{ updated: number }>> {
+  try {
+    await requireArenaAdmin();
+
+    const link = await getBillingPartyLink(id);
+    if (!link) {
+      return { ok: false, error: "This customer is not linked to an account." };
+    }
+    if (!link.present) {
+      return {
+        ok: false,
+        error: "That account no longer exists, so there is nothing to copy.",
+      };
+    }
+    if (link.drift.length === 0) {
+      return { ok: true, data: { updated: 0 } };
+    }
+
+    const data: Prisma.BillingPartyUpdateInput = {};
+    for (const field of link.drift) {
+      data[field.field] = field.theirs;
+    }
+
+    // A new GSTIN moves the place of supply with it, the same as a hand edit.
+    const gstinChange = link.drift.find((d) => d.field === "gstin");
+    if (gstinChange) {
+      const issuer = getInvoiceIssuer();
+      const place = resolvePlaceOfSupply({
+        gstin: gstinChange.theirs,
+        stateName: link.drift.find((d) => d.field === "state")?.theirs ?? null,
+        sellerStateCode: issuer.stateCode,
+      });
+      if (place.source !== "sellerFallback") data.stateCode = place.code;
+    }
+
+    await prisma.billingParty.update({ where: { id }, data });
+
+    revalidateCustomers(id);
+    return { ok: true, data: { updated: link.drift.length } };
+  } catch (error) {
+    return {
+      ok: false,
+      error: toMessage(
+        error,
+        "refreshBillingPartyFromLinkAction",
+        "Could not copy their details. Try again.",
+      ),
+    };
+  }
+}
+
+/**
+ * Remove a customer from the list.
+ *
+ * A soft delete, and REFUSED outright once anything has been invoiced to them.
+ * Every issued invoice snapshots the party onto itself so the documents would
+ * survive, but the party is what the invoice detail page reads to say who was
+ * billed, and a customer list you can empty of people who owe money is a list
+ * nobody can trust. A drafts-only party is fair game: nothing was ever claimed.
+ */
+export async function deleteBillingPartyAction(
+  id: string,
+): Promise<ActionResult> {
+  try {
+    await requireArenaAdmin();
+
+    const issued = await prisma.manualInvoice.count({
+      where: {
+        billingPartyId: id,
+        deletedAt: null,
+        status: { not: ManualInvoiceStatus.DRAFT },
+      },
+    });
+
+    if (issued > 0) {
+      return {
+        ok: false,
+        error: `This customer has ${issued} issued ${issued === 1 ? "invoice" : "invoices"}, so they cannot be removed. Correct their details instead.`,
+      };
+    }
+
+    await prisma.billingParty.update({
+      where: { id },
+      data: { deletedAt: new Date() },
+    });
+
+    revalidateCustomers(id);
+    return { ok: true };
+  } catch (error) {
+    return {
+      ok: false,
+      error: toMessage(
+        error,
+        "deleteBillingPartyAction",
+        "Could not remove the customer. Try again.",
       ),
     };
   }

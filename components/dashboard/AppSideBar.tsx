@@ -37,6 +37,7 @@ import {
   Wallet,
   Megaphone,
   FolderOpen,
+  BookUser,
 } from "lucide-react";
 
 import {
@@ -341,6 +342,15 @@ const NAV_CONFIGS: Record<string, NavConfig> = {
             href: "/invoices",
             icon: FileText,
             description: "Bills you raise to accounts",
+          },
+          {
+            // Its own row rather than a link buried on the invoices page: this
+            // is the address book behind every invoice raised by hand, and a
+            // wrong GSTIN on it is a wrong GSTIN on every future document.
+            title: "Billing Customers",
+            href: "/invoices/customers",
+            icon: BookUser,
+            description: "Everyone you raise invoices to",
           },
           {
             title: "Notices",

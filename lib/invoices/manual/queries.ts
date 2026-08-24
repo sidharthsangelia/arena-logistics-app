@@ -17,6 +17,10 @@ import {
 import { prisma } from "@/utils/db";
 
 import {
+  coerceBillingPartyFilter,
+  coerceBillingPartyPageSize,
+  coerceBillingPartySortField,
+  driftBetween,
   coerceManualPage,
   coerceManualPageSize,
   coerceManualSortField,
@@ -25,7 +29,14 @@ import {
   DEFAULT_CURRENCY,
   type BillingPartyDefaults,
   type BillingPartyDetail,
+  type BillingPartyFilter,
+  type BillingPartyLink,
+  type BillingPartyListParams,
   type BillingPartyOption,
+  type BillingPartyPage,
+  type BillingPartyRow,
+  type BillingPartySortField,
+  type BillingPartyStats,
   type ChargePresetOption,
   type ChargeTypeOption,
   type CustomerSearchResult,
@@ -894,4 +905,576 @@ export async function searchIssuedInvoices(
     total: num(row.total),
     currency: row.currency,
   }));
+}
+
+// ---------------------------------------------------------------------------
+// The customer list
+// ---------------------------------------------------------------------------
+//
+// Everything below serves /arena-dashboard/invoices/customers. Before it
+// existed a BillingParty was only ever reachable through the invoice form's
+// picker, which meant a wrong GSTIN could not be corrected without starting an
+// invoice, and a company entered twice under two spellings could not be seen at
+// all.
+//
+// MONEY IS NEVER STORED ON A PARTY. What a customer owes is the sum of the
+// invoices raised to them; a balance column would be a second copy of that,
+// wrong from the first time one was marked paid. So the totals here are summed
+// per request, and only over the parties on the page being rendered.
+
+/**
+ * Which parties the list is asking for.
+ *
+ * BILLED and NEVER_BILLED are expressed as `some`/`none` on the relation rather
+ * than a count, so the filter is a semi-join the database can answer from the
+ * index instead of a subquery per row. OWES is deliberately ISSUED only:
+ * an unpaid invoice is money owed, a draft is not money at all, and a cancelled
+ * one is money nobody will ever collect.
+ */
+function partyWhere(opts: {
+  search?: string;
+  kind?: BillingPartyKind | null;
+  filter: BillingPartyFilter;
+}): Prisma.BillingPartyWhereInput {
+  const where: Prisma.BillingPartyWhereInput = { deletedAt: null };
+
+  if (opts.kind) where.kind = opts.kind;
+
+  const live: Prisma.ManualInvoiceWhereInput = { deletedAt: null };
+
+  switch (opts.filter) {
+    case "BILLED":
+      where.invoices = { some: live };
+      break;
+    case "NEVER_BILLED":
+      where.invoices = { none: live };
+      break;
+    case "OWES":
+      where.invoices = {
+        some: { ...live, status: ManualInvoiceStatus.ISSUED },
+      };
+      break;
+    case "LINKED":
+      where.OR = [{ orgId: { not: null } }, { clientId: { not: null } }];
+      break;
+    case "UNLINKED":
+      where.orgId = null;
+      where.clientId = null;
+      break;
+    default:
+      break;
+  }
+
+  const search = opts.search?.trim();
+  if (search) {
+    const contains = { contains: search, mode: "insensitive" } as const;
+    // AND-ed rather than merged into the OR that LINKED sets above, which would
+    // widen the filter instead of narrowing the result.
+    where.AND = [
+      {
+        OR: [
+          { legalName: contains },
+          { tradeName: contains },
+          { customerCode: contains },
+          { gstin: contains },
+          { pan: contains },
+          { email: contains },
+          { phone: contains },
+          { city: contains },
+          { contactName: contains },
+        ],
+      },
+    ];
+  }
+
+  return where;
+}
+
+function partyOrderBy(
+  field: BillingPartySortField,
+  dir: "asc" | "desc",
+): Prisma.BillingPartyOrderByWithRelationInput[] {
+  // A stable secondary key, so two parties created in the same second do not
+  // swap places between pages.
+  const primary: Prisma.BillingPartyOrderByWithRelationInput =
+    field === "invoiceCount"
+      ? { invoices: { _count: dir } }
+      : ({ [field]: dir } as Prisma.BillingPartyOrderByWithRelationInput);
+
+  return [primary, { id: "desc" }];
+}
+
+const partyListSelect = {
+  id: true,
+  kind: true,
+  legalName: true,
+  tradeName: true,
+  customerCode: true,
+  gstin: true,
+  city: true,
+  state: true,
+  email: true,
+  phone: true,
+  createdAt: true,
+  orgId: true,
+  org: { select: { name: true, companyName: true } },
+  clientId: true,
+  client: { select: { companyName: true } },
+} satisfies Prisma.BillingPartySelect;
+
+type PartyListRow = Prisma.BillingPartyGetPayload<{
+  select: typeof partyListSelect;
+}>;
+
+/**
+ * Per-party invoice figures for one page of parties.
+ *
+ * Two grouped queries over the page's ids rather than a per-row aggregate. The
+ * page is at most fifty parties, so this is two round trips no matter how many
+ * customers exist, and the `IN` is on an indexed foreign key.
+ *
+ * Overdue needs the second query because it is a date comparison rather than a
+ * status, and groupBy cannot express one.
+ */
+async function partyTotals(
+  ids: string[],
+): Promise<Map<string, Omit<BillingPartyRow, keyof PartyIdentity>>> {
+  const totals = new Map<string, Omit<BillingPartyRow, keyof PartyIdentity>>();
+  if (ids.length === 0) return totals;
+
+  const scope: Prisma.ManualInvoiceWhereInput = {
+    deletedAt: null,
+    billingPartyId: { in: ids },
+  };
+
+  const [grouped, overdue] = await Promise.all([
+    prisma.manualInvoice.groupBy({
+      by: ["billingPartyId", "status", "currency"],
+      where: scope,
+      _count: { _all: true },
+      _sum: { total: true },
+      _max: { issueDate: true },
+    }),
+    prisma.manualInvoice.groupBy({
+      by: ["billingPartyId"],
+      where: {
+        ...scope,
+        status: ManualInvoiceStatus.ISSUED,
+        dueDate: { lt: new Date() },
+      },
+      _count: { _all: true },
+    }),
+  ]);
+
+  const overdueBy = new Map(
+    overdue.map((row) => [row.billingPartyId, row._count._all]),
+  );
+
+  for (const id of ids) {
+    const mine = grouped.filter((g) => g.billingPartyId === id);
+
+    const currencies = [...new Set(mine.map((g) => g.currency))];
+    // Adding rupees to dollars produces a number that is wrong in a way nobody
+    // notices. The dominant currency is reported and the mix is declared.
+    const currency =
+      mine
+        .slice()
+        .sort((a, b) => b._count._all - a._count._all)[0]?.currency ??
+      DEFAULT_CURRENCY;
+
+    const inCurrency = mine.filter((g) => g.currency === currency);
+    const sumOf = (status: ManualInvoiceStatus) =>
+      inCurrency
+        .filter((g) => g.status === status)
+        .reduce((sum, g) => sum + num(g._sum.total), 0);
+
+    const draftCount = mine
+      .filter((g) => g.status === ManualInvoiceStatus.DRAFT)
+      .reduce((sum, g) => sum + g._count._all, 0);
+    const invoiceCount = mine.reduce((sum, g) => sum + g._count._all, 0);
+
+    const lastIssue = mine
+      .map((g) => g._max.issueDate)
+      .filter((d): d is Date => !!d)
+      .sort((a, b) => b.getTime() - a.getTime())[0];
+
+    totals.set(id, {
+      invoiceCount,
+      draftCount,
+      issuedCount: invoiceCount - draftCount,
+
+      currency,
+      mixedCurrency: currencies.length > 1,
+      // What has actually been billed: a draft has claimed nothing and a
+      // cancelled invoice has un-claimed it.
+      billedAmount:
+        sumOf(ManualInvoiceStatus.ISSUED) + sumOf(ManualInvoiceStatus.PAID),
+      outstandingAmount: sumOf(ManualInvoiceStatus.ISSUED),
+      overdueCount: overdueBy.get(id) ?? 0,
+
+      lastInvoicedAt: lastIssue?.toISOString() ?? null,
+    });
+  }
+
+  return totals;
+}
+
+/** The half of a row that comes from the party record rather than its invoices. */
+type PartyIdentity = Pick<
+  BillingPartyRow,
+  | "id"
+  | "kind"
+  | "legalName"
+  | "tradeName"
+  | "customerCode"
+  | "gstin"
+  | "city"
+  | "state"
+  | "email"
+  | "phone"
+  | "linkKind"
+  | "linkName"
+  | "createdAt"
+>;
+
+function partyIdentity(row: PartyListRow): PartyIdentity {
+  return {
+    id: row.id,
+    kind: row.kind,
+    legalName: row.legalName,
+    tradeName: row.tradeName,
+    customerCode: row.customerCode,
+    gstin: row.gstin,
+    city: row.city,
+    state: row.state,
+    email: row.email,
+    phone: row.phone,
+    // An org link is reported ahead of a client link when a row somehow has
+    // both: the org is the one that puts the invoice in a customer's dashboard,
+    // so it is the link with a consequence.
+    linkKind: row.orgId ? "ORG" : row.clientId ? "CLIENT" : null,
+    linkName: row.orgId
+      ? row.org?.companyName ?? row.org?.name ?? null
+      : row.client?.companyName ?? null,
+    createdAt: row.createdAt.toISOString(),
+  };
+}
+
+/**
+ * The tiles above the list.
+ *
+ * Deliberately ignores the search box and the filter chips, so they stay a
+ * steady overview of the whole customer base while the list below is sliced.
+ */
+async function partySummary() {
+  const live: Prisma.ManualInvoiceWhereInput = { deletedAt: null };
+  const base: Prisma.BillingPartyWhereInput = { deletedAt: null };
+
+  const [total, billed, linked] = await Promise.all([
+    prisma.billingParty.count({ where: base }),
+    prisma.billingParty.count({ where: { ...base, invoices: { some: live } } }),
+    prisma.billingParty.count({
+      where: {
+        ...base,
+        OR: [{ orgId: { not: null } }, { clientId: { not: null } }],
+      },
+    }),
+  ]);
+
+  return { total, billed, neverBilled: total - billed, linked };
+}
+
+export async function getBillingPartiesPage(
+  params: BillingPartyListParams,
+): Promise<BillingPartyPage> {
+  const page = coerceManualPage(params.page);
+  const pageSize = coerceBillingPartyPageSize(params.pageSize);
+  const sortField = coerceBillingPartySortField(params.sortField);
+  // Alphabetical reads ascending; every other column reads newest or biggest
+  // first, which is the direction a person means when they click it.
+  const sortDir =
+    params.sortDir ?? (sortField === "legalName" ? "asc" : "desc");
+  const filter = coerceBillingPartyFilter(params.filter);
+
+  const where = partyWhere({
+    search: params.search,
+    kind: params.kind,
+    filter,
+  });
+
+  const [total, rows, summary] = await Promise.all([
+    prisma.billingParty.count({ where }),
+    prisma.billingParty.findMany({
+      where,
+      orderBy: partyOrderBy(sortField, sortDir === "asc" ? "asc" : "desc"),
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+      select: partyListSelect,
+    }),
+    partySummary(),
+  ]);
+
+  const totals = await partyTotals(rows.map((r) => r.id));
+
+  return {
+    rows: rows.map((row): BillingPartyRow => {
+      const identity = partyIdentity(row);
+      const money = totals.get(row.id);
+      return {
+        ...identity,
+        invoiceCount: money?.invoiceCount ?? 0,
+        draftCount: money?.draftCount ?? 0,
+        issuedCount: money?.issuedCount ?? 0,
+        currency: money?.currency ?? DEFAULT_CURRENCY,
+        mixedCurrency: money?.mixedCurrency ?? false,
+        billedAmount: money?.billedAmount ?? 0,
+        outstandingAmount: money?.outstandingAmount ?? 0,
+        overdueCount: money?.overdueCount ?? 0,
+        lastInvoicedAt: money?.lastInvoicedAt ?? null,
+      };
+    }),
+    total,
+    pageCount: Math.max(1, Math.ceil(total / pageSize)),
+    page,
+    pageSize,
+    summary,
+  };
+}
+
+/**
+ * One party's billing history, in totals.
+ *
+ * Manual invoices only, with the linked org's booking invoices reported as a
+ * count beside them rather than folded in. They are a different debt: raised by
+ * the platform against a shipment and settled from a wallet, not chased on a
+ * due date. Adding them into "outstanding" would say a customer owes money that
+ * was taken from their balance at the moment of booking.
+ */
+export async function getBillingPartyStats(
+  id: string,
+): Promise<BillingPartyStats> {
+  const scope: Prisma.ManualInvoiceWhereInput = {
+    deletedAt: null,
+    billingPartyId: id,
+  };
+
+  const party = await prisma.billingParty.findUnique({
+    where: { id },
+    select: { orgId: true },
+  });
+
+  const [grouped, overdue, bounds, bookingInvoiceCount] = await Promise.all([
+    prisma.manualInvoice.groupBy({
+      by: ["status", "currency"],
+      where: scope,
+      _count: { _all: true },
+      _sum: { total: true },
+    }),
+    prisma.manualInvoice.aggregate({
+      where: {
+        ...scope,
+        status: ManualInvoiceStatus.ISSUED,
+        dueDate: { lt: new Date() },
+      },
+      _count: { _all: true },
+      _sum: { total: true },
+    }),
+    prisma.manualInvoice.aggregate({
+      where: { ...scope, status: { not: ManualInvoiceStatus.DRAFT } },
+      _min: { issueDate: true },
+      _max: { issueDate: true },
+    }),
+    party?.orgId
+      ? prisma.shipmentInvoice.count({ where: { orgId: party.orgId } })
+      : Promise.resolve(null),
+  ]);
+
+  const currencies = [...new Set(grouped.map((g) => g.currency))];
+  const currency =
+    grouped
+      .slice()
+      .sort((a, b) => b._count._all - a._count._all)[0]?.currency ??
+    DEFAULT_CURRENCY;
+
+  const inCurrency = grouped.filter((g) => g.currency === currency);
+  const pick = (status: ManualInvoiceStatus) =>
+    inCurrency.find((g) => g.status === status);
+
+  const issued = pick(ManualInvoiceStatus.ISSUED);
+  const paid = pick(ManualInvoiceStatus.PAID);
+
+  const invoiceCount = grouped.reduce((sum, g) => sum + g._count._all, 0);
+  const draftCount = grouped
+    .filter((g) => g.status === ManualInvoiceStatus.DRAFT)
+    .reduce((sum, g) => sum + g._count._all, 0);
+  const cancelledCount = grouped
+    .filter((g) => g.status === ManualInvoiceStatus.CANCELLED)
+    .reduce((sum, g) => sum + g._count._all, 0);
+
+  return {
+    invoiceCount,
+    draftCount,
+    issuedCount: invoiceCount - draftCount,
+    cancelledCount,
+
+    currency,
+    mixedCurrency: currencies.length > 1,
+    billedAmount: num(issued?._sum.total) + num(paid?._sum.total),
+    paidAmount: num(paid?._sum.total),
+    outstandingAmount: num(issued?._sum.total),
+    overdueAmount: num(overdue._sum.total),
+    overdueCount: overdue._count._all,
+
+    firstInvoicedAt: bounds._min.issueDate?.toISOString() ?? null,
+    lastInvoicedAt: bounds._max.issueDate?.toISOString() ?? null,
+
+    bookingInvoiceCount,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Drift against the linked record
+// ---------------------------------------------------------------------------
+
+/**
+ * What the org or client this party was adopted from says about itself today.
+ *
+ * Returns null for a party that was typed in by hand, which is most of them.
+ * A link whose source row has since been deleted comes back `present: false`
+ * with no drift: the history is still worth showing, and there is nothing left
+ * to compare against.
+ */
+export async function getBillingPartyLink(
+  id: string,
+): Promise<BillingPartyLink | null> {
+  const party = await prisma.billingParty.findUnique({
+    where: { id },
+    select: {
+      legalName: true,
+      gstin: true,
+      email: true,
+      phone: true,
+      contactName: true,
+      addressLine1: true,
+      city: true,
+      state: true,
+      postalCode: true,
+      orgId: true,
+      clientId: true,
+    },
+  });
+  if (!party) return null;
+
+  const ours = {
+    legalName: party.legalName,
+    gstin: party.gstin,
+    email: party.email,
+    phone: party.phone,
+    contactName: party.contactName,
+    addressLine1: party.addressLine1,
+    city: party.city,
+    state: party.state,
+    postalCode: party.postalCode,
+  };
+
+  if (party.orgId) {
+    const org = await prisma.org.findUnique({
+      where: { id: party.orgId },
+      select: {
+        name: true,
+        companyName: true,
+        gstin: true,
+        email: true,
+        phone: true,
+        contactName: true,
+        addressLine1: true,
+        city: true,
+        state: true,
+        postalCode: true,
+        deletedAt: true,
+      },
+    });
+
+    const name = org?.companyName ?? org?.name ?? "This account";
+    if (!org || org.deletedAt) {
+      return {
+        source: "ORG",
+        id: party.orgId,
+        name,
+        ownerName: null,
+        present: false,
+        drift: [],
+      };
+    }
+
+    return {
+      source: "ORG",
+      id: party.orgId,
+      name,
+      ownerName: null,
+      present: true,
+      drift: driftBetween(ours, {
+        legalName: org.companyName ?? org.name,
+        gstin: org.gstin,
+        email: org.email,
+        phone: org.phone,
+        contactName: org.contactName,
+        addressLine1: org.addressLine1,
+        city: org.city,
+        state: org.state,
+        postalCode: org.postalCode,
+      }),
+    };
+  }
+
+  if (party.clientId) {
+    const client = await prisma.client.findUnique({
+      where: { id: party.clientId },
+      select: {
+        companyName: true,
+        gstin: true,
+        email: true,
+        phone: true,
+        contactName: true,
+        addressLine1: true,
+        city: true,
+        state: true,
+        postalCode: true,
+        deletedAt: true,
+        org: { select: { name: true, companyName: true } },
+      },
+    });
+
+    if (!client || client.deletedAt) {
+      return {
+        source: "CLIENT",
+        id: party.clientId,
+        name: client?.companyName ?? "This client",
+        ownerName: null,
+        present: false,
+        drift: [],
+      };
+    }
+
+    return {
+      source: "CLIENT",
+      id: party.clientId,
+      name: client.companyName,
+      ownerName: client.org?.companyName ?? client.org?.name ?? null,
+      present: true,
+      drift: driftBetween(ours, {
+        legalName: client.companyName,
+        gstin: client.gstin,
+        email: client.email,
+        phone: client.phone,
+        contactName: client.contactName,
+        addressLine1: client.addressLine1,
+        city: client.city,
+        state: client.state,
+        postalCode: client.postalCode,
+      }),
+    };
+  }
+
+  return null;
 }

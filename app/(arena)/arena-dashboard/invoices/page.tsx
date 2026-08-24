@@ -1,6 +1,9 @@
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
+import Link from "next/link";
+import { BookUser } from "lucide-react";
 
+import { Button } from "@/components/ui/button";
 import { getArenaAuth } from "@/utils/arena-auth";
 import { AdminInvoiceFeedTable } from "@/components/invoices/AdminInvoiceFeedTable";
 import { AdminInvoiceFeedSkeleton } from "@/components/invoices/AdminInvoiceFeedSkeleton";
@@ -39,12 +42,25 @@ export default async function ArenaInvoicesPage() {
 
   return (
     <div className="mx-auto max-w-7xl px-6 py-8">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold tracking-tight">Invoices</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Every bill Arena has raised: booking invoices, invoices raised by hand,
-          and bills uploaded from outside. Track what is owed and mark it paid.
-        </p>
+      <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Invoices</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Every bill Arena has raised: booking invoices, invoices raised by
+            hand, and bills uploaded from outside. Track what is owed and mark it
+            paid.
+          </p>
+        </div>
+
+        {/* The people the invoices are raised to. A separate screen because the
+            question "who is this customer and is their GSTIN right" is not
+            answerable from a list of documents. */}
+        <Button asChild variant="outline">
+          <Link href="/arena-dashboard/invoices/customers">
+            <BookUser className="mr-2 h-4 w-4" />
+            Customers
+          </Link>
+        </Button>
       </div>
 
       {/* The one thing the table below cannot show, because there is no row to

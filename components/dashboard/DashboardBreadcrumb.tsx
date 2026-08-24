@@ -51,6 +51,7 @@ const ARENA_LABELS: Record<string, string> = {
   "rate-sweeps": "Rate Sweeps",
   wallets: "Wallets",
   invoices: "Invoices",
+  customers: "Billing Customers",
   notices: "Notices",
   notifications: "Notifications",
 };

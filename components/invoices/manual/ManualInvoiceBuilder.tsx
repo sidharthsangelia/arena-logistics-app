@@ -76,6 +76,7 @@ import {
   currencySymbol,
   formatMoney,
   manualInvoiceSchema,
+  type BillingPartyDetail,
   type ChargePresetOption,
   type ChargeTypeOption,
   type ManualInvoiceDetail,
@@ -118,6 +119,7 @@ import {
 
 export function ManualInvoiceBuilder({
   initial,
+  initialParty,
   catalog: initialCatalog,
   presets,
   serviceHistory,
@@ -125,6 +127,12 @@ export function ManualInvoiceBuilder({
 }: {
   /** An existing draft to edit, or null for a fresh one. */
   initial: ManualInvoiceDetail | null;
+  /**
+   * A customer chosen before the form opened, from their page on the customers
+   * list. Ignored when `initial` is set, because a draft already names one and
+   * a query string must never be able to re-point an invoice at somebody else.
+   */
+  initialParty?: BillingPartyDetail | null;
   catalog: ChargeTypeOption[];
   presets: ChargePresetOption[];
   /** Services already used on past invoices, most used first. */
@@ -134,9 +142,19 @@ export function ManualInvoiceBuilder({
 }) {
   const router = useRouter();
 
-  const [state, setState] = React.useState<BuilderState>(() =>
-    initial ? stateFromDetail(initial) : emptyState(),
-  );
+  const [state, setState] = React.useState<BuilderState>(() => {
+    if (initial) return stateFromDetail(initial);
+    if (!initialParty) return emptyState();
+    // Same path a picker selection takes, so arriving with a customer already
+    // chosen fills currency, terms and tax mode exactly as choosing them here
+    // would. Nothing is touched yet, so every default applies.
+    return applyPartyDefaults(
+      emptyState(),
+      initialParty,
+      initialParty.defaults,
+      new Set(),
+    );
+  });
   const [catalog, setCatalog] = React.useState(initialCatalog);
   const [invoiceId, setInvoiceId] = React.useState<string | null>(
     initial?.id ?? null,
