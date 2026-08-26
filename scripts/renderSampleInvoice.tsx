@@ -33,6 +33,7 @@ const SELLER: SellerSnapshot = {
   country: "India",
   gstin: "07AABCA1234A1Z5",
   pan: "AABCA1234A",
+  cin: "U63030HR2019PTC078451",
   email: "info@arenalogistics.co.in",
   phone: "+91 98100 00000",
   website: "arenalogistics.co.in",
@@ -43,10 +44,9 @@ const SELLER: SellerSnapshot = {
     bankName: "HDFC Bank",
     branch: "Sohna Road",
   },
-  declaration:
-    "We declare that this invoice shows the actual price of the services described and that all particulars are true and correct.",
+  declaration: "CERTIFIED THAT THE PARTICULARS GIVEN ABOVE ARE TRUE & CORRECT.",
   jurisdiction: "Delhi and Gurgaon",
-  billingEmail: "info@arenalogistics.co.in",
+  billingEmail: "info@arenalogistics.co.in, adnan@arenalogistics.co.in",
 };
 
 function report(

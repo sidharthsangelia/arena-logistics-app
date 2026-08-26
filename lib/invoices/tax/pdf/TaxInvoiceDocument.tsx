@@ -86,6 +86,7 @@ import {
   type InvoiceVariant,
   Metric,
   PaymentPanel,
+  TermsBlock,
   TotalsRow,
   kg,
   money,
@@ -96,7 +97,7 @@ import {
 import { DEFAULT_INVOICE_VARIANT } from "../../pdf/variant";
 import { formatInvoiceDate } from "../gst";
 import { amountInWords } from "../money";
-import { invoiceTermsFor } from "../config";
+import { invoiceTermsFor, taxTreatmentFor } from "../config";
 import type {
   InvoiceDocumentData,
   PackageSnapshot,
@@ -123,6 +124,8 @@ const VOLUMETRIC_DIVISOR = 5000;
 
 /** Right-hand columns of the charges table. Shared by the head and the rows. */
 const COL = {
+  // The S.No column. Narrow on purpose: it is an index, not data.
+  sno: 24,
   sac: 46,
   taxable: 66,
   gst: 62,
@@ -140,13 +143,13 @@ const CARGO = {
 
 const s = StyleSheet.create({
   page: {
-    paddingTop: 28,
-    paddingBottom: 42,
-    paddingHorizontal: 40,
+    paddingTop: 20,
+    paddingBottom: 40,
+    paddingHorizontal: 36,
     fontSize: 9,
     fontFamily: "Helvetica",
     color: C.ink,
-    lineHeight: 1.4,
+    lineHeight: 1.35,
   },
 
   // ── masthead ──
@@ -158,34 +161,38 @@ const s = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "flex-start",
   },
-  logo: { width: 118, marginBottom: 6 },
-  sellerName: { fontSize: 9, fontFamily: "Helvetica-Bold", lineHeight: 1.3 },
-  sellerLine: { fontSize: 7.5, color: C.muted, lineHeight: 1.5 },
-  sellerIds: { fontSize: 7.5, color: C.ink, lineHeight: 1.5 },
+  logo: { width: 112, marginBottom: 4 },
+  sellerName: { fontSize: 10, fontFamily: "Helvetica-Bold", lineHeight: 1.25 },
+  // The issuer's own address and identifiers are NOT support text: they are
+  // read off the page digit by digit by whoever is matching a payment or
+  // filing against this invoice. Content colour, like everything else that is
+  // read rather than skimmed.
+  sellerLine: { fontSize: 8, color: C.ink, lineHeight: 1.4 },
+  sellerIds: { fontSize: 8, color: C.ink, lineHeight: 1.4 },
 
   mastheadRight: { alignItems: "flex-end", paddingLeft: 20 },
   docTitle: {
-    fontSize: 13,
+    fontSize: 14,
     fontFamily: "Helvetica-Bold",
     letterSpacing: 2,
     textAlign: "right",
   },
   docCopy: {
-    fontSize: 6.5,
-    color: C.faint,
+    fontSize: 7,
+    color: C.muted,
     letterSpacing: 0.9,
     textAlign: "right",
     marginTop: 3,
   },
   docNumber: {
-    fontSize: 10,
+    fontSize: 11.5,
     fontFamily: "Helvetica-Bold",
     textAlign: "right",
-    marginTop: 8,
+    marginTop: 7,
   },
-  docDate: { fontSize: 8, color: C.muted, textAlign: "right", marginTop: 2 },
+  docDate: { fontSize: 8.5, color: C.ink, textAlign: "right", marginTop: 2 },
   statusMark: {
-    fontSize: 8,
+    fontSize: 8.5,
     fontFamily: "Helvetica-Bold",
     letterSpacing: 1.2,
     color: C.alert,
@@ -194,10 +201,10 @@ const s = StyleSheet.create({
   },
 
   // ── party panel content ──
-  partyName: { fontSize: 9.5, fontFamily: "Helvetica-Bold", lineHeight: 1.3 },
-  detail: { fontSize: 8, color: C.muted, lineHeight: 1.5 },
-  detailInk: { fontSize: 8, color: C.ink, lineHeight: 1.5 },
-  shipmentNumber: { fontSize: 9.5, fontFamily: "Helvetica-Bold" },
+  partyName: { fontSize: 10, fontFamily: "Helvetica-Bold", lineHeight: 1.25 },
+  detail: { fontSize: 8, color: C.ink, lineHeight: 1.4 },
+  detailInk: { fontSize: 8, color: C.ink, lineHeight: 1.4 },
+  shipmentNumber: { fontSize: 10, fontFamily: "Helvetica-Bold" },
 
   // ── the waybill and the route ──
   // Both are matched against other paperwork rather than read, so they are set
@@ -217,7 +224,7 @@ const s = StyleSheet.create({
   // One row per piece, with its contents on a grey line beneath. Nesting a
   // second table inside the first was accurate and hard to read; this says the
   // same thing in half the height.
-  cargoHead: { flexDirection: "row", paddingTop: 8, paddingBottom: 5 },
+  cargoHead: { flexDirection: "row", paddingTop: 5, paddingBottom: 3 },
   cargoHeadGrid: {
     flexDirection: "row",
     backgroundColor: C.band,
@@ -225,17 +232,17 @@ const s = StyleSheet.create({
     paddingHorizontal: 4,
     marginTop: 6,
   },
-  headCell: { fontSize: 6.5, color: C.muted, letterSpacing: 0.9 },
+  headCell: { fontSize: 7, color: C.muted, letterSpacing: 0.8 },
   headCellGrid: {
-    fontSize: 6.5,
+    fontSize: 7,
     color: C.bandInk,
     letterSpacing: 0.6,
     fontFamily: "Helvetica-Bold",
   },
-  boxRow: { flexDirection: "row", paddingTop: 6 },
+  boxRow: { flexDirection: "row", paddingTop: 4 },
   boxRowGrid: {
     flexDirection: "row",
-    paddingVertical: 3,
+    paddingVertical: 2.5,
     paddingHorizontal: 4,
   },
   rowZebra: { backgroundColor: C.gridZebra },
@@ -261,43 +268,44 @@ const s = StyleSheet.create({
   },
 
   // ── charges table ──
-  tableHead: { flexDirection: "row", paddingTop: 5, paddingBottom: 5 },
+  tableHead: { flexDirection: "row", paddingTop: 4, paddingBottom: 3 },
   tableHeadGrid: {
     flexDirection: "row",
     backgroundColor: C.band,
     paddingVertical: 4,
     paddingHorizontal: 4,
   },
-  row: { flexDirection: "row", paddingTop: 5.5, paddingBottom: 1 },
+  row: { flexDirection: "row", paddingTop: 4.5, paddingBottom: 1 },
   rowGrid: {
     flexDirection: "row",
-    paddingVertical: 3,
+    paddingVertical: 2.5,
     paddingHorizontal: 4,
     borderBottomWidth: 0.5,
     borderBottomColor: C.gridRule,
   },
   rowDescription: { flex: 1, paddingRight: 14 },
   descriptionText: { fontSize: 9, lineHeight: 1.3 },
-  cell: { fontSize: 8.5, textAlign: "right" },
+  cell: { fontSize: 8.5, color: C.ink, textAlign: "right" },
   cellMuted: { fontSize: 8, color: C.muted, textAlign: "right" },
   cellStrong: { fontSize: 9, textAlign: "right" },
+  cellIndex: { fontSize: 8, color: C.muted, textAlign: "left" },
 
   // ── the bottom block ──
   // Terms and the payment block on the left, the total on the right, on one
   // row. The charges table leaves the bottom left of the page empty and the
   // footer used to sit below it; putting the two side by side is what buys the
   // last hundred points, and it is where an invoice reader looks for both.
-  bottomRow: { flexDirection: "row", marginTop: 11, alignItems: "flex-start" },
-  bottomLeft: { flex: 1, paddingRight: 22 },
+  bottomRow: { flexDirection: "row", marginTop: 7, alignItems: "flex-start" },
+  bottomLeft: { flex: 1, paddingRight: 18 },
   /** Totals panel and signature, stacked. Fixed width so the two agree. */
-  bottomRight: { width: 268 },
+  bottomRight: { width: 238 },
   totalsPanel: {
     backgroundColor: C.panel,
     borderWidth: 0.5,
     borderColor: C.rule,
     borderRadius: 4,
-    paddingVertical: 9,
-    paddingHorizontal: 14,
+    paddingVertical: 7,
+    paddingHorizontal: 11,
   },
   totalsPanelGrid: {
     borderRadius: 0,
@@ -307,8 +315,8 @@ const s = StyleSheet.create({
   totalsRule: {
     borderTopWidth: 0.75,
     borderTopColor: C.ruleStrong,
-    marginTop: 4,
-    marginBottom: 7,
+    marginTop: 3,
+    marginBottom: 5,
   },
   grandRow: {
     flexDirection: "row",
@@ -321,52 +329,102 @@ const s = StyleSheet.create({
     fontFamily: "Helvetica-Bold",
     textAlign: "right",
   },
-  words: { fontSize: 7.5, color: C.muted, marginTop: 5, textAlign: "right" },
-  paymentNote: { fontSize: 8, marginTop: 5, textAlign: "right" },
+  words: { flex: 1, fontSize: 8, color: C.ink, paddingRight: 12, lineHeight: 1.25 },
+  wordsLabel: { color: C.muted, letterSpacing: 0.6, fontSize: 7 },
+
+  // ── the reverse-charge statement ──
+  // Rule 46(o) wants this stated, and it is the one line on the page whose
+  // answer is usually "no" and which is therefore easy to leave off. It gets
+  // its own ruled line rather than a slot in a paragraph so it cannot be
+  // missed.
+  reverseChargeLine: {
+    flexDirection: "row",
+    marginTop: 7,
+    paddingTop: 4,
+    borderTopWidth: 0.5,
+    borderTopColor: C.rule,
+  },
+  reverseChargeLabel: { fontSize: 7.5, color: C.muted },
+  reverseChargeValue: {
+    fontSize: 7.5,
+    color: C.ink,
+    fontFamily: "Helvetica-Bold",
+    marginLeft: 4,
+  },
+
+  // The two figures a payer acts on, full width under the totals panel. See
+  // the manual invoice for why they are not inside it.
+  dueStrip: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    marginTop: 6,
+    paddingTop: 4,
+    borderTopWidth: 0.5,
+    borderTopColor: C.rule,
+  },
+  dueLabel: { fontSize: 8, color: C.muted, paddingRight: 8 },
+  dueValue: { fontSize: 10, fontFamily: "Helvetica-Bold", textAlign: "right" },
+  paymentNote: { fontSize: 8, marginTop: 4, textAlign: "right" },
   paymentNoteAlert: { color: C.alert, fontFamily: "Helvetica-Bold" },
 
   // ── footer ──
-  footerText: { fontSize: 7, color: C.muted, lineHeight: 1.55 },
-  footerGap: { marginTop: 6 },
-  signature: { alignItems: "flex-end", marginTop: 10 },
-  signatureFor: { fontSize: 7.5, color: C.muted },
+  footerText: { fontSize: 7.5, color: C.ink, lineHeight: 1.4 },
+  footerGap: { marginTop: 5 },
+  signature: { alignItems: "flex-end", marginTop: 5 },
+  signatureFor: { fontSize: 8, color: C.muted },
   signatureName: {
-    fontSize: 8,
+    fontSize: 8.5,
     fontFamily: "Helvetica-Bold",
     textAlign: "right",
-    lineHeight: 1.3,
+    lineHeight: 1.25,
   },
-  signatureRole: { fontSize: 7.5, color: C.muted, marginTop: 12 },
-  declaration: { fontSize: 7, color: C.faint, lineHeight: 1.5 },
+  signatureRole: { fontSize: 8, color: C.muted, marginTop: 6 },
+  declaration: {
+    fontSize: 7.5,
+    color: C.ink,
+    fontFamily: "Helvetica-Bold",
+    letterSpacing: 0.2,
+    lineHeight: 1.35,
+    marginBottom: 5,
+  },
 
   // ── fixed foot of page ──
   // Two separately positioned elements, each measured from the bottom edge, so
   // nothing here depends on the flow above it having ended anywhere.
   pageFootRule: {
     position: "absolute",
-    bottom: 36,
-    left: 40,
-    right: 40,
+    bottom: 34,
+    left: 36,
+    right: 36,
     borderTopWidth: 0.5,
     borderTopColor: C.rule,
   },
   pageFootText: {
     position: "absolute",
-    bottom: 27,
-    left: 40,
-    right: 40,
-    fontSize: 6.5,
-    color: C.faint,
+    bottom: 30,
+    left: 36,
+    right: 36,
+    fontSize: 7,
+    color: C.muted,
+    textAlign: "center",
+  },
+  contact: {
+    position: "absolute",
+    bottom: 21,
+    left: 36,
+    right: 36,
+    fontSize: 7,
+    color: C.ink,
     textAlign: "center",
   },
   jurisdiction: {
     position: "absolute",
-    bottom: 17,
-    left: 40,
-    right: 40,
+    bottom: 12,
+    left: 36,
+    right: 36,
     fontSize: 6.5,
     color: C.muted,
-    letterSpacing: 0.9,
+    letterSpacing: 0.4,
     textAlign: "center",
   },
 });
@@ -533,11 +591,39 @@ export function TaxInvoiceDocument({
   // Fall back rather than print "undefined": invoices issued before these were
   // added to the issuer config still have to render from their own snapshot.
   const jurisdiction = seller.jurisdiction ?? "Delhi and Gurgaon";
-  const billingEmail = seller.billingEmail ?? seller.email;
+  // The setting accepts several, comma separated. Normalised here rather than
+  // trusted as typed: "a@x.com,b@x.com" with no space runs together on the
+  // page and reads as one malformed address.
+  const billingEmails = (seller.billingEmail ?? seller.email)
+    .split(",")
+    .map((e) => e.trim())
+    .filter(Boolean)
+    .join(", ");
 
   const bookedOn = shipment.bookedAt
     ? formatInvoiceDate(new Date(shipment.bookedAt))
     : null;
+
+  // The SAC every line on this invoice carries. A booking invoice is one
+  // supply of one service, so there is exactly one, and stating it in the
+  // party panel answers "what was this bill for" where the reader asks it.
+  const sacCode =
+    data.lineItems[0]?.sacCode ?? taxTreatmentFor(shipment.mode).sacCode;
+
+  // `as` carries the printed wording where it differs from the head's name:
+  // the state half is "SGST/UTGST", because a union territory supply is
+  // charged UTGST under the same half and a document naming only SGST is wrong
+  // for it. A zero-rated invoice names no rate at all, since "@ 0%" against a
+  // zero figure reads as a rate that was applied rather than one that was not.
+  const taxLabel = (head: "CGST" | "SGST" | "IGST", as: string = head) => {
+    if (data.taxRatePercent === 0) return as;
+    const rate = head === "IGST" ? data.taxRatePercent : data.taxRatePercent / 2;
+    return `${as} @ ${trim(rate)}%`;
+  };
+
+  const sellerContact = [seller.email, seller.phone]
+    .filter(Boolean)
+    .join("    ");
 
   const headCell = grid ? s.headCellGrid : s.headCell;
 
@@ -566,9 +652,25 @@ export function TaxInvoiceDocument({
                 .filter(Boolean)
                 .join(", ")}
             </Text>
+            {/* GSTIN, PAN and CIN on one line. CIN is guarded: an invoice
+                issued before the field existed carries none in its frozen
+                seller snapshot, and a bare "CIN" with nothing after it is
+                worse than no CIN at all. */}
             <Text style={s.sellerIds}>
-              {`GSTIN ${seller.gstin}    PAN ${seller.pan}`}
+              {[
+                `GSTIN ${seller.gstin}`,
+                `PAN ${seller.pan}`,
+                seller.cin ? `CIN ${seller.cin}` : null,
+              ]
+                .filter(Boolean)
+                .join("    ")}
             </Text>
+            {/* The issuer's own contact details, at content weight. Somebody
+                querying a charge reads these off the page. An empty Text still
+                takes a line's height, so an issuer with neither gets no row. */}
+            {sellerContact ? (
+              <Text style={s.sellerIds}>{sellerContact}</Text>
+            ) : null}
           </View>
 
           <View style={s.mastheadRight}>
@@ -595,7 +697,7 @@ export function TaxInvoiceDocument({
         <Band label="Invoice details" variant={variant} keepTogether>
           <View style={grid ? t.panelGrid : t.panel}>
             <View style={t.panelColumn}>
-              <Text style={t.panelLabel}>BILLED TO</Text>
+              <Text style={t.panelLabel}>DETAILS OF RECEIVER (BILL TO)</Text>
               <Text style={s.partyName}>{buyer.legalName}</Text>
               <Text style={s.detail}>
                 {[
@@ -610,9 +712,30 @@ export function TaxInvoiceDocument({
               <Text style={s.detailInk}>
                 GSTIN {buyer.gstin ?? "Unregistered"}
               </Text>
+              {/* Spelled out AND coded. The name is what a person reads; the
+                  two-digit code is what decides IGST against the CGST/SGST
+                  split and what the recipient's own filing is checked
+                  against. */}
+              {buyer.stateName || buyer.stateCode ? (
+                <Text style={s.detail}>
+                  State{" "}
+                  {[
+                    buyer.stateName,
+                    buyer.stateCode ? `(${buyer.stateCode})` : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
+                </Text>
+              ) : null}
+              {buyer.email ? (
+                <Text style={s.detail}>{buyer.email}</Text>
+              ) : null}
               <Text style={s.detail}>
-                Place of supply {data.placeOfSupplyName} (
-                {data.placeOfSupplyCode})
+                Place of supply {data.placeOfSupplyCode}{" "}
+                {data.placeOfSupplyName}
+              </Text>
+              <Text style={s.detail}>
+                SAC {sacCode} {taxTreatmentFor(shipment.mode).sacDescription}
               </Text>
             </View>
 
@@ -831,6 +954,9 @@ export function TaxInvoiceDocument({
           keepTogether={data.lineItems.length <= 10}
         >
           <View style={grid ? s.tableHeadGrid : s.tableHead}>
+            <Text style={[headCell, { width: COL.sno, paddingRight: 4 }]}>
+              S.NO
+            </Text>
             <View style={s.rowDescription}>
               <Text style={headCell}>DESCRIPTION</Text>
             </View>
@@ -862,6 +988,7 @@ export function TaxInvoiceDocument({
               style={grid ? [s.rowGrid, i % 2 === 1 ? s.rowZebra : {}] : s.row}
               wrap={false}
             >
+              <Text style={[s.cellIndex, { width: COL.sno }]}>{i + 1}</Text>
               <View style={s.rowDescription}>
                 <Text style={s.descriptionText}>{line.description}</Text>
               </View>
@@ -881,9 +1008,21 @@ export function TaxInvoiceDocument({
           ))}
         </Band>
 
+        {/* Rule 46(o). Stated in words rather than left to be inferred from
+            the absence of tax, and stated on every invoice including the
+            ordinary ones where the answer is no. */}
+        <View style={s.reverseChargeLine} wrap={false}>
+          <Text style={s.reverseChargeLabel}>
+            Whether tax is payable under reverse charge:
+          </Text>
+          <Text style={s.reverseChargeValue}>NO</Text>
+        </View>
+
         {/* ── Payment, terms and the total ───────────────────────────── */}
         <View style={s.bottomRow} wrap={false}>
           <View style={s.bottomLeft}>
+            <Text style={s.declaration}>{seller.declaration}</Text>
+
             {/* Where to send the money, in the one tinted block on the page.
                 See C.payPanel in the shared theme for why this is allowed to
                 stand out when everything around it is deliberately quiet. */}
@@ -897,11 +1036,15 @@ export function TaxInvoiceDocument({
                 is the anchor this column needed, and a second label under it
                 was fifteen points the page does not have. */}
             <View style={{ marginTop: seller.bank ? 7 : 0 }}>
-              <Text style={s.footerText}>
-                Tax payable on reverse charge: No
-                {"\n"}
-                {invoiceTermsFor(shipment.mode).join("\n")}
-              </Text>
+              {/* Numbered and in two columns, through the shared block, so the
+                  clauses read identically on this invoice and on a manual one
+                  the same customer receives in the same month. */}
+              {/* Built from the SNAPSHOT, never from the live issuer config.
+                  Clause 1 names the payee, and reading that from the
+                  environment would print today's company name on an invoice
+                  issued under the old one, or "REPLACE ME PRIVATE LIMITED" on
+                  a machine where the issuer variables are not set. */}
+              <TermsBlock terms={invoiceTermsFor(shipment.mode, seller)} />
 
               {data.taxNote && (
                 <Text style={[s.footerText, s.footerGap]}>{data.taxNote}</Text>
@@ -918,48 +1061,48 @@ export function TaxInvoiceDocument({
                   the shipper. It is not part of this invoice.
                 </Text>
               ) : null}
-
-              <Text style={[s.declaration, s.footerGap]}>
-                {seller.declaration}
-              </Text>
             </View>
           </View>
 
           <View style={s.bottomRight}>
             <View style={[s.totalsPanel, ...(grid ? [s.totalsPanelGrid] : [])]}>
+              {/* No separate "service amount" row here, unlike the manual
+                  invoice. A booking invoice has no discount to subtract, so
+                  the gross of the charges IS the taxable value, and two rows
+                  carrying the identical figure teach a reader that one of them
+                  means nothing. */}
               <TotalsRow
                 label="Taxable value"
                 value={money(data.taxableValue, cur)}
               />
 
-              {/* Within the state the tax splits half to the centre and half to
-                the state and both must be shown; across a state border it is
-                one IGST line. Never both, and never a single "GST" line
-                standing in for either: the split is what the recipient claims
-                the credit against. */}
-              {data.taxRatePercent > 0 && data.isIntraState && (
-                <>
-                  <TotalsRow
-                    label={`CGST @ ${data.taxRatePercent / 2}%`}
-                    value={money(data.cgstAmount, cur)}
-                  />
-                  <TotalsRow
-                    label={`SGST @ ${data.taxRatePercent / 2}%`}
-                    value={money(data.sgstAmount, cur)}
-                  />
-                </>
-              )}
+              {/* ── EVERY HEAD, EVERY TIME ──────────────────────────────
+                Within the state the tax splits half to the centre and half to
+                the state; across a state border it is one IGST line. Only one
+                of those can carry a figure, and the other heads are printed at
+                zero rather than omitted.
 
-              {data.taxRatePercent > 0 && !data.isIntraState && (
-                <TotalsRow
-                  label={`IGST @ ${data.taxRatePercent}%`}
-                  value={money(data.igstAmount, cur)}
-                />
-              )}
-
-              {data.taxRatePercent === 0 && (
-                <TotalsRow label="GST" value={money(0, cur)} />
-              )}
+                Stating them is what makes the document reconcile without
+                arithmetic: a reader who finds CGST, SGST and IGST all present
+                knows which one was charged, whereas a reader who finds only
+                IGST cannot tell a cross-border supply from a template that
+                dropped a row. Cess is on the same footing and is always zero
+                today: courier and freight services attract none, and there is
+                no cess field anywhere in the money engine. */}
+              <TotalsRow
+                label={taxLabel("CGST")}
+                value={money(data.cgstAmount, cur)}
+              />
+              <TotalsRow
+                label={taxLabel("SGST", "SGST/UTGST")}
+                value={money(data.sgstAmount, cur)}
+              />
+              <TotalsRow
+                label={taxLabel("IGST")}
+                value={money(data.igstAmount, cur)}
+              />
+              <TotalsRow label="CESS" value={money(0, cur)} />
+              <TotalsRow label="Currency" value={cur} />
 
               <View style={s.totalsRule} />
 
@@ -967,8 +1110,6 @@ export function TaxInvoiceDocument({
                 <Text style={s.grandLabel}>TOTAL {cur}</Text>
                 <Text style={s.grandValue}>{money(data.total, cur)}</Text>
               </View>
-
-              <Text style={s.words}>{amountInWords(data.total, cur)}</Text>
 
               <Text
                 style={[
@@ -1000,6 +1141,21 @@ export function TaxInvoiceDocument({
           </View>
         </View>
 
+        {/* ── the two figures a payer acts on ──────────────────────────────
+            Full width and under the panel rather than inside it. The amount in
+            words is a long line and wraps to three inside the totals column,
+            and the amount due is the number an accounts department looks for
+            first: neither belongs squeezed into the narrowest column on the
+            page. */}
+        <View style={s.dueStrip} wrap={false}>
+          <Text style={s.words}>
+            <Text style={s.wordsLabel}>TOTAL IN WORDS   </Text>
+            {amountInWords(data.total, cur)}
+          </Text>
+          <Text style={s.dueLabel}>Amount due for payment</Text>
+          <Text style={s.dueValue}>{money(data.total, cur)}</Text>
+        </View>
+
         {/* Separately positioned fixed elements with static text.
             Not a preference: on a page this full, react-pdf silently drops both
             a fixed wrapper View holding these as children and any Text using
@@ -1017,13 +1173,25 @@ export function TaxInvoiceDocument({
             data.invoiceNumber,
             `Shipment ${shipment.shipmentNumber}`,
             shipment.awbNumber ? `AWB ${shipment.awbNumber}` : null,
-            `Computer generated invoice. Please contact Arena Billing at ${billingEmail}.`,
           ]
             .filter(Boolean)
             .join("   ")}
         </Text>
+        {/* Where a billing question goes, and where the rest of the story is.
+            Every mailbox in the setting is printed: billing at Arena reaches
+            more than one person, and an invoice naming one of them sends half
+            the queries to somebody who cannot answer them. */}
+        <Text style={s.contact} fixed>
+          {[
+            `Computer generated invoice. Billing queries: ${billingEmails}`,
+            seller.website ? `More at ${seller.website}` : null,
+          ]
+            .filter(Boolean)
+            .join("    ")}
+        </Text>
         <Text style={s.jurisdiction} fixed>
-          SUBJECT TO {jurisdiction.toUpperCase()} JURISDICTION
+          E. &amp; O.E.   SUBJECT TO THE JURISDICTION OF THE COURTS OF{" "}
+          {jurisdiction.toUpperCase()} ONLY
         </Text>
       </Page>
     </Document>

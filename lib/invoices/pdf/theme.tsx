@@ -43,10 +43,17 @@ export type { InvoiceVariant };
 // Palette
 // ---------------------------------------------------------------------------
 
+// ── READABILITY IS THE CONSTRAINT, NOT CONTRAST RATIO ──────────────────────
+// These are print colours. A grey that reads as "quiet, supporting" on a backlit
+// screen at 16px reads as "faded, half-printed" as 7pt type on paper coming out
+// of an office laser printer, and an invoice is read on paper by someone
+// checking a GSTIN digit by digit. So the two support tiers are set much darker
+// than a screen palette would put them: the hierarchy still reads, and every
+// tier survives being printed and photocopied. Do not lighten these back.
 export const C = {
   ink: "#101828", // the content
-  muted: "#667085", // labels and support
-  faint: "#98A2B3", // the quietest tier, used sparingly
+  muted: "#3F4A5A", // labels and support. Dark enough to be read, not skimmed
+  faint: "#5B6675", // the quietest tier, still comfortably legible in print
   rule: "#E4E7EC", // section rules, deliberately lighter than the eye expects
   ruleStrong: "#98A2B3", // the one rule above the total
   panel: "#F8FAFB", // the filled panels. Barely a fill, on purpose
@@ -81,18 +88,19 @@ export const t = StyleSheet.create({
   // Every band opens the same way, so the reader learns the page once. In the
   // arena variant that is a grey letter-spaced label over a hairline; in grid
   // it is a filled blue strip. Same shape, different weight.
-  // 8 rather than the 10 the rhythm started at. The booking invoice is held to
-  // a single A4 sheet and three bands at 10 was two points a band it did not
-  // have. Raise it only with a page-count check on both sample invoices.
-  band: { marginTop: 8 },
+  // 6 rather than the 10 the rhythm started at. Both invoices are meant to fit
+  // one A4 sheet in the ordinary case, and each band's top margin is paid for
+  // three or four times over on every document. Raise it only with a page-count
+  // check on ALL the samples in scripts/renderSample*.tsx.
+  band: { marginTop: 6 },
   bandHead: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "flex-end",
     marginBottom: 4,
   },
-  label: { fontSize: 7, color: C.muted, letterSpacing: 1.1 },
-  labelNote: { fontSize: 7, color: C.faint, letterSpacing: 0.4 },
+  label: { fontSize: 7.5, color: C.muted, letterSpacing: 1.1 },
+  labelNote: { fontSize: 7.5, color: C.faint, letterSpacing: 0.4 },
   rule: { borderTopWidth: 0.5, borderTopColor: C.rule },
 
   gridBandHead: {
@@ -105,12 +113,12 @@ export const t = StyleSheet.create({
     alignItems: "center",
   },
   gridBandLabel: {
-    fontSize: 7,
+    fontSize: 7.5,
     color: C.bandInk,
     letterSpacing: 1.1,
     fontFamily: "Helvetica-Bold",
   },
-  gridBandNote: { fontSize: 6.5, color: C.bandInk, letterSpacing: 0.4 },
+  gridBandNote: { fontSize: 7, color: C.bandInk, letterSpacing: 0.4 },
 
   // ── panels ──
   panel: {
@@ -135,8 +143,8 @@ export const t = StyleSheet.create({
   },
   panelColumn: { width: "50%", paddingRight: 12 },
   panelLabel: {
-    fontSize: 6.5,
-    color: C.faint,
+    fontSize: 7,
+    color: C.muted,
     letterSpacing: 0.9,
     marginBottom: 4,
   },
@@ -144,17 +152,42 @@ export const t = StyleSheet.create({
   // ── labelled lines ──
   // A grey label at a fixed width with the value beside it. Reads as a list of
   // answers rather than a paragraph, and costs one line each.
-  factLine: { flexDirection: "row", marginTop: 2 },
-  factLabel: { width: 62, fontSize: 7, color: C.faint },
-  factValue: { flex: 1, fontSize: 7.5, lineHeight: 1.35 },
-  factValueStrong: { flex: 1, fontSize: 7.5, fontFamily: "Helvetica-Bold" },
+  factLine: { flexDirection: "row", marginTop: 1.5 },
+  factLabel: { width: 68, fontSize: 8, color: C.muted },
+  factValue: { flex: 1, fontSize: 8, color: C.ink, lineHeight: 1.3 },
+  factValueStrong: {
+    flex: 1,
+    fontSize: 8,
+    color: C.ink,
+    fontFamily: "Helvetica-Bold",
+  },
 
   // ── chips ──
   // Short label-and-value pairs flowing across a line. Read across as a
   // summary, not scanned down as a column, so the width is auto.
-  chip: { paddingRight: 16, paddingTop: 2 },
-  chipLabel: { fontSize: 6, color: C.faint, letterSpacing: 0.8 },
-  chipValue: { fontSize: 7.5, lineHeight: 1.3 },
+  chip: { paddingRight: 14, paddingTop: 1.5 },
+  chipLabel: { fontSize: 6.5, color: C.muted, letterSpacing: 0.7 },
+  chipValue: { fontSize: 8, color: C.ink, lineHeight: 1.25 },
+
+  // ── fact cells ──
+  // A label over a value over any number of quieter sub-lines, in a cell of
+  // FIXED width, laid out four to a row.
+  //
+  // ── WHY FIXED WIDTH IS THE WHOLE POINT ────────────────────────────────────
+  // These replaced auto-width chips. Twenty chips at content width wrap into
+  // three rows whose labels land at three different sets of x positions, and
+  // the eye reads that as noise rather than as data however correct each pair
+  // is. At a fixed quarter width the labels line up down the page and the block
+  // reads as a table, which is what it always was.
+  //
+  // Empty cells are DROPPED rather than rendered blank, so the remaining ones
+  // pack left. Alignment survives because every cell is still exactly a
+  // quarter; what does not survive is a row of holes where a consignment
+  // happened not to have a flight number.
+  factCell: { width: "25%", paddingRight: 10, paddingTop: 1.5 },
+  factCellLabel: { fontSize: 6.5, color: C.muted, letterSpacing: 0.7 },
+  factCellValue: { fontSize: 8.5, color: C.ink, lineHeight: 1.2 },
+  factCellSub: { fontSize: 7.5, color: C.muted, lineHeight: 1.25 },
 
   // ── metrics ──
   // The louder cousin of a chip, for the three or four figures the cargo is
@@ -164,54 +197,66 @@ export const t = StyleSheet.create({
   // purpose: five metrics have to sit on ONE line, and a sixth wrapping to a
   // second row costs the booking invoice its single page. Widen it and check
   // the page count before deciding it looks cramped.
-  metrics: { flexDirection: "row", flexWrap: "wrap", marginTop: 6 },
+  metrics: { flexDirection: "row", flexWrap: "wrap", marginTop: 4 },
   metric: { paddingRight: 18, paddingBottom: 2 },
-  metricLabel: { fontSize: 6.5, color: C.faint, letterSpacing: 0.9 },
+  metricLabel: { fontSize: 7, color: C.muted, letterSpacing: 0.9 },
   metricValue: {
     fontSize: 10,
     fontFamily: "Helvetica-Bold",
     marginTop: 2,
     lineHeight: 1.25,
   },
-  metricNote: { fontSize: 6.5, color: C.faint, marginTop: 1 },
+  metricNote: { fontSize: 7, color: C.faint, marginTop: 1 },
 
   // ── totals ──
   totalsRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    marginBottom: 3,
+    marginBottom: 1.5,
   },
-  totalsLabel: { fontSize: 8, color: C.muted },
-  totalsValue: { fontSize: 8, textAlign: "right" },
+  totalsLabel: { fontSize: 8.5, color: C.muted },
+  totalsValue: { fontSize: 8.5, color: C.ink, textAlign: "right" },
+
+  // ── terms ──
+  // Two columns, because the clauses are short and the block sits under the
+  // totals on a page held to one sheet: one column of six clauses is six lines
+  // of nearly empty page, two columns is three. The numbers are rendered here
+  // rather than written into the strings, so a clause added or removed cannot
+  // leave the list numbered 1, 2, 4.
+  termsColumns: { flexDirection: "row", marginTop: 3 },
+  termsColumn: { flex: 1, paddingRight: 10 },
+  termLine: { flexDirection: "row", marginTop: 1.2 },
+  termIndex: { width: 9, fontSize: 7, color: C.muted },
+  termText: { flex: 1, fontSize: 7, color: C.ink, lineHeight: 1.35 },
 
   // ── payment block ──
   // Tinted, with a blue left edge. See C.payPanel for why this one block is
   // allowed to stand out when the rest of the page is deliberately quiet.
   payPanel: {
-    marginTop: 4,
+    marginTop: 3,
     backgroundColor: C.payPanel,
     borderLeftWidth: 2,
     borderLeftColor: C.payEdge,
     borderRadius: 2,
-    paddingVertical: 6,
+    paddingVertical: 5,
     paddingHorizontal: 8,
   },
   payPanelGrid: { borderRadius: 0 },
   payHead: {
-    fontSize: 6.5,
+    fontSize: 7,
     color: C.band,
     letterSpacing: 1,
     fontFamily: "Helvetica-Bold",
     marginBottom: 3,
   },
   payLine: { flexDirection: "row", marginTop: 1 },
-  payLabel: { width: 42, fontSize: 7, color: C.muted },
+  payLabel: { width: 44, fontSize: 7.5, color: C.muted },
   /** The account number and IFSC are transcribed, so they are set to read
       digit by digit rather than as a word. */
-  payValue: { flex: 1, fontSize: 8, color: C.ink, lineHeight: 1.35 },
+  payValue: { flex: 1, fontSize: 8.5, color: C.ink, lineHeight: 1.3 },
   payValueStrong: {
     flex: 1,
-    fontSize: 8.5,
+    fontSize: 9,
     color: C.ink,
     fontFamily: "Helvetica-Bold",
     letterSpacing: 0.4,
@@ -385,6 +430,42 @@ export function Chip({
   );
 }
 
+/**
+ * One cell of the fact grid: a label, a value, and any number of quieter lines
+ * beneath it.
+ *
+ * Returns null when there is nothing to say, INCLUDING when only sub-lines
+ * survive: a cell headed FORWARDER whose forwarder is unknown but whose product
+ * is "Express Worldwide" would print a product under a label that does not
+ * describe it. The caller decides what the cell's value is; if that is missing,
+ * the cell has no subject.
+ */
+export function FactCell({
+  label,
+  value,
+  sub,
+}: {
+  label: string;
+  value: string | null | undefined;
+  /** Nulls are dropped, so callers can pass conditionals without filtering. */
+  sub?: (string | null | undefined)[];
+}) {
+  if (!value) return null;
+  const lines = (sub ?? []).filter(Boolean) as string[];
+
+  return (
+    <View style={t.factCell}>
+      <Text style={t.factCellLabel}>{label.toUpperCase()}</Text>
+      <Text style={t.factCellValue}>{value}</Text>
+      {lines.map((line, i) => (
+        <Text key={i} style={t.factCellSub}>
+          {line}
+        </Text>
+      ))}
+    </View>
+  );
+}
+
 /** A headline figure, optionally with a line of explanation under it. */
 export function Metric({
   label,
@@ -484,6 +565,49 @@ export function PaymentPanel({
         <Text style={t.payLabel}>IFSC</Text>
         <Text style={t.payValueStrong}>{bank.ifsc}</Text>
       </View>
+    </View>
+  );
+}
+
+/**
+ * The terms and conditions, numbered and set in columns.
+ *
+ * Shared because the clauses themselves are shared: both documents print what
+ * `invoiceTermsFor` returns, and a terms block that is laid out differently on
+ * the two invoices a customer receives in the same month reads as two different
+ * companies' paperwork.
+ */
+export function TermsBlock({
+  terms,
+  columns = 2,
+}: {
+  terms: string[];
+  columns?: number;
+}) {
+  if (terms.length === 0) return null;
+
+  // Filled column by column rather than dealt round-robin, so the clauses still
+  // read 1, 2, 3 down the left before continuing down the right.
+  const perColumn = Math.ceil(terms.length / columns);
+  const groups: { text: string; index: number }[][] = [];
+  for (let i = 0; i < terms.length; i += perColumn) {
+    groups.push(
+      terms.slice(i, i + perColumn).map((text, j) => ({ text, index: i + j + 1 })),
+    );
+  }
+
+  return (
+    <View style={t.termsColumns}>
+      {groups.map((group, gi) => (
+        <View key={gi} style={t.termsColumn}>
+          {group.map((term) => (
+            <View key={term.index} style={t.termLine}>
+              <Text style={t.termIndex}>{term.index}</Text>
+              <Text style={t.termText}>{term.text}</Text>
+            </View>
+          ))}
+        </View>
+      ))}
     </View>
   );
 }
