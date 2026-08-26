@@ -403,6 +403,10 @@ eventually disagree with the first.
 issuer block still says REPLACE ME gets an error naming the problem rather than
 a numbered document with no GSTIN on it.
 
+`INVOICE_ISSUER_CIN` is optional and prints beside the GSTIN and PAN.
+`INVOICE_ISSUER_BILLING_EMAIL` takes several addresses, comma separated, and
+prints all of them at the foot of the page.
+
 ### The state code, which is currently wrong
 
 `issuerStateMatchesGstin()` was added alongside this feature because the check
@@ -438,7 +442,75 @@ npx prisma generate
 npx tsx scripts/seedChargeTypes.ts
 ```
 
-All additive. The seed is idempotent and safe to re-run; it upserts on the
+All additive.
+
+### Forwarder and product
+
+The consignment header row asks for **forwarder** and **product type**, not a
+service description. "DHL, Express Worldwide" is the pair a customer
+recognises; "Air freight" is not. Both are comboboxes that suggest and never
+refuse: `FORWARDERS` and `FORWARDER_PRODUCTS` in `config.ts` are seeds for a
+fresh install, and `listForwarders()` / `listForwarderProducts()` read back
+everything already typed, so typing a product once puts it in the list forever
+with no catalog to maintain.
+
+Products are **grouped by forwarder**, on both sides of that round trip, through
+`forwarderKey()`. Use it rather than calling `.toLowerCase()` again: if the
+history and the picker ever disagree on the key, products typed against "UPS "
+stop coming back for "UPS" and the feature quietly does nothing.
+
+`serviceType` did not go away. It moved into the collapsed shipment details,
+because a customs-clearance or warehousing invoice has no forwarder and no
+product, and that field is then the only thing on the document saying what the
+work was.
+
+Naming DHL and FedEx here does not breach `carrierBranding.md`. That rule covers
+rates sourced THROUGH the platform, where the vendor is an implementation detail
+the customer never chose. A manual invoice records an off-platform move, and who
+carried it is a thing the customer asked for.
+
+### The consignment fact block
+
+The facts under each waybill are **eight grouped cells in a four-column grid**,
+not one cell per column. Things read together print together: the forwarder with
+its product, the ports with the flight that flew them, the piece count with the
+weights it was charged on, every reference number in one cell with each prefixed
+by what it is. `FactCell` in the shared theme drops empty cells so the rest pack
+left, and every cell is exactly a quarter wide so the labels align down the page.
+
+This replaced ~20 auto-width chips. Each pair was correct; the block still read
+as noise, because the labels landed at three different sets of x positions as
+the row wrapped. If you add a fact, put it in an existing cell as a sub-line
+before you consider a ninth cell: the block sits above the charges table on a
+document held to one sheet, and it is already the largest variable-height thing
+on the page.
+
+`goodsDescription` and `particulars` were **merged into one field**, printed as a
+full-width GOODS line under the grid. `particulars` still exists on the model and
+is still rendered, joined onto the description, so an invoice ISSUED under the
+old two-field shape prints everything it was issued with. Nothing writes to it
+any more, and opening an old draft folds its text into the description.
+
+`ManualInvoiceConsignment` gained five nullable columns in 2026-08:
+`trackingNumber`, `pickupDate`, `productType`, `parcelType` and `shipMode`. All
+five are optional everywhere, all five are guarded in the template, and nothing
+is backfilled. Two of them are easy to confuse with fields that already
+existed, so they carry their distinction in the schema comments and it is worth
+repeating here:
+
+- `trackingNumber` is NOT `awbNumber`. A courier consignment usually has both:
+  the waybill it flew under, and a separate number the customer was given to
+  track on. Printing one where the other was expected sends a customer to a
+  tracking page that resolves nothing.
+- `shipMode` is NOT the invoice's `mode`. That column says domestic or
+  international; this one says air, sea, surface or rail. A domestic
+  consignment can fly and an international one can sail, and one field cannot
+  say both.
+
+`exportInvoiceNo` was not renamed, but it now prints as "Shipper invoice no."
+and is lifted into the invoice header when every consignment on the document
+agrees on one value. When they differ the header stays empty, because one of
+five in the header would be read as covering all five. The seed is idempotent and safe to re-run; it upserts on the
 charge code and never overwrites a rate an admin has corrected.
 
 ---

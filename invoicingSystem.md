@@ -435,9 +435,17 @@ GSTIN belongs leaves a hole no later fix can close.
 `INVOICE_ISSUER_STATE_CODE` must match the first two digits of
 `INVOICE_ISSUER_GSTIN`. It decides IGST versus CGST/SGST on every invoice.
 
+`INVOICE_ISSUER_CIN` is optional and printed beside the GSTIN and PAN in the
+masthead when set. It is guarded everywhere it is read: invoices issued before
+the variable existed carry no CIN in their frozen seller snapshot, and they
+render without the field rather than printing an empty label.
+
 `INVOICE_ISSUER_JURISDICTION` and `INVOICE_ISSUER_BILLING_EMAIL` are printed at
-the foot of every page. The jurisdiction is read as "SUBJECT TO `<value>`
-JURISDICTION", so give it the places only.
+the foot of every page. The jurisdiction is read as "SUBJECT TO THE JURISDICTION
+OF THE COURTS OF `<value>` ONLY", so give it the places only.
+`INVOICE_ISSUER_BILLING_EMAIL` accepts several addresses, comma separated, and
+prints all of them: billing at Arena reaches more than one mailbox, and naming
+one of them sends half the queries to somebody who cannot answer them.
 
 ### Database
 
