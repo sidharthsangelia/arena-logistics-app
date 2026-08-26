@@ -83,7 +83,9 @@ export interface ManualConsignmentSnapshot {
   sortOrder: number;
   awbNumber: string | null;
   mawbNumber: string | null;
+  trackingNumber: string | null;
   bookingDate: string | null;
+  pickupDate: string | null;
   origin: string | null;
   destination: string | null;
   originPostalCode: string | null;
@@ -95,6 +97,9 @@ export interface ManualConsignmentSnapshot {
   destinationState: string | null;
   destinationCountry: string | null;
   serviceType: string | null;
+  productType: string | null;
+  parcelType: string | null;
+  shipMode: string | null;
   originPort: string | null;
   destinationPort: string | null;
   flightNumber: string | null;
@@ -133,6 +138,19 @@ export interface ManualInvoiceDocumentData {
   dueDate: string | null;
   paymentTermsLabel: string | null;
   reference: string | null;
+  /**
+   * The customer's own export invoice number, printed in the header block as
+   * "Shipper invoice no.".
+   *
+   * Not a stored column. It is lifted from the consignments when they agree on
+   * one value, which is the single-consignment case the header block is for. A
+   * monthly bill spanning five different shipper invoices prints them against
+   * their own consignments instead, because one of five in the header would be
+   * read as covering all five.
+   *
+   * Added after version 1: optional, guarded in the template.
+   */
+  shipperInvoiceNo?: string | null;
   mode: ShipmentMode;
   csbLabel: string | null;
 
@@ -141,6 +159,20 @@ export interface ManualInvoiceDocumentData {
 
   placeOfSupplyCode: string | null;
   placeOfSupplyName: string | null;
+
+  /**
+   * The SAC the whole invoice is billed under, and what it means in words.
+   *
+   * Printed in the header block because that is where a reader looks for "what
+   * was this bill for", and stated once there is worth more than the same code
+   * repeated down a column. Null when the lines genuinely carry different SACs,
+   * in which case the per-line column is the honest answer and the header stays
+   * quiet rather than naming one of several.
+   *
+   * Added after version 1: optional, guarded in the template.
+   */
+  sacCode?: string | null;
+  serviceDescription?: string | null;
 
   currency: string;
   taxMode: TaxMode;

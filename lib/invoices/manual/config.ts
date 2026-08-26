@@ -59,13 +59,17 @@ import {
 // the deal that genuinely does not fit, and leaves the due date to be picked by
 // hand.
 
+// The labels are the words Arena's own paperwork uses for credit terms, so the
+// printed line reads the way the customer's purchase order does. The VALUES are
+// never renamed: they are stored on the row and on issued snapshots, and a
+// renamed value is an invoice that suddenly prints no term at all.
 export const PAYMENT_TERMS = [
-  { value: "DUE_ON_RECEIPT", label: "Due on receipt", days: 0 },
-  { value: "NET_7", label: "Net 7 days", days: 7 },
-  { value: "NET_15", label: "Net 15 days", days: 15 },
-  { value: "NET_30", label: "Net 30 days", days: 30 },
-  { value: "NET_45", label: "Net 45 days", days: 45 },
-  { value: "NET_60", label: "Net 60 days", days: 60 },
+  { value: "DUE_ON_RECEIPT", label: "Immediate due", days: 0 },
+  { value: "NET_7", label: "7 days", days: 7 },
+  { value: "NET_15", label: "15 days", days: 15 },
+  { value: "NET_30", label: "30 days", days: 30 },
+  { value: "NET_45", label: "45 days", days: 45 },
+  { value: "NET_60", label: "60 days", days: 60 },
   { value: "CUSTOM", label: "Custom date", days: null },
 ] as const;
 
@@ -285,6 +289,154 @@ export const SERVICE_TYPES: readonly ServiceOption[] = [
 export function servicesFor(mode: ShipmentMode): ServiceOption[] {
   return SERVICE_TYPES.filter((s) => !s.mode || s.mode === mode);
 }
+
+// ---------------------------------------------------------------------------
+// Forwarder and product
+// ---------------------------------------------------------------------------
+//
+// The two fields that between them say who carried it and under what service.
+// They are the pair a customer recognises: "DHL, Express Worldwide" means
+// something to them in a way "Air freight" does not.
+//
+// ── WHY THESE ARE NOT CLOSED LISTS ──────────────────────────────────────────
+// Same rule as SERVICE_TYPES above. Arena moves cargo through whichever
+// forwarder priced the lane that week, and every carrier renames its products
+// on its own schedule. A dropdown that cannot say what happened is a dropdown
+// people work around, and "Other" in a column is a column that has stopped
+// meaning anything. So: the list is a suggestion, and anything typed is saved
+// as written.
+//
+// ── AND WHY THE VENDOR NAMES ARE FINE HERE ──────────────────────────────────
+// carrierBranding.md hides vendor names behind Arena's own branding, but that
+// rule is about rates SOURCED THROUGH the platform, where the vendor is an
+// implementation detail the customer did not choose. A manual invoice is
+// Arena's record of an off-platform move the customer usually arranged the
+// shape of themselves, and "who flew it" is a thing they asked for. Same
+// reasoning as airlineName on the model.
+
+export const FORWARDERS: readonly string[] = [
+  "DHL",
+  "FedEx",
+  "UPS",
+  "Aramex",
+  "TNT",
+  "DPD",
+  "Blue Dart",
+  "DTDC",
+  "Delhivery",
+  "Ecom Express",
+  "India Post",
+  "SkyNet",
+];
+
+/**
+ * Products a given forwarder sells, keyed by the forwarder's name lowercased.
+ *
+ * A SEED, not a catalog. It is what a fresh install offers before anybody has
+ * typed anything; the moment a product is typed against a forwarder it comes
+ * back from the invoice history under that forwarder next time, without being
+ * registered anywhere. See listForwarderProducts.
+ *
+ * Scoped by forwarder because the names are the carrier's own. "Saver" is a UPS
+ * word and "Express Worldwide" is a DHL one, and a flat list would offer every
+ * carrier's vocabulary under every carrier, which is how an invoice ends up
+ * saying FedEx sold a DHL product.
+ */
+const FORWARDER_PRODUCTS: Record<string, readonly string[]> = {
+  dhl: [
+    "Express Worldwide",
+    "Express 12:00",
+    "Economy Select",
+    "Medical Express",
+  ],
+  fedex: [
+    "International Priority",
+    "International Economy",
+    "International First",
+    "International Connect Plus",
+  ],
+  ups: [
+    "UPS Saver",
+    "UPS Express",
+    "UPS Expedited",
+    "UPS Worldwide Economy",
+  ],
+  aramex: ["Priority Express", "Priority Document", "Economy Express"],
+  tnt: ["Express", "Economy Express"],
+  dpd: ["Classic", "Express"],
+  "blue dart": ["Domestic Priority", "Dart Apex", "Dart Surfaceline"],
+  dtdc: ["Express", "Plus", "Surface"],
+  delhivery: ["Express Parcel", "Surface", "Heavy"],
+  "ecom express": ["Express", "Ground"],
+  "india post": ["Speed Post", "Registered Post", "Express Parcel"],
+  skynet: ["Worldwide Express", "Economy"],
+};
+
+/**
+ * Generic product names, offered under any forwarder and under none.
+ *
+ * The fallback matters: a forwarder nobody has invoiced before has no seeded
+ * products and no history, and an empty picker under a filled-in forwarder
+ * reads as broken rather than as new.
+ */
+const GENERIC_PRODUCTS: readonly string[] = [
+  "Express",
+  "Economy",
+  "Priority",
+  "Standard",
+  "Deferred",
+  "Cargo",
+];
+
+/** Seeded products for a forwarder, then the generic ones, without repeats. */
+export function productsFor(forwarder: string | null | undefined): string[] {
+  const key = forwarder?.trim().toLowerCase() ?? "";
+  const seeded = FORWARDER_PRODUCTS[key] ?? [];
+  const seen = new Set(seeded.map((p) => p.toLowerCase()));
+  return [
+    ...seeded,
+    ...GENERIC_PRODUCTS.filter((p) => !seen.has(p.toLowerCase())),
+  ];
+}
+
+/**
+ * The key a forwarder's products are grouped under, on both sides.
+ *
+ * One function rather than two `.toLowerCase()` calls, because the history read
+ * out of the database and the seed list above have to agree on it. If they
+ * drift, products typed against "UPS" stop coming back for "ups " and the
+ * feature quietly does nothing.
+ */
+export function forwarderKey(forwarder: string | null | undefined): string {
+  return forwarder?.trim().toLowerCase().replace(/\s+/g, " ") ?? "";
+}
+
+// ---------------------------------------------------------------------------
+// Parcel and ship mode
+// ---------------------------------------------------------------------------
+//
+// Suggestion lists on the same terms as everything above.
+//
+// SHIP_MODES is about how the goods travelled. It is NOT the invoice's own
+// domestic/international mode: a domestic consignment can fly and an
+// international one can sail, and one field cannot say both.
+
+export const PARCEL_TYPES: readonly string[] = [
+  "Documents",
+  "Non-documents",
+  "Sample",
+  "Commercial",
+  "Personal effects",
+  "Dangerous goods",
+];
+
+export const SHIP_MODES: readonly string[] = [
+  "Air",
+  "Sea",
+  "Surface",
+  "Rail",
+  "Multimodal",
+];
 
 // ---------------------------------------------------------------------------
 // Tax mode
@@ -863,7 +1015,9 @@ export interface ManualConsignmentDetail {
   id: string;
   awbNumber: string | null;
   mawbNumber: string | null;
+  trackingNumber: string | null;
   bookingDate: string | null;
+  pickupDate: string | null;
   origin: string | null;
   originPostalCode: string | null;
   originCity: string | null;
@@ -875,6 +1029,9 @@ export interface ManualConsignmentDetail {
   destinationState: string | null;
   destinationCountry: string | null;
   serviceType: string | null;
+  productType: string | null;
+  parcelType: string | null;
+  shipMode: string | null;
   originPort: string | null;
   destinationPort: string | null;
   flightNumber: string | null;
@@ -1008,7 +1165,9 @@ export const consignmentSchema = z.object({
 
   awbNumber: optionalText(60),
   mawbNumber: optionalText(60),
+  trackingNumber: optionalText(60),
   bookingDate: isoDate.nullable().optional(),
+  pickupDate: isoDate.nullable().optional(),
 
   origin: optionalText(120),
   originPostalCode: optionalText(20),
@@ -1023,6 +1182,9 @@ export const consignmentSchema = z.object({
   destinationCountry: optionalText(80),
 
   serviceType: optionalText(120),
+  productType: optionalText(80),
+  parcelType: optionalText(60),
+  shipMode: optionalText(40),
   originPort: optionalText(60),
   destinationPort: optionalText(60),
   flightNumber: optionalText(40),

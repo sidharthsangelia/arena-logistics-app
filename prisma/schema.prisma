@@ -2343,10 +2343,20 @@ model ManualInvoiceConsignment {
   sortOrder Int @default(0)
 
   /// House air waybill, or the courier's tracking number.
-  awbNumber   String?
+  awbNumber      String?
   /// Master air waybill, for consolidated air freight.
-  mawbNumber  String?
-  bookingDate DateTime?
+  mawbNumber     String?
+  /// The number the customer tracks on, when it is not the HAWB. A courier
+  /// consignment often carries both: the AWB the airline flew it under, and a
+  /// separate tracking number the customer was given. Printing one where the
+  /// other was expected is how a customer is told to track a number that does
+  /// not resolve, so they are two fields.
+  trackingNumber String?
+  bookingDate    DateTime?
+  /// When the goods were actually collected, which is not always the day they
+  /// were booked and is the date a customer reconciles their own dispatch
+  /// register against.
+  pickupDate     DateTime?
 
   // ── route ──
   //
@@ -2376,6 +2386,20 @@ model ManualInvoiceConsignment {
   /// "Express", "Air freight", "Sea LCL". Free text: the service names Arena
   /// sells off-platform are not the platform's service catalog.
   serviceType     String?
+  /// The product sold, as the CARRIER names it: "UPS Saver", "Express
+  /// Worldwide", "International Priority". Free text for the same reason
+  /// serviceType is, and read together with forwarderName rather than alone:
+  /// the picker offers the products already used under the chosen forwarder,
+  /// grouped on it. "Saver" under FedEx would be somebody else's word.
+  productType     String?
+  /// "Documents", "Non-documents", "Sample". What customs and the carrier both
+  /// ask for, and what decides which papers a consignment needs.
+  parcelType      String?
+  /// How it travelled: Air, Sea, Surface, Rail. Deliberately NOT the invoice's
+  /// own `mode` column, which says domestic or international. A domestic
+  /// consignment can move by air and an international one by sea, and one field
+  /// cannot say both.
+  shipMode        String?
   /// Airport or port codes, when the lane is freight rather than courier.
   originPort      String?
   destinationPort String?
@@ -2385,7 +2409,15 @@ model ManualInvoiceConsignment {
   /// Arena's own record of an off-platform move, not a rate sourced through the
   /// platform, so carrierBranding.md's vendor-disclosure rule does not bite.
   airlineName   String?
-  /// The forwarder, when the move went through one.
+  /// Who carried it: DHL, FedEx, UPS, Aramex, Blue Dart. Printed first in the
+  /// consignment block, ahead of the service description, because it is the
+  /// half of "DHL, Express Worldwide" the customer recognises.
+  ///
+  /// Naming the vendor here does NOT breach carrierBranding.md. That rule is
+  /// about rates sourced THROUGH the platform, where the vendor is an
+  /// implementation detail the customer never chose. A manual invoice is
+  /// Arena's record of an off-platform move, and who flew it is a thing the
+  /// customer asked for. Same reasoning as airlineName above.
   forwarderName String?
   /// The agent at the far end, when there was one.
   subAgent      String?
@@ -2406,7 +2438,8 @@ model ManualInvoiceConsignment {
   goodsDescription String?
   /// Free-text "Particulars" line, for anything the columns do not hold.
   particulars      String?
-  /// The customer's own export invoice number, which their bank will ask for.
+  /// The customer's own export invoice number, printed as "Shipper invoice no."
+  /// It is the number their bank will ask for.
   exportInvoiceNo  String?
   /// The customer's reference for this consignment, distinct from the
   /// invoice-wide reference and from Arena's job number.

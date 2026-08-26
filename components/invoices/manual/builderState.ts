@@ -84,10 +84,15 @@ export interface ConsignmentRow {
   key: string;
   awbNumber: string;
   mawbNumber: string;
+  trackingNumber: string;
   bookingDate: string;
+  pickupDate: string;
   origin: RouteEnd;
   destination: RouteEnd;
   serviceType: string;
+  productType: string;
+  parcelType: string;
+  shipMode: string;
   flightNumber: string;
   airlineName: string;
   forwarderName: string;
@@ -99,7 +104,6 @@ export interface ConsignmentRow {
   palletCount: string;
   cartonCount: string;
   goodsDescription: string;
-  particulars: string;
   exportInvoiceNo: string;
   referenceNo: string;
   shipperName: string;
@@ -216,10 +220,17 @@ export function emptyConsignment(
     key: nanoid(8),
     awbNumber: "",
     mawbNumber: "",
+    trackingNumber: "",
     bookingDate: "",
+    pickupDate: "",
     origin: emptyRouteEnd(HOME_COUNTRY),
     destination: emptyRouteEnd(domestic ? HOME_COUNTRY : ""),
     serviceType: "",
+    productType: "",
+    parcelType: "",
+    // Air unless told otherwise on an export, which is what Arena moves;
+    // a domestic job is as likely to go by road, so it is left to be chosen.
+    shipMode: domestic ? "" : "Air",
     flightNumber: "",
     airlineName: "",
     forwarderName: "",
@@ -231,7 +242,6 @@ export function emptyConsignment(
     palletCount: "",
     cartonCount: "",
     goodsDescription: "",
-    particulars: "",
     exportInvoiceNo: "",
     referenceNo: "",
     shipperName: "",
@@ -259,6 +269,7 @@ export function duplicateConsignment(source: ConsignmentRow): ConsignmentRow {
     key: nanoid(8),
     awbNumber: "",
     mawbNumber: "",
+    trackingNumber: "",
     jobNumber: "",
     referenceNo: "",
     origin: { ...source.origin },
@@ -428,7 +439,9 @@ export function stateFromDetail(detail: ManualInvoiceDetail): BuilderState {
       key: c.id,
       awbNumber: str(c.awbNumber),
       mawbNumber: str(c.mawbNumber),
+      trackingNumber: str(c.trackingNumber),
       bookingDate: dateInput(c.bookingDate),
+      pickupDate: dateInput(c.pickupDate),
       origin: {
         label: str(c.origin),
         postalCode: str(c.originPostalCode),
@@ -448,6 +461,9 @@ export function stateFromDetail(detail: ManualInvoiceDetail): BuilderState {
         port: str(c.destinationPort),
       },
       serviceType: str(c.serviceType),
+      productType: str(c.productType),
+      parcelType: str(c.parcelType),
+      shipMode: str(c.shipMode),
       flightNumber: str(c.flightNumber),
       airlineName: str(c.airlineName),
       forwarderName: str(c.forwarderName),
@@ -458,8 +474,15 @@ export function stateFromDetail(detail: ManualInvoiceDetail): BuilderState {
       boxCount: optionalNumber(c.boxCount),
       palletCount: optionalNumber(c.palletCount),
       cartonCount: optionalNumber(c.cartonCount),
-      goodsDescription: str(c.goodsDescription),
-      particulars: str(c.particulars),
+      // Goods and particulars used to be two fields and are now one. A draft
+      // saved under the old shape carries both, so they are joined here rather
+      // than the second one quietly disappearing the first time somebody opens
+      // and re-saves an old draft. Saving writes the joined text back to
+      // goodsDescription and clears particulars; see toPayload.
+      goodsDescription: [str(c.goodsDescription), str(c.particulars)]
+        .map((v) => v.trim())
+        .filter(Boolean)
+        .join(". "),
       exportInvoiceNo: str(c.exportInvoiceNo),
       referenceNo: str(c.referenceNo),
       shipperName: str(c.shipperName),
@@ -535,6 +558,7 @@ export function isConsignmentFilled(row: ConsignmentRow): boolean {
     row.destination.city,
     row.destination.postalCode,
     row.serviceType,
+    row.trackingNumber,
     row.jobNumber,
     row.goodsDescription,
   ].some((v) => v.trim().length > 0);
@@ -564,7 +588,9 @@ export function toPayload(state: BuilderState) {
     consignments: state.consignments.filter(isConsignmentFilled).map((c) => ({
       awbNumber: blankToNull(c.awbNumber),
       mawbNumber: blankToNull(c.mawbNumber),
+      trackingNumber: blankToNull(c.trackingNumber),
       bookingDate: blankToNull(c.bookingDate),
+      pickupDate: blankToNull(c.pickupDate),
       // The label falls back to the composed one, so an admin who typed only a
       // pincode still gets a readable lane on the document rather than a blank.
       origin: blankToNull(c.origin.label) ?? blankToNull(composeRouteLabel(c.origin)),
@@ -580,6 +606,9 @@ export function toPayload(state: BuilderState) {
       destinationState: blankToNull(c.destination.state),
       destinationCountry: blankToNull(c.destination.country),
       serviceType: blankToNull(c.serviceType),
+      productType: blankToNull(c.productType),
+      parcelType: blankToNull(c.parcelType),
+      shipMode: blankToNull(c.shipMode),
       originPort: blankToNull(c.origin.port),
       destinationPort: blankToNull(c.destination.port),
       flightNumber: blankToNull(c.flightNumber),
@@ -593,7 +622,10 @@ export function toPayload(state: BuilderState) {
       palletCount: toOptionalInt(c.palletCount),
       cartonCount: toOptionalInt(c.cartonCount),
       goodsDescription: blankToNull(c.goodsDescription),
-      particulars: blankToNull(c.particulars),
+      // Always null now. The column stays on the model so an invoice ISSUED
+      // under the old two-field shape still renders the text it was issued
+      // with, but nothing writes to it again.
+      particulars: null,
       exportInvoiceNo: blankToNull(c.exportInvoiceNo),
       referenceNo: blankToNull(c.referenceNo),
       shipperName: blankToNull(c.shipperName),

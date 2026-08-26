@@ -20,7 +20,11 @@ import {
   type Prisma,
 } from "@/generated/prisma";
 
-import { getInvoiceIssuer, invoiceTermsFor } from "../tax/config";
+import {
+  getInvoiceIssuer,
+  invoiceTermsFor,
+  taxTreatmentFor,
+} from "../tax/config";
 import { formatGstin, gstStateName, resolvePlaceOfSupply } from "../tax/gst";
 import { csbLabel, paymentTermLabel } from "./config";
 import {
@@ -28,6 +32,7 @@ import {
   verifyManualInvoiceMoney,
   type ManualChargeInput,
   type ManualInvoiceMoney,
+  type ManualLineItem,
 } from "./money";
 import {
   MANUAL_SNAPSHOT_VERSION,
@@ -214,7 +219,9 @@ export function buildConsignmentSnapshots(
       sortOrder: index,
       awbNumber: consignment.awbNumber,
       mawbNumber: consignment.mawbNumber,
+      trackingNumber: consignment.trackingNumber,
       bookingDate: iso(consignment.bookingDate),
+      pickupDate: iso(consignment.pickupDate),
       origin: consignment.origin,
       destination: consignment.destination,
       originPostalCode: consignment.originPostalCode,
@@ -226,6 +233,9 @@ export function buildConsignmentSnapshots(
       destinationState: consignment.destinationState,
       destinationCountry: consignment.destinationCountry,
       serviceType: consignment.serviceType,
+      productType: consignment.productType,
+      parcelType: consignment.parcelType,
+      shipMode: consignment.shipMode,
       originPort: consignment.originPort,
       destinationPort: consignment.destinationPort,
       flightNumber: consignment.flightNumber,
@@ -251,6 +261,41 @@ export function buildConsignmentSnapshots(
       charges,
     };
   });
+}
+
+/**
+ * The one SAC the whole invoice is billed under, or null when the lines differ.
+ *
+ * Reimbursement lines are ignored: a recovery carries no SAC of Arena's, and
+ * counting the placeholder on it would make every invoice with a recovery look
+ * like a mixed-SAC invoice.
+ */
+function sharedSacCode(lineItems: ManualLineItem[]): string | null {
+  const codes = new Set(
+    lineItems
+      .filter((l) => !l.reimbursement)
+      .map((l) => l.sacCode?.trim())
+      .filter(Boolean),
+  );
+  return codes.size === 1 ? [...codes][0]! : null;
+}
+
+/**
+ * The one shipper invoice number the whole document is against, or null.
+ *
+ * The header block is for facts that describe the INVOICE. A shipper invoice
+ * number only describes the invoice when every consignment on it carries the
+ * same one, which is the single-shipment case. When they differ, printing the
+ * first of them at the top would be read as covering all of them, so the header
+ * stays empty and the numbers print against their own consignments instead.
+ */
+function sharedShipperInvoiceNo(
+  consignments: ManualConsignmentSnapshot[],
+): string | null {
+  const values = new Set(
+    consignments.map((c) => c.exportInvoiceNo?.trim()).filter(Boolean),
+  );
+  return values.size === 1 ? [...values][0]! : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -291,12 +336,16 @@ export function buildManualInvoiceDocument(
 
   const buyer = buildBuyerSnapshot(invoice.billingParty, placeOfSupply.code);
 
+  const consignments = buildConsignmentSnapshots(invoice);
+
   const terms = invoice.termsOverride
     ? invoice.termsOverride
         .split("\n")
         .map((t) => t.trim())
         .filter(Boolean)
-    : invoiceTermsFor(invoice.mode);
+    // From the seller SNAPSHOT, not the live issuer config: clause 1 names the
+    // payee, and this text is frozen onto the invoice at issue.
+    : invoiceTermsFor(invoice.mode, seller);
 
   return {
     money,
@@ -310,6 +359,7 @@ export function buildManualInvoiceDocument(
       dueDate: iso(invoice.dueDate),
       paymentTermsLabel: paymentTermLabel(invoice.paymentTerms),
       reference: invoice.reference,
+      shipperInvoiceNo: sharedShipperInvoiceNo(consignments),
       mode: invoice.mode,
       csbLabel: csbLabel(invoice.csbCategory),
 
@@ -319,12 +369,15 @@ export function buildManualInvoiceDocument(
       placeOfSupplyCode: placeOfSupply.code,
       placeOfSupplyName: placeOfSupply.name,
 
+      sacCode: sharedSacCode(money.lineItems),
+      serviceDescription: taxTreatmentFor(invoice.mode).sacDescription,
+
       currency: invoice.currency,
       taxMode: invoice.taxMode,
       reverseCharge: invoice.reverseCharge,
       isIntraState: money.isIntraState,
 
-      consignments: buildConsignmentSnapshots(invoice),
+      consignments,
       lineItems: money.lineItems,
 
       taxableValue: money.taxableValue,

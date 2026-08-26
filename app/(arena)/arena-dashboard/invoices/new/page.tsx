@@ -15,6 +15,8 @@ import {
   getBillingParty,
   listChargePresets,
   listChargeTypes,
+  listForwarderProducts,
+  listForwarders,
   listServiceTypes,
 } from "@/lib/invoices/manual/queries";
 import { ManualInvoiceBuilder } from "@/components/invoices/manual/ManualInvoiceBuilder";
@@ -122,10 +124,19 @@ async function BuilderSection({
   sellerStateCode: string;
   partyId: string | null;
 }) {
-  const [catalog, presets, serviceHistory, party] = await Promise.all([
+  const [
+    catalog,
+    presets,
+    serviceHistory,
+    forwarderHistory,
+    productHistory,
+    party,
+  ] = await Promise.all([
     listChargeTypes(),
     listChargePresets(),
     listServiceTypes(),
+    listForwarders(),
+    listForwarderProducts(),
     // A customer that has since been deleted resolves to null and the form
     // opens with the picker empty, which is the same as arriving without one.
     partyId ? getBillingParty(partyId) : Promise.resolve(null),
@@ -138,6 +149,8 @@ async function BuilderSection({
       catalog={catalog}
       presets={presets}
       serviceHistory={serviceHistory}
+      forwarderHistory={forwarderHistory}
+      productHistory={productHistory}
       sellerStateCode={sellerStateCode}
     />
   );

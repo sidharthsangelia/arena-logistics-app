@@ -70,8 +70,11 @@ import {
 import { ShipmentMode, TaxMode } from "@/generated/prisma";
 import {
   CSB_CATEGORIES,
+  forwarderKey,
   INVOICE_CURRENCIES,
+  PARCEL_TYPES,
   PAYMENT_TERMS,
+  SHIP_MODES,
   TAX_MODE_COPY,
   currencySymbol,
   formatMoney,
@@ -94,9 +97,15 @@ import {
 
 import { BillingPartyPicker } from "./BillingPartyPicker";
 import { ChargePicker } from "./ChargePicker";
+import {
+  ForwarderPicker,
+  ProductPicker,
+  type ProductHistory,
+} from "./ForwarderPicker";
 import { InvoicePreviewDialog } from "./InvoicePreviewDialog";
 import { RouteEndPicker } from "./RouteEndPicker";
 import { ServicePicker } from "./ServicePicker";
+import { SuggestPicker } from "./SuggestPicker";
 import {
   applyMode,
   applyPartyDefaults,
@@ -123,6 +132,8 @@ export function ManualInvoiceBuilder({
   catalog: initialCatalog,
   presets,
   serviceHistory,
+  forwarderHistory,
+  productHistory,
   sellerStateCode,
 }: {
   /** An existing draft to edit, or null for a fresh one. */
@@ -137,6 +148,10 @@ export function ManualInvoiceBuilder({
   presets: ChargePresetOption[];
   /** Services already used on past invoices, most used first. */
   serviceHistory: string[];
+  /** Forwarders already used, most used first. */
+  forwarderHistory: string[];
+  /** Products already used, keyed by the forwarder they were used under. */
+  productHistory: ProductHistory;
   /** Arena's own GST state code. Decides IGST against CGST plus SGST. */
   sellerStateCode: string;
 }) {
@@ -192,16 +207,13 @@ export function ManualInvoiceBuilder({
     0,
   );
 
-  // What the service picker offers: everything typed on past invoices, plus
-  // anything typed on this one. The second half is what stops a three-leg
-  // invoice spelling the same service three ways, and it costs one memo.
-  const serviceOptions = React.useMemo(() => {
+  // What the pickers offer: everything typed on past invoices, plus anything
+  // typed on THIS one. The second half is what stops a three-leg invoice
+  // spelling the same forwarder three ways, and it costs one memo each.
+  const merge = (typedHere: string[], history: string[]) => {
     const seen = new Set<string>();
     const out: string[] = [];
-    for (const label of [
-      ...state.consignments.map((c) => c.serviceType),
-      ...serviceHistory,
-    ]) {
+    for (const label of [...typedHere, ...history]) {
       const trimmed = label.trim();
       const key = trimmed.toLowerCase();
       if (!trimmed || seen.has(key)) continue;
@@ -209,7 +221,42 @@ export function ManualInvoiceBuilder({
       out.push(trimmed);
     }
     return out;
-  }, [state.consignments, serviceHistory]);
+  };
+
+  const serviceOptions = React.useMemo(
+    () => merge(state.consignments.map((c) => c.serviceType), serviceHistory),
+    [state.consignments, serviceHistory],
+  );
+
+  const forwarderOptions = React.useMemo(
+    () => merge(state.consignments.map((c) => c.forwarderName), forwarderHistory),
+    [state.consignments, forwarderHistory],
+  );
+
+  // Products typed on this invoice are folded into the stored history under
+  // the forwarder they were typed against, so a second consignment on the same
+  // forwarder offers what the first one used before anything is saved.
+  const productOptions = React.useMemo(() => {
+    const out: ProductHistory = {};
+    for (const c of state.consignments) {
+      const product = c.productType.trim();
+      if (!product) continue;
+      const key = forwarderKey(c.forwarderName);
+      const list = (out[key] ??= []);
+      if (!list.some((p) => p.toLowerCase() === product.toLowerCase())) {
+        list.push(product);
+      }
+    }
+    for (const [key, list] of Object.entries(productHistory)) {
+      const target = (out[key] ??= []);
+      for (const product of list) {
+        if (!target.some((p) => p.toLowerCase() === product.toLowerCase())) {
+          target.push(product);
+        }
+      }
+    }
+    return out;
+  }, [state.consignments, productHistory]);
 
   // ── consignment and charge editing ──────────────────────────────────────
 
@@ -686,6 +733,8 @@ export function ManualInvoiceBuilder({
             catalog={catalog}
             presets={presets}
             services={serviceOptions}
+            forwarders={forwarderOptions}
+            products={productOptions}
             customerName={state.party?.legalName ?? null}
             disabled={busy}
             onChange={(patch) => updateConsignment(index, patch)}
@@ -952,6 +1001,8 @@ function ConsignmentCard({
   catalog,
   presets,
   services,
+  forwarders,
+  products,
   customerName,
   disabled,
   onChange,
@@ -971,6 +1022,8 @@ function ConsignmentCard({
   catalog: ChargeTypeOption[];
   presets: ChargePresetOption[];
   services: string[];
+  forwarders: string[];
+  products: ProductHistory;
   /** Whoever is being billed, for the "same as the customer" shortcut. */
   customerName: string | null;
   disabled: boolean;
@@ -998,7 +1051,7 @@ function ConsignmentCard({
         ) : null}
 
         <div className="grid min-w-40 flex-1 gap-1.5">
-          <Label className="text-xs">AWB or tracking number</Label>
+          <Label className="text-xs">AWB / HAWB</Label>
           <Input
             className="h-8"
             value={row.awbNumber}
@@ -1030,14 +1083,30 @@ function ConsignmentCard({
           />
         </div>
 
-        <div className="grid min-w-44 flex-1 gap-1.5">
-          <Label className="text-xs">Service</Label>
-          <ServicePicker
-            value={row.serviceType}
-            mode={mode}
-            history={services}
+        {/* Who carried it and under what product. These are the two a customer
+            recognises: "DHL, Express Worldwide" means something to them in a
+            way "Air freight" does not, which is why they hold the slot the
+            service description used to. The service itself is still there, one
+            click down, for the customs-clearance and warehousing invoices that
+            have no forwarder at all. */}
+        <div className="grid min-w-40 flex-1 gap-1.5">
+          <Label className="text-xs">Forwarder</Label>
+          <ForwarderPicker
+            value={row.forwarderName}
+            history={forwarders}
             disabled={disabled}
-            onChange={(serviceType) => onChange({ serviceType })}
+            onChange={(forwarderName) => onChange({ forwarderName })}
+          />
+        </div>
+
+        <div className="grid min-w-40 flex-1 gap-1.5">
+          <Label className="text-xs">Product type</Label>
+          <ProductPicker
+            value={row.productType}
+            forwarder={row.forwarderName}
+            history={products}
+            disabled={disabled}
+            onChange={(productType) => onChange({ productType })}
           />
         </div>
 
@@ -1131,6 +1200,7 @@ function ConsignmentCard({
         <ConsignmentDetails
           row={row}
           mode={mode}
+          services={services}
           customerName={customerName}
           disabled={disabled}
           onChange={onChange}
@@ -1398,12 +1468,14 @@ function FillFrom({
 function ConsignmentDetails({
   row,
   mode,
+  services,
   customerName,
   disabled,
   onChange,
 }: {
   row: ConsignmentRow;
   mode: ShipmentMode;
+  services: string[];
   customerName: string | null;
   disabled: boolean;
   onChange: (patch: Partial<ConsignmentRow>) => void;
@@ -1471,9 +1543,10 @@ function ConsignmentDetails({
   const summary = [
     row.pieces.trim() && `${row.pieces.trim()} pcs`,
     chargeable ? `${chargeable} kg chargeable` : gross && `${gross} kg`,
-    row.flightNumber.trim(),
+    row.shipMode.trim(),
+    row.serviceType.trim(),
+    row.trackingNumber.trim(),
     row.shipperName.trim(),
-    row.jobNumber.trim(),
   ]
     .filter(Boolean)
     .slice(0, 4)
@@ -1499,7 +1572,7 @@ function ConsignmentDetails({
             </span>
           ) : (
             <span className="ml-3 truncate text-xs text-muted-foreground">
-              Weights, shipper and consignee, flight, reference numbers
+              Weights, service, parcel type, tracking, shipper and consignee
             </span>
           )}
         </Button>
@@ -1511,6 +1584,40 @@ function ConsignmentDetails({
             The goods
           </SectionHeading>
           <div className="grid gap-3 sm:grid-cols-3">
+            {/* Parcel type and ship mode sit with the goods rather than with
+                the carriage: they describe WHAT moved and how, which is the
+                question this section answers, and parcel type is what customs
+                and the carrier both ask for. Product type is not here; it
+                belongs beside the forwarder that sells it, in the header
+                row. */}
+            <div className="grid content-start gap-1.5">
+              <div className="flex min-h-5 items-baseline">
+                <Label className="text-xs">Parcel type</Label>
+              </div>
+              <SuggestPicker
+                value={row.parcelType}
+                options={PARCEL_TYPES}
+                placeholder="Non-documents"
+                disabled={disabled}
+                onChange={(parcelType) => onChange({ parcelType })}
+              />
+            </div>
+            <div className="grid content-start gap-1.5">
+              <div className="flex min-h-5 items-baseline">
+                <Label className="text-xs">Ship mode</Label>
+              </div>
+              {/* How the goods travelled. Not the invoice's own domestic or
+                  international setting: a domestic consignment can fly and an
+                  international one can sail. */}
+              <SuggestPicker
+                value={row.shipMode}
+                options={SHIP_MODES}
+                placeholder="Air"
+                disabled={disabled}
+                onChange={(shipMode) => onChange({ shipMode })}
+              />
+            </div>
+
             {field("pieces", "Pieces", { inputMode: "numeric" })}
             {field("grossWeightKg", "Gross weight", {
               inputMode: "decimal",
@@ -1537,14 +1644,14 @@ function ConsignmentDetails({
             {field("palletCount", "Pallets", { inputMode: "numeric" })}
             {field("cartonCount", "Cartons", { inputMode: "numeric" })}
 
+            {/* One field, not the two this used to be. "Goods" and
+                "Particulars" were never a distinction anybody drew while
+                typing: the second box got whatever did not fit in the first,
+                and the document printed them as two chips saying one thing. */}
             <div className="sm:col-span-3">
-              {field("goodsDescription", "Goods", {
-                placeholder: "Machine spares, 3 crates",
-              })}
-            </div>
-            <div className="sm:col-span-3">
-              {field("particulars", "Particulars", {
-                placeholder: "Anything extra to print against this consignment",
+              {field("goodsDescription", "Goods description", {
+                placeholder:
+                  "Machine spares, 3 crates. Anything else to print against this consignment.",
               })}
             </div>
           </div>
@@ -1585,15 +1692,46 @@ function ConsignmentDetails({
             Carriage
           </SectionHeading>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {/* What was actually done, as distinct from who carried it. On a
+                courier consignment the forwarder in the header says everything
+                and this stays empty; on a customs clearance or a warehousing
+                job there is no forwarder and this is the only field that says
+                what the invoice is for. */}
+            <div className="grid content-start gap-1.5">
+              <div className="flex min-h-5 items-baseline">
+                <Label className="text-xs">Service</Label>
+              </div>
+              <ServicePicker
+                value={row.serviceType}
+                mode={mode}
+                history={services}
+                disabled={disabled}
+                onChange={(serviceType) => onChange({ serviceType })}
+              />
+            </div>
+
             {/* A date input, not the free text box this used to be. A saved
                 draft loads a yyyy-mm-dd here, and reading one back in a plain
                 text field is how a date gets retyped as 08/08 and lost. */}
+            {/* Separate from the AWB above. A courier consignment often has
+                both: the waybill it flew under, and the number the customer
+                was given to track on. Telling a customer to track a number
+                that does not resolve is the failure this prevents. */}
+            {field("trackingNumber", "Tracking number", {
+              placeholder: "The number the customer tracks on",
+            })}
             {field("bookingDate", "Booking date", { type: "date" })}
+            {/* Not always the booking date, and it is the date a customer
+                reconciles against their own dispatch register. */}
+            {field("pickupDate", "Pick-up date", { type: "date" })}
             {field("flightNumber", "Flight", { placeholder: "EK 511" })}
             {field("airlineName", "Airline", { placeholder: "Emirates" })}
             {field("containerNumber", "Container")}
             {international ? field("mawbNumber", "MAWB") : null}
-            {international ? field("forwarderName", "Forwarder") : null}
+            {/* Forwarder used to be an international-only text box here. It is
+                now a picker in the header row and available on both, because
+                Blue Dart and DTDC carry domestic consignments exactly the way
+                DHL carries export ones. */}
             {international ? field("subAgent", "Sub agent") : null}
           </div>
         </section>
@@ -1608,7 +1746,9 @@ function ConsignmentDetails({
               placeholder: "The customer's own number",
             })}
             {international
-              ? field("exportInvoiceNo", "Export invoice no.")
+              ? field("exportInvoiceNo", "Shipper invoice no.", {
+                  hint: "The customer's own export invoice. Printed in the header when the whole invoice is against one.",
+                })
               : null}
           </div>
         </section>

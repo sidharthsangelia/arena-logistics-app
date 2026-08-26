@@ -10,6 +10,8 @@ import {
   getManualInvoiceDetail,
   listChargePresets,
   listChargeTypes,
+  listForwarderProducts,
+  listForwarders,
   listServiceTypes,
 } from "@/lib/invoices/manual/queries";
 import { ManualInvoiceBuilder } from "@/components/invoices/manual/ManualInvoiceBuilder";
@@ -34,11 +36,20 @@ export default async function EditManualInvoicePage({
 
   const { id } = await params;
 
-  const [invoice, catalog, presets, serviceHistory] = await Promise.all([
+  const [
+    invoice,
+    catalog,
+    presets,
+    serviceHistory,
+    forwarderHistory,
+    productHistory,
+  ] = await Promise.all([
     getManualInvoiceDetail(id),
     listChargeTypes(),
     listChargePresets(),
     listServiceTypes(),
+    listForwarders(),
+    listForwarderProducts(),
   ]);
 
   if (!invoice) notFound();
@@ -69,6 +80,8 @@ export default async function EditManualInvoicePage({
         catalog={catalog}
         presets={presets}
         serviceHistory={serviceHistory}
+        forwarderHistory={forwarderHistory}
+        productHistory={productHistory}
         sellerStateCode={issuer.stateCode}
       />
     </div>

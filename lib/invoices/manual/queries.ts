@@ -26,6 +26,7 @@ import {
   coerceManualSortField,
   coerceManualStatusFilter,
   deriveManualInvoiceView,
+  forwarderKey,
   DEFAULT_CURRENCY,
   type BillingPartyDefaults,
   type BillingPartyDetail,
@@ -713,6 +714,72 @@ export async function listServiceTypes(): Promise<string[]> {
     .filter((label) => label.length > 0);
 }
 
+/**
+ * Every forwarder an invoice has actually used, most used first.
+ *
+ * Same argument as listServiceTypes: no Forwarder table, and deliberately not
+ * one. A forwarder on a manual invoice is a name on a document, not a priced
+ * relationship with credentials behind it. Typing it once is what puts it in
+ * the list.
+ */
+export async function listForwarders(): Promise<string[]> {
+  const rows = await prisma.manualInvoiceConsignment.groupBy({
+    by: ["forwarderName"],
+    where: { forwarderName: { not: null }, invoice: { deletedAt: null } },
+    _count: { forwarderName: true },
+    orderBy: { _count: { forwarderName: "desc" } },
+    take: 40,
+  });
+
+  return rows
+    .map((row) => row.forwarderName?.trim() ?? "")
+    .filter((label) => label.length > 0);
+}
+
+/**
+ * Products used before, grouped by the forwarder they were used under.
+ *
+ * ── WHY GROUPED AND NOT FLAT ────────────────────────────────────────────────
+ * The product names belong to the carrier: "Saver" is a UPS word, "Express
+ * Worldwide" is a DHL one. Offering every carrier's vocabulary under every
+ * carrier is how an invoice ends up saying FedEx sold a DHL product. So the
+ * picker only offers what has been typed under THIS forwarder, plus the seeded
+ * list for it from config.ts.
+ *
+ * The empty-string key holds products typed with no forwarder set, which is a
+ * real case: a consignment can carry a product name before anyone has decided
+ * who is flying it.
+ *
+ * `forwarderKey` is shared with the picker so both sides group on the same
+ * string. If they ever drift, products typed against "UPS " stop coming back
+ * for "UPS" and the feature quietly does nothing.
+ */
+export async function listForwarderProducts(): Promise<
+  Record<string, string[]>
+> {
+  const rows = await prisma.manualInvoiceConsignment.groupBy({
+    by: ["forwarderName", "productType"],
+    where: { productType: { not: null }, invoice: { deletedAt: null } },
+    _count: { productType: true },
+    orderBy: { _count: { productType: "desc" } },
+    take: 200,
+  });
+
+  const out: Record<string, string[]> = {};
+  for (const row of rows) {
+    const product = row.productType?.trim();
+    if (!product) continue;
+    const key = forwarderKey(row.forwarderName);
+    const list = (out[key] ??= []);
+    // groupBy already ordered by use, so first seen is most used. The guard is
+    // for case variants of one product landing in the same bucket.
+    if (!list.some((p) => p.toLowerCase() === product.toLowerCase())) {
+      list.push(product);
+    }
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------------------
 // One invoice, in the shape the builder edits
 // ---------------------------------------------------------------------------
@@ -804,7 +871,9 @@ export async function getManualInvoiceDetail(
       id: c.id,
       awbNumber: c.awbNumber,
       mawbNumber: c.mawbNumber,
+      trackingNumber: c.trackingNumber,
       bookingDate: c.bookingDate?.toISOString() ?? null,
+      pickupDate: c.pickupDate?.toISOString() ?? null,
       origin: c.origin,
       originPostalCode: c.originPostalCode,
       originCity: c.originCity,
@@ -816,6 +885,9 @@ export async function getManualInvoiceDetail(
       destinationState: c.destinationState,
       destinationCountry: c.destinationCountry,
       serviceType: c.serviceType,
+      productType: c.productType,
+      parcelType: c.parcelType,
+      shipMode: c.shipMode,
       originPort: c.originPort,
       destinationPort: c.destinationPort,
       flightNumber: c.flightNumber,

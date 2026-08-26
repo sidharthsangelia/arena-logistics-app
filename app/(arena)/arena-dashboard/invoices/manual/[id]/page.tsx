@@ -180,13 +180,19 @@ export default async function ManualInvoiceDetailPage({
       <div className="mt-4 space-y-6">
         {invoice.consignments.map((c, index) => {
           const chips: Array<[string, string | null]> = [
+            ["Forwarder", c.forwarderName],
+            ["Prod type", c.productType],
             ["Service", c.serviceType],
+            ["Tracking", c.trackingNumber],
+            ["Ship mode", c.shipMode],
+            ["Parcel type", c.parcelType],
             [
               "Ports",
               [c.originPort, c.destinationPort].filter(Boolean).join(" → ") ||
                 null,
             ],
             ["Booked", formatDate(c.bookingDate)],
+            ["Picked up", formatDate(c.pickupDate)],
             ["MAWB", c.mawbNumber],
             ["Flight", c.flightNumber],
             ["Airline", c.airlineName],
@@ -204,7 +210,17 @@ export default async function ManualInvoiceDetailPage({
             ["Job", c.jobNumber],
             ["Shipper", c.shipperName],
             ["Consignee", c.consigneeName],
-            ["Goods", c.goodsDescription],
+            ["Shipper inv.", c.exportInvoiceNo],
+            // One field since the merge. An invoice issued under the old
+            // two-field shape still has both, so they are joined rather than
+            // the second one vanishing from a document already sent.
+            [
+              "Goods",
+              [c.goodsDescription, c.particulars]
+                .map((v) => v?.trim())
+                .filter(Boolean)
+                .join(". ") || null,
+            ],
           ].filter(([, v]) => !!v) as Array<[string, string]>;
 
           return (
