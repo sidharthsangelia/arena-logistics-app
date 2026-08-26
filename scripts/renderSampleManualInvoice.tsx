@@ -38,7 +38,11 @@ import {
   ManualInvoiceDocument,
   type ManualInvoiceVariant,
 } from "../lib/invoices/manual/pdf/ManualInvoiceDocument";
-import { DRAFT_NUMBER_PLACEHOLDER } from "../lib/invoices/manual/config";
+import {
+  DRAFT_NUMBER_PLACEHOLDER,
+  paymentTermLabel,
+} from "../lib/invoices/manual/config";
+import { invoiceTermsFor, taxTreatmentFor } from "../lib/invoices/tax/config";
 import { OUTSIDE_INDIA } from "../lib/invoices/tax/gst";
 import { MANUAL_SNAPSHOT_VERSION } from "../lib/invoices/manual/types";
 import type {
@@ -59,6 +63,7 @@ const SELLER: ManualSellerSnapshot = {
   country: "India",
   gstin: "06AABCA1234A1Z5",
   pan: "AABCA1234A",
+  cin: "U63030HR2019PTC078451",
   email: "info@arenalogistics.co.in",
   phone: "+91 98100 00000",
   website: "arenalogistics.co.in",
@@ -69,10 +74,9 @@ const SELLER: ManualSellerSnapshot = {
     bankName: "HDFC Bank",
     branch: "Sohna Road",
   },
-  declaration:
-    "We declare that this invoice shows the actual price of the services described and that all particulars are true and correct.",
+  declaration: "CERTIFIED THAT THE PARTICULARS GIVEN ABOVE ARE TRUE & CORRECT.",
   jurisdiction: "Delhi and Gurgaon",
-  billingEmail: "billing@arenalogistics.co.in",
+  billingEmail: "info@arenalogistics.co.in, adnan@arenalogistics.co.in",
 };
 
 function consignment(
@@ -82,7 +86,9 @@ function consignment(
     sortOrder: 0,
     awbNumber: null,
     mawbNumber: null,
+    trackingNumber: null,
     bookingDate: null,
+    pickupDate: null,
     origin: null,
     destination: null,
     originPostalCode: null,
@@ -94,6 +100,9 @@ function consignment(
     destinationState: null,
     destinationCountry: null,
     serviceType: null,
+    productType: null,
+    parcelType: null,
+    shipMode: null,
     originPort: null,
     destinationPort: null,
     flightNumber: null,
@@ -182,7 +191,9 @@ function assemble(opts: {
     relatedInvoiceNumber: null,
     issueDate: new Date("2026-08-08T06:00:00.000Z").toISOString(),
     dueDate: new Date("2026-09-07T06:00:00.000Z").toISOString(),
-    paymentTermsLabel: "Net 30 days",
+    // Through the real helper, so the sample cannot go on printing a label
+    // the product stopped using.
+    paymentTermsLabel: paymentTermLabel("NET_30"),
     reference: opts.reference,
     mode: opts.mode,
     csbLabel: opts.csbLabel,
@@ -193,6 +204,9 @@ function assemble(opts: {
 
     placeOfSupplyCode: opts.placeOfSupplyCode,
     placeOfSupplyName: opts.placeOfSupplyName,
+
+    sacCode: "996812",
+    serviceDescription: taxTreatmentFor(opts.mode).sacDescription,
 
     currency: "INR",
     taxMode: TaxMode.EXCLUSIVE,
@@ -217,10 +231,9 @@ function assemble(opts: {
     irnQrData: null,
 
     notes: null,
-    terms: [
-      "This invoice covers freight and related services only. Duties, taxes and charges levied at destination are payable by the consignee.",
-      "Claims relating to this invoice must be raised within 7 days of its date.",
-    ],
+    // The real terms, for the same reason: a sample rendered against a
+    // hand-copied terms block stops testing the block that actually ships.
+    terms: invoiceTermsFor(opts.mode, SELLER),
 
     cancelled: false,
   };
@@ -265,6 +278,12 @@ const EXPORT_SAMPLE = assemble({
       origin: "New Delhi",
       destination: "Dubai",
       serviceType: "Air freight, express",
+      forwarderName: "DHL",
+      productType: "Express Worldwide",
+      parcelType: "Non-documents",
+      shipMode: "Air",
+      trackingNumber: "ARN2607884120",
+      pickupDate: new Date("2026-07-28T05:30:00.000Z").toISOString(),
       originPort: "DEL",
       destinationPort: "DXB",
       flightNumber: "EK 511",
@@ -274,7 +293,7 @@ const EXPORT_SAMPLE = assemble({
       chargeableWeightKg: 310,
       palletCount: 2,
       cartonCount: 12,
-      goodsDescription: "Cotton apparel",
+      goodsDescription: "Cotton apparel. 40 cartons mens shirts, 20 womens jeans.",
       exportInvoiceNo: "MTX/EXP/2026/0188",
       shipperName: "Meridian Textiles Private Limited",
       consigneeName: "Al Noor Trading LLC",
@@ -298,6 +317,11 @@ const EXPORT_SAMPLE = assemble({
       origin: "New Delhi",
       destination: "London",
       serviceType: "Air freight, economy",
+      forwarderName: "UPS",
+      productType: "UPS Saver",
+      parcelType: "Sample",
+      shipMode: "Air",
+      trackingNumber: "ARN2607884133",
       originPort: "DEL",
       destinationPort: "LHR",
       flightNumber: "BA 142",
@@ -378,6 +402,12 @@ const DOMESTIC_SAMPLE = assemble({
       origin: "Gurugram",
       destination: "Pune",
       serviceType: "Surface express",
+      forwarderName: "Blue Dart",
+      productType: "Dart Surfaceline",
+      parcelType: "Non-documents",
+      shipMode: "Surface",
+      trackingNumber: "SM8841200315",
+      pickupDate: new Date("2026-08-04T09:00:00.000Z").toISOString(),
       pieces: 4,
       grossWeightKg: 62,
       chargeableWeightKg: 62,
@@ -447,6 +477,10 @@ const INDIVIDUAL_SAMPLE = assemble({
       destinationCountry: "Canada",
       destinationPort: "YYZ",
       serviceType: "Air freight",
+      forwarderName: "FedEx",
+      productType: "International Priority",
+      parcelType: "Personal effects",
+      shipMode: "Air",
       pieces: 3,
       grossWeightKg: 41.5,
       chargeableWeightKg: 44,

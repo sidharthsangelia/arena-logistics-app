@@ -60,10 +60,11 @@ import { ManualInvoiceDocType, TaxMode } from "@/generated/prisma";
 import {
   Band,
   C,
-  Chip,
   Fact,
+  FactCell,
   type InvoiceVariant,
   PaymentPanel,
+  TermsBlock,
   TotalsRow,
   chunked,
   money,
@@ -99,24 +100,28 @@ export type ManualInvoiceVariant = InvoiceVariant;
  * theme, which is what keeps the two looking like one company.
  */
 const COL = {
-  sac: 44,
+  // The S.No column. Narrow on purpose: it is an index, not data, and every
+  // point it takes comes off the description, which is the column a reader
+  // actually needs whole.
+  sno: 24,
+  sac: 46,
   qty: 30,
   rate: 58,
-  taxable: 62,
-  gstRate: 30,
-  gst: 58,
-  amount: 66,
+  taxable: 64,
+  gstRate: 32,
+  gst: 60,
+  amount: 68,
 };
 
 const s = StyleSheet.create({
   page: {
-    paddingTop: 30,
-    paddingBottom: 46,
-    paddingHorizontal: 34,
-    fontSize: 8.5,
+    paddingTop: 22,
+    paddingBottom: 40,
+    paddingHorizontal: 32,
+    fontSize: 9,
     fontFamily: "Helvetica",
     color: C.ink,
-    lineHeight: 1.4,
+    lineHeight: 1.35,
   },
 
   // ── masthead ──
@@ -125,18 +130,23 @@ const s = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "flex-start",
   },
-  logo: { width: 112, marginBottom: 6 },
-  sellerName: { fontSize: 9, fontFamily: "Helvetica-Bold", lineHeight: 1.3 },
-  sellerLine: { fontSize: 7.5, color: C.muted, lineHeight: 1.5 },
-  sellerIds: { fontSize: 7.5, color: C.ink, lineHeight: 1.5 },
+  logo: { width: 108, marginBottom: 5 },
+  sellerName: { fontSize: 10, fontFamily: "Helvetica-Bold", lineHeight: 1.25 },
+  // The issuer's own address and identifiers are NOT support text. Somebody
+  // matching a payment, filing a GSTR-2 or writing a cheque reads these off the
+  // page digit by digit, so they are set in the content colour like everything
+  // else that is read rather than skimmed.
+  sellerLine: { fontSize: 8, color: C.ink, lineHeight: 1.4 },
+  sellerIds: { fontSize: 8, color: C.ink, lineHeight: 1.4 },
+  sellerIdLabel: { fontFamily: "Helvetica-Bold" },
 
   mastheadRight: { alignItems: "flex-end", paddingLeft: 20 },
-  docTitle: { fontSize: 13, fontFamily: "Helvetica-Bold", letterSpacing: 2, textAlign: "right" },
-  docCopy: { fontSize: 6.5, color: C.faint, letterSpacing: 0.9, textAlign: "right", marginTop: 3 },
-  docNumber: { fontSize: 10, fontFamily: "Helvetica-Bold", textAlign: "right", marginTop: 8 },
-  docDate: { fontSize: 8, color: C.muted, textAlign: "right", marginTop: 2 },
+  docTitle: { fontSize: 14, fontFamily: "Helvetica-Bold", letterSpacing: 2, textAlign: "right" },
+  docCopy: { fontSize: 7, color: C.muted, letterSpacing: 0.9, textAlign: "right", marginTop: 3 },
+  docNumber: { fontSize: 11.5, fontFamily: "Helvetica-Bold", textAlign: "right", marginTop: 7 },
+  docDate: { fontSize: 8.5, color: C.ink, textAlign: "right", marginTop: 2 },
   statusMark: {
-    fontSize: 8,
+    fontSize: 8.5,
     fontFamily: "Helvetica-Bold",
     letterSpacing: 1.2,
     color: C.alert,
@@ -144,19 +154,54 @@ const s = StyleSheet.create({
     marginTop: 4,
   },
 
+  // The band the parties panel would have had. See the comment at its use.
+  partyBand: { marginTop: 8 },
+
   // ── party panel content ──
   // Sizing only. The panel itself, its label and its fact lines are shared.
-  partyName: { fontSize: 9.5, fontFamily: "Helvetica-Bold", lineHeight: 1.3 },
-  detail: { fontSize: 7.5, color: C.muted, lineHeight: 1.5 },
+  partyName: { fontSize: 10, fontFamily: "Helvetica-Bold", lineHeight: 1.25 },
+  detail: { fontSize: 8, color: C.ink, lineHeight: 1.4 },
 
   // ── consignments ──
-  consignment: { marginTop: 7 },
+  consignment: { marginTop: 5 },
   consignmentHead: { flexDirection: "row", alignItems: "baseline" },
-  consignmentIndex: { width: 16, fontSize: 8, color: C.muted },
-  consignmentAwb: { fontSize: 9, fontFamily: "Helvetica-Bold" },
-  consignmentRoute: { fontSize: 8, marginLeft: 6, color: C.ink },
-  consignmentNet: { marginLeft: "auto", fontSize: 8.5, fontFamily: "Helvetica-Bold" },
-  consignmentFacts: { flexDirection: "row", flexWrap: "wrap", marginLeft: 16, marginTop: 2 },
+  consignmentIndex: { width: 14, fontSize: 8.5, color: C.muted },
+  consignmentAwb: { fontSize: 9.5, fontFamily: "Helvetica-Bold" },
+  consignmentRoute: { fontSize: 8.5, marginLeft: 6, color: C.ink },
+  consignmentNet: { marginLeft: "auto", fontSize: 9, fontFamily: "Helvetica-Bold" },
+  // The grid itself is shared (t.factGrid); this only indents it under the
+  // waybill line so the facts read as belonging to the consignment above them.
+  consignmentFacts: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    marginLeft: 14,
+    marginTop: 1,
+  },
+
+  // The full-width line under the grid: tracking and the goods description.
+  // The goods line is the one label set BESIDE its value rather than above it,
+  // because the value is a sentence that wants the full width. react-pdf's
+  // baseline alignment across two font sizes leaves the smaller one sitting
+  // high, so the label is nudged down onto the value's own baseline by hand.
+  consignmentLine: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    marginLeft: 14,
+    marginTop: 2,
+  },
+  consignmentLineLabel: {
+    width: 34,
+    paddingTop: 1.5,
+    fontSize: 6.5,
+    color: C.muted,
+    letterSpacing: 0.7,
+  },
+  consignmentLineValue: {
+    flex: 1,
+    fontSize: 8.5,
+    color: C.ink,
+    lineHeight: 1.25,
+  },
 
   consignmentGrid: {
     marginTop: 0,
@@ -168,21 +213,21 @@ const s = StyleSheet.create({
   },
 
   // ── charges table ──
-  tableHead: { flexDirection: "row", paddingTop: 6, paddingBottom: 5 },
+  tableHead: { flexDirection: "row", paddingTop: 4, paddingBottom: 3 },
   tableHeadGrid: {
     flexDirection: "row",
     backgroundColor: C.band,
     paddingVertical: 4,
     paddingHorizontal: 4,
   },
-  headCell: { fontSize: 6.5, color: C.muted, letterSpacing: 0.8 },
+  headCell: { fontSize: 7, color: C.muted, letterSpacing: 0.7 },
   headCellGrid: {
-    fontSize: 6.5,
+    fontSize: 7,
     color: C.bandInk,
     letterSpacing: 0.6,
     fontFamily: "Helvetica-Bold",
   },
-  row: { flexDirection: "row", paddingTop: 5, paddingBottom: 1 },
+  row: { flexDirection: "row", paddingTop: 4, paddingBottom: 1 },
   rowGrid: {
     flexDirection: "row",
     paddingVertical: 3.5,
@@ -191,86 +236,133 @@ const s = StyleSheet.create({
     borderBottomColor: C.gridRule,
   },
   rowZebra: { backgroundColor: C.gridZebra },
-  rowDescription: { flex: 1, paddingRight: 10 },
-  descriptionText: { fontSize: 8.5, lineHeight: 1.3 },
-  descriptionNote: { fontSize: 6.5, color: C.faint, lineHeight: 1.3 },
-  cell: { fontSize: 8, textAlign: "right" },
-  cellMuted: { fontSize: 7.5, color: C.muted, textAlign: "right" },
+  rowDescription: { flex: 1, paddingRight: 8 },
+  descriptionText: { fontSize: 9, lineHeight: 1.25 },
+  descriptionNote: { fontSize: 7, color: C.faint, lineHeight: 1.25 },
+  cell: { fontSize: 8.5, color: C.ink, textAlign: "right" },
+  cellMuted: { fontSize: 8, color: C.muted, textAlign: "right" },
+  cellIndex: { fontSize: 8, color: C.muted, textAlign: "left" },
 
   subtotalRow: {
     flexDirection: "row",
-    paddingTop: 6,
-    marginTop: 3,
+    paddingTop: 5,
+    marginTop: 2,
     borderTopWidth: 0.5,
     borderTopColor: C.rule,
   },
-  reimbursementNote: { fontSize: 7, color: C.muted, marginTop: 4, lineHeight: 1.4 },
+  reimbursementNote: { fontSize: 7.5, color: C.muted, marginTop: 3, lineHeight: 1.3 },
+
+  // ── the reverse-charge statement ──
+  // Rule 46(o) wants this stated, and it is the one line on the page whose
+  // answer is usually "no" and which is therefore easy to leave off. It gets
+  // its own ruled line rather than a slot in a panel so it cannot be missed.
+  reverseChargeLine: {
+    flexDirection: "row",
+    marginTop: 5,
+    paddingTop: 3,
+    borderTopWidth: 0.5,
+    borderTopColor: C.rule,
+  },
+  reverseChargeLabel: { fontSize: 7.5, color: C.muted },
+  reverseChargeValue: {
+    fontSize: 7.5,
+    color: C.ink,
+    fontFamily: "Helvetica-Bold",
+    marginLeft: 4,
+  },
 
   // ── bottom ──
-  bottomRow: { flexDirection: "row", marginTop: 11, alignItems: "flex-start" },
-  bottomLeft: { flex: 1, paddingRight: 20 },
+  bottomRow: { flexDirection: "row", marginTop: 5, alignItems: "flex-start" },
+  bottomLeft: { flex: 1, paddingRight: 16 },
   totalsPanel: {
-    width: 250,
+    width: "100%",
     backgroundColor: C.panel,
     borderWidth: 0.5,
     borderColor: C.rule,
     borderRadius: 4,
-    paddingVertical: 9,
-    paddingHorizontal: 13,
+    paddingVertical: 5,
+    paddingHorizontal: 10,
   },
   totalsPanelGrid: { borderRadius: 0, borderColor: C.gridRule, backgroundColor: "#FFFFFF" },
   totalsRule: {
     borderTopWidth: 0.75,
     borderTopColor: C.ruleStrong,
-    marginTop: 4,
-    marginBottom: 7,
+    marginTop: 3,
+    marginBottom: 5,
   },
   grandRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "baseline" },
-  grandLabel: { fontSize: 9, fontFamily: "Helvetica-Bold", letterSpacing: 0.5 },
+  grandLabel: { fontSize: 9.5, fontFamily: "Helvetica-Bold", letterSpacing: 0.5 },
   grandValue: { fontSize: 15, fontFamily: "Helvetica-Bold", textAlign: "right" },
-  words: { fontSize: 7, color: C.muted, marginTop: 5, textAlign: "right" },
-  taxNote: { fontSize: 7.5, color: C.muted, marginTop: 6, textAlign: "right", lineHeight: 1.4 },
+  words: { flex: 1, fontSize: 8, color: C.ink, paddingRight: 12, lineHeight: 1.25 },
+  wordsLabel: { color: C.muted, letterSpacing: 0.6, fontSize: 7 },
+  taxNote: { fontSize: 7.5, color: C.muted, marginTop: 5, textAlign: "right", lineHeight: 1.35 },
 
-  termLine: { fontSize: 7, color: C.muted, lineHeight: 1.5, marginTop: 2 },
-
-  signatureRow: {
+  // The figure the customer actually has to pay, restated under the total.
+  // Identical to it today, and stated anyway: it is the line an accounts
+  // department looks for, and the day an advance or a part payment is ever
+  // deducted this is where that shows without the layout changing.
+  dueStrip: {
     flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-end",
-    marginTop: 12,
+    alignItems: "baseline",
+    marginTop: 4,
+    paddingTop: 3,
+    borderTopWidth: 0.5,
+    borderTopColor: C.rule,
   },
-  signature: { alignItems: "flex-end" },
-  signatureFor: { fontSize: 7.5, color: C.muted },
-  signatureName: { fontSize: 8, fontFamily: "Helvetica-Bold", textAlign: "right", lineHeight: 1.3 },
-  signatureRole: { fontSize: 7.5, color: C.muted, marginTop: 16 },
-  declaration: { width: "58%", fontSize: 7, color: C.faint, lineHeight: 1.5 },
+  dueLabel: { fontSize: 8, color: C.muted, paddingRight: 8 },
+  dueValue: { fontSize: 10, fontFamily: "Helvetica-Bold", textAlign: "right" },
+
+  noteLine: { fontSize: 7.5, color: C.ink, lineHeight: 1.35, marginTop: 2 },
+
+  bottomRight: { width: 236 },
+  signature: { alignItems: "flex-end", marginTop: 3 },
+  signatureFor: { fontSize: 8, color: C.muted },
+  signatureName: { fontSize: 8.5, fontFamily: "Helvetica-Bold", textAlign: "right", lineHeight: 1.25 },
+  signatureRole: { fontSize: 8, color: C.muted, marginTop: 5 },
+  declaration: {
+    marginBottom: 4,
+    fontSize: 7.5,
+    color: C.ink,
+    fontFamily: "Helvetica-Bold",
+    letterSpacing: 0.2,
+    lineHeight: 1.35,
+  },
 
   // ── fixed foot ──
   pageFootRule: {
     position: "absolute",
-    bottom: 36,
-    left: 34,
-    right: 34,
+    bottom: 34,
+    left: 32,
+    right: 32,
     borderTopWidth: 0.5,
     borderTopColor: C.rule,
   },
   pageFootText: {
     position: "absolute",
-    bottom: 27,
-    left: 34,
-    right: 34,
-    fontSize: 6.5,
-    color: C.faint,
+    bottom: 30,
+    left: 32,
+    right: 32,
+    fontSize: 7,
+    color: C.muted,
+    textAlign: "center",
+  },
+  contact: {
+    position: "absolute",
+    bottom: 21,
+    left: 32,
+    right: 32,
+    fontSize: 7,
+    color: C.ink,
     textAlign: "center",
   },
   jurisdiction: {
     position: "absolute",
-    bottom: 17,
-    left: 34,
-    right: 34,
+    bottom: 12,
+    left: 32,
+    right: 32,
     fontSize: 6.5,
     color: C.muted,
-    letterSpacing: 0.9,
+    letterSpacing: 0.4,
     textAlign: "center",
   },
 });
@@ -330,6 +422,85 @@ function route(c: ManualConsignmentSnapshot): string | null {
 
   if (from && to) return `${from} to ${to}`;
   return from ?? to ?? null;
+}
+
+/** "DEL / DXB", or whichever end exists, or nothing. */
+function ports(c: ManualConsignmentSnapshot): string | null {
+  if (c.originPort && c.destinationPort) {
+    return `${c.originPort} / ${c.destinationPort}`;
+  }
+  return c.originPort ?? c.destinationPort ?? null;
+}
+
+/**
+ * "284.5 kg gross  310 kg ch.", on ONE line.
+ *
+ * Both weights are stated because freight is billed on the chargeable one and a
+ * customer who sees only that figure, knowing only what their parcel weighed on
+ * a scale, reads the invoice as wrong. They share a line because two lines in a
+ * quarter-width cell is a line of page per consignment, and the pair is read
+ * together anyway.
+ */
+function weights(c: ManualConsignmentSnapshot): string | null {
+  const parts = [
+    c.grossWeightKg === null ? null : `${trim(c.grossWeightKg)} kg gross`,
+    c.chargeableWeightKg === null
+      ? null
+      : `${trim(c.chargeableWeightKg)} kg ch.`,
+  ].filter(Boolean);
+  return parts.join("  ") || null;
+}
+
+/** "2 pallet, 12 carton". Only the counts that were actually taken. */
+function packing(c: ManualConsignmentSnapshot): string | null {
+  return (
+    [
+      c.boxCount ? `${c.boxCount} box` : null,
+      c.palletCount ? `${c.palletCount} pallet` : null,
+      c.cartonCount ? `${c.cartonCount} carton` : null,
+    ]
+      .filter(Boolean)
+      .join(", ") || null
+  );
+}
+
+/**
+ * Every number this consignment can be looked up by, each prefixed with what it
+ * is.
+ *
+ * The prefixes are not decoration. Stacked bare, "176-51234567",
+ * "ARN-JOB-4412" and "MTX/EXP/2026/0188" are three strings a reader has to
+ * guess the meaning of, and they are precisely the values somebody is matching
+ * against other paperwork. Guessing wrong there is a misfiled consignment.
+ */
+function references(c: ManualConsignmentSnapshot): string[] {
+  return [
+    // First, because it is the one a customer chasing the consignment reaches
+    // for. The waybill is already set large on the line above this block.
+    c.trackingNumber ? `Tracking ${c.trackingNumber}` : null,
+    c.mawbNumber ? `MAWB ${c.mawbNumber}` : null,
+    c.jobNumber ? `Job ${c.jobNumber}` : null,
+    c.referenceNo ? `Ref ${c.referenceNo}` : null,
+    c.exportInvoiceNo ? `Shipper inv. ${c.exportInvoiceNo}` : null,
+  ].filter(Boolean) as string[];
+}
+
+/**
+ * What was in it.
+ *
+ * Goods and particulars were two fields and are now one. An invoice ISSUED
+ * under the old shape has both in its frozen snapshot and must still print
+ * everything it was issued with, so they are joined here rather than the
+ * second one disappearing from a document somebody already holds a copy of.
+ * Nothing written since the merge sets `particulars` at all.
+ */
+function goods(c: ManualConsignmentSnapshot): string | null {
+  return (
+    [c.goodsDescription, c.particulars]
+      .map((v) => v?.trim())
+      .filter(Boolean)
+      .join(". ") || null
+  );
 }
 
 /**
@@ -417,12 +588,18 @@ export function ManualInvoiceDocument({
   );
   const singleRate = rates.size === 1 ? [...rates][0] : null;
 
-  const taxLabel = (head: "CGST" | "SGST" | "IGST") => {
-    if (singleRate === null) return head;
+  // `as` carries the printed wording where it differs from the head's name:
+  // the state half is "SGST/UTGST", because a union territory supply is charged
+  // UTGST under the same half and a document naming only SGST is wrong for it.
+  const taxLabel = (head: "CGST" | "SGST" | "IGST", as: string = head) => {
+    if (singleRate === null) return as;
     const rate = head === "IGST" ? singleRate : singleRate / 2;
-    return `${head} @ ${trim(rate)}%`;
+    return `${as} @ ${trim(rate)}%`;
   };
   const showQty = showRate && taxedLines.some((l) => l.quantity !== 1);
+
+  const serviceAmount = taxedLines.reduce((sum, l) => sum + l.grossAmount, 0);
+  const discount = taxedLines.reduce((sum, l) => sum + l.discount, 0);
 
   const sellerAddress = [
     ...seller.addressLines,
@@ -434,6 +611,27 @@ export function ManualInvoiceDocument({
     [buyer.city, buyer.stateName, buyer.postalCode].filter(Boolean).join(" "),
     buyer.country && buyer.country !== "India" ? buyer.country : null,
   ].filter(Boolean);
+
+  // "Haryana (06)", or whichever half exists. Never a bare code: two digits on
+  // their own are read as a typo by everyone except the person filing the
+  // return.
+  const buyerState =
+    [buyer.stateName, buyer.stateCode ? `(${buyer.stateCode})` : null]
+      .filter(Boolean)
+      .join(" ") || null;
+
+  // The env value accepts several, comma separated. Normalised here rather than
+  // trusted as typed, because "a@x.com,b@x.com" with no space runs together on
+  // the page and reads as one malformed address.
+  const billingContacts = seller.billingEmail
+    .split(",")
+    .map((e) => e.trim())
+    .filter(Boolean)
+    .join(", ");
+
+  // An empty Text still takes a line's height in react-pdf, so an issuer with
+  // neither an email nor a phone gets no row rather than a blank one.
+  const sellerContact = [seller.email, seller.phone].filter(Boolean).join("   ");
 
   const legalNameLines = splitLegalName(seller.legalName);
 
@@ -455,8 +653,27 @@ export function ManualInvoiceDocument({
                 {line}
               </Text>
             ))}
-            <Text style={s.sellerIds}>GSTIN {seller.gstin}</Text>
-            <Text style={s.sellerIds}>PAN {seller.pan}</Text>
+            {/* GSTIN, PAN and CIN on one line rather than three. All three are
+                looked up rather than read, the labels carry the weight, and
+                three separate lines pushed the party panel down the page for no
+                gain. CIN is guarded: an invoice issued before the field existed
+                has none, and a bare "CIN" with nothing after it is worse than
+                no CIN at all. */}
+            <Text style={s.sellerIds}>
+              <Text style={s.sellerIdLabel}>GSTIN </Text>
+              {seller.gstin}
+              <Text style={s.sellerIdLabel}>   PAN </Text>
+              {seller.pan}
+              {seller.cin ? (
+                <>
+                  <Text style={s.sellerIdLabel}>   CIN </Text>
+                  {seller.cin}
+                </>
+              ) : null}
+            </Text>
+            {sellerContact ? (
+              <Text style={s.sellerIds}>{sellerContact}</Text>
+            ) : null}
           </View>
 
           <View style={s.mastheadRight}>
@@ -480,11 +697,16 @@ export function ManualInvoiceDocument({
           </View>
         </View>
 
-        {/* ── who and what ─────────────────────────────────────────────── */}
-        <Band label="Invoice details" variant={variant} keepTogether>
+        {/* ── who and what ─────────────────────────────────────────────────
+            No section band over this one. The two panel headings inside it
+            already say what each column is, and a strip reading "INVOICE
+            DETAILS" directly above a column reading "INVOICE DETAILS" was a
+            line of page spent saying the same thing twice, on a document whose
+            fitting on one sheet is decided by exactly this kind of line. */}
+        <View style={s.partyBand} wrap={false}>
           <View style={grid ? t.panelGrid : t.panel}>
             <View style={t.panelColumn}>
-              <Text style={t.panelLabel}>BILLED TO</Text>
+              <Text style={t.panelLabel}>DETAILS OF RECEIVER (BILL TO)</Text>
               <Text style={s.partyName}>{buyer.legalName}</Text>
               {buyer.tradeName ? (
                 <Text style={s.detail}>{buyer.tradeName}</Text>
@@ -507,26 +729,57 @@ export function ManualInvoiceDocument({
               )}
               <Fact label="PAN" value={buyer.pan} />
               <Fact label="CIN" value={buyer.cin} />
+              {/* The state is spelled out AND coded. The name is what a person
+                  reads; the two-digit code is what decides IGST against the
+                  CGST/SGST split and what the recipient's own filing is checked
+                  against, and one without the other is half the answer. */}
+              <Fact label="State" value={buyerState} />
+              <Fact label="Email" value={buyer.email} />
+              <Fact label="Phone" value={buyer.phone} />
+              <Fact label="Customer no." value={buyer.customerCode} />
+            </View>
+
+            <View style={t.panelColumn}>
+              <Text style={t.panelLabel}>INVOICE DETAILS</Text>
+              {/* The number and date are in the masthead too. Repeated here on
+                  purpose: this panel is the block a filing clerk reads as a
+                  unit, and a header block that starts at "Shipper invoice no."
+                  makes them hunt back up the page for the two fields every
+                  other line refers to. */}
+              <Fact
+                label="Invoice no."
+                value={data.invoiceNumber}
+                strong
+              />
+              <Fact label="Invoice date" value={formatDate(data.issueDate)} />
+              <Fact label="Shipper inv." value={data.shipperInvoiceNo} />
+              <Fact label="Credit terms" value={data.paymentTermsLabel} />
+              <Fact label="Due date" value={formatDate(data.dueDate)} />
+              <Fact label="Reference" value={data.reference} />
               <Fact
                 label="Place of supply"
                 value={
                   data.placeOfSupplyName
-                    ? `${data.placeOfSupplyName} (${data.placeOfSupplyCode})`
+                    ? `${data.placeOfSupplyCode} ${data.placeOfSupplyName}`
                     : data.placeOfSupplyCode
                 }
               />
-              <Fact label="Customer code" value={buyer.customerCode} />
-            </View>
-
-            <View style={t.panelColumn}>
-              <Text style={t.panelLabel}>INVOICE</Text>
-              <Fact label="Reference" value={data.reference} />
-              <Fact label="Terms" value={data.paymentTermsLabel} />
-              <Fact label="Category" value={data.csbLabel} />
+              {/* SAC and what it means, stated once where the reader is asking
+                  "what was this bill for". Suppressed when the lines carry
+                  different codes: the per-line column is the honest answer
+                  then, and naming one of several here would be read as covering
+                  all of them. */}
               <Fact
-                label="Reverse charge"
-                value={data.reverseCharge ? "Yes" : "No"}
+                label="SAC / service"
+                value={
+                  data.sacCode
+                    ? [data.sacCode, data.serviceDescription]
+                        .filter(Boolean)
+                        .join("  ")
+                    : null
+                }
               />
+              <Fact label="Category" value={data.csbLabel} />
               <Fact
                 label="Pricing"
                 value={
@@ -540,7 +793,7 @@ export function ManualInvoiceDocument({
               <Fact label="Ack date" value={formatDate(data.irnAckDate)} />
             </View>
           </View>
-        </Band>
+        </View>
 
         {/* ── consignments ─────────────────────────────────────────────── */}
         {data.consignments.length > 0 ? (
@@ -573,56 +826,113 @@ export function ManualInvoiceDocument({
                     </Text>
                   </View>
 
+                  {/* ── THE FACTS, GROUPED ───────────────────────────────
+                      Eight cells, not twenty chips. Things that are read
+                      together are printed together: the forwarder with its
+                      product, the ports with the flight that flew them, the
+                      piece count with the weights it was charged on. A reader
+                      checking "what moved and who took it" gets one cell per
+                      question instead of assembling the answer out of six
+                      auto-width pairs that do not line up between rows.
+
+                      Every cell is a quarter of the width, so the labels align
+                      down the page. Cells with nothing in them are dropped and
+                      the rest pack left; see FactCell in the shared theme. */}
                   <View style={s.consignmentFacts}>
-                    <Chip label="Service" value={c.serviceType} />
-                    <Chip label="Booked" value={formatDate(c.bookingDate)} />
-                    <Chip label="MAWB" value={c.mawbNumber} />
-                    <Chip label="Flight" value={c.flightNumber} />
-                    <Chip label="Airline" value={c.airlineName} />
-                    <Chip
-                      label="Ports"
-                      value={
-                        c.originPort && c.destinationPort
-                          ? `${c.originPort} / ${c.destinationPort}`
-                          : (c.originPort ?? c.destinationPort)
-                      }
+                    <FactCell
+                      label="Forwarder"
+                      value={c.forwarderName}
+                      sub={[c.productType]}
                     />
-                    <Chip label="Pcs" value={c.pieces === null ? null : String(c.pieces)} />
-                    <Chip
-                      label="Gross wt"
-                      value={c.grossWeightKg === null ? null : `${trim(c.grossWeightKg)} kg`}
+                    <FactCell
+                      label="Service"
+                      value={c.serviceType}
+                      sub={[
+                        [c.shipMode, c.parcelType].filter(Boolean).join("  ") ||
+                          null,
+                      ]}
                     />
-                    <Chip
-                      label="Ch. wt"
-                      value={
-                        c.chargeableWeightKg === null
-                          ? null
-                          : `${trim(c.chargeableWeightKg)} kg`
-                      }
-                    />
-                    <Chip
-                      label="Packing"
-                      value={
-                        [
-                          c.boxCount ? `${c.boxCount} box` : null,
-                          c.palletCount ? `${c.palletCount} pallet` : null,
-                          c.cartonCount ? `${c.cartonCount} carton` : null,
-                        ]
+                    {/* Ship mode and parcel type have nowhere to sit when
+                        there is no service line, which is the courier case.
+                        Given their own cell rather than dropped. */}
+                    {!c.serviceType && (c.shipMode || c.parcelType) ? (
+                      <FactCell
+                        label="Ship mode"
+                        value={c.shipMode}
+                        sub={[c.parcelType]}
+                      />
+                    ) : null}
+                    <FactCell
+                      label="Routing"
+                      value={ports(c)}
+                      sub={[
+                        [c.flightNumber, c.airlineName]
                           .filter(Boolean)
-                          .join(", ") || null
-                      }
+                          .join("  ") || null,
+                        c.containerNumber
+                          ? `Container ${c.containerNumber}`
+                          : null,
+                        c.subAgent ? `Agent ${c.subAgent}` : null,
+                      ]}
                     />
-                    <Chip label="Container" value={c.containerNumber} />
-                    <Chip label="Job" value={c.jobNumber} />
-                    <Chip label="Ref" value={c.referenceNo} />
-                    <Chip label="Shipper" value={c.shipperName} />
-                    <Chip label="Consignee" value={c.consigneeName} />
-                    <Chip label="Forwarder" value={c.forwarderName} />
-                    <Chip label="Sub agent" value={c.subAgent} />
-                    <Chip label="Export inv." value={c.exportInvoiceNo} />
-                    <Chip label="Goods" value={c.goodsDescription} />
-                    <Chip label="Particulars" value={c.particulars} />
+                    <FactCell
+                      label="Cargo"
+                      value={
+                        c.pieces === null
+                          ? null
+                          : `${c.pieces} ${c.pieces === 1 ? "pc" : "pcs"}`
+                      }
+                      sub={[weights(c), packing(c)]}
+                    />
+                    {/* Weights with no piece count still have to print: the
+                        freight was charged on them. */}
+                    {c.pieces === null &&
+                    (c.grossWeightKg !== null || c.chargeableWeightKg !== null) ? (
+                      <FactCell
+                        label="Weight"
+                        value={weights(c)}
+                        sub={[packing(c)]}
+                      />
+                    ) : null}
+                    <FactCell label="Shipper" value={c.shipperName} />
+                    <FactCell label="Consignee" value={c.consigneeName} />
+                    <FactCell
+                      label="Dates"
+                      value={
+                        c.bookingDate
+                          ? `Booked ${formatDate(c.bookingDate)}`
+                          : c.pickupDate
+                            ? `Picked up ${formatDate(c.pickupDate)}`
+                            : null
+                      }
+                      sub={[
+                        c.bookingDate && c.pickupDate
+                          ? `Picked up ${formatDate(c.pickupDate)}`
+                          : null,
+                      ]}
+                    />
+                    {/* Every number this consignment can be looked up by, in
+                        one cell. Each is prefixed with what it is: a column of
+                        bare reference numbers is unreadable, and these are
+                        precisely the values somebody is matching against other
+                        paperwork. */}
+                    <FactCell
+                      label="References"
+                      value={references(c)[0]}
+                      sub={references(c).slice(1)}
+                    />
                   </View>
+
+                  {/* The goods on their own full-width line. It is a sentence
+                      rather than a field, and a sentence set in a quarter
+                      column wraps to four lines and costs more height than the
+                      whole rest of the block. */}
+                  {goods(c) ? (
+                    <View style={s.consignmentLine}>
+                      <Text style={s.consignmentLineLabel}>GOODS</Text>
+                      <Text style={s.consignmentLineValue}>{goods(c)}</Text>
+                    </View>
+                  ) : null}
                 </View>
               ))}
             </View>
@@ -640,6 +950,14 @@ export function ManualInvoiceDocument({
           variant={variant}
         >
           <View style={grid ? s.tableHeadGrid : s.tableHead}>
+            <Text
+              style={[
+                grid ? s.headCellGrid : s.headCell,
+                { width: COL.sno, paddingRight: 4 },
+              ]}
+            >
+              S.NO
+            </Text>
             <View style={s.rowDescription}>
               <Text style={grid ? s.headCellGrid : s.headCell}>DESCRIPTION</Text>
             </View>
@@ -680,6 +998,7 @@ export function ManualInvoiceDocument({
               }
               wrap={false}
             >
+              <Text style={[s.cellIndex, { width: COL.sno }]}>{index + 1}</Text>
               <View style={s.rowDescription}>
                 <Text style={s.descriptionText}>{line.description}</Text>
               </View>
@@ -718,6 +1037,7 @@ export function ManualInvoiceDocument({
           {recoveries.length > 0 ? (
             <View wrap={false}>
               <View style={s.subtotalRow}>
+                <View style={{ width: COL.sno }} />
                 <View style={s.rowDescription}>
                   <Text style={[s.descriptionText, { fontFamily: "Helvetica-Bold" }]}>
                     Amounts paid on your behalf
@@ -734,6 +1054,12 @@ export function ManualInvoiceDocument({
                   }
                   wrap={false}
                 >
+                  {/* The serial runs on from the taxed block rather than
+                      restarting. Two lines numbered 1 on one invoice is the
+                      kind of thing that gets queried. */}
+                  <Text style={[s.cellIndex, { width: COL.sno }]}>
+                    {taxedLines.length + index + 1}
+                  </Text>
                   <View style={s.rowDescription}>
                     <Text style={s.descriptionText}>{line.description}</Text>
                   </View>
@@ -756,9 +1082,23 @@ export function ManualInvoiceDocument({
           ) : null}
         </Band>
 
+        {/* Rule 46(o). Stated in words rather than left to be inferred from
+            the absence of tax, and stated on every invoice including the
+            ordinary ones where the answer is no. */}
+        <View style={s.reverseChargeLine} wrap={false}>
+          <Text style={s.reverseChargeLabel}>
+            Whether tax is payable under reverse charge:
+          </Text>
+          <Text style={s.reverseChargeValue}>
+            {data.reverseCharge ? "YES" : "NO"}
+          </Text>
+        </View>
+
         {/* ── terms and total ──────────────────────────────────────────── */}
         <View style={s.bottomRow} wrap={false}>
           <View style={s.bottomLeft}>
+            <Text style={s.declaration}>{seller.declaration}</Text>
+
             {/* Where to send the money, in the one tinted block on the page.
                 See C.payPanel in the shared theme for why this is allowed to
                 stand out when everything around it is deliberately quiet. */}
@@ -769,59 +1109,67 @@ export function ManualInvoiceDocument({
             />
 
             {data.terms.length > 0 ? (
-              <View style={{ marginTop: seller.bank ? 9 : 0 }}>
-                <Text style={t.label}>TERMS</Text>
-                <View style={[t.rule, { marginBottom: 4 }]} />
-                {data.terms.map((term, i) => (
-                  <Text key={i} style={s.termLine}>
-                    {term}
-                  </Text>
-                ))}
+              <View style={{ marginTop: seller.bank ? 8 : 0 }}>
+                <Text style={t.label}>DECLARATION, TERMS AND CONDITIONS</Text>
+                <View style={[t.rule, { marginBottom: 2 }]} />
+                <TermsBlock terms={data.terms} />
               </View>
             ) : null}
 
             {data.notes ? (
-              <View style={{ marginTop: 9 }}>
+              <View style={{ marginTop: 8 }}>
                 <Text style={t.label}>NOTES</Text>
-                <View style={[t.rule, { marginBottom: 4 }]} />
-                <Text style={s.termLine}>{data.notes}</Text>
+                <View style={[t.rule, { marginBottom: 3 }]} />
+                <Text style={s.noteLine}>{data.notes}</Text>
               </View>
             ) : null}
           </View>
 
+          <View style={s.bottomRight}>
           <View style={[s.totalsPanel, ...(grid ? [s.totalsPanelGrid] : [])]}>
+            {/* Service amount is the gross of the billed lines, before any
+                discount. It equals the taxable value on the ordinary invoice,
+                and the discount row only appears when there is one, so the two
+                figures never sit there identical for no reason. */}
+            <TotalsRow label="Service amount" value={money(serviceAmount, cur)} />
+            {discount > 0 ? (
+              <TotalsRow label="Discount" value={`-${money(discount, cur)}`} />
+            ) : null}
             <TotalsRow
               label="Taxable value"
               value={money(data.taxableValue, cur)}
             />
-            {/* Within the state the tax splits half to the centre and half to
-                the state and both must be shown; across a state border it is
-                one IGST line. Never both, and never a single "GST" line
-                standing in for either: the split is what the recipient claims
-                the credit against. */}
-            {data.isIntraState ? (
-              <>
-                <TotalsRow
-                  label={taxLabel("CGST")}
-                  value={money(data.cgstAmount, cur)}
-                />
-                <TotalsRow
-                  label={taxLabel("SGST")}
-                  value={money(data.sgstAmount, cur)}
-                />
-              </>
-            ) : (
-              <TotalsRow
-                label={taxLabel("IGST")}
-                value={money(data.igstAmount, cur)}
-              />
-            )}
+
+            {/* ── EVERY HEAD, EVERY TIME ────────────────────────────────
+                Within the state the tax splits half to the centre and half to
+                the state; across a state border it is one IGST line. Only one
+                of those can carry a figure, and the other heads are printed at
+                zero rather than omitted.
+
+                Stating them is what makes the document reconcile without
+                arithmetic: a reader who finds CGST, SGST and IGST all present
+                knows which one was charged, whereas a reader who finds only
+                IGST cannot tell a cross-border supply from a template that
+                dropped a row. Cess is on the same footing and is always zero
+                today: courier and freight services attract none, and there is
+                no cess field anywhere in the money engine. If one is ever
+                genuinely billed, it becomes a real per-line figure and this row
+                reads it, rather than a new row appearing from nowhere. */}
+            <TotalsRow label={taxLabel("CGST")} value={money(data.cgstAmount, cur)} />
+            <TotalsRow
+              label={taxLabel("SGST", "SGST/UTGST")}
+              value={money(data.sgstAmount, cur)}
+            />
+            <TotalsRow label={taxLabel("IGST")} value={money(data.igstAmount, cur)} />
+            <TotalsRow label="CESS" value={money(0, cur)} />
+
             {data.reimbursements > 0 ? (
               <TotalsRow
                 label="Paid on your behalf"
                 value={money(data.reimbursements, cur)}
               />
             ) : null}
+            <TotalsRow label="Currency" value={cur} />
 
             <View style={s.totalsRule} />
 
@@ -830,19 +1178,17 @@ export function ManualInvoiceDocument({
               <Text style={s.grandValue}>{money(data.total, cur)}</Text>
             </View>
 
-            {cur === "INR" ? (
-              <Text style={s.words}>{inWords(data.total)} Rupees only</Text>
-            ) : null}
-
             {data.taxNote ? (
               <Text style={s.taxNote}>{data.taxNote}</Text>
             ) : null}
           </View>
-        </View>
 
-        {/* ── declaration and signature ────────────────────────────────── */}
-        <View style={s.signatureRow} wrap={false}>
-          <Text style={s.declaration}>{seller.declaration}</Text>
+          {/* ── signature ──────────────────────────────────────────────
+              Under the total rather than in a band of its own across the
+              foot. The signature belongs to the figure being certified, the
+              terms column beside it is where the certification text now sits,
+              and a full-width third row here was costing this document a
+              whole extra sheet on an ordinary one-consignment invoice. */}
           <View style={s.signature}>
             <Text style={s.signatureFor}>For</Text>
             {legalNameLines.map((line, i) => (
@@ -852,15 +1198,49 @@ export function ManualInvoiceDocument({
             ))}
             <Text style={s.signatureRole}>Authorised signatory</Text>
           </View>
+          </View>
+        </View>
+
+        {/* ── the two figures a payer acts on ──────────────────────────────
+            Full width and under the panel rather than inside it. The amount in
+            words is a long line and wraps to three inside a 236pt column, and
+            the amount due is the number an accounts department looks for
+            first: neither belongs squeezed into the narrowest column on the
+            page. Given the width, both fit on one line and the totals panel
+            gets 40 points shorter, which is most of what keeps an ordinary
+            invoice on a single sheet. */}
+        <View style={s.dueStrip} wrap={false}>
+          {cur === "INR" ? (
+            <Text style={s.words}>
+              <Text style={s.wordsLabel}>Total in words   </Text>
+              {inWords(data.total)} Rupees only
+            </Text>
+          ) : (
+            <Text style={s.words} />
+          )}
+          <Text style={s.dueLabel}>Amount due for payment</Text>
+          <Text style={s.dueValue}>{money(data.total, cur)}</Text>
         </View>
 
         {/* ── fixed foot. Separate positioned elements: see the header. ── */}
         <View style={s.pageFootRule} fixed />
         <Text style={s.pageFootText} fixed>
-          {`${data.invoiceNumber}    ${buyer.legalName}    ${seller.billingEmail}`}
+          {`${data.invoiceNumber}    ${buyer.legalName}`}
+        </Text>
+        {/* Where a billing question goes, and where the rest of the story is.
+            Both mailboxes are printed: billing at Arena reaches two people, and
+            an invoice naming one of them sends half the queries to somebody who
+            cannot answer them. */}
+        <Text style={s.contact} fixed>
+          {[
+            `Billing queries: ${billingContacts}`,
+            seller.website ? `More at ${seller.website}` : null,
+          ]
+            .filter(Boolean)
+            .join("    ")}
         </Text>
         <Text style={s.jurisdiction} fixed>
-          {`SUBJECT TO ${seller.jurisdiction.toUpperCase()} JURISDICTION`}
+          {`E. & O.E.   SUBJECT TO THE JURISDICTION OF THE COURTS OF ${seller.jurisdiction.toUpperCase()} ONLY`}
         </Text>
       </Page>
     </Document>
