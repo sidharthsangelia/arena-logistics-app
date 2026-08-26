@@ -98,6 +98,12 @@ export interface InvoiceIssuer {
   country: string;
   gstin: string;
   pan: string;
+  /**
+   * Corporate Identity Number. Optional in the type rather than required,
+   * because the issuer snapshot frozen onto every invoice raised before this
+   * field existed has no value here and must still render.
+   */
+  cin?: string;
   email: string;
   phone: string;
   website?: string;
@@ -143,6 +149,7 @@ const ISSUER: InvoiceIssuer = {
   country: "India",
   gstin: process.env.INVOICE_ISSUER_GSTIN ?? "REPLACE ME",
   pan: process.env.INVOICE_ISSUER_PAN ?? "REPLACE ME",
+  cin: process.env.INVOICE_ISSUER_CIN,
   email: process.env.INVOICE_ISSUER_EMAIL ?? "info@arenalogistics.co.in",
   phone: process.env.INVOICE_ISSUER_PHONE ?? "REPLACE ME",
   website: process.env.INVOICE_ISSUER_WEBSITE ?? "arenalogistics.co.in",
@@ -156,9 +163,7 @@ const ISSUER: InvoiceIssuer = {
         branch: process.env.INVOICE_ISSUER_BANK_BRANCH,
       }
     : undefined,
-  declaration:
-    "We declare that this invoice shows the actual price of the services " +
-    "described and that all particulars are true and correct.",
+  declaration: "CERTIFIED THAT THE PARTICULARS GIVEN ABOVE ARE TRUE & CORRECT.",
   jurisdiction:
     process.env.INVOICE_ISSUER_JURISDICTION ?? "Delhi and Gurgaon",
   billingEmail:
@@ -231,33 +236,67 @@ export const CREDIT_NOTE_NUMBER_PREFIX = "ARNCN";
 export const INVOICE_NUMBER_PAD = 5;
 
 /**
- * Printed on every invoice, whatever the shipment was.
+ * The terms block, printed on every invoice from either path.
  *
- * Deliberately short. What declared cargo values mean is not here: it is
- * printed against the declared value itself, where the question is actually
- * asked. A terms block that restates what the page already says is a terms
- * block nobody reads.
+ * ── WHY THESE ARE WRITTEN THIS TIGHTLY ──────────────────────────────────────
+ * Five clauses is what Arena's billing actually needs stated, and every one of
+ * them has a job: clause 1 names the only instrument payment is accepted on,
+ * clause 2 starts the 3-day clock on disputes, clause 3 closes off unilateral
+ * deductions, clause 4 is the interest claim, clause 5 keeps the fuel surcharge
+ * inside the agreed price. Each is cut to one printed line at the size the
+ * footer sets, because the block sits under the totals on a document held to
+ * one page and a term nobody can fit is a term nobody reads.
+ *
+ * They are LEAD-WORD FIRST ("PAYMENT: ..."), so the clause can be found by
+ * scanning rather than read in full, and the template numbers them. Do not put
+ * the numbers in the strings.
+ *
+ * The payee in clause 1 is interpolated from the issuer's own legal name rather
+ * than typed, so a company rename cannot leave invoices telling customers to
+ * write a cheque to a company that no longer exists.
  */
-const COMMON_TERMS = [
-  "Claims relating to this invoice must be raised within 7 days of its date.",
-];
+function commonTerms(issuer: InvoiceIssuer): string[] {
+  return [
+    `PAYMENT: By A/c payee cheque or demand draft favouring "${issuer.legalName}".`,
+    "DISPUTES: Raise disputes in writing within 3 days of receipt; after that " +
+      "the charges stand accepted.",
+    "DEDUCTIONS: No deduction except TDS unless agreed. Send the TDS " +
+      "certificate promptly.",
+    "OUTSTANDING: Interest at 18% per annum on bills over 15 days, without " +
+      "prejudice.",
+    "FUEL: Fuel surcharge as per agreement, international and domestic.",
+  ];
+}
 
 /**
- * Terms are per mode because the export clause is meaningless on an India to
- * India move, and a term that cannot apply to the shipment it is printed on
- * teaches the reader to skip the whole block.
+ * Terms are per mode because the destination-charges clause is meaningless on
+ * an India to India move, and a term that cannot apply to the shipment it is
+ * printed on teaches the reader to skip the whole block.
  */
-const INTERNATIONAL_TERMS = [
-  "This invoice covers freight and related services only. Duties, taxes and " +
-    "charges levied at destination are payable by the consignee.",
-  ...COMMON_TERMS,
-];
+export function invoiceTermsFor(
+  mode: ShipmentMode,
+  issuer: InvoiceIssuer = ISSUER,
+): string[] {
+  const common = commonTerms(issuer);
+  return mode === ShipmentMode.DOMESTIC
+    ? common
+    : [
+        ...common,
+        "DESTINATION: Duties and taxes levied at destination are payable by " +
+          "the consignee.",
+      ];
+}
 
-const DOMESTIC_TERMS = [
-  "This invoice covers courier and related services only.",
-  ...COMMON_TERMS,
-];
-
-export function invoiceTermsFor(mode: ShipmentMode): string[] {
-  return mode === ShipmentMode.DOMESTIC ? DOMESTIC_TERMS : INTERNATIONAL_TERMS;
+/**
+ * The billing addresses a customer takes a question to, printed at the foot.
+ *
+ * `INVOICE_ISSUER_BILLING_EMAIL` accepts several, comma separated, because
+ * billing questions at Arena reach two mailboxes and an invoice that names one
+ * of them sends half the queries to a person who cannot answer them.
+ */
+export function billingEmails(issuer: InvoiceIssuer = ISSUER): string[] {
+  return issuer.billingEmail
+    .split(",")
+    .map((e) => e.trim())
+    .filter(Boolean);
 }
