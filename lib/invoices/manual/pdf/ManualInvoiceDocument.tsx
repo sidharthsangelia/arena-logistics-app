@@ -34,9 +34,13 @@
  *
  *   - the masthead, the party band and the totals row are `wrap={false}`, so a
  *     section label is never stranded at the foot of a page,
- *   - each consignment travels with its own charges,
- *   - the invoice and party names repeat in the page footer, so a loose second
- *     sheet still belongs to an invoice.
+ *   - each consignment travels with its own charges.
+ *
+ * The page footer used to repeat the invoice number and the customer's name so
+ * that a second sheet coming loose could be put back against the right
+ * document. It was removed on request, so a loose sheet now identifies itself
+ * only by what happens to be printed on it. Restoring it is one Text element;
+ * see the foot of this file.
  *
  * ── A @react-pdf/renderer TRAP ──────────────────────────────────────────────
  * A `fixed` wrapper View holding the footer as children renders as nothing on a
@@ -46,6 +50,7 @@
  * numbering for that reason rather than a design one. See invoicingSystem.md §3.
  */
 
+import * as React from "react";
 import {
   Document,
   Image,
@@ -55,14 +60,14 @@ import {
   View,
 } from "@react-pdf/renderer";
 
-import { ManualInvoiceDocType, TaxMode } from "@/generated/prisma";
+import { ManualInvoiceDocType } from "@/generated/prisma";
 
 import {
   Band,
   C,
   Fact,
-  FactCell,
   type InvoiceVariant,
+  Pair,
   PaymentPanel,
   TermsBlock,
   TotalsRow,
@@ -116,7 +121,7 @@ const COL = {
 const s = StyleSheet.create({
   page: {
     paddingTop: 22,
-    paddingBottom: 40,
+    paddingBottom: 34,
     paddingHorizontal: 32,
     fontSize: 9,
     fontFamily: "Helvetica",
@@ -169,14 +174,18 @@ const s = StyleSheet.create({
   consignmentAwb: { fontSize: 9.5, fontFamily: "Helvetica-Bold" },
   consignmentRoute: { fontSize: 8.5, marginLeft: 6, color: C.ink },
   consignmentNet: { marginLeft: "auto", fontSize: 9, fontFamily: "Helvetica-Bold" },
-  // The grid itself is shared (t.factGrid); this only indents it under the
-  // waybill line so the facts read as belonging to the consignment above them.
-  consignmentFacts: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    marginLeft: 14,
-    marginTop: 1,
-  },
+  // ── the indent under a consignment heading ──
+  //
+  // Applied to the fact run and to the REFS/GOODS lines, and NOT a constant:
+  // see `factIndent` in the document. It exists to clear the serial number
+  // column, so it is worth 14 points on an invoice that has one and worth
+  // nothing on an invoice that does not.
+  //
+  // On a single-consignment invoice the heading starts at the box edge, so an
+  // indent here would push the facts right of the thing they belong to and
+  // charge 14 points a line for the privilege. In a run that packs by content
+  // width those 14 points are frequently the difference between the last fact
+  // riding up onto the line above and taking a line of its own.
 
   // The full-width line under the grid: tracking and the goods description.
   // The goods line is the one label set BESIDE its value rather than above it,
@@ -186,7 +195,6 @@ const s = StyleSheet.create({
   consignmentLine: {
     flexDirection: "row",
     alignItems: "flex-start",
-    marginLeft: 14,
     marginTop: 2,
   },
   consignmentLineLabel: {
@@ -252,27 +260,19 @@ const s = StyleSheet.create({
   },
   reimbursementNote: { fontSize: 7.5, color: C.muted, marginTop: 3, lineHeight: 1.3 },
 
-  // ── the reverse-charge statement ──
-  // Rule 46(o) wants this stated, and it is the one line on the page whose
-  // answer is usually "no" and which is therefore easy to leave off. It gets
-  // its own ruled line rather than a slot in a panel so it cannot be missed.
-  reverseChargeLine: {
+  // ── bottom ──
+  // The hairline is what closes the charges table off. It used to belong to the
+  // reverse-charge statement that sat here; with that gone the last row of the
+  // table ran straight into the declaration underneath with nothing between
+  // them, and the two read as one block.
+  bottomRow: {
     flexDirection: "row",
-    marginTop: 5,
-    paddingTop: 3,
+    marginTop: 6,
+    paddingTop: 6,
     borderTopWidth: 0.5,
     borderTopColor: C.rule,
+    alignItems: "flex-start",
   },
-  reverseChargeLabel: { fontSize: 7.5, color: C.muted },
-  reverseChargeValue: {
-    fontSize: 7.5,
-    color: C.ink,
-    fontFamily: "Helvetica-Bold",
-    marginLeft: 4,
-  },
-
-  // ── bottom ──
-  bottomRow: { flexDirection: "row", marginTop: 5, alignItems: "flex-start" },
   bottomLeft: { flex: 1, paddingRight: 16 },
   totalsPanel: {
     width: "100%",
@@ -329,26 +329,22 @@ const s = StyleSheet.create({
   },
 
   // ── fixed foot ──
+  // Two lines now, not three, and everything moved down to close the gap the
+  // third left behind. The page's own paddingBottom is what keeps content off
+  // it, so the two are set together: leave the padding at the old three-line
+  // height and the saving is a band of blank paper rather than a line of
+  // invoice.
   pageFootRule: {
     position: "absolute",
-    bottom: 34,
+    bottom: 27,
     left: 32,
     right: 32,
     borderTopWidth: 0.5,
     borderTopColor: C.rule,
   },
-  pageFootText: {
-    position: "absolute",
-    bottom: 30,
-    left: 32,
-    right: 32,
-    fontSize: 7,
-    color: C.muted,
-    textAlign: "center",
-  },
   contact: {
     position: "absolute",
-    bottom: 21,
+    bottom: 19,
     left: 32,
     right: 32,
     fontSize: 7,
@@ -357,7 +353,7 @@ const s = StyleSheet.create({
   },
   jurisdiction: {
     position: "absolute",
-    bottom: 12,
+    bottom: 10,
     left: 32,
     right: 32,
     fontSize: 6.5,
@@ -377,6 +373,34 @@ function formatDate(iso: string | null): string | null {
     day: "2-digit",
     month: "short",
     year: "numeric",
+    timeZone: "Asia/Kolkata",
+  }).format(new Date(iso));
+}
+
+/**
+ * 23/08/26. For the consignment facts only.
+ *
+ * "23 Aug 2026" is 58 points and "23/08/26" is 34, and in a run that packs by
+ * content width those 24 points are the difference between the pick-up date
+ * riding at the end of the line above and taking a whole line of its own. Two
+ * dates in a consignment therefore cost one line rather than two.
+ *
+ * Deliberately NOT used for the invoice date, the due date or the IRN ack date.
+ * Those sit in a panel that is not short of room, they are the dates a tax
+ * document is read and disputed on, and a spelled-out month cannot be misread
+ * as the American order. Abbreviate where space is the constraint, not
+ * everywhere the same type appears.
+ *
+ * Two-digit year on purpose. A consignment date on an invoice is always within
+ * a few weeks of the invoice date printed in full above it, so the century is
+ * never the question being asked.
+ */
+function shortDate(iso: string | null): string | null {
+  if (!iso) return null;
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "2-digit",
     timeZone: "Asia/Kolkata",
   }).format(new Date(iso));
 }
@@ -432,23 +456,39 @@ function ports(c: ManualConsignmentSnapshot): string | null {
   return c.originPort ?? c.destinationPort ?? null;
 }
 
+/** "284.5 kg", or nothing. */
+function kg(value: number | null): string | null {
+  return value === null ? null : `${trim(value)} kg`;
+}
+
 /**
- * "284.5 kg gross  310 kg ch.", on ONE line.
+ * What moved, how it travelled and what it was, for the bracket on the heading
+ * line: "12 pcs, Air, Non-documents".
  *
- * Both weights are stated because freight is billed on the chargeable one and a
- * customer who sees only that figure, knowing only what their parcel weighed on
- * a scale, reads the invoice as wrong. They share a line because two lines in a
- * quarter-width cell is a line of page per consignment, and the pair is read
- * together anyway.
+ * The piece count leads because it is the one of the three that is a quantity,
+ * and because "12 pcs to Dubai by air" is the sentence somebody says out loud
+ * about a consignment. It sits here rather than in a cell of its own for the
+ * same reason the other two do: all three qualify the lane, and a quarter-width
+ * cell holding the single character "12" is a quarter of a row spent on it.
+ *
+ * The two text fields print exactly as stored. Both take free text, so an
+ * abbreviation table would shorten the six values in the picker and leave
+ * anything else in full, and the same invoice would print "Non Doc" on one
+ * consignment and "Refrigerated pharma samples" on the next. The shortening
+ * would read as a different field rather than as the same one said briefly.
  */
-function weights(c: ManualConsignmentSnapshot): string | null {
-  const parts = [
-    c.grossWeightKg === null ? null : `${trim(c.grossWeightKg)} kg gross`,
-    c.chargeableWeightKg === null
-      ? null
-      : `${trim(c.chargeableWeightKg)} kg ch.`,
-  ].filter(Boolean);
-  return parts.join("  ") || null;
+function carriage(c: ManualConsignmentSnapshot): string | null {
+  return (
+    [
+      c.pieces === null
+        ? null
+        : `${c.pieces} ${c.pieces === 1 ? "pc" : "pcs"}`,
+      c.shipMode,
+      c.parcelType,
+    ]
+      .filter(Boolean)
+      .join(", ") || null
+  );
 }
 
 /** "2 pallet, 12 carton". Only the counts that were actually taken. */
@@ -474,10 +514,19 @@ function packing(c: ManualConsignmentSnapshot): string | null {
  * against other paperwork. Guessing wrong there is a misfiled consignment.
  */
 function references(c: ManualConsignmentSnapshot): string[] {
+  // A courier consignment is very often tracked on its own waybill, and the
+  // two fields then hold the same string. Printed both ways it reads as two
+  // numbers, and somebody checks whether they differ.
+  const tracking =
+    c.trackingNumber && c.trackingNumber.trim() !== c.awbNumber?.trim()
+      ? c.trackingNumber
+      : null;
+
   return [
     // First, because it is the one a customer chasing the consignment reaches
-    // for. The waybill is already set large on the line above this block.
-    c.trackingNumber ? `Tracking ${c.trackingNumber}` : null,
+    // for. The waybill is already set large on the line above this block, or in
+    // the header panel when there is only one consignment.
+    tracking ? `Tracking ${tracking}` : null,
     c.mawbNumber ? `MAWB ${c.mawbNumber}` : null,
     c.jobNumber ? `Job ${c.jobNumber}` : null,
     c.referenceNo ? `Ref ${c.referenceNo}` : null,
@@ -561,6 +610,11 @@ export function ManualInvoiceDocument({
   const grid = variant === "grid";
   const cur = data.currency;
 
+  // How far a consignment's facts sit in from the box edge. Only enough to
+  // clear the serial number, and only when there is one to clear. See the
+  // comment on the styles.
+  const factIndent = data.consignments.length > 1 ? 14 : 0;
+
   const isCreditNote = data.docType === ManualInvoiceDocType.CREDIT_NOTE;
   const title = isCreditNote ? "CREDIT NOTE" : "TAX INVOICE";
 
@@ -612,14 +666,6 @@ export function ManualInvoiceDocument({
     buyer.country && buyer.country !== "India" ? buyer.country : null,
   ].filter(Boolean);
 
-  // "Haryana (06)", or whichever half exists. Never a bare code: two digits on
-  // their own are read as a typo by everyone except the person filing the
-  // return.
-  const buyerState =
-    [buyer.stateName, buyer.stateCode ? `(${buyer.stateCode})` : null]
-      .filter(Boolean)
-      .join(" ") || null;
-
   // The env value accepts several, comma separated. Normalised here rather than
   // trusted as typed, because "a@x.com,b@x.com" with no space runs together on
   // the page and reads as one malformed address.
@@ -629,9 +675,23 @@ export function ManualInvoiceDocument({
     .filter(Boolean)
     .join(", ");
 
-  // An empty Text still takes a line's height in react-pdf, so an issuer with
-  // neither an email nor a phone gets no row rather than a blank one.
-  const sellerContact = [seller.email, seller.phone].filter(Boolean).join("   ");
+  // The waybill is a per-consignment fact, so it can only be stated at the top
+  // of the document when the document is about ONE consignment. On a monthly
+  // bill carrying ten of them there is no single right answer to print, and a
+  // header naming the first would be read as naming all of them. In that case
+  // it stays null and each waybill heads its own block instead.
+  const singleAwb =
+    data.consignments.length === 1
+      ? data.consignments[0]?.awbNumber?.trim() || null
+      : null;
+
+  // Only the ones that exist, so an issuer with no phone gets no gap where the
+  // separator would have been.
+  const sellerContact = [
+    { label: "Email", value: seller.email },
+    { label: "Phone", value: seller.phone },
+    { label: "Website", value: seller.website },
+  ].filter((p): p is { label: string; value: string } => !!p.value);
 
   const legalNameLines = splitLegalName(seller.legalName);
 
@@ -671,8 +731,26 @@ export function ManualInvoiceDocument({
                 </>
               ) : null}
             </Text>
-            {sellerContact ? (
-              <Text style={s.sellerIds}>{sellerContact}</Text>
+            {/* Labelled, unlike the run of identifiers above. GSTIN, PAN and
+                CIN are self-evident from their shape; an email, a phone number
+                and a domain stacked bare are three strings a reader has to sort
+                out before they can use one, and the one they want depends on
+                the question they arrived with.
+
+                All three on ONE line. A second contact row here costs a line
+                off the left column, which is the taller of the two and
+                therefore decides where the page starts, and this document fits
+                on a single sheet with about that much to spare. */}
+            {sellerContact.length > 0 ? (
+              <Text style={s.sellerIds}>
+                {sellerContact.map((part, i) => (
+                  <React.Fragment key={part.label}>
+                    {i > 0 ? "   " : null}
+                    <Text style={s.sellerIdLabel}>{part.label} </Text>
+                    {part.value}
+                  </React.Fragment>
+                ))}
+              </Text>
             ) : null}
           </View>
 
@@ -681,9 +759,9 @@ export function ManualInvoiceDocument({
             <Text style={s.docCopy}>ORIGINAL FOR RECIPIENT</Text>
             <Text style={s.docNumber}>{data.invoiceNumber}</Text>
             <Text style={s.docDate}>{formatDate(data.issueDate)}</Text>
-            {data.dueDate ? (
-              <Text style={s.docDate}>Due {formatDate(data.dueDate)}</Text>
-            ) : null}
+            {/* No due date here. INVOICE DETAILS states it a few centimetres
+                below, beside the credit terms it is derived from, which is
+                where somebody deciding when to pay is already reading. */}
             {data.cancelled ? <Text style={s.statusMark}>CANCELLED</Text> : null}
             {/* A preview renders the real template on purpose, so the only
                 thing separating it from an issued invoice is this line and the
@@ -729,11 +807,11 @@ export function ManualInvoiceDocument({
               )}
               <Fact label="PAN" value={buyer.pan} />
               <Fact label="CIN" value={buyer.cin} />
-              {/* The state is spelled out AND coded. The name is what a person
-                  reads; the two-digit code is what decides IGST against the
-                  CGST/SGST split and what the recipient's own filing is checked
-                  against, and one without the other is half the answer. */}
-              <Fact label="State" value={buyerState} />
+              {/* No state row. The recipient's state is already in the
+                  address block two lines above, and the two-digit code that
+                  decides IGST against the CGST/SGST split is printed as the
+                  place of supply in the panel alongside, where the return is
+                  filed from. Three statements of one fact on one sheet. */}
               <Fact label="Email" value={buyer.email} />
               <Fact label="Phone" value={buyer.phone} />
               <Fact label="Customer no." value={buyer.customerCode} />
@@ -752,6 +830,12 @@ export function ManualInvoiceDocument({
                 strong
               />
               <Fact label="Invoice date" value={formatDate(data.issueDate)} />
+              {/* The waybill sits with the invoice number rather than down in
+                  the consignment block: on a single-consignment invoice, which
+                  is nearly all of them, these are the two numbers every query
+                  about this document opens with. Only ever printed when there
+                  IS one consignment; see singleAwb. */}
+              <Fact label="AWB no." value={singleAwb} strong />
               <Fact label="Shipper inv." value={data.shipperInvoiceNo} />
               <Fact label="Credit terms" value={data.paymentTermsLabel} />
               <Fact label="Due date" value={formatDate(data.dueDate)} />
@@ -764,30 +848,18 @@ export function ManualInvoiceDocument({
                     : data.placeOfSupplyCode
                 }
               />
-              {/* SAC and what it means, stated once where the reader is asking
-                  "what was this bill for". Suppressed when the lines carry
-                  different codes: the per-line column is the honest answer
-                  then, and naming one of several here would be read as covering
-                  all of them. */}
-              <Fact
-                label="SAC / service"
-                value={
-                  data.sacCode
-                    ? [data.sacCode, data.serviceDescription]
-                        .filter(Boolean)
-                        .join("  ")
-                    : null
-                }
-              />
-              <Fact label="Category" value={data.csbLabel} />
-              <Fact
-                label="Pricing"
-                value={
-                  data.taxMode === TaxMode.INCLUSIVE
-                    ? "Amounts include GST"
-                    : "GST charged on the amounts shown"
-                }
-              />
+              {/* No SAC row and no pricing row here. Every charge carries its
+                  own SAC in the table below, which is where Rule 46 wants it
+                  and where a mixed-code invoice has to be read from anyway, so
+                  a document-level restatement was one of two codes on the page
+                  claiming to be the answer. Pricing went the same way: the
+                  taxable value, the tax and the total are all printed as
+                  figures further down, and inclusive against exclusive is a
+                  statement about how the amounts were TYPED, not about what is
+                  owed: both ways reach the same taxable value, the same tax and
+                  the same total, all three of which are printed. The reader was
+                  being told how the sausage was made. */}
+              <Fact label="Ship. type" value={data.csbLabel} />
               <Fact label="IRN" value={chunked(data.irn)} />
               <Fact label="Ack no." value={data.irnAckNo} />
               <Fact label="Ack date" value={formatDate(data.irnAckDate)} />
@@ -807,7 +879,33 @@ export function ManualInvoiceDocument({
             variant={variant}
           >
             <View style={grid ? s.consignmentGrid : undefined}>
-              {data.consignments.map((c, index) => (
+              {data.consignments.map((c, index) => {
+                // What heads the block. The waybill, unless it has already been
+                // lifted into INVOICE DETAILS, which happens exactly when there
+                // is one consignment: printing it in both places is the same
+                // number twice on one sheet. With several consignments each
+                // keeps its own, because that is the only thing telling two
+                // otherwise identical blocks apart.
+                const heading = singleAwb
+                  ? null
+                  : (c.awbNumber ?? c.jobNumber ?? c.referenceNo ?? null);
+
+                // "New Delhi to Dubai (Air, Non-documents)". How it travelled
+                // and what it was belong to the lane, not to a cell of their
+                // own: they are read as qualifiers on the route, they are two
+                // or three words each, and a quarter-width cell for them was
+                // width the weights needed more. With no route they stand on
+                // their own, unbracketed, since a bracket around the whole
+                // line has nothing to be a bracket on.
+                const how = carriage(c);
+                const where = route(c);
+                const lane = where
+                  ? how
+                    ? `${where} (${how})`
+                    : where
+                  : how;
+
+                return (
                 // Each consignment travels with its own facts. A break through
                 // one would separate an AWB from its route and weights.
                 <View key={index} style={s.consignment} wrap={false}>
@@ -815,126 +913,123 @@ export function ManualInvoiceDocument({
                     {data.consignments.length > 1 ? (
                       <Text style={s.consignmentIndex}>{index + 1}</Text>
                     ) : null}
-                    <Text style={s.consignmentAwb}>
-                      {c.awbNumber ?? c.jobNumber ?? c.referenceNo ?? "Services"}
-                    </Text>
-                    {route(c) ? (
-                      <Text style={s.consignmentRoute}>{route(c)}</Text>
+                    {heading ? (
+                      <Text style={s.consignmentAwb}>{heading}</Text>
+                    ) : null}
+                    {/* The route is promoted to the heading's own weight when
+                        there is no number above it, so the block still opens
+                        with something set to be read first rather than with a
+                        quiet line hanging under nothing. */}
+                    {lane ? (
+                      <Text style={heading ? s.consignmentRoute : s.consignmentAwb}>
+                        {lane}
+                      </Text>
+                    ) : null}
+                    {!heading && !lane ? (
+                      <Text style={s.consignmentAwb}>Services</Text>
                     ) : null}
                     <Text style={s.consignmentNet}>
                       {money(c.netAmount, cur)}
                     </Text>
                   </View>
 
-                  {/* ── THE FACTS, GROUPED ───────────────────────────────
-                      Eight cells, not twenty chips. Things that are read
-                      together are printed together: the forwarder with its
-                      product, the ports with the flight that flew them, the
-                      piece count with the weights it was charged on. A reader
-                      checking "what moved and who took it" gets one cell per
-                      question instead of assembling the answer out of six
-                      auto-width pairs that do not line up between rows.
+                  {/* ── THE FACTS, PACKED ────────────────────────────────
+                      One run, not three rows of quarter-width cells. Every
+                      pair takes the width its own text needs and the next one
+                      starts immediately after it, so a consignment that knows
+                      four things about itself prints one line rather than
+                      leaving three quarters of three rows blank. See `pairs`
+                      in the shared theme for why the labels no longer have to
+                      line up for this to read as data.
 
-                      Every cell is a quarter of the width, so the labels align
-                      down the page. Cells with nothing in them are dropped and
-                      the rest pack left; see FactCell in the shared theme. */}
-                  <View style={s.consignmentFacts}>
-                    <FactCell
-                      label="Forwarder"
-                      value={c.forwarderName}
-                      sub={[c.productType]}
+                      Ordered by what a reader arrives wanting. The weights
+                      come first and are the only pair set bold: freight is
+                      billed on the chargeable weight, the customer knows only
+                      what their consignment weighed on a scale, and that pair
+                      is the most queried thing on the document. Then how it
+                      was packed, then who carried it and by what route, then
+                      the parties and the dates.
+
+                      Only the chargeable weight abbreviates. It is the longer
+                      word and the one the trade already says short, while
+                      "GROSS WT." is the figure a customer checks against their
+                      own weighbridge and is worth spelling out. Asymmetric on
+                      purpose. */}
+                  <View style={[t.pairs, { marginLeft: factIndent }]}>
+                    <Pair label="Gross wt." value={kg(c.grossWeightKg)} strong />
+                    <Pair
+                      label="Charg. wt."
+                      value={kg(c.chargeableWeightKg)}
+                      strong
                     />
-                    <FactCell
-                      label="Service"
-                      value={c.serviceType}
-                      sub={[
-                        [c.shipMode, c.parcelType].filter(Boolean).join("  ") ||
-                          null,
-                      ]}
-                    />
-                    {/* Ship mode and parcel type have nowhere to sit when
-                        there is no service line, which is the courier case.
-                        Given their own cell rather than dropped. */}
-                    {!c.serviceType && (c.shipMode || c.parcelType) ? (
-                      <FactCell
-                        label="Ship mode"
-                        value={c.shipMode}
-                        sub={[c.parcelType]}
-                      />
-                    ) : null}
-                    <FactCell
-                      label="Routing"
-                      value={ports(c)}
-                      sub={[
-                        [c.flightNumber, c.airlineName]
-                          .filter(Boolean)
-                          .join("  ") || null,
-                        c.containerNumber
-                          ? `Container ${c.containerNumber}`
-                          : null,
-                        c.subAgent ? `Agent ${c.subAgent}` : null,
-                      ]}
-                    />
-                    <FactCell
-                      label="Cargo"
-                      value={
-                        c.pieces === null
-                          ? null
-                          : `${c.pieces} ${c.pieces === 1 ? "pc" : "pcs"}`
-                      }
-                      sub={[weights(c), packing(c)]}
-                    />
-                    {/* Weights with no piece count still have to print: the
-                        freight was charged on them. */}
-                    {c.pieces === null &&
-                    (c.grossWeightKg !== null || c.chargeableWeightKg !== null) ? (
-                      <FactCell
-                        label="Weight"
-                        value={weights(c)}
-                        sub={[packing(c)]}
-                      />
-                    ) : null}
-                    <FactCell label="Shipper" value={c.shipperName} />
-                    <FactCell label="Consignee" value={c.consigneeName} />
-                    <FactCell
-                      label="Dates"
-                      value={
-                        c.bookingDate
-                          ? `Booked ${formatDate(c.bookingDate)}`
-                          : c.pickupDate
-                            ? `Picked up ${formatDate(c.pickupDate)}`
-                            : null
-                      }
-                      sub={[
-                        c.bookingDate && c.pickupDate
-                          ? `Picked up ${formatDate(c.pickupDate)}`
-                          : null,
-                      ]}
-                    />
-                    {/* Every number this consignment can be looked up by, in
-                        one cell. Each is prefixed with what it is: a column of
-                        bare reference numbers is unreadable, and these are
-                        precisely the values somebody is matching against other
-                        paperwork. */}
-                    <FactCell
-                      label="References"
-                      value={references(c)[0]}
-                      sub={references(c).slice(1)}
-                    />
+                    <Pair label="Packing" value={packing(c)} />
+                    {/* The cargo's code, sitting with the cargo's other
+                        physical facts. It is not the SAC in the charges table
+                        and must never be printed as though it were: that one
+                        codes the freight SERVICE Arena is billing for, this one
+                        codes the goods that moved. An invoice showing one
+                        number for both is an invoice that has answered the
+                        wrong question twice. */}
+                    <Pair label="HSN" value={c.hsnCode ?? null} />
+                    {/* Two pairs, not a carrier with its product underneath.
+                        The product is the half a customer recognises: "UPS
+                        Saver" is what they bought and what they will quote
+                        back, and under the forwarder's own label it read as a
+                        footnote to the carrier rather than as an answer of its
+                        own. */}
+                    <Pair label="Forwarder" value={c.forwarderName} />
+                    <Pair label="Prod. type" value={c.productType} />
+                    <Pair label="Service" value={c.serviceType} />
+                    <Pair label="Routing" value={ports(c)} />
+                    {/* Named separately rather than run together, so that a
+                        consignment carrying an airline and no flight number
+                        does not print the airline under the word FLIGHT. */}
+                    <Pair label="Flight" value={c.flightNumber} />
+                    <Pair label="Airline" value={c.airlineName} />
+                    <Pair label="Container" value={c.containerNumber} />
+                    <Pair label="Agent" value={c.subAgent} />
+                    <Pair label="Shipper" value={c.shipperName} />
+                    <Pair label="Consignee" value={c.consigneeName} />
+                    {/* Two dates rather than one with the second underneath.
+                        They answer different questions: booking is when the job
+                        was taken, pick-up is what a customer reconciles against
+                        their own dispatch register, and they are frequently
+                        days apart. */}
+                    <Pair label="Booked" value={shortDate(c.bookingDate)} />
+                    <Pair label="Picked up" value={shortDate(c.pickupDate)} />
                   </View>
 
-                  {/* The goods on their own full-width line. It is a sentence
-                      rather than a field, and a sentence set in a quarter
-                      column wraps to four lines and costs more height than the
-                      whole rest of the block. */}
+                  {/* ── THE TWO FULL-WIDTH LINES ─────────────────────────
+                      Both hold something that is a run of text rather than a
+                      field, and a run of text set in a quarter column wraps to
+                      four lines and costs more height than the whole rest of
+                      the block.
+
+                      References used to be a grid cell with the first number as
+                      its value and the rest stacked underneath, which on a
+                      consignment carrying all four was a four-line cell that
+                      set the height of an entire row. Across the full width
+                      they are one line. Each still carries the prefix saying
+                      what it is, because a run of bare numbers is unreadable
+                      and these are precisely the values somebody is matching
+                      against other paperwork. */}
+                  {references(c).length > 0 ? (
+                    <View style={[s.consignmentLine, { marginLeft: factIndent }]}>
+                      <Text style={s.consignmentLineLabel}>REFS</Text>
+                      <Text style={s.consignmentLineValue}>
+                        {references(c).join("   ")}
+                      </Text>
+                    </View>
+                  ) : null}
                   {goods(c) ? (
-                    <View style={s.consignmentLine}>
+                    <View style={[s.consignmentLine, { marginLeft: factIndent }]}>
                       <Text style={s.consignmentLineLabel}>GOODS</Text>
                       <Text style={s.consignmentLineValue}>{goods(c)}</Text>
                     </View>
                   ) : null}
                 </View>
-              ))}
+                );
+              })}
             </View>
           </Band>
         ) : null}
@@ -1082,18 +1177,6 @@ export function ManualInvoiceDocument({
           ) : null}
         </Band>
 
-        {/* Rule 46(o). Stated in words rather than left to be inferred from
-            the absence of tax, and stated on every invoice including the
-            ordinary ones where the answer is no. */}
-        <View style={s.reverseChargeLine} wrap={false}>
-          <Text style={s.reverseChargeLabel}>
-            Whether tax is payable under reverse charge:
-          </Text>
-          <Text style={s.reverseChargeValue}>
-            {data.reverseCharge ? "YES" : "NO"}
-          </Text>
-        </View>
-
         {/* ── terms and total ──────────────────────────────────────────── */}
         <View style={s.bottomRow} wrap={false}>
           <View style={s.bottomLeft}>
@@ -1222,11 +1305,13 @@ export function ManualInvoiceDocument({
           <Text style={s.dueValue}>{money(data.total, cur)}</Text>
         </View>
 
-        {/* ── fixed foot. Separate positioned elements: see the header. ── */}
+        {/* ── fixed foot. Separate positioned elements: see the header. ──
+            No identification line. This used to carry the invoice number and
+            the customer's name on every sheet, which is what made a loose page
+            two placeable; it was removed on request. Putting it back is one
+            fixed Text above the rule, and the three foot offsets below go back
+            up by roughly nine points to make room for it. */}
         <View style={s.pageFootRule} fixed />
-        <Text style={s.pageFootText} fixed>
-          {`${data.invoiceNumber}    ${buyer.legalName}`}
-        </Text>
         {/* Where a billing question goes, and where the rest of the story is.
             Both mailboxes are printed: billing at Arena reaches two people, and
             an invoice naming one of them sends half the queries to somebody who

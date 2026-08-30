@@ -170,7 +170,7 @@ export function ChargePicker({
             !value && "text-muted-foreground",
           )}
         >
-          <span className="truncate">{value || "Add a charge"}</span>
+          <span className="truncate">{value || "Click to add a charge"}</span>
           <ChevronsUpDown className="ml-1 h-3.5 w-3.5 shrink-0 opacity-40" />
         </Button>
       </PopoverTrigger>

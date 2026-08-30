@@ -47,6 +47,7 @@ import {
 
 import { ARENA_LOGO_ASPECT, ARENA_LOGO_DATA_URI } from "@/lib/invoices/tax/pdf/logo";
 import { layoutCode128 } from "@/lib/labels/barcode";
+import { fitHelveticaBold } from "@/lib/labels/fitText";
 import type { AwbLabelData, AwbLabelItem, LabelPaperSize } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -83,6 +84,31 @@ const ORDER_BARCODE_HEIGHT = (11 / 25.4) * 72;
 /** Logo drawn at a fixed height; width follows the mark's real aspect ratio. */
 const LOGO_HEIGHT = 17;
 const LOGO_WIDTH = LOGO_HEIGHT * ARENA_LOGO_ASPECT;
+
+/**
+ * The company name in the header, set to fill the space the logo leaves.
+ *
+ * The name is printed at whatever size fits (see lib/labels/fitText.ts) rather
+ * than at one size chosen for the longest name we could think of. The numbers
+ * below are the box it has to fit, and each is a real limit:
+ *
+ *   GAP        The mark and the wordmark have to read as two things. Below
+ *              about 10pt at these sizes they start to look like one lockup.
+ *   MAX_HEIGHT LOGO_HEIGHT plus a little. The header block is as tall as its
+ *              tallest child, so every point past this pushes the whole label
+ *              down and comes out of the item table at the bottom.
+ *   MAX_SIZE   Below the 11pt receiver name and the 9.5pt courier. This is the
+ *              sender's name on someone else's parcel: it is a mark of origin,
+ *              not an instruction, and it must not out-shout either of those.
+ *   MAX_LINES  Two. A third line costs more height than the width it buys.
+ */
+const COMPANY_GAP = 10;
+const COMPANY_MAX_WIDTH = BLOCK_CONTENT_WIDTH - LOGO_WIDTH - COMPANY_GAP;
+const COMPANY_MAX_HEIGHT = LOGO_HEIGHT + 4;
+const COMPANY_LINE_HEIGHT = 1.15;
+const COMPANY_MAX_SIZE = 9;
+const COMPANY_MIN_SIZE = 5;
+const COMPANY_MAX_LINES = 2;
 
 /**
  * A4, with the label at the top-left.
@@ -171,12 +197,13 @@ const styles = StyleSheet.create({
   small: { fontFamily: "Helvetica", fontSize: 6.5, color: BLACK, lineHeight: 1.3 },
   smallBold: { fontFamily: "Helvetica-Bold", fontSize: 6.5, color: BLACK, lineHeight: 1.3 },
 
+  // No fontSize here: it is measured per name at render time, so that a short
+  // sender's name is not set at the size a long one needs.
   company: {
     fontFamily: "Helvetica-Bold",
-    fontSize: 5.5,
     color: BLACK,
     textAlign: "right",
-    lineHeight: 1.25,
+    lineHeight: COMPANY_LINE_HEIGHT,
   },
 
   // The payment stamp sits in its own box: it is the one instruction on the
@@ -271,12 +298,29 @@ function Barcode({
 // ---------------------------------------------------------------------------
 
 function Header({ companyName }: { companyName: string }) {
+  // Each line is rendered as its own Text, because the break points came out of
+  // the same measurement as the size. Handing the renderer the whole string
+  // would let it wrap somewhere else and make the measurement a guess.
+  const { lines, fontSize } = fitHelveticaBold(companyName, COMPANY_MAX_WIDTH, {
+    maxSize: COMPANY_MAX_SIZE,
+    minSize: COMPANY_MIN_SIZE,
+    maxHeight: COMPANY_MAX_HEIGHT,
+    lineHeight: COMPANY_LINE_HEIGHT,
+    maxLines: COMPANY_MAX_LINES,
+  });
+
   return (
     <View style={[styles.block, styles.row]}>
       {/* eslint-disable-next-line jsx-a11y/alt-text -- react-pdf Image */}
       <Image src={ARENA_LOGO_DATA_URI} style={{ width: LOGO_WIDTH, height: LOGO_HEIGHT }} />
       <View style={styles.grow} />
-      <Text style={[styles.company, { maxWidth: 150 }]}>{companyName}</Text>
+      <View style={{ width: COMPANY_MAX_WIDTH }}>
+        {lines.map((line, index) => (
+          <Text key={index} style={[styles.company, { fontSize }]}>
+            {line}
+          </Text>
+        ))}
+      </View>
     </View>
   );
 }

@@ -902,6 +902,7 @@ export async function getManualInvoiceDetail(
       palletCount: c.palletCount,
       cartonCount: c.cartonCount,
       goodsDescription: c.goodsDescription,
+      hsnCode: c.hsnCode,
       particulars: c.particulars,
       exportInvoiceNo: c.exportInvoiceNo,
       referenceNo: c.referenceNo,

@@ -199,8 +199,8 @@ the page:
 3. **Cargo.** Metrics, then a table with one row per box.
 4. **Charges.** The breakdown, unchanged: description, SAC, taxable value, GST
    and tax-inclusive amount.
-5. **Payment and terms beside the total.** Bank details, reverse charge, terms
-   and any cash on delivery note on the left; the totals panel on the right.
+5. **Payment and terms beside the total.** Bank details, terms and any cash on
+   delivery note on the left; the totals panel on the right.
    The charges table leaves the bottom left of the page empty, and this is
    where an invoice reader looks for both anyway.
 6. **Declaration and signature**, sharing the last row.
@@ -216,11 +216,32 @@ headline of a document whose headline is the total. Domestic routes print city
 and state, exports print city and country, because "Gurugram, India to Jaipur,
 India" says India twice and locates nothing.
 
-**Cargo is metrics plus one row per box.** The metrics are package count,
-actual weight, chargeable weight and, when the shipper declared one, total
+**Cargo is metrics plus one row per box.** The metrics are package count, the
+HSN, actual weight, chargeable weight and, when the shipper declared one, total
 declared value. The table then gives each box its description, size, count,
 weight and value, with its contents on a grey line beneath:
 `Cotton shirts x 40 (HSN 610510) · Denim jeans x 20 (HSN 620462)`.
+
+**The HSN metric is derived, and states one code for goods that may carry
+several.** `dominantHsCode` takes the HS code of the item with the largest
+quantity, counting an item once per identical box rather than once per row, so a
+charger packed twice into five boxes beats four t-shirts packed once. An item
+with no code cannot win by being the biggest, and a tie keeps the order the
+shipper listed the goods in. Tests in `utils/invoiceHsn.test.tsx`; a wrong code
+on a rendered page looks exactly like a right one, which is why they exist.
+
+It is deliberately **not** noted on the page as "largest item by quantity". That
+note made the HSN the widest cell in the metrics row, wrapped DECLARED VALUE onto
+a second line, and cost the invoice its one-page fit. The per-item codes are
+printed in full on each box's contents line below, so the derivation is visible
+to anyone who wants it. The metrics row holds six cells across and has no room
+for a seventh: check the page count after touching it.
+
+This code describes the **goods**. The SAC in the charges table describes the
+**supply**, which is a freight service whatever moved inside the box. Neither
+stands in for the other. The manual invoice carries the same distinction, with
+its HSN typed in rather than derived, because a manual invoice has no item list
+to derive from.
 
 An earlier version nested a second table of item rows inside the first, with
 its own HSN, quantity, unit value and value columns. It was accurate and hard
@@ -265,8 +286,11 @@ is where the break falls, and that is controlled rather than left to chance:
   column of unlabelled figures on a tax invoice is worse than a page that ends
   early. Longer tables are allowed to wrap: a block taller than a page is
   clipped, not moved,
-- the invoice and shipment numbers are repeated in the page footer, so a second
-  sheet separated from the first still belongs to an invoice.
+- the invoice, shipment and waybill numbers are repeated in the page footer, so
+  a second sheet separated from the first still belongs to an invoice. The
+  MANUAL invoice no longer does this: its identification line was removed on
+  request in 2026-08, and it is the one of the two documents that can actually
+  run to a second sheet. See manualInvoicing.md.
 
 To review a page other than the first, note that macOS `qlmanage` renders only
 page one. `osascript -l JavaScript` with PDFKit will dump per-page text and
@@ -288,8 +312,25 @@ document does not appear, and there is no error, suspect this first.
 
 Re-confirmed on a two page render: a `fixed` `Text` producing `PAGE 1 OF 2`
 from the callback printed nothing on either page. There is no page numbering on
-the invoice for that reason, not for a design one, and the footer carries the
-invoice and shipment numbers instead.
+the invoice for that reason, not for a design one, and the booking invoice's footer
+carries the invoice and shipment numbers instead.
+
+
+### The reverse-charge statement was removed
+
+Both documents printed `Whether tax is payable under reverse charge: NO` on a
+ruled line above the totals row. It was removed on request in 2026-08, from both
+templates in the same pass so the pair still reads as one company's paperwork.
+The hairline stayed, moved onto `bottomRow`, because it is what closes the
+charges table off; without it the last row runs straight into the declaration.
+
+Worth being clear about what that costs: **Rule 46(o) of the CGST Rules asks a
+tax invoice to state whether tax is payable on reverse charge**, and Arena's
+answer is "no" on every invoice it raises today, which is exactly the case that
+is easy to leave off and hard to notice. Nothing in the money engine changed and
+`ManualInvoiceDocumentData.reverseCharge` is still computed and still carried;
+only the printing went. Putting it back is one `View` above `bottomRow` in each
+template.
 
 ---
 
@@ -439,6 +480,15 @@ GSTIN belongs leaves a hole no later fix can close.
 masthead when set. It is guarded everywhere it is read: invoices issued before
 the variable existed carry no CIN in their frozen seller snapshot, and they
 render without the field rather than printing an empty label.
+
+`INVOICE_ISSUER_EMAIL`, `INVOICE_ISSUER_PHONE` and `INVOICE_ISSUER_WEBSITE` print
+on **one masthead line**, each behind its own label: `Email … Phone … Website …`.
+Labelled because an email, a phone number and a domain stacked bare are three
+strings a reader has to sort out before they can use one, and one line because
+the export booking invoice fits on a single sheet with roughly a line to spare.
+A second contact row here is what spends it, and both documents go to two pages.
+If you add a contact field, put it on this line or take a line back somewhere
+else first, and re-render the samples to check.
 
 `INVOICE_ISSUER_JURISDICTION` and `INVOICE_ISSUER_BILLING_EMAIL` are printed at
 the foot of every page. The jurisdiction is read as "SUBJECT TO THE JURISDICTION

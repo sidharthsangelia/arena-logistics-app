@@ -2436,6 +2436,19 @@ model ManualInvoiceConsignment {
   cartonCount Int?
 
   goodsDescription String?
+  /// HSN of the goods, typed in rather than derived.
+  ///
+  /// A manual invoice records an off-platform move and holds no item list, so
+  /// there is nothing here with a quantity to pick a code from. On the booking
+  /// invoice the same figure comes from the box contents automatically, taking
+  /// the HS code of the item with the largest quantity. Both print it in the
+  /// consignment block; only this one asks a human for it.
+  ///
+  /// It describes the CARGO, not the supply. What Arena is billing for is a
+  /// freight service and its code is the SAC in the charges table. Do not merge
+  /// the two: they answer different questions and one is not a fallback for the
+  /// other.
+  hsnCode          String?
   /// Free-text "Particulars" line, for anything the columns do not hold.
   particulars      String?
   /// The customer's own export invoice number, printed as "Shipper invoice no."

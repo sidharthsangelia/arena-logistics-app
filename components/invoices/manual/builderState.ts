@@ -104,6 +104,7 @@ export interface ConsignmentRow {
   palletCount: string;
   cartonCount: string;
   goodsDescription: string;
+  hsnCode: string;
   exportInvoiceNo: string;
   referenceNo: string;
   shipperName: string;
@@ -242,6 +243,7 @@ export function emptyConsignment(
     palletCount: "",
     cartonCount: "",
     goodsDescription: "",
+    hsnCode: "",
     exportInvoiceNo: "",
     referenceNo: "",
     shipperName: "",
@@ -483,6 +485,7 @@ export function stateFromDetail(detail: ManualInvoiceDetail): BuilderState {
         .map((v) => v.trim())
         .filter(Boolean)
         .join(". "),
+      hsnCode: str(c.hsnCode),
       exportInvoiceNo: str(c.exportInvoiceNo),
       referenceNo: str(c.referenceNo),
       shipperName: str(c.shipperName),
@@ -561,6 +564,7 @@ export function isConsignmentFilled(row: ConsignmentRow): boolean {
     row.trackingNumber,
     row.jobNumber,
     row.goodsDescription,
+    row.hsnCode,
   ].some((v) => v.trim().length > 0);
 }
 
@@ -622,6 +626,7 @@ export function toPayload(state: BuilderState) {
       palletCount: toOptionalInt(c.palletCount),
       cartonCount: toOptionalInt(c.cartonCount),
       goodsDescription: blankToNull(c.goodsDescription),
+      hsnCode: blankToNull(c.hsnCode),
       // Always null now. The column stays on the model so an invoice ISSUED
       // under the old two-field shape still renders the text it was issued
       // with, but nothing writes to it again.

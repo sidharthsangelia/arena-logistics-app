@@ -295,7 +295,18 @@ const s = StyleSheet.create({
   // row. The charges table leaves the bottom left of the page empty and the
   // footer used to sit below it; putting the two side by side is what buys the
   // last hundred points, and it is where an invoice reader looks for both.
-  bottomRow: { flexDirection: "row", marginTop: 7, alignItems: "flex-start" },
+  // The hairline is what closes the charges table off. It used to belong to the
+  // reverse-charge statement that sat here; with that gone the last row of the
+  // table ran straight into the declaration underneath with nothing between
+  // them, and the two read as one block.
+  bottomRow: {
+    flexDirection: "row",
+    marginTop: 7,
+    paddingTop: 6,
+    borderTopWidth: 0.5,
+    borderTopColor: C.rule,
+    alignItems: "flex-start",
+  },
   bottomLeft: { flex: 1, paddingRight: 18 },
   /** Totals panel and signature, stacked. Fixed width so the two agree. */
   bottomRight: { width: 238 },
@@ -331,26 +342,6 @@ const s = StyleSheet.create({
   },
   words: { flex: 1, fontSize: 8, color: C.ink, paddingRight: 12, lineHeight: 1.25 },
   wordsLabel: { color: C.muted, letterSpacing: 0.6, fontSize: 7 },
-
-  // ── the reverse-charge statement ──
-  // Rule 46(o) wants this stated, and it is the one line on the page whose
-  // answer is usually "no" and which is therefore easy to leave off. It gets
-  // its own ruled line rather than a slot in a paragraph so it cannot be
-  // missed.
-  reverseChargeLine: {
-    flexDirection: "row",
-    marginTop: 7,
-    paddingTop: 4,
-    borderTopWidth: 0.5,
-    borderTopColor: C.rule,
-  },
-  reverseChargeLabel: { fontSize: 7.5, color: C.muted },
-  reverseChargeValue: {
-    fontSize: 7.5,
-    color: C.ink,
-    fontFamily: "Helvetica-Bold",
-    marginLeft: 4,
-  },
 
   // The two figures a payer acts on, full width under the totals panel. See
   // the manual invoice for why they are not inside it.
@@ -497,6 +488,48 @@ function routeEnd(party: PartySnapshot, mode: ShipmentMode): string {
 }
 
 /**
+ * The one HSN worth printing at the top of the cargo block: the code on the
+ * item there is most of.
+ *
+ * A booking's boxes hold a list of items and each item carries its own code, so
+ * a consignment of three t-shirts and one charger has two. The invoice states
+ * one, and the rule is the item with the largest quantity: it is the goods the
+ * consignment is mostly made of and the code an officer or an accountant would
+ * classify the shipment under.
+ *
+ * Quantities are counted per row, so an item packed once in each of four
+ * identical boxes counts four times. A row of ten identical boxes would
+ * otherwise lose to a single box holding a handful of something else.
+ *
+ * The comparison is per ITEM and not per code, which is the rule as asked for.
+ * It differs from summing by code only when two separate items share a code and
+ * neither one alone is the largest, which does not arise on the bookings this
+ * runs against. If that changes, sum into a Map keyed by code here rather than
+ * changing what the document claims elsewhere.
+ *
+ * Ties keep the first entered, which is the order the shipper listed the goods
+ * in. Items with no code cannot win: an untyped item is the absence of an
+ * answer, not an answer of its own.
+ *
+ * The per-item codes are still printed in full on each box's contents line
+ * below. This does not replace them; it saves a reader having to scan them.
+ */
+export function dominantHsCode(boxes: PackageSnapshot[]): string | null {
+  let best: { code: string; quantity: number } | null = null;
+
+  for (const box of boxes) {
+    for (const item of box.contents) {
+      const code = item.hsCode?.trim();
+      if (!code) continue;
+      const quantity = item.quantity * box.quantity;
+      if (!best || quantity > best.quantity) best = { code, quantity };
+    }
+  }
+
+  return best?.code ?? null;
+}
+
+/**
  * What was in a piece, as one line: "Cotton shirts x 40 (HSN 610510)".
  *
  * Quantities are multiplied by the number of identical pieces the row stands
@@ -544,6 +577,7 @@ export function TaxInvoiceDocument({
   // Absent on invoices issued before snapshot version 2, so every use is
   // guarded rather than assumed.
   const boxes = shipment.packages ?? [];
+  const hsnCode = dominantHsCode(boxes);
 
   // All three weights, in the order the arithmetic runs: what it weighed, what
   // its size came to, and which of the two it was billed on. See the header.
@@ -621,9 +655,18 @@ export function TaxInvoiceDocument({
     return `${as} @ ${trim(rate)}%`;
   };
 
-  const sellerContact = [seller.email, seller.phone]
+  // All three on ONE line. Each is named, because an email, a phone number and
+  // a domain stacked bare are three strings a reader has to sort out before
+  // they can use one. They share a line because the export invoice fits on a
+  // single sheet with about a line to spare, and a second contact row here is
+  // what spends it.
+  const sellerContact = [
+    seller.email ? `Email ${seller.email}` : null,
+    seller.phone ? `Phone ${seller.phone}` : null,
+    seller.website ? `Website ${seller.website}` : null,
+  ]
     .filter(Boolean)
-    .join("    ");
+    .join("   ");
 
   const headCell = grid ? s.headCellGrid : s.headCell;
 
@@ -665,9 +708,12 @@ export function TaxInvoiceDocument({
                 .filter(Boolean)
                 .join("    ")}
             </Text>
-            {/* The issuer's own contact details, at content weight. Somebody
-                querying a charge reads these off the page. An empty Text still
-                takes a line's height, so an issuer with neither gets no row. */}
+            {/* The issuer's own contact details, at content weight and each
+                one named. Somebody querying a charge reads these off the page,
+                and an email, a phone number and a domain stacked bare are three
+                strings a reader has to sort out before they can use one. Each
+                half is guarded on its own: an empty Text still takes a line's
+                height, so an issuer with no phone gets no gap. */}
             {sellerContact ? (
               <Text style={s.sellerIds}>{sellerContact}</Text>
             ) : null}
@@ -712,21 +758,12 @@ export function TaxInvoiceDocument({
               <Text style={s.detailInk}>
                 GSTIN {buyer.gstin ?? "Unregistered"}
               </Text>
-              {/* Spelled out AND coded. The name is what a person reads; the
-                  two-digit code is what decides IGST against the CGST/SGST
-                  split and what the recipient's own filing is checked
-                  against. */}
-              {buyer.stateName || buyer.stateCode ? (
-                <Text style={s.detail}>
-                  State{" "}
-                  {[
-                    buyer.stateName,
-                    buyer.stateCode ? `(${buyer.stateCode})` : null,
-                  ]
-                    .filter(Boolean)
-                    .join(" ")}
-                </Text>
-              ) : null}
+              {/* No state line. The recipient's state is already in the
+                  address block above, and the two-digit code that decides IGST
+                  against the CGST/SGST split is printed as the place of supply
+                  three lines below, which is the statement the return is filed
+                  against. Removed on the manual invoice at the same time and
+                  for the same reason: three sayings of one fact on one sheet. */}
               {buyer.email ? (
                 <Text style={s.detail}>{buyer.email}</Text>
               ) : null}
@@ -816,6 +853,19 @@ export function TaxInvoiceDocument({
               label="Pieces"
               value={`${shipment.packageCount} ${shipment.packageCount === 1 ? "piece" : "pieces"}`}
             />
+            {/* Ahead of the weights on purpose. It answers "what is it",
+                which is the question a reader has before "how heavy was it",
+                and it is the one code on this document that describes the
+                GOODS. The SAC printed in the invoice-details panel above codes
+                the freight service being billed. Two codes, two questions, and
+                neither stands in for the other. */}
+            {/* No note explaining the derivation. "Largest item by quantity"
+                under the value made this the widest cell in the row, which
+                wrapped DECLARED VALUE onto a second line and cost the invoice
+                its second page. The per-item codes are printed in full on each
+                box's contents line below, so a reader who wants to know where
+                this one came from can see it. */}
+            <Metric label="HSN" value={hsnCode} />
             <Metric label="Actual weight" value={actualWeight} />
             <Metric label="Volumetric weight" value={kg(volumetricKg)} />
             <Metric
@@ -1007,16 +1057,6 @@ export function TaxInvoiceDocument({
             </View>
           ))}
         </Band>
-
-        {/* Rule 46(o). Stated in words rather than left to be inferred from
-            the absence of tax, and stated on every invoice including the
-            ordinary ones where the answer is no. */}
-        <View style={s.reverseChargeLine} wrap={false}>
-          <Text style={s.reverseChargeLabel}>
-            Whether tax is payable under reverse charge:
-          </Text>
-          <Text style={s.reverseChargeValue}>NO</Text>
-        </View>
 
         {/* ── Payment, terms and the total ───────────────────────────── */}
         <View style={s.bottomRow} wrap={false}>

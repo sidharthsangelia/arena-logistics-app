@@ -116,6 +116,7 @@ function consignment(
     palletCount: null,
     cartonCount: null,
     goodsDescription: null,
+    hsnCode: null,
     particulars: null,
     exportInvoiceNo: null,
     referenceNo: null,
@@ -273,7 +274,11 @@ const EXPORT_SAMPLE = assemble({
     consignment({
       sortOrder: 0,
       awbNumber: "176-51234567",
-      mawbNumber: "176-51234567",
+      // Deliberately NOT the house waybill above. A consolidation flies under
+      // the airline's master and the customer's goods under a house number, and
+      // a sample printing one value in both slots is a sample that cannot show
+      // whether the template keeps them apart.
+      mawbNumber: "125-40023918",
       bookingDate: new Date("2026-07-28T04:00:00.000Z").toISOString(),
       origin: "New Delhi",
       destination: "Dubai",
@@ -283,7 +288,11 @@ const EXPORT_SAMPLE = assemble({
       parcelType: "Non-documents",
       shipMode: "Air",
       trackingNumber: "ARN2607884120",
-      pickupDate: new Date("2026-07-28T05:30:00.000Z").toISOString(),
+      // A day after the booking, deliberately. Same-day is common and it is
+      // also what the previous sample used, which meant the two date cells
+      // printed the same string and the sample could not show that they are
+      // two different facts.
+      pickupDate: new Date("2026-07-29T05:30:00.000Z").toISOString(),
       originPort: "DEL",
       destinationPort: "DXB",
       flightNumber: "EK 511",
@@ -294,6 +303,7 @@ const EXPORT_SAMPLE = assemble({
       palletCount: 2,
       cartonCount: 12,
       goodsDescription: "Cotton apparel. 40 cartons mens shirts, 20 womens jeans.",
+      hsnCode: "610510",
       exportInvoiceNo: "MTX/EXP/2026/0188",
       shipperName: "Meridian Textiles Private Limited",
       consigneeName: "Al Noor Trading LLC",
@@ -413,6 +423,7 @@ const DOMESTIC_SAMPLE = assemble({
       chargeableWeightKg: 62,
       boxCount: 4,
       goodsDescription: "Machined components",
+      hsnCode: "84839000",
       charges: [
         charge("Freight charges", 8_400, { rate: 135.48, quantity: 62 }),
         charge("Fuel surcharge", 1_260),

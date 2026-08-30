@@ -471,19 +471,207 @@ carried it is a thing the customer asked for.
 
 ### The consignment fact block
 
-The facts under each waybill are **eight grouped cells in a four-column grid**,
-not one cell per column. Things read together print together: the forwarder with
-its product, the ports with the flight that flew them, the piece count with the
-weights it was charged on, every reference number in one cell with each prefixed
-by what it is. `FactCell` in the shared theme drops empty cells so the rest pack
-left, and every cell is exactly a quarter wide so the labels align down the page.
+The facts under each waybill are **one packed run of label-and-value pairs**, not
+a grid. Each pair takes exactly the width its own text needs and the next one
+starts immediately after it, so the pairs a consignment actually has fill the
+line and the ones it lacks cost nothing at all.
 
-This replaced ~20 auto-width chips. Each pair was correct; the block still read
-as noise, because the labels landed at three different sets of x positions as
-the row wrapped. If you add a fact, put it in an existing cell as a sub-line
-before you consider a ninth cell: the block sits above the charges table on a
-document held to one sheet, and it is already the largest variable-height thing
-on the page.
+They were quarter-width cells four to a row, and that grid was replaced because
+the alignment it bought was paid for in blank paper: a consignment with a
+forwarder and no product left a quarter of a row empty, a cell holding "310 kg"
+reserved about 130 points to print 34 of them, and on a document held to one
+sheet that is the most expensive whitespace on the page. The busiest sample lost
+roughly a third of the block's height.
+
+**The label sits BESIDE the value, and that is what makes packing legible.** The
+fixed grid existed because the label sat OVER the value: stacked pairs at content
+width put their labels at a different x on every line, and the eye reads a ragged
+column of labels as noise however correct each pair is. Set the label beside the
+value and each pair reads as one short phrase rather than as an entry in a
+column, so nothing has to line up. Do not reintroduce a stacked pair into this
+run; it brings the alignment problem back with it.
+
+**`pairs` and `Pair` live in the shared theme.** `Pair` returns null for an
+absent value, so the template lists every fact a consignment could carry in
+reading order and the ones it has pack left. `pair.paddingRight` is the entire
+separation between one fact and the next: it is 11 against the 3 inside a pair,
+and much below 11 the pairs stop reading as separate facts.
+
+**The run's negative right margin is load-bearing.** `pairs` carries
+`marginRight: -11`, exactly cancelling `pair.paddingRight`. Each pair holds its
+separation as padding on its right, which is correct between two facts and pure
+loss after the last one on a line, and yoga counts that padding when deciding
+whether the next pair fits. Eleven points of nothing were being weighed against a
+fact that wanted to ride up. Pulling the container eleven points wider puts the
+trailing padding outside the content box, where it can be spent; nothing draws in
+padding, so nothing overhangs. This is what got PICKED UP off a line of its own
+on a real single-consignment invoice. **Keep the two numbers in step.** They are
+one decision written twice, and drifting them either overhangs the box or
+silently costs a line.
+
+**Consignment dates print as `23/08/26`, and only consignment dates.** `shortDate`
+sits beside `formatDate` in the template for this. "23 Aug 2026" is 58 points and
+"23/08/26" is 34, and in a run that packs by content width those 24 points are
+frequently a whole line. The invoice date, the due date and the IRN ack date keep
+the spelled-out month: they sit in a panel that is not short of room, they are the
+dates a tax document is read and disputed on, and a written month cannot be
+misread as the American order. Abbreviate where space is the constraint, not
+everywhere the same type appears.
+
+**The indent under a consignment heading is conditional, not a constant.** See
+`factIndent`. It exists to clear the serial-number column, so it is worth 14
+points on a multi-consignment invoice and worth nothing on one with a single
+consignment, where the heading starts at the box edge and an indent would push
+the facts right of the thing they belong to at a cost of 14 points a line.
+
+**The order is what a reader arrives wanting**: the weights, then the packing,
+then who carried it and by what route, then the parties, then the dates.
+
+**The two weights are the only pairs set bold.** Freight is billed on the
+chargeable weight while the customer knows only what the consignment weighed on a
+scale, which makes that pair the most queried thing on the document, and in a
+flowing run there is no band to give it prominence. `strong` is how it keeps it,
+and it only works while it stays rare. A run in which everything is bold has
+nothing emphasised.
+
+**Only the chargeable label abbreviates.** It is the longer word and the one the
+trade already says short. "GROSS WT." is the figure a customer checks against
+their own weighbridge and is worth spelling out. The asymmetry is deliberate; do
+not tidy it into a matching pair.
+
+**Forwarder and product are separate pairs**, both labelled, rather than the
+product sitting as a quiet sub-line under FORWARDER. "UPS Saver" is the half the
+customer bought and the half they quote back; under the carrier's own label it
+read as a footnote to the carrier instead of an answer of its own. Flight and
+airline are separate for a stricter reason: run together, a consignment carrying
+an airline and no flight number printed the airline under the word FLIGHT.
+
+**HSN is a typed field on this document.** A manual invoice records an
+off-platform move and holds no item list, so there is nothing here with a
+quantity to derive a code from: `hsnCode` is a column on
+`ManualInvoiceConsignment` that an admin fills in beside the goods description.
+The booking invoice states the same figure and derives it, taking the HS code of
+the box-contents item with the largest quantity. See `dominantHsCode` in
+`TaxInvoiceDocument.tsx` and its tests in `utils/invoiceHsn.test.tsx`.
+
+It codes the **cargo**, and the SAC in the charges table codes the **supply**.
+Two codes, two questions, and neither is a fallback for the other: what Arena
+bills for is a freight service whatever moved inside the box. An invoice printing
+one number for both has answered the wrong question twice.
+
+**Sub-lines are gone.** `FactCell` carried any number of quieter 7.5pt lines
+beneath a value, and flight, container and agent hung under ROUTING that way.
+They are ordinary pairs now. A sub-line was a whole line of page spent on one
+short value, and it read as a footnote to a fact rather than as a fact.
+
+**What moved and how it travelled ride on the lane, not in the run.** The heading
+line reads `New Delhi to Dubai (12 pcs, Air, Non-documents)`. All three qualify
+the route rather than standing on their own. The two text fields print exactly as
+stored, never abbreviated: both take free text, so a short-form table would
+compress the six values in the picker and leave everything else in full, and the
+same invoice would print "Non Doc" against one consignment and "Refrigerated
+pharma samples" against the next.
+
+**Hyphenation cannot currently be turned off.** `Font.registerHyphenationCallback`
+registers onto the exported `Font` (which IS react-pdf's font store) and the
+layout package reads `fontStore.getHyphenationCallback()`, and yet the callback
+is never invoked on this render path in @react-pdf/renderer 4.5.1. Verified by
+registering one that uppercases every word and getting an unchanged document.
+Do not re-add the registration thinking it was merely missing.
+
+### Where the waybill prints
+
+The AWB is a **per-consignment** fact stated in a **document-level** panel, and
+those two facts fight. The rule: with exactly one consignment it is lifted into
+INVOICE DETAILS beside the invoice number, because those are the two numbers
+every query about a single-consignment invoice opens with, and the consignment
+block below is then headed by its route instead. With several consignments the
+panel stays silent and each waybill heads its own block, because a header naming
+the first would be read as naming all of them, and the waybill is the only thing
+telling two otherwise identical blocks apart. Same rule `shipperInvoiceNo`
+already follows, for the same reason.
+
+Consequence worth knowing: **the number of consignments changes the shape of the
+header.** A test or a screenshot taken off a one-consignment invoice will not
+show you the multi-consignment header, and vice versa.
+
+`trackingNumber` is suppressed in the references cell when it is character-for-
+character the `awbNumber`, which is the ordinary courier case. Printed both ways
+it reads as two numbers and somebody checks whether they differ.
+
+### What the header no longer says
+
+`SAC / service` and `Pricing` were **removed from INVOICE DETAILS**. Every charge
+carries its own SAC in the table below, which is where Rule 46 wants it and where
+a mixed-code invoice has to be read from anyway, so a document-level restatement
+was a second code on the page claiming to be the answer. Pricing went for a
+different reason: inclusive against exclusive describes how the amounts were
+TYPED, not what is owed. Both ways reach the same taxable value, the same tax and
+the same total, and all three are printed. The reader was being told how the
+sausage was made.
+
+`data.sacCode` and `data.serviceDescription` are still computed in `build.ts` and
+still on `ManualInvoiceDocumentData`. Nothing prints them today. They are kept
+because `sharedSacCode()` encodes a real rule (ignore reimbursement lines, return
+a value only when the taxed lines agree) that is annoying to rediscover.
+
+### Three things the document deliberately no longer prints
+
+Removed on request in 2026-08. All three were removed because they were saying
+something the page already said, or saying it in a place that cost a whole line.
+
+**The bill-to state row.** The recipient's state name is already in the address
+block two lines above it, and the two-digit code that decides IGST against the
+CGST/SGST split is printed as the place of supply in the panel alongside, which
+is the statement the return is actually filed against. Three sayings of one fact
+on one sheet. The same row came off the booking invoice in the same pass.
+`buyer.stateName` and `buyer.stateCode` are still on the document data and still
+feed the address line and the tax decision.
+
+**The footer identification line.** The manual invoice's footer carried
+`ARN082600049    Meridian Textiles Private Limited` on every sheet. Know what
+that was for before you agree it was clutter: this is the document that can run
+to two pages, and the line is what let a page two coming loose be put back
+against the right invoice. It is gone, so a loose sheet now identifies itself
+only by what happens to be printed on it. Restoring it is one fixed `Text` above
+the foot rule, plus about nine points back onto the three foot offsets and the
+page's `paddingBottom`. The booking invoice keeps its own footer line, which
+carries the invoice, shipment and waybill numbers and is a different thing.
+
+**The reverse-charge statement.** See invoicingSystem.md. It came off both
+templates together, and it is the one of the three removals with a statutory
+edge to it, since Rule 46(o) asks for it and Arena's answer is "no" on every
+invoice it raises.
+
+### Category is now "Ship. type", and ship mode is now "Transport"
+
+CSB-4/CSB-5/Commercial is labelled **Ship. type** in the builder, on the invoice
+and on the read-only detail page, which is the wording Arena's own paperwork
+uses. The Air/Sea/Surface/Rail field was renamed **Transport** in the same pass.
+Only the LABELS moved: the column is still `shipMode`, the constant is still
+`SHIP_MODES`, and `csbCategory` still stores `CSB_4`/`CSB_5`/`COMMERCIAL`.
+
+Do not rename the Air/Sea field back to "Ship mode". Two labels a letter apart on
+one consignment is a field nobody fills correctly twice.
+
+**REFS and GOODS are full-width lines under the run**, not pairs. Both hold a run
+of text rather than a field, and a run of text in a quarter column wraps to four
+lines and costs more height than the whole rest of the block. References were a
+cell with the first number as its value and the rest stacked beneath, which on a
+consignment carrying all four set the height of an entire row; across the full
+width they are one line. Each keeps its prefix (`Tracking`, `MAWB`, `Job`,
+`Shipper inv.`), because a run of bare numbers is unreadable and these are exactly
+the values somebody is matching against other paperwork.
+
+**How many pages this actually takes.** Every one-consignment invoice fits an A4
+sheet with visible slack, which is the case that matters: it is nearly all of
+them. A three-consignment invoice does not. Packing the fact block bought enough
+that the arena variant now carries the whole consignment section and the entire
+charges table, recoveries included, on page one. But page one is then genuinely
+full, and what follows is roughly 190pt of declaration, bank panel, terms, totals
+and the amount due. No arrangement of those fits in nothing. Do not go looking
+for the missing space; it is not hiding, the document is simply longer than a
+page.
 
 `goodsDescription` and `particulars` were **merged into one field**, printed as a
 full-width GOODS line under the grid. `particulars` still exists on the model and

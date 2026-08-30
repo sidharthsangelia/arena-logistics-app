@@ -88,7 +88,7 @@ import {
   buildManualInvoiceMoney,
   type ManualInvoiceMoney,
 } from "@/lib/invoices/manual/money";
-import { OUTSIDE_INDIA, SELECTABLE_GST_STATES } from "@/lib/invoices/tax/gst";
+import { OUTSIDE_INDIA } from "@/lib/invoices/tax/gst";
 import {
   issueManualInvoiceAction,
   previewManualInvoiceAction,
@@ -103,6 +103,7 @@ import {
   type ProductHistory,
 } from "./ForwarderPicker";
 import { InvoicePreviewDialog } from "./InvoicePreviewDialog";
+import { PlaceOfSupplyPicker } from "./PlaceOfSupplyPicker";
 import { RouteEndPicker } from "./RouteEndPicker";
 import { ServicePicker } from "./ServicePicker";
 import { SuggestPicker } from "./SuggestPicker";
@@ -608,10 +609,16 @@ export function ManualInvoiceBuilder({
 
           {/* CSB is the first thing asked about an export and meaningless on a
               domestic invoice, so it sits up here on one and vanishes on the
-              other rather than living in a disclosure on both. */}
+              other rather than living in a disclosure on both.
+
+              Labelled "Ship. type" rather than "Category", which is the wording
+              Arena's own paperwork uses. Note that this is NOT the Air/Sea
+              field: that one is "Transport", deliberately not "Ship mode",
+              because two labels a letter apart on one consignment is a field
+              nobody fills correctly twice. */}
           {international ? (
             <div className="grid gap-2">
-              <Label>Category</Label>
+              <Label>Ship. type</Label>
               <Select
                 value={state.csbCategory}
                 disabled={busy}
@@ -675,30 +682,18 @@ export function ManualInvoiceBuilder({
           <Label className="text-xs text-muted-foreground">
             Place of supply
           </Label>
-          <Select
+          {/* Searchable, and it shows the code beside the name. The trigger no
+              longer says "from the customer's GSTIN": that described a silent
+              fallback rather than a value, and on the field that decides IGST
+              against a CGST/SGST split the answer should be one somebody
+              looked at. Leaving it unpicked still falls back, so an invoice
+              raised in a hurry is not wrong, only undeclared. */}
+          <PlaceOfSupplyPicker
             value={state.placeOfSupplyCode}
+            international={international}
             disabled={busy}
-            onValueChange={(v) => set("placeOfSupplyCode", v)}
-          >
-            <SelectTrigger className="h-8 w-56">
-              <SelectValue placeholder="From the customer's GSTIN" />
-            </SelectTrigger>
-            <SelectContent>
-              {/* 96 is not a state and is not in SELECTABLE_GST_STATES for
-                  that reason. It is the code GSTR-1 wants on an export, so it
-                  belongs here and only here. */}
-              {international ? (
-                <SelectItem value={OUTSIDE_INDIA.code}>
-                  {OUTSIDE_INDIA.name} (export)
-                </SelectItem>
-              ) : null}
-              {SELECTABLE_GST_STATES.map((s) => (
-                <SelectItem key={s.code} value={s.code}>
-                  {s.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+            onChange={(code) => set("placeOfSupplyCode", code)}
+          />
         </div>
       </section>
 
@@ -1089,7 +1084,11 @@ function ConsignmentCard({
             service description used to. The service itself is still there, one
             click down, for the customs-clearance and warehousing invoices that
             have no forwarder at all. */}
-        <div className="grid min-w-40 flex-1 gap-1.5">
+        {/* Narrower than its neighbours by about a third. "DHL", "UPS" and
+            "Blue Dart" are short, and the width they were given came off the
+            route pickers beside them, which hold full city and country
+            names. */}
+        <div className="grid min-w-28 flex-[0.7] gap-1.5">
           <Label className="text-xs">Forwarder</Label>
           <ForwarderPicker
             value={row.forwarderName}
@@ -1604,11 +1603,13 @@ function ConsignmentDetails({
             </div>
             <div className="grid content-start gap-1.5">
               <div className="flex min-h-5 items-baseline">
-                <Label className="text-xs">Ship mode</Label>
+                <Label className="text-xs">Transport</Label>
               </div>
               {/* How the goods travelled. Not the invoice's own domestic or
                   international setting: a domestic consignment can fly and an
-                  international one can sail. */}
+                  international one can sail. Called "Transport" and not "Ship
+                  mode" because the CSB field above is now "Ship. type", and the
+                  two would have been a letter apart on the same document. */}
               <SuggestPicker
                 value={row.shipMode}
                 options={SHIP_MODES}
@@ -1648,12 +1649,22 @@ function ConsignmentDetails({
                 "Particulars" were never a distinction anybody drew while
                 typing: the second box got whatever did not fit in the first,
                 and the document printed them as two chips saying one thing. */}
-            <div className="sm:col-span-3">
+            <div className="sm:col-span-2">
               {field("goodsDescription", "Goods description", {
                 placeholder:
                   "Machine spares, 3 crates. Anything else to print against this consignment.",
               })}
             </div>
+            {/* Beside the description it belongs to, because it is a code FOR
+                that description and the two get filled in together off the
+                same shipping bill. Typed, not derived: a manual invoice holds
+                no item list, so there is nothing here with a quantity to take
+                the code from. The booking invoice, which does have one, picks
+                it automatically. */}
+            {field("hsnCode", "HSN", {
+              placeholder: "84213910",
+              hint: "Of the goods. Where a consignment holds several, the one with the largest quantity.",
+            })}
           </div>
         </section>
 

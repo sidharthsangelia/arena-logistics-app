@@ -1045,6 +1045,7 @@ export interface ManualConsignmentDetail {
   palletCount: number | null;
   cartonCount: number | null;
   goodsDescription: string | null;
+  hsnCode: string | null;
   particulars: string | null;
   exportInvoiceNo: string | null;
   referenceNo: string | null;
@@ -1202,6 +1203,11 @@ export const consignmentSchema = z.object({
   cartonCount: z.number().int().min(0).max(100_000).nullable().optional(),
 
   goodsDescription: optionalText(500),
+  // Codes run 4, 6 or 8 digits and are occasionally written with spaces, so
+  // this is a length bound rather than a pattern. Rejecting "8421 39 10"
+  // because it is not eight bare digits would be a validator arguing with the
+  // paperwork the customer is holding.
+  hsnCode: optionalText(20),
   particulars: optionalText(500),
   exportInvoiceNo: optionalText(60),
   referenceNo: optionalText(60),

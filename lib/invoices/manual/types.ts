@@ -113,6 +113,14 @@ export interface ManualConsignmentSnapshot {
   palletCount: number | null;
   cartonCount: number | null;
   goodsDescription: string | null;
+  /**
+   * HSN of the goods, as an admin typed it. Optional and never backfilled, so
+   * every consignment issued before 2026-08-30 reads null and prints nothing.
+   *
+   * The cargo's code, not the supply's. The service Arena bills is coded by the
+   * SAC in the charges table and the two are not interchangeable.
+   */
+  hsnCode: string | null;
   particulars: string | null;
   exportInvoiceNo: string | null;
   referenceNo: string | null;

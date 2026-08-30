@@ -62,7 +62,7 @@ export default async function ManualInvoiceDetailPage({
     ["Due", formatDate(invoice.dueDate)],
     ["Terms", paymentTermLabel(invoice.paymentTerms)],
     ["Reference", invoice.reference],
-    ["Category", csbLabel(invoice.csbCategory)],
+    ["Ship. type", csbLabel(invoice.csbCategory)],
     ["Place of supply", invoice.placeOfSupplyName],
     ["Reverse charge", invoice.reverseCharge ? "Yes" : null],
     ["IRN", invoice.irn],
@@ -184,7 +184,7 @@ export default async function ManualInvoiceDetailPage({
             ["Prod type", c.productType],
             ["Service", c.serviceType],
             ["Tracking", c.trackingNumber],
-            ["Ship mode", c.shipMode],
+            ["Transport", c.shipMode],
             ["Parcel type", c.parcelType],
             [
               "Ports",

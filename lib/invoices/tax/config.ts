@@ -151,7 +151,12 @@ const ISSUER: InvoiceIssuer = {
   pan: process.env.INVOICE_ISSUER_PAN ?? "REPLACE ME",
   cin: process.env.INVOICE_ISSUER_CIN,
   email: process.env.INVOICE_ISSUER_EMAIL ?? "info@arenalogistics.co.in",
-  phone: process.env.INVOICE_ISSUER_PHONE ?? "REPLACE ME",
+  // Empty, not "REPLACE ME". Unlike the GSTIN and the address, a missing phone
+  // number does not block issuing (see issuerIsConfigured), so the placeholder
+  // was a string that could actually reach a customer's invoice. It now prints
+  // as no phone row at all, which is both true and the correct answer for an
+  // issuer that genuinely publishes only an email.
+  phone: process.env.INVOICE_ISSUER_PHONE ?? "",
   website: process.env.INVOICE_ISSUER_WEBSITE ?? "arenalogistics.co.in",
   bank: process.env.INVOICE_ISSUER_BANK_ACCOUNT
     ? {

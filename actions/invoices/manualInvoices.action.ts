@@ -910,6 +910,7 @@ export async function saveManualInvoiceAction(
         palletCount: c.palletCount ?? null,
         cartonCount: c.cartonCount ?? null,
         goodsDescription: c.goodsDescription ?? null,
+        hsnCode: c.hsnCode ?? null,
         particulars: c.particulars ?? null,
         exportInvoiceNo: c.exportInvoiceNo ?? null,
         referenceNo: c.referenceNo ?? null,
@@ -1366,6 +1367,7 @@ export async function duplicateManualInvoiceAction(
             palletCount: c.palletCount,
             cartonCount: c.cartonCount,
             goodsDescription: c.goodsDescription,
+            hsnCode: c.hsnCode,
             particulars: c.particulars,
             exportInvoiceNo: c.exportInvoiceNo,
             referenceNo: c.referenceNo,
@@ -1476,6 +1478,7 @@ export async function createCreditNoteAction(
             grossWeightKg: c.grossWeightKg,
             chargeableWeightKg: c.chargeableWeightKg,
             goodsDescription: c.goodsDescription,
+            hsnCode: c.hsnCode,
             charges: {
               create: c.charges.map((charge, chargeIndex) => ({
                 sortOrder: chargeIndex,

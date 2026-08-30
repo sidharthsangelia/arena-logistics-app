@@ -162,32 +162,82 @@ export const t = StyleSheet.create({
     fontFamily: "Helvetica-Bold",
   },
 
-  // ── chips ──
-  // Short label-and-value pairs flowing across a line. Read across as a
-  // summary, not scanned down as a column, so the width is auto.
-  chip: { paddingRight: 14, paddingTop: 1.5 },
-  chipLabel: { fontSize: 6.5, color: C.muted, letterSpacing: 0.7 },
-  chipValue: { fontSize: 8, color: C.ink, lineHeight: 1.25 },
-
-  // ── fact cells ──
-  // A label over a value over any number of quieter sub-lines, in a cell of
-  // FIXED width, laid out four to a row.
+  // ── packed facts ──
+  // A run of label-and-value pairs that flows across the full width and wraps,
+  // each taking exactly the room its own text needs and no more.
   //
-  // ── WHY FIXED WIDTH IS THE WHOLE POINT ────────────────────────────────────
-  // These replaced auto-width chips. Twenty chips at content width wrap into
-  // three rows whose labels land at three different sets of x positions, and
-  // the eye reads that as noise rather than as data however correct each pair
-  // is. At a fixed quarter width the labels line up down the page and the block
-  // reads as a table, which is what it always was.
+  // ── WHY THIS IS NOT A GRID ANY MORE ───────────────────────────────────────
+  // These were quarter-width cells, four to a row, and the alignment that
+  // bought was paid for in blank paper. A consignment with a forwarder and no
+  // product left a quarter of a row empty; a cell holding "310 kg" reserved
+  // about 130 points to print 34 of them. On a document meant to fit one sheet
+  // that is the most expensive whitespace on the page.
   //
-  // Empty cells are DROPPED rather than rendered blank, so the remaining ones
-  // pack left. Alignment survives because every cell is still exactly a
-  // quarter; what does not survive is a row of holes where a consignment
-  // happened not to have a flight number.
-  factCell: { width: "25%", paddingRight: 10, paddingTop: 1.5 },
-  factCellLabel: { fontSize: 6.5, color: C.muted, letterSpacing: 0.7 },
-  factCellValue: { fontSize: 8.5, color: C.ink, lineHeight: 1.2 },
-  factCellSub: { fontSize: 7.5, color: C.muted, lineHeight: 1.25 },
+  // The fixed grid existed because the label sat OVER the value. Stacked pairs
+  // at content width put their labels at a different x on every line, and the
+  // eye reads a ragged column of labels as noise however correct each pair is.
+  // Setting the label BESIDE the value removes the reason for the grid: each
+  // pair is then read as one short phrase rather than as an entry in a column,
+  // so nothing has to line up and they are free to pack.
+  //
+  // paddingRight is the whole separation between one fact and the next, so it
+  // has to be clearly wider than the gap inside a pair.
+  //
+  // 11 against the 3 inside a pair. It was 13, and came down when a real
+  // invoice was wrapping its last fact onto a line of its own by a margin of
+  // about eight points: four gaps at two points each bought that line back.
+  // This is close to the floor. Much below 11 and the pairs stop reading as
+  // separate facts and start reading as one sentence, at which point the run
+  // has failed at the only job it has.
+  // The negative right margin cancels the trailing gap of whichever pair ends
+  // a line. Each pair carries its separation as padding on its right, which is
+  // correct BETWEEN two facts and pure loss after the last one: yoga counts
+  // that padding when it decides whether the next pair fits, so eleven points
+  // of nothing were being weighed against the fact hoping to ride up. Pulling
+  // the container eleven points wider puts that padding outside the content box
+  // where it can be spent. Nothing draws in padding, so nothing overhangs.
+  //
+  // Keep this in step with `pair.paddingRight`. They are one decision written
+  // twice, and if they drift the run either overhangs the box or goes back to
+  // wrapping a line early.
+  pairs: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    marginTop: 1,
+    marginRight: -11,
+  },
+  pair: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    // A value longer than the line left would otherwise run off the page
+    // rather than wrap: react-pdf sizes this box to its content first.
+    maxWidth: "100%",
+    paddingRight: 11,
+    paddingTop: 2.5,
+  },
+  // react-pdf aligns two font sizes on the box top rather than on a shared
+  // baseline, which leaves the smaller label sitting high. Nudged down onto the
+  // value's own baseline by hand. Same trick as the GOODS line.
+  pairLabel: {
+    fontSize: 6.5,
+    color: C.muted,
+    // 0.5, not the 1.1 the section labels carry. Tracking is what makes small
+    // capitals legible, but here it is paid for on every label in a run that is
+    // fighting for line breaks, and the label is already separated from its
+    // value by size, colour and case. Enough to read as a label, not enough to
+    // cost a line.
+    letterSpacing: 0.5,
+    paddingTop: 1.5,
+    paddingRight: 3,
+  },
+  pairValue: { fontSize: 8.5, color: C.ink, lineHeight: 1.2, flexShrink: 1 },
+  pairValueStrong: {
+    fontSize: 8.5,
+    color: C.ink,
+    lineHeight: 1.2,
+    flexShrink: 1,
+    fontFamily: "Helvetica-Bold",
+  },
 
   // ── metrics ──
   // The louder cousin of a chip, for the three or four figures the cargo is
@@ -413,55 +463,31 @@ export function Fact({
   );
 }
 
-/** A short label-and-value pair in a flowing row. */
-export function Chip({
-  label,
-  value,
-}: {
-  label: string;
-  value: string | null | undefined;
-}) {
-  if (!value) return null;
-  return (
-    <View style={t.chip}>
-      <Text style={t.chipLabel}>{label.toUpperCase()}</Text>
-      <Text style={t.chipValue}>{value}</Text>
-    </View>
-  );
-}
-
 /**
- * One cell of the fact grid: a label, a value, and any number of quieter lines
- * beneath it.
+ * One packed fact: a label and the value beside it, occupying exactly the width
+ * the two of them need. Nothing to say means nothing printed, so a caller can
+ * list every fact a consignment could carry and the ones it has pack left.
  *
- * Returns null when there is nothing to say, INCLUDING when only sub-lines
- * survive: a cell headed FORWARDER whose forwarder is unknown but whose product
- * is "Express Worldwide" would print a product under a label that does not
- * describe it. The caller decides what the cell's value is; if that is missing,
- * the cell has no subject.
+ * `strong` sets the value bold, and is how a figure keeps its prominence in a
+ * flowing run now that it has no band of its own to sit in: the weights a
+ * consignment was charged on are the most queried numbers on the document. It
+ * only works while it stays rare. A run in which everything is bold has nothing
+ * emphasised.
  */
-export function FactCell({
+export function Pair({
   label,
   value,
-  sub,
+  strong,
 }: {
   label: string;
   value: string | null | undefined;
-  /** Nulls are dropped, so callers can pass conditionals without filtering. */
-  sub?: (string | null | undefined)[];
+  strong?: boolean;
 }) {
   if (!value) return null;
-  const lines = (sub ?? []).filter(Boolean) as string[];
-
   return (
-    <View style={t.factCell}>
-      <Text style={t.factCellLabel}>{label.toUpperCase()}</Text>
-      <Text style={t.factCellValue}>{value}</Text>
-      {lines.map((line, i) => (
-        <Text key={i} style={t.factCellSub}>
-          {line}
-        </Text>
-      ))}
+    <View style={t.pair}>
+      <Text style={t.pairLabel}>{label.toUpperCase()}</Text>
+      <Text style={strong ? t.pairValueStrong : t.pairValue}>{value}</Text>
     </View>
   );
 }

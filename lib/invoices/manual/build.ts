@@ -249,6 +249,7 @@ export function buildConsignmentSnapshots(
       palletCount: consignment.palletCount,
       cartonCount: consignment.cartonCount,
       goodsDescription: consignment.goodsDescription,
+      hsnCode: consignment.hsnCode,
       particulars: consignment.particulars,
       exportInvoiceNo: consignment.exportInvoiceNo,
       referenceNo: consignment.referenceNo,
