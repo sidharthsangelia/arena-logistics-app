@@ -986,6 +986,7 @@ export interface ManualInvoiceDetail {
   currency: string;
   taxMode: TaxMode;
   reverseCharge: boolean;
+  showSacCode: boolean;
   placeOfSupplyCode: string | null;
   placeOfSupplyName: string | null;
 
@@ -1240,6 +1241,8 @@ export const manualInvoiceSchema = z
     currency: trimmed(3).min(3).default(DEFAULT_CURRENCY),
     taxMode: z.enum(TaxMode).default(TaxMode.EXCLUSIVE),
     reverseCharge: z.boolean().default(false),
+    /** Presentation only: whether the SAC column prints. See the model. */
+    showSacCode: z.boolean().default(true),
 
     placeOfSupplyCode: optionalText(2),
 

@@ -65,6 +65,9 @@ export default async function ManualInvoiceDetailPage({
     ["Ship. type", csbLabel(invoice.csbCategory)],
     ["Place of supply", invoice.placeOfSupplyName],
     ["Reverse charge", invoice.reverseCharge ? "Yes" : null],
+    // Only when it is off. Stating the ordinary case on every invoice would
+    // bury the one document where somebody has to know why the column is gone.
+    ["SAC column", invoice.showSacCode ? null : "Not printed"],
     ["IRN", invoice.irn],
     ["Raised by", invoice.createdByName],
     ["Paid", formatDate(invoice.paidAt)],

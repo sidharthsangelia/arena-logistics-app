@@ -4,13 +4,14 @@
  *
  *   npx tsx scripts/renderSampleManualInvoice.tsx
  *
- * Writes five files:
+ * Writes six files:
  *
  *   sample-manual-invoice-arena.pdf      export, 3 consignments, IGST, recoveries
  *   sample-manual-invoice-grid.pdf       the same content, denser bordered grid
  *   sample-manual-domestic-arena.pdf     domestic, 1 consignment, CGST+SGST
  *   sample-manual-domestic-grid.pdf      the same content, denser bordered grid
  *   sample-manual-individual-preview.pdf a person, no GSTIN, export, as a preview
+ *   sample-manual-invoice-no-sac.pdf     the export sample with the SAC column off
  *
  * Use ALL THREE content samples whenever the template changes. The export
  * exercises several consignments, IGST and the pure-agent recovery block; the
@@ -74,6 +75,7 @@ const SELLER: ManualSellerSnapshot = {
     bankName: "HDFC Bank",
     branch: "Sohna Road",
   },
+  upiId: "arenacargo@hdfcbank",
   declaration: "CERTIFIED THAT THE PARTICULARS GIVEN ABOVE ARE TRUE & CORRECT.",
   jurisdiction: "Delhi and Gurgaon",
   billingEmail: "info@arenalogistics.co.in, adnan@arenalogistics.co.in",
@@ -535,6 +537,14 @@ async function main() {
   await write(DOMESTIC_SAMPLE, "arena", "sample-manual-domestic-arena.pdf");
   await write(DOMESTIC_SAMPLE, "grid", "sample-manual-domestic-grid.pdf");
   await write(INDIVIDUAL_SAMPLE, "arena", "sample-manual-individual-preview.pdf");
+
+  // The Print SAC switch off. Same content as the export sample, so the two
+  // files can be put side by side to see exactly what the column costs.
+  await write(
+    { ...EXPORT_SAMPLE, showSacCode: false },
+    "grid",
+    "sample-manual-invoice-no-sac.pdf",
+  );
 
   console.log(
     `\nexport total   ${EXPORT_SAMPLE.total.toFixed(2)} (tax ${EXPORT_SAMPLE.totalTax.toFixed(2)}, recovered ${EXPORT_SAMPLE.reimbursements.toFixed(2)})`,

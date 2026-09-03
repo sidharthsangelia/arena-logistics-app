@@ -607,6 +607,11 @@ export function ManualInvoiceDocument({
   variant?: ManualInvoiceVariant;
 }) {
   const { seller, buyer } = data;
+
+  // Whether the tinted payment block is on the page at all. The terms under it
+  // are spaced off it, so the gap has to follow the block rather than the bank
+  // account: an issuer that publishes only a UPI handle still gets the panel.
+  const hasPaymentPanel = !!seller.bank || !!seller.upiId?.trim();
   const grid = variant === "grid";
   const cur = data.currency;
 
@@ -630,6 +635,12 @@ export function ManualInvoiceDocument({
   // no rate. That figure multiplies out to nothing on the page, and a number a
   // reader cannot reconcile is worse than a column that is not there.
   const showRate = taxedLines.some((l) => l.rate !== null && l.rate > 0);
+
+  // The SAC column is the one gate the admin sets rather than the content: some
+  // customers want a plainer bill and ask for it off. Undefined reads as ON,
+  // because every invoice snapshotted before the switch existed was printed
+  // with the column and a re-render of one must not silently lose it.
+  const showSac = data.showSacCode !== false;
 
   // The rate is named on the totals rows only when the whole invoice is at ONE
   // rate, which is the ordinary case. A manual invoice can mix rates across its
@@ -1056,9 +1067,11 @@ export function ManualInvoiceDocument({
             <View style={s.rowDescription}>
               <Text style={grid ? s.headCellGrid : s.headCell}>DESCRIPTION</Text>
             </View>
-            <Text style={[grid ? s.headCellGrid : s.headCell, { width: COL.sac, textAlign: "right" }]}>
-              SAC
-            </Text>
+            {showSac ? (
+              <Text style={[grid ? s.headCellGrid : s.headCell, { width: COL.sac, textAlign: "right" }]}>
+                SAC
+              </Text>
+            ) : null}
             {showQty ? (
               <Text style={[grid ? s.headCellGrid : s.headCell, { width: COL.qty, textAlign: "right" }]}>
                 QTY
@@ -1097,7 +1110,11 @@ export function ManualInvoiceDocument({
               <View style={s.rowDescription}>
                 <Text style={s.descriptionText}>{line.description}</Text>
               </View>
-              <Text style={[s.cellMuted, { width: COL.sac }]}>{line.sacCode}</Text>
+              {showSac ? (
+                <Text style={[s.cellMuted, { width: COL.sac }]}>
+                  {line.sacCode}
+                </Text>
+              ) : null}
               {showQty ? (
                 <Text style={[s.cellMuted, { width: COL.qty }]}>
                   {trim(line.quantity)}
@@ -1158,7 +1175,9 @@ export function ManualInvoiceDocument({
                   <View style={s.rowDescription}>
                     <Text style={s.descriptionText}>{line.description}</Text>
                   </View>
-                  <Text style={[s.cellMuted, { width: COL.sac }]}>-</Text>
+                  {showSac ? (
+                    <Text style={[s.cellMuted, { width: COL.sac }]}>-</Text>
+                  ) : null}
                   {showQty ? <Text style={[s.cellMuted, { width: COL.qty }]} /> : null}
                   {showRate ? <Text style={[s.cellMuted, { width: COL.rate }]} /> : null}
                   <Text style={[s.cellMuted, { width: COL.taxable }]}>-</Text>
@@ -1187,12 +1206,13 @@ export function ManualInvoiceDocument({
                 stand out when everything around it is deliberately quiet. */}
             <PaymentPanel
               bank={seller.bank}
+              upiId={seller.upiId}
               issuerName={seller.legalName}
               variant={variant}
             />
 
             {data.terms.length > 0 ? (
-              <View style={{ marginTop: seller.bank ? 8 : 0 }}>
+              <View style={{ marginTop: hasPaymentPanel ? 8 : 0 }}>
                 <Text style={t.label}>DECLARATION, TERMS AND CONDITIONS</Text>
                 <View style={[t.rule, { marginBottom: 2 }]} />
                 <TermsBlock terms={data.terms} />

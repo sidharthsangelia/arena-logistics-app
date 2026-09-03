@@ -678,6 +678,29 @@ export function ManualInvoiceBuilder({
           </div>
         </div>
 
+        {/* Presentation, not money, and it sits with the other two because
+            this row is where an admin decides what the document says about
+            tax. Off is the exception a customer asks for, so it is a switch
+            that starts on rather than a field to fill in. */}
+        <div className="flex items-center gap-3">
+          <Switch
+            id="show-sac"
+            checked={state.showSacCode}
+            disabled={busy}
+            onCheckedChange={(checked) => set("showSacCode", checked)}
+          />
+          <div className="grid gap-0.5">
+            <Label htmlFor="show-sac" className="cursor-pointer">
+              Print SAC
+            </Label>
+            <p className="text-xs text-muted-foreground">
+              {state.showSacCode
+                ? "The SAC column prints against every charge."
+                : "The SAC column is left off this document."}
+            </p>
+          </div>
+        </div>
+
         <div className="ml-auto grid gap-1">
           <Label className="text-xs text-muted-foreground">
             Place of supply

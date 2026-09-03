@@ -615,6 +615,26 @@ still on `ManualInvoiceDocumentData`. Nothing prints them today. They are kept
 because `sharedSacCode()` encodes a real rule (ignore reimbursement lines, return
 a value only when the taxed lines agree) that is annoying to rediscover.
 
+### The SAC column is a switch, not a rule
+
+`ManualInvoice.showSacCode`, default true, set from a **Print SAC** switch beside
+Tax mode and Reverse charge in the builder. Off, the SAC head and every SAC cell
+come off the charges table and the description column takes the width back.
+
+Presentation only. Nothing about the money, the tax or what is stored moves: each
+charge keeps its own `sacCode` in the row and in the frozen snapshot, so an
+invoice printed without the column can still answer what a line was billed under.
+The flag rides on the snapshot as `showSacCode`, optional and read as **true when
+absent**, so re-rendering an invoice snapshotted before the switch existed still
+prints the column it was issued with.
+
+Default on because Rule 46 asks for the SAC and a tax invoice is expected to
+carry it. Turning it off is a customer's request for a plainer bill, and the
+read-only detail page states `SAC column: Not printed` on those invoices only,
+so the one document where somebody has to know why the column is gone says so.
+Duplicating an invoice and opening a credit note against one both carry the
+setting across.
+
 ### Three things the document deliberately no longer prints
 
 Removed on request in 2026-08. All three were removed because they were saying

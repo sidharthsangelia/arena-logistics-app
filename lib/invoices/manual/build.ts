@@ -372,6 +372,7 @@ export function buildManualInvoiceDocument(
 
       sacCode: sharedSacCode(money.lineItems),
       serviceDescription: taxTreatmentFor(invoice.mode).sacDescription,
+      showSacCode: invoice.showSacCode,
 
       currency: invoice.currency,
       taxMode: invoice.taxMode,

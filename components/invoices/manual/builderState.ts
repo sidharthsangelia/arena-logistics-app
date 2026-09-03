@@ -125,6 +125,8 @@ export interface BuilderState {
   currency: string;
   taxMode: TaxMode;
   reverseCharge: boolean;
+  /** Presentation only: whether the SAC column prints on the document. */
+  showSacCode: boolean;
   placeOfSupplyCode: string;
   irn: string;
   irnAckNo: string;
@@ -343,6 +345,9 @@ export function emptyState(): BuilderState {
     currency: DEFAULT_CURRENCY,
     taxMode: TaxMode.EXCLUSIVE,
     reverseCharge: false,
+    // On unless somebody turns it off. A tax invoice is expected to carry the
+    // SAC, so leaving it out is the choice that has to be made deliberately.
+    showSacCode: true,
     placeOfSupplyCode: "",
     irn: "",
     irnAckNo: "",
@@ -432,6 +437,7 @@ export function stateFromDetail(detail: ManualInvoiceDetail): BuilderState {
     currency: detail.currency,
     taxMode: detail.taxMode,
     reverseCharge: detail.reverseCharge,
+    showSacCode: detail.showSacCode,
     placeOfSupplyCode: detail.placeOfSupplyCode ?? "",
     irn: detail.irn ?? "",
     irnAckNo: detail.irnAckNo ?? "",
@@ -582,6 +588,7 @@ export function toPayload(state: BuilderState) {
     currency: state.currency,
     taxMode: state.taxMode,
     reverseCharge: state.reverseCharge,
+    showSacCode: state.showSacCode,
     placeOfSupplyCode: blankToNull(state.placeOfSupplyCode),
     irn: blankToNull(state.irn),
     irnAckNo: blankToNull(state.irnAckNo),

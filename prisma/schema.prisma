@@ -2215,6 +2215,15 @@ model ManualInvoice {
   /// charged on the document.
   reverseCharge Boolean @default(false)
 
+  /// Whether the SAC column is printed on this document. Presentation only: it
+  /// changes nothing about the money, the tax or what is stored against each
+  /// charge, and every line keeps its own SAC either way.
+  ///
+  /// Defaults true because a tax invoice is expected to carry it, and because
+  /// every invoice raised before this column existed was printed with it.
+  /// Turned off per invoice for the customers who want a plainer bill.
+  showSacCode Boolean @default(true)
+
   placeOfSupplyCode String?
   placeOfSupplyName String?
 

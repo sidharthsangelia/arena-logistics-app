@@ -856,6 +856,7 @@ export async function getManualInvoiceDetail(
     currency: row.currency,
     taxMode: row.taxMode,
     reverseCharge: row.reverseCharge,
+    showSacCode: row.showSacCode,
     placeOfSupplyCode: row.placeOfSupplyCode,
     placeOfSupplyName: row.placeOfSupplyName,
 

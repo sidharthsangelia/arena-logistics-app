@@ -181,6 +181,18 @@ export interface ManualInvoiceDocumentData {
    */
   sacCode?: string | null;
   serviceDescription?: string | null;
+  /**
+   * Whether the SAC column is printed on this document.
+   *
+   * Optional and read as TRUE when absent, because every invoice snapshotted
+   * before the switch existed was rendered with the column and a re-render of
+   * one must not quietly drop it.
+   *
+   * The codes themselves stay in the snapshot either way. This hides a column,
+   * it does not discard the data behind it, so an invoice printed without it
+   * can still answer what each line was billed under.
+   */
+  showSacCode?: boolean;
 
   currency: string;
   taxMode: TaxMode;
