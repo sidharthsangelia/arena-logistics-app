@@ -44,6 +44,7 @@ const SELLER: SellerSnapshot = {
     bankName: "HDFC Bank",
     branch: "Sohna Road",
   },
+  upiId: "arenacargo@hdfcbank",
   declaration: "CERTIFIED THAT THE PARTICULARS GIVEN ABOVE ARE TRUE & CORRECT.",
   jurisdiction: "Delhi and Gurgaon",
   billingEmail: "info@arenalogistics.co.in, adnan@arenalogistics.co.in",

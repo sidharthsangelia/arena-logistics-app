@@ -114,6 +114,15 @@ export interface InvoiceIssuer {
     bankName: string;
     branch?: string;
   };
+  /**
+   * The UPI handle payment is accepted on, printed in the bank block.
+   *
+   * Optional in the type for the same reason as `cin`: the issuer snapshot
+   * frozen onto every invoice raised before this field existed has no value
+   * here and must still render. Undefined prints as no UPI row at all, which
+   * is the right answer for an issuer that only takes bank transfers.
+   */
+  upiId?: string;
   /** Printed above the signature line. */
   declaration: string;
   /**
@@ -168,6 +177,11 @@ const ISSUER: InvoiceIssuer = {
         branch: process.env.INVOICE_ISSUER_BANK_BRANCH,
       }
     : undefined,
+  // Independent of the bank block above, deliberately. A UPI handle is a
+  // complete way to be paid on its own, so an issuer that publishes one and no
+  // account number still gets a payment block on the invoice. Blank reads as
+  // not published rather than as an empty row.
+  upiId: process.env.INVOICE_ISSUER_UPI_ID?.trim() || undefined,
   declaration: "CERTIFIED THAT THE PARTICULARS GIVEN ABOVE ARE TRUE & CORRECT.",
   jurisdiction:
     process.env.INVOICE_ISSUER_JURISDICTION ?? "Delhi and Gurgaon",

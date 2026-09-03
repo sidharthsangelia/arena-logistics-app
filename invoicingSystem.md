@@ -490,6 +490,15 @@ A second contact row here is what spends it, and both documents go to two pages.
 If you add a contact field, put it on this line or take a line back somewhere
 else first, and re-render the samples to check.
 
+`INVOICE_ISSUER_UPI_ID` is optional and prints as a `UPI` row at the foot of the
+bank panel, set in the same weight as the account number and the IFSC because it
+is transcribed into a payment app the same way. It is **independent of the bank
+block**: an issuer that publishes a UPI handle and no account number still gets
+a payment panel, headed `PAYMENT DETAILS` rather than `BANK DETAILS FOR PAYMENT`
+so the block never reads as an invoice missing its account number. Like the CIN,
+it is read from the frozen seller snapshot, so invoices issued before the
+variable was set carry no UPI row and render without it.
+
 `INVOICE_ISSUER_JURISDICTION` and `INVOICE_ISSUER_BILLING_EMAIL` are printed at
 the foot of every page. The jurisdiction is read as "SUBJECT TO THE JURISDICTION
 OF THE COURTS OF `<value>` ONLY", so give it the places only.

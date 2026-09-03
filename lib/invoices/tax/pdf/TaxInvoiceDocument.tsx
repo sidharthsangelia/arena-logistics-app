@@ -559,6 +559,11 @@ export function TaxInvoiceDocument({
   variant?: InvoiceVariant;
 }) {
   const { seller, buyer, shipment } = data;
+
+  // Whether the tinted payment block is on the page at all. The terms under it
+  // are spaced off it, so the gap has to follow the block rather than the bank
+  // account: an issuer that publishes only a UPI handle still gets the panel.
+  const hasPaymentPanel = !!seller.bank || !!seller.upiId?.trim();
   const grid = variant === "grid";
   const cur = data.currency;
 
@@ -1068,6 +1073,7 @@ export function TaxInvoiceDocument({
                 stand out when everything around it is deliberately quiet. */}
             <PaymentPanel
               bank={seller.bank}
+              upiId={seller.upiId}
               issuerName={seller.legalName}
               variant={variant}
             />
@@ -1075,7 +1081,7 @@ export function TaxInvoiceDocument({
             {/* The terms carry no heading of their own. The tinted block above
                 is the anchor this column needed, and a second label under it
                 was fifteen points the page does not have. */}
-            <View style={{ marginTop: seller.bank ? 7 : 0 }}>
+            <View style={{ marginTop: hasPaymentPanel ? 7 : 0 }}>
               {/* Numbered and in two columns, through the shared block, so the
                   clauses read identically on this invoice and on a manual one
                   the same customer receives in the same month. */}

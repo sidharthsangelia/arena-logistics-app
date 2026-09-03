@@ -543,18 +543,26 @@ export interface InvoiceBank {
  */
 export function PaymentPanel({
   bank,
+  upiId,
   issuerName,
   variant,
 }: {
   bank: InvoiceBank | null | undefined;
+  /** The issuer's UPI handle, printed under the account rows. */
+  upiId?: string | null;
   issuerName?: string | null;
   variant: InvoiceVariant;
 }) {
-  if (!bank) return null;
+  const upi = upiId?.trim() || null;
+
+  // A UPI handle on its own is a complete way to be paid, so the block survives
+  // an issuer that publishes one and no account. Only a payment block with
+  // nothing in it at all is suppressed.
+  if (!bank && !upi) return null;
 
   const normalise = (v: string) => v.trim().replace(/\s+/g, " ").toLowerCase();
   const showBeneficiary =
-    !!bank.accountName &&
+    !!bank?.accountName &&
     (!issuerName || normalise(bank.accountName) !== normalise(issuerName));
 
   return (
@@ -564,33 +572,51 @@ export function PaymentPanel({
       }
       wrap={false}
     >
-      <Text style={t.payHead}>BANK DETAILS FOR PAYMENT</Text>
+      {/* The heading names what is actually in the block. A panel headed BANK
+          DETAILS with only a UPI handle under it reads as a document missing
+          its account number. */}
+      <Text style={t.payHead}>
+        {bank ? "BANK DETAILS FOR PAYMENT" : "PAYMENT DETAILS"}
+      </Text>
 
-      {showBeneficiary ? (
-        <View style={t.payLine}>
-          <Text style={t.payLabel}>Name</Text>
-          <Text style={t.payValue}>{bank.accountName}</Text>
-        </View>
+      {bank ? (
+        <>
+          {showBeneficiary ? (
+            <View style={t.payLine}>
+              <Text style={t.payLabel}>Name</Text>
+              <Text style={t.payValue}>{bank.accountName}</Text>
+            </View>
+          ) : null}
+
+          <View style={t.payLine}>
+            <Text style={t.payLabel}>Bank</Text>
+            <Text style={t.payValue}>
+              {bank.bankName}
+              {bank.branch ? `, ${bank.branch}` : ""}
+            </Text>
+          </View>
+
+          {/* The two lines somebody is copying into a payment form, set heavier
+              than the rest of the block so the eye lands on them first. */}
+          <View style={t.payLine}>
+            <Text style={t.payLabel}>A/C no.</Text>
+            <Text style={t.payValueStrong}>{bank.accountNumber}</Text>
+          </View>
+          <View style={t.payLine}>
+            <Text style={t.payLabel}>IFSC</Text>
+            <Text style={t.payValueStrong}>{bank.ifsc}</Text>
+          </View>
+        </>
       ) : null}
 
-      <View style={t.payLine}>
-        <Text style={t.payLabel}>Bank</Text>
-        <Text style={t.payValue}>
-          {bank.bankName}
-          {bank.branch ? `, ${bank.branch}` : ""}
-        </Text>
-      </View>
-
-      {/* The two lines somebody is copying into a payment form, set heavier
-          than the rest of the block so the eye lands on them first. */}
-      <View style={t.payLine}>
-        <Text style={t.payLabel}>A/C no.</Text>
-        <Text style={t.payValueStrong}>{bank.accountNumber}</Text>
-      </View>
-      <View style={t.payLine}>
-        <Text style={t.payLabel}>IFSC</Text>
-        <Text style={t.payValueStrong}>{bank.ifsc}</Text>
-      </View>
+      {/* Transcribed into a payment app the same way the account number is, so
+          it is set to match those rows rather than the softer ones above. */}
+      {upi ? (
+        <View style={t.payLine}>
+          <Text style={t.payLabel}>UPI</Text>
+          <Text style={t.payValueStrong}>{upi}</Text>
+        </View>
+      ) : null}
     </View>
   );
 }
