@@ -32,6 +32,8 @@ import {
   computeShipmentWeights,
   normalizePackages,
 } from "@/lib/pricing/chargeableWeight";
+import { applyDomesticCarrierRules } from "@/lib/rates/domesticCarrierRules";
+import type { FetchRatesResult } from "../../core/base.adapter";
 
 // --- CONFIG -------------------------------------------------------------------
 
@@ -47,6 +49,14 @@ const SHIPMOZO_PRIVATE_KEY = process.env.SHIPMOZO_PRIVATE_KEY ?? "";
 const SHIPMOZO_FALLBACK_ORDER_VALUE = Number(
   process.env.SHIPMOZO_DEFAULT_DECLARED_VALUE ?? 50000,
 );
+
+/**
+ * Above this chargeable weight a consignment is declared multi-piece even when
+ * it is one box. See resolvePackageType for what that declaration buys and
+ * costs. Not an env var on purpose: it decides what a customer is offered and
+ * what the courier is told, so changing it deserves a diff and a review.
+ */
+const DOMESTIC_MPS_WEIGHT_THRESHOLD_KG = 10;
 
 // --- ADAPTER ------------------------------------------------------------------
 
@@ -113,7 +123,54 @@ export class ShipmozoDomesticAdapter extends BaseVendorAdapter<
 
   // -- Step 2: HTTP call -------------------------------------------------------
 
+  /**
+   * POST the payload, and fall back from MPS to SPS when MPS prices nothing.
+   *
+   * `type_of_package` behaves as a COURIER FILTER on this endpoint rather than
+   * a pricing input (see resolvePackageType), so an MPS request can come back
+   * successful and completely empty on a lane where SPS would have offered a
+   * dozen couriers. That is a dead end for the customer, and on the booking
+   * step it is a dead end they reach after entering every address.
+   *
+   * So an empty MPS result is retried once as SPS. Two deliberate choices here:
+   *
+   *   • Only an EMPTY result retries. A short MPS list is a real answer — those
+   *     couriers accepted the consignment as declared — and quietly widening it
+   *     to SPS would undo the declaration the retry exists to protect.
+   *
+   *   • If the retry itself fails, the original response is returned rather
+   *     than the error. The fallback is a bonus; it must never turn a
+   *     successful (if empty) call into a vendor error on the results list.
+   */
   protected async callVendorApi(
+    payload: ShipmozoDomesticRatePayload,
+  ): Promise<ShipmozoDomesticRateResponse> {
+    const first = await this.postRateCalculator(payload);
+
+    if (payload.type_of_package !== "MPS" || this.productCount(first) > 0) {
+      return first;
+    }
+
+    try {
+      const fallback = await this.postRateCalculator({
+        ...payload,
+        type_of_package: "SPS",
+      });
+      return this.productCount(fallback) > 0 ? fallback : first;
+    } catch (err) {
+      console.warn(
+        "[shipmozo-domestic] MPS returned no couriers and the SPS retry failed:",
+        err,
+      );
+      return first;
+    }
+  }
+
+  private productCount(response: ShipmozoDomesticRateResponse): number {
+    return Array.isArray(response.data) ? response.data.length : 0;
+  }
+
+  private async postRateCalculator(
     payload: ShipmozoDomesticRatePayload,
   ): Promise<ShipmozoDomesticRateResponse> {
     const res = await fetch(`${SHIPMOZO_BASE_URL}/rate-calculator`, {
@@ -255,29 +312,70 @@ export class ShipmozoDomesticAdapter extends BaseVendorAdapter<
   }
 
   /**
-   * Package type. Honours an explicit override, otherwise always SPS.
+   * SPS or MPS, and why the answer is not simply "one box means SPS".
    *
-   * This deliberately does NOT auto-select MPS on a multi-box shipment, which
-   * is what it used to do. On Shipmozo's domestic calculator `type_of_package`
-   * is a COURIER FILTER, not a pricing input: sending MPS drops every courier
-   * not enrolled for multi-piece bookings and leaves only a handful of
-   * Delhivery products (verified live: the same Delhi → Mumbai 2-box, 10 kg
-   * consignment returns 15 couriers as SPS and 3 as MPS).
+   * ── WHAT THE FLAG ACTUALLY DOES ─────────────────────────────────────────
+   * On Shipmozo's domestic calculator `type_of_package` reads as a COURIER
+   * FILTER far more than a pricing input. Measured live on a Delhi → Mumbai
+   * 2-box, 10 kg consignment: 15 couriers came back as SPS and 3 as MPS, and
+   * the couriers present in both quoted the identical price (Delhivery Surface
+   * 10 Kg: Rs 510.94 either way). Multi-piece pricing comes from the
+   * `dimensions` array, which we always send per box and which this flag does
+   * not affect.
    *
-   * Multi-piece pricing comes from the `dimensions` array, which we always send
-   * per box — and it is unaffected by this flag. The same courier quotes the
-   * same price both ways (Delhivery Surface 10 Kg: ₹510.94 as SPS and as MPS),
-   * so quoting SPS shows the customer more couriers at an identical price
-   * rather than a cheaper, wrong one.
+   * ── SO WHY DECLARE MPS AT ALL ───────────────────────────────────────────
+   * Because the flag is a DECLARATION about the consignment, and the couriers
+   * it filters to are the ones enrolled to carry it. Quoting a single-piece
+   * courier for a 4-box consignment wins a cheaper card and loses it again at
+   * the hub, where the extra boxes are re-weighed, surcharged or refused. The
+   * business rule is therefore: SPS only for a genuinely single, light parcel;
+   * MPS for anything multi-piece or heavy, whichever way the price moves.
    *
-   * It also matches how the shipment is actually placed: push-order (see
-   * lib/shipmozo/types.ts) takes one total weight and one L/W/H with no
-   * multi-piece concept at all, so every Arena order is single-piece to
-   * Shipmozo whatever the rate step asked for.
+   * The empty-result fallback in callVendorApi is what keeps that honest
+   * declaration from becoming a dead end on a lane no MPS courier serves.
+   *
+   * ── THE THRESHOLD ───────────────────────────────────────────────────────
+   * Chargeable weight, strictly above 10 kg. Chargeable rather than actual
+   * because it is the weight the courier bills and the figure already shown to
+   * the customer as "You pay for" on both the calculator and the wizard, so the
+   * card list can never disagree with the number beside it. Exactly 10.00 kg
+   * stays SPS.
+   *
+   * An explicit `packageType` on the request still wins outright — an API
+   * caller that has already decided is not second-guessed here.
    */
   private resolvePackageType(
     input: CanonicalRateRequest,
   ): ShipmozoDomesticPackageType {
-    return input.shipment.packageType ?? "SPS";
+    if (input.shipment.packageType) return input.shipment.packageType;
+
+    const packages = normalizePackages({
+      packages: input.shipment.packages,
+      weight: input.shipment.weight,
+      quantity: input.shipment.quantity,
+      dimensions: input.shipment.dimensions,
+    });
+    const weights = computeShipmentWeights(packages);
+
+    const multiPiece = weights.totalPieces > 1;
+    const heavy = weights.totalChargeableKg > DOMESTIC_MPS_WEIGHT_THRESHOLD_KG;
+
+    return multiPiece || heavy ? "MPS" : "SPS";
+  }
+
+  /**
+   * Eligibility rules that are ours rather than Shipmozo's are applied here,
+   * on the way out, so EVERY caller of this adapter gets them: the calculator,
+   * the booking wizard, and the booking-time re-quote in
+   * lib/booking/domesticCourierResolve.ts that has to find the exact service
+   * the customer paid for. See lib/rates/domesticCarrierRules.ts for why that
+   * third one makes a shared code path non-negotiable.
+   */
+  async fetchRates(input: CanonicalRateRequest): Promise<FetchRatesResult> {
+    const result = await super.fetchRates(input);
+    return {
+      ...result,
+      quotes: applyDomesticCarrierRules(result.quotes, input),
+    };
   }
 }

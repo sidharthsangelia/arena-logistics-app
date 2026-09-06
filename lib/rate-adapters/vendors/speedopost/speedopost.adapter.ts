@@ -10,23 +10,39 @@
  * which is where the reasoning about tax splits and charge breakdowns lives and
  * where the tests point.
  *
- * ── TWO CALLS, ONE QUOTE LIST ───────────────────────────────────────────────
+ * ── ONE CALL PER NETWORK, ONE QUOTE LIST ────────────────────────────────────
  * `orderType` is required on the rate call and decides which network answers:
- * B2C is the parcel couriers, B2B the freight operators. Both are priced in
- * parallel and merged. The segment survives into the product name ("Delhivery"
- * vs "Gati Freight"), because a customer choosing freight is agreeing to a dock
- * delivery rather than a doorstep one.
+ * B2C is the parcel couriers, B2B the freight operators. Whichever networks
+ * SPEEDOPOST_SEGMENTS lists are priced in parallel and merged; today that is
+ * B2B alone, because our B2C rate card is dead at their end (the evidence is on
+ * that constant). The plumbing here is unchanged and still segment-agnostic, so
+ * restoring B2C is a one-word edit there and nothing in this file.
+ *
+ * The segment survives into the product name ("Delhivery" vs "Gati Freight"),
+ * because a customer choosing freight is agreeing to a dock delivery rather
+ * than a doorstep one. With B2B alone every SpeedoPost quote therefore reads
+ * " Freight", which is accurate rather than cosmetic: these really are dock
+ * deliveries, and the customer must not read them as parcel service.
  *
  * ── BOOKING ─────────────────────────────────────────────────────────────────
- * There is NO SpeedoPost booking adapter yet, by decision. A customer who picks
- * one of these quotes in the booking wizard will pay, and the durable booking
- * job stops at `resolveBookingAdapter` returning null — money held, ops flagged,
- * order placed by hand. See the note in
- * lib/rate-adapters/vendors/domestic.index.ts.
+ * These quotes ARE purchasable as of 2026-09-05: a SpeedoPost booking adapter is
+ * registered in lib/booking-adapters/vendors/domestic.booking.index.ts, so a
+ * customer who picks one of these gets an order placed rather than a held
+ * payment. `courierId` on every quote is the provider code that booking sends
+ * back to them, which is why the de-duplication in rateShape takes such care to
+ * make the surviving quote's code predictable.
+ *
+ * The booking surfaces still do not fan out over the registry: they pin
+ * DOMESTIC_BOOKABLE_VENDOR_IDS (which now lists SpeedoPost) and
+ * FIRST_MILE_VENDOR_IDS (which does not, deliberately). Adding a vendor to
+ * either list without an adapter behind it is what produces a paid, unplaced
+ * shipment.
  */
 
 import { BaseVendorAdapter } from "../../core/base.adapter";
+import type { FetchRatesResult } from "../../core/base.adapter";
 import type { CanonicalRateRequest, RateQuote } from "../../core/types";
+import { applyDomesticCarrierRules } from "@/lib/rates/domesticCarrierRules";
 import { estimatedRate, isSpeedoPostConfigured } from "@/lib/speedopost/client";
 import {
   buildSpeedoPostRatePayloads,
@@ -130,5 +146,22 @@ export class SpeedoPostDomesticAdapter extends BaseVendorAdapter<
     // two apart, but the de-duplication is what guarantees no two quotes share
     // a picker key, so it has to see the whole list.
     return dedupeSpeedoPostQuotes(quotes);
+  }
+
+  /**
+   * The domestic eligibility rules apply here for the same reason they apply in
+   * the Shipmozo domestic adapter: they are OUR rules about which couriers may
+   * carry a consignment, not a vendor's, so the answer cannot depend on who
+   * quoted it. SpeedoPost resells Shadowfax too (see the brand table in
+   * lib/speedopost/courierCatalogue.ts), and hiding it on one vendor while
+   * showing it on the other would make the value cap look arbitrary and leave
+   * the exact rate the cap exists to prevent one click from being booked.
+   */
+  async fetchRates(input: CanonicalRateRequest): Promise<FetchRatesResult> {
+    const result = await super.fetchRates(input);
+    return {
+      ...result,
+      quotes: applyDomesticCarrierRules(result.quotes, input),
+    };
   }
 }

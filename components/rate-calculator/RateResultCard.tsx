@@ -24,6 +24,7 @@ import { useIsArenaOrg } from "@/hooks/useIsArenaOrg";
 import { carrierLogo } from "@/lib/carrierLogo";
 import { brandServiceName } from "@/lib/branding/serviceName";
 import { RATE_VARIANTS, type RateVariant } from "./rateVariants";
+import CourierAlternatives from "./CourierAlternatives";
 
 interface Props {
   quote: RateQuote;
@@ -48,6 +49,20 @@ interface Props {
    * selection is unaffected. Defaults to true so existing callers are unchanged.
    */
   canGenerateQuote?: boolean;
+  /**
+   * Other rates from the same courier on the same lane, cheapest first. When
+   * present the card is the cheapest of its courier and these sit behind a
+   * disclosure under it. Empty or omitted renders exactly the card that shipped
+   * before merging existed, which is what keeps the international list
+   * untouched.
+   */
+  alternatives?: RateQuote[];
+  /** Courier heading for the disclosure copy, e.g. "Delhivery". */
+  courierLabel?: string;
+  /** True for the rate holding the "Fastest" badge, when it is a hidden one. */
+  isAlternativeFastest?: (quote: RateQuote) => boolean;
+  /** Stable React key for a hidden rate. */
+  alternativeId?: (quote: RateQuote) => string;
 }
 
 // ─── vendor badge colours (visual cue per carrier) ──────────────────────────
@@ -91,6 +106,10 @@ export default function RateResultCard({
   onClick,
   variant = "international",
   canGenerateQuote = true,
+  alternatives,
+  courierLabel,
+  isAlternativeFastest,
+  alternativeId,
 }: Props) {
   const { showCarrierLogo, brandServiceNames } = RATE_VARIANTS[variant];
 
@@ -253,6 +272,29 @@ export default function RateResultCard({
             )}
           </div>
         </CardHeader>
+
+        {/* ── other rates from this courier ──
+            Hidden in compare mode: a compare selection is over the cards on the
+            list, and a second selectable list inside one of them would make
+            "which three am I comparing" ambiguous. */}
+        {!compareMode && alternatives && alternatives.length > 0 && (
+          <CardContent className="pt-0">
+            <CourierAlternatives
+              courierLabel={courierLabel ?? displayName}
+              alternatives={alternatives}
+              displayName={(q) =>
+                brandServiceNames && !isArena
+                  ? brandServiceName(q.productName)
+                  : q.productName
+              }
+              quoteId={(q) =>
+                alternativeId?.(q) ??
+                `${q.vendorId}-${q.productName}-${q.totalWithTax}`
+              }
+              isFastest={isAlternativeFastest}
+            />
+          </CardContent>
+        )}
 
         {/* ── charges collapsible (grid view only) ── */}
         {!compareMode && viewMode === "grid" && quote.charges.length > 0 && (

@@ -53,6 +53,8 @@ import { useIsArenaOrg } from "@/hooks/useIsArenaOrg";
 import { carrierLogo } from "@/lib/carrierLogo";
 import { brandServiceName } from "@/lib/branding/serviceName";
 import { classifyServiceMode, type ServiceMode } from "@/lib/booking/serviceMode";
+import { groupQuotesByCourier, type CourierGroup } from "@/lib/rates/courierGroups";
+import CourierAlternatives from "@/components/rate-calculator/CourierAlternatives";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -137,6 +139,10 @@ function RateOptionCard({
   showCarrierLogo,
   mode,
   onSelect,
+  alternatives,
+  courierLabel,
+  fastestKey,
+  onSelectAlternative,
 }: {
   quote: RateQuote;
   selected: boolean;
@@ -147,6 +153,16 @@ function RateOptionCard({
   /** Set only where surface/air applies (domestic). Renders the mode chip. */
   mode?: ServiceMode;
   onSelect: () => void;
+  /**
+   * Other rates from the same courier, cheapest first. Selectable, because on
+   * this surface a rate is something the customer BUYS: a slab they cannot pick
+   * is a slab we should not have shown them.
+   */
+  alternatives?: RateQuote[];
+  /** Courier heading for the disclosure copy. */
+  courierLabel?: string;
+  fastestKey?: string | null;
+  onSelectAlternative?: (quote: RateQuote) => void;
 }) {
   const tax = quote.totalWithTax - quote.totalWithoutTax;
   const hasCharges = quote.charges.length > 0;
@@ -316,6 +332,29 @@ function RateOptionCard({
           </Collapsible>
         </div>
       )}
+
+      {/* Other rates from this courier — outside the select button, same as the
+          breakdown above, so choosing one of them never reads as choosing the
+          card it sits under. */}
+      {alternatives && alternatives.length > 0 && (
+        <div className="px-4 pb-3">
+          <CourierAlternatives
+            courierLabel={courierLabel ?? displayName}
+            alternatives={alternatives}
+            displayName={(q) =>
+              showCarrierLogo && !isArena
+                ? brandServiceName(q.productName)
+                : q.productName
+            }
+            quoteId={quoteKey}
+            isFastest={(q) => quoteKey(q) === fastestKey}
+            // Closed by default with no exception for the current selection:
+            // the picker rotates a chosen rate onto the card (see
+            // displayGroups), so what is in here is never what was picked.
+            onSelect={onSelectAlternative}
+          />
+        </div>
+      )}
     </div>
   );
 }
@@ -339,6 +378,16 @@ interface Props {
    * and the mode is the axis people actually choose on.
    */
   splitByMode?: boolean;
+  /**
+   * Domestic only. Collapses each courier to its cheapest rate and puts the
+   * rest behind a disclosure on the card. A domestic lane returns fifteen-odd
+   * rows that are four or five couriers at different weight slabs, which is a
+   * wall of near-duplicates to read at the moment of buying.
+   *
+   * Off for international, where the rows are genuinely different services,
+   * and off for the first-mile leg, whose list is short enough to read whole.
+   */
+  mergeByCourier?: boolean;
 }
 
 export function RateOptionPicker({
@@ -348,6 +397,7 @@ export function RateOptionPicker({
   tatSuffix,
   showCarrierLogo,
   splitByMode,
+  mergeByCourier,
 }: Props) {
   const [sortBy, setSortBy] = useState<SortKey>("price-asc");
   const [hidden, setHidden] = useState<Set<string>>(new Set());
@@ -429,6 +479,77 @@ export function RateOptionPicker({
     });
     return result;
   }, [quotes, hidden, sortBy, modeByKey, showModeTabs, activeTab]);
+
+  /**
+   * One entry per rendered card, in the order `processed` produced.
+   *
+   * Not merging yields one group per quote, so the render below is one code
+   * path and the international and first-mile lists are byte-for-byte what they
+   * were. Mode is already the tab axis here, so the grouping does not split on
+   * it again — inside the Surface tab every quote is surface anyway, and in the
+   * "All" tab the mode chip on each card still says which is which.
+   */
+  const groups = useMemo<CourierGroup<RateQuote>[]>(() => {
+    if (!mergeByCourier) {
+      return processed.map((quote) => ({
+        key: quoteKey(quote),
+        label: quote.productName,
+        mode: null,
+        best: quote,
+        alternatives: [],
+        size: 1,
+      }));
+    }
+
+    return groupQuotesByCourier(processed, {
+      // Read from the name the viewer sees, so a group heading can never print
+      // a sourcing vendor's brand. See lib/rates/courierFamily.ts.
+      displayName: (q) =>
+        showCarrierLogo && !isArena
+          ? brandServiceName(q.productName)
+          : q.productName,
+      // Surface and air stay separate groups even though the tabs already
+      // split them. Inside a mode tab that changes nothing, and in the "All"
+      // tab it is the difference between "Delhivery" meaning the truck and
+      // "Delhivery" meaning the flight: merged, the cheaper truck would always
+      // win and bury the only fast option that courier offers. Each card keeps
+      // its mode chip, so two same-named groups there read correctly.
+      splitByMode: true,
+    });
+  }, [processed, mergeByCourier, showCarrierLogo, isArena]);
+
+  /**
+   * THE CARD ALWAYS SHOWS THE RATE THAT IS SELECTED.
+   *
+   * A group's representative is its cheapest rate, but the customer may pick a
+   * dearer slab out of the disclosure. Leaving the cheapest on the card then
+   * produces a card that looks chosen while naming a price the customer did not
+   * choose, and collapsing the disclosure hides the difference entirely — a
+   * confusion that ends in someone believing they bought the cheaper one.
+   *
+   * So the chosen rate is rotated into the card position and the cheapest drops
+   * into the disclosure. Only the ORDER inside a group changes; no rate is
+   * added, removed, or repriced, and a group nobody has picked from is
+   * untouched.
+   */
+  const displayGroups = useMemo<CourierGroup<RateQuote>[]>(() => {
+    if (!selectedKey) return groups;
+
+    return groups.map((group) => {
+      const chosenIndex = group.alternatives.findIndex(
+        (q) => quoteKey(q) === selectedKey,
+      );
+      if (chosenIndex === -1) return group;
+
+      const chosen = group.alternatives[chosenIndex];
+      const rest = [
+        group.best,
+        ...group.alternatives.filter((_, i) => i !== chosenIndex),
+      ].sort((a, b) => a.totalWithTax - b.totalWithTax);
+
+      return { ...group, best: chosen, alternatives: rest };
+    });
+  }, [groups, selectedKey]);
 
   const toggleCarrier = (id: string) =>
     setHidden((prev) => {
@@ -521,12 +642,16 @@ export function RateOptionPicker({
         </div>
       ) : (
         <div className={cn(viewMode === "grid" ? "grid gap-3 sm:grid-cols-2" : "flex flex-col gap-3")}>
-          {processed.map((quote) => {
+          {displayGroups.map((group) => {
+            const quote = group.best;
             const key = quoteKey(quote);
             return (
               <RateOptionCard
-                key={key}
+                key={group.key}
                 quote={quote}
+                // The chosen rate has already been rotated onto the card by
+                // displayGroups, so this is a plain identity check and the card
+                // can never claim a price the customer did not pick.
                 selected={selectedKey === key}
                 isCheapest={key === cheapestKey}
                 isFastest={key === fastestKey}
@@ -534,6 +659,10 @@ export function RateOptionPicker({
                 showCarrierLogo={showCarrierLogo}
                 mode={modeByKey?.get(key)}
                 onSelect={() => onSelect(quote)}
+                alternatives={group.alternatives}
+                courierLabel={group.label}
+                fastestKey={fastestKey}
+                onSelectAlternative={onSelect}
               />
             );
           })}
@@ -541,7 +670,10 @@ export function RateOptionPicker({
       )}
 
       <p className="text-center text-xs text-muted-foreground">
-        {processed.length} of {quotes.length} option{quotes.length !== 1 ? "s" : ""} shown · Prices include GST
+        {mergeByCourier
+          ? `${displayGroups.length} courier${groups.length !== 1 ? "s" : ""}, ${processed.length} rate${processed.length !== 1 ? "s" : ""}`
+          : `${processed.length} of ${quotes.length} option${quotes.length !== 1 ? "s" : ""} shown`}{" "}
+        · Prices include GST
       </p>
     </>
   );

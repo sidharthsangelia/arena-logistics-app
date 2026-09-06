@@ -117,16 +117,45 @@ const boxSchema = z.object({
   heightCm: z.number({ error: "Add size" }).positive("Add size"),
 });
 
-const formSchema = z.object({
-  originPincode: z.string().trim().min(1, "Enter a pincode"),
-  originCity: z.string().trim().min(1, "Enter a city"),
-  destinationCountry: z.string().min(1, "Pick a country"),
-  destinationPincode: z.string().trim().min(1, "Enter a postal code"),
-  destinationCity: z.string().trim().min(1, "Enter a city"),
-  sizeUnit: z.enum(["cm", "in"]),
-  boxes: z.array(boxSchema).min(1, "Add at least one box"),
-  vendors: z.array(z.string()).min(1, "Pick at least one carrier"),
-});
+/**
+ * INVOICE VALUE — DOMESTIC ONLY, AND REQUIRED THERE.
+ *
+ * Two things downstream need a real figure, and both were being answered with a
+ * dummy until this field existed:
+ *
+ *   1. Shipmozo prices risk-of-value against `order_amount`, so quoting every
+ *      shipment at the fallback dummy overstated that charge on cheap goods and
+ *      understated it on expensive ones.
+ *   2. Some couriers will not carry high-value consignments at all
+ *      (lib/rates/domesticCarrierRules.ts). Without a value the calculator
+ *      cannot apply that rule, and would keep showing a rate the booking step
+ *      then withdraws — the worst moment to find out.
+ *
+ * Required rather than optional for exactly that second reason: an optional
+ * field left blank puts the two surfaces back out of step, and the customer
+ * meets the difference after entering every address.
+ *
+ * The international calculator does not collect it. Its vendors price duty from
+ * the commercial invoice at booking, not from a figure typed into a quick quote.
+ */
+const formSchema = z
+  .object({
+    originPincode: z.string().trim().min(1, "Enter a pincode"),
+    originCity: z.string().trim().min(1, "Enter a city"),
+    destinationCountry: z.string().min(1, "Pick a country"),
+    destinationPincode: z.string().trim().min(1, "Enter a postal code"),
+    destinationCity: z.string().trim().min(1, "Enter a city"),
+    sizeUnit: z.enum(["cm", "in"]),
+    boxes: z.array(boxSchema).min(1, "Add at least one box"),
+    vendors: z.array(z.string()).min(1, "Pick at least one carrier"),
+    /** Rupees. Present and positive on domestic, always absent on international. */
+    invoiceValue: z.number().positive("Add the invoice value").optional(),
+    scope: z.enum(["international", "domestic"]),
+  })
+  .refine(
+    (data) => data.scope !== "domestic" || typeof data.invoiceValue === "number",
+    { path: ["invoiceValue"], message: "Add the invoice value" },
+  );
 
 type FormValues = z.infer<typeof formSchema>;
 
@@ -165,6 +194,12 @@ function makeDefaultValues(scope: RateScope): FormValues {
     boxes: [emptyBox],
     // Every carrier selected by default.
     vendors: vendorsForScope(scope).map((v) => v.id),
+    // Blank rather than a plausible-looking figure: a prefilled invoice value
+    // is fake data that prices a real quote.
+    invoiceValue: undefined,
+    // Mirrored into the form so the schema can make the invoice value
+    // conditionally required without the resolver needing outside context.
+    scope,
   };
 }
 
@@ -376,6 +411,38 @@ function RouteCard({ register, setValue, errors, control, scope }: RouteProps) {
             </div>
           </div>
         </div>
+
+        {/* Invoice value — domestic only. See the note on formSchema. */}
+        {isDomestic && (
+          <>
+            <div className="h-px bg-border" />
+            <div className="space-y-2">
+              <SectionLabel tip="The value on the invoice for the goods inside, not the shipping. Carriers price their risk cover on it, and some will not carry high-value consignments at all, so it changes both the price and which couriers you are offered.">
+                Invoice value
+              </SectionLabel>
+              <div className="relative">
+                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
+                  ₹
+                </span>
+                <Input
+                  {...register("invoiceValue", {
+                    // An empty field is "not answered", not zero. valueAsNumber
+                    // alone turns "" into NaN, which the schema reports as a
+                    // type error instead of the message written for it.
+                    setValueAs: (v) =>
+                      v === "" || v === null || v === undefined
+                        ? undefined
+                        : Number(v),
+                  })}
+                  inputMode="numeric"
+                  placeholder="e.g. 4500"
+                  className="pl-7"
+                />
+              </div>
+              <FieldError message={errors.invoiceValue?.message} />
+            </div>
+          </>
+        )}
       </CardContent>
     </Card>
   );
@@ -803,6 +870,14 @@ export default function RateCalculatorForm({
 
   const { fields, append, remove } = useFieldArray({ control, name: "boxes" });
 
+  // `defaultValues` is read once, at mount. `scope` is mirrored into the form
+  // only so the resolver can make the invoice value conditionally required, and
+  // a stale copy of it would silently drop that requirement, so it is kept in
+  // step here. Safe to write on every change: no one types into this field.
+  React.useEffect(() => {
+    setValue("scope", scope);
+  }, [scope, setValue]);
+
   const onSubmit = (data: FormValues) => {
     const factor = toCmFactor(data.sizeUnit);
 
@@ -832,7 +907,10 @@ export default function RateCalculatorForm({
         country: data.destinationCountry.toUpperCase(),
       },
       shipment: {
-        // Declared value is not collected here; Shipmozo uses a backend dummy.
+        // Domestic collects a real invoice value (see formSchema); international
+        // does not, and its adapters fall back to a neutral dummy for the
+        // vendors that insist on the field.
+        declaredValue: data.invoiceValue,
         packages: shipmentPackages,
         description: "General Cargo",
         weight: totalWeight,

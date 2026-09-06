@@ -61,6 +61,9 @@ import Stats from "./rateResultList/Stats";
 import BrandFilter from "./rateResultList/BrandFilter";
 import { carrierBrand } from "@/lib/carrierLogo";
 import type { RateVariant } from "./rateVariants";
+import { RATE_VARIANTS } from "./rateVariants";
+import { brandServiceName } from "@/lib/branding/serviceName";
+import { groupQuotesByCourier, type CourierGroup } from "@/lib/rates/courierGroups";
 
 // ---------------------------------------------------------------------------
 // Component
@@ -116,6 +119,13 @@ export default function RateResultsList({
     [quotes],
   );
 
+  // ── MERGING, DOMESTIC ONLY ───────────────────────────────────────────────
+  // A domestic lane returns fifteen-odd rows that are four or five couriers at
+  // different weight slabs, so each courier is collapsed to its cheapest rate
+  // with the rest behind a disclosure on the card. An international lane is a
+  // list of genuinely different services and is left exactly as it was.
+  const mergeByCourier = variant === "domestic";
+
   // Filtered and sorted result set
   const processed = useMemo(() => {
     let result = [...quotes];
@@ -149,6 +159,43 @@ export default function RateResultsList({
 
     return result;
   }, [quotes, activeCarriers, activeBrands, sortBy]);
+
+  /**
+   * One entry per rendered card.
+   *
+   * Not merging produces one group per quote, so the render path below is the
+   * same shape either way and the international list keeps rendering exactly
+   * the cards it always did.
+   *
+   * `processed` is already filtered and sorted, and grouping preserves that
+   * order: groups come out in the order their FIRST member was seen, which for
+   * the default "cheapest first" sort is the order of the representatives.
+   * Within a group the representative is always the cheapest regardless of the
+   * sort, because "cheapest of this courier" is what the collapsed card claims
+   * to be.
+   */
+  const groups = useMemo<CourierGroup<RateQuote>[]>(() => {
+    if (!mergeByCourier) {
+      return processed.map((quote) => ({
+        key: quoteKey(quote),
+        label: quote.productName,
+        mode: null,
+        best: quote,
+        alternatives: [],
+        size: 1,
+      }));
+    }
+
+    // The family is read from the name the VIEWER sees, so a group heading can
+    // never print a sourcing vendor's brand. See lib/rates/courierFamily.ts.
+    const { brandServiceNames } = RATE_VARIANTS[variant];
+    return groupQuotesByCourier(processed, {
+      displayName: (q) =>
+        brandServiceNames && !isArena
+          ? brandServiceName(q.productName)
+          : q.productName,
+    });
+  }, [processed, mergeByCourier, variant, isArena]);
 
   // Badge IDs are derived from the FULL quotes array — not the processed slice.
   // This ensures "Best price" and "Fastest" badges are stable even when the
@@ -267,11 +314,12 @@ export default function RateResultsList({
                   : "flex flex-col gap-3"
               }
             >
-              {processed.map((quote, i) => {
+              {groups.map((group, i) => {
+                const quote = group.best;
                 const id = quoteKey(quote);
                 return (
                   <RateResultCard
-                    key={id}
+                    key={group.key}
                     quote={quote}
                     rank={i + 1}
                     isCheapest={id === cheapestId}
@@ -285,6 +333,12 @@ export default function RateResultsList({
                     onClick={() => handleCardClick(quote)}
                     variant={variant}
                     canGenerateQuote={canGenerateQuote}
+                    alternatives={group.alternatives}
+                    courierLabel={group.label}
+                    // The fastest rate on the lane can be a collapsed slab. The
+                    // disclosure says so rather than letting the badge vanish.
+                    isAlternativeFastest={(q) => quoteKey(q) === fastestId}
+                    alternativeId={quoteKey}
                   />
                 );
               })}

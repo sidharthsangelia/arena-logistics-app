@@ -22,6 +22,7 @@ import type { BookingFormData } from "@/types/booking.types";
 import type { RateQuote } from "@/lib/types";
 import { getDomesticRatesAction } from "@/actions/domesticRateCalculator.action";
 import {
+  DOMESTIC_BOOKABLE_VENDOR_IDS,
   buildDomesticRateRequest,
   domesticCodAmount,
   domesticPickupSource,
@@ -215,7 +216,13 @@ export default function DomesticServiceStep({
     startTransition(async () => {
       try {
         const request = buildDomesticRateRequest({ ...formData, ...overrides });
-        const result = await getDomesticRatesAction(request);
+        // Pinned rather than left to the registry: the domestic rate registry
+        // also carries quote-only vendors (SpeedoPost), and anything offered
+        // here is something the customer is about to pay for. See
+        // DOMESTIC_BOOKABLE_VENDOR_IDS.
+        const result = await getDomesticRatesAction(request, [
+          ...DOMESTIC_BOOKABLE_VENDOR_IDS,
+        ]);
 
         if (!result.success || result.quotes.length === 0) {
           setFetchError(
@@ -345,6 +352,12 @@ export default function DomesticServiceStep({
           }
           showCarrierLogo
           splitByMode
+          // Each courier collapses to its cheapest rate, with its other weight
+          // slabs one click away on the card. A domestic lane returns fifteen-
+          // odd rows that are four or five couriers, and this is the step where
+          // the customer commits, so the list has to be readable rather than
+          // exhaustive.
+          mergeByCourier
         />
       )}
 
