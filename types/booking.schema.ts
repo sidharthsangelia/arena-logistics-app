@@ -7,7 +7,9 @@ import {
 import {
   DOMESTIC_DOC_CONFIGS,
   domesticDocRequirement,
+  EWAY_BILL_NUMBER_DIGITS,
   EWAY_BILL_THRESHOLD,
+  isValidEwayBillNumber,
 } from "@/lib/booking/domesticDocs";
 import { isIndianMobile } from "@/lib/booking/phone";
 
@@ -289,6 +291,10 @@ export const domesticShipmentDetailsSchema = z
     consignor: z.any(),
     consignee: z.any(),
     domesticDocs: domesticDocsSchema,
+    // Asked for only above the e-way bill threshold, so it is optional here and
+    // required conditionally in the refinement below, the same way the document
+    // slots are.
+    eWayBillNumber: z.string().optional().default(""),
   })
   .superRefine((data, ctx) => {
     const { required, senderIsCompany } = domesticDocRequirement({
@@ -326,6 +332,26 @@ export const domesticShipmentDetailsSchema = z
           code: z.ZodIssueCode.custom,
           path: ["domesticDocs", key],
           message: `${cfg?.label ?? key} is required because ${REASON[key] ?? "of this shipment's details"}.`,
+        });
+      }
+    }
+
+    // The NUMBER as well as the file. The courier takes it as a field on the
+    // order and refuses the consignment without it, so a booking that has the
+    // PDF but not the number is one that cannot actually be placed.
+    if (required.includes("eWayBill")) {
+      const entered = (data.eWayBillNumber ?? "").trim();
+      if (!entered) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["eWayBillNumber"],
+          message: `An e-way bill number is required because ${REASON.eWayBill}.`,
+        });
+      } else if (!isValidEwayBillNumber(entered)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["eWayBillNumber"],
+          message: `An e-way bill number is ${EWAY_BILL_NUMBER_DIGITS} digits. Spaces and hyphens are fine.`,
         });
       }
     }

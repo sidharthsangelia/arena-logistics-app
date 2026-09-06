@@ -12,6 +12,8 @@ import {
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Collapsible,
   CollapsibleContent,
@@ -23,8 +25,11 @@ import { cn } from "@/lib/utils";
 import type { BookingFormData, DomesticDocs } from "@/types/booking.types";
 import {
   DOMESTIC_DOC_CONFIGS,
+  EWAY_BILL_NUMBER_DIGITS,
   EWAY_BILL_THRESHOLD,
   domesticDocRequirement,
+  isValidEwayBillNumber,
+  normaliseEwayBillNumber,
   type DomesticDocKey,
 } from "@/lib/booking/domesticDocs";
 import { BoxEditor } from "../BoxEditor";
@@ -157,6 +162,18 @@ export default function DomesticShipmentDetailStep({
   // Only mark a slot red once the step has actually been submitted and failed;
   // an empty required upload is not an error the moment the page opens.
   const showErrors = !!error;
+
+  // The number is the one field here a customer types rather than attaches, so
+  // it also flags a WRONG value as they leave it, not only a missing one after
+  // a failed submit. A half-typed number is not an error yet, which is why the
+  // length check waits for the field to be non-empty and for the digit count to
+  // have passed what a valid number would be.
+  const enteredNumber = (data.eWayBillNumber ?? "").trim();
+  const numberDigits = normaliseEwayBillNumber(enteredNumber).length;
+  const showNumberError =
+    needsEwayBill &&
+    !isValidEwayBillNumber(enteredNumber) &&
+    (showErrors || numberDigits > EWAY_BILL_NUMBER_DIGITS);
 
   const requiredConfigs = DOMESTIC_DOC_CONFIGS.filter((c) =>
     required.includes(c.key),
@@ -299,6 +316,48 @@ export default function DomesticShipmentDetailStep({
               This consignment does not need any paperwork attached. Add
               anything you want travelling with the parcel below.
             </p>
+          )}
+
+          {/* The NUMBER, not the file. Sits directly under the upload it comes
+              off, because a customer reading the e-way bill PDF to attach it is
+              already looking at the number this asks for. Only above the
+              threshold: below it nothing needs one and the field would be a
+              question with no answer. */}
+          {needsEwayBill && (
+            <div className="space-y-1.5 rounded-lg border bg-muted/20 px-4 py-3">
+              <Label htmlFor="eWayBillNumber" className="text-sm font-medium">
+                E-way bill number
+                <span className="ml-1 text-destructive">*</span>
+              </Label>
+              <Input
+                id="eWayBillNumber"
+                inputMode="numeric"
+                autoComplete="off"
+                placeholder="1234 5678 9012"
+                value={data.eWayBillNumber ?? ""}
+                onChange={(e) => onChange({ eWayBillNumber: e.target.value })}
+                aria-invalid={showNumberError}
+                aria-describedby="eWayBillNumber-hint"
+                className={cn(showNumberError && "border-destructive")}
+              />
+              <p id="eWayBillNumber-hint" className="text-xs text-muted-foreground">
+                The {EWAY_BILL_NUMBER_DIGITS}-digit number on the bill you
+                attached above. The courier is given this on the order and will
+                not carry a consignment over {fmtInr(EWAY_BILL_THRESHOLD)}{" "}
+                without it. Spaces and hyphens are fine.
+              </p>
+              {showNumberError && (
+                <p
+                  className="flex items-center gap-1.5 text-xs text-destructive"
+                  aria-live="polite"
+                >
+                  <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                  {enteredNumber
+                    ? `An e-way bill number is ${EWAY_BILL_NUMBER_DIGITS} digits. You entered ${normaliseEwayBillNumber(enteredNumber).length}.`
+                    : "An e-way bill number is required for this shipment."}
+                </p>
+              )}
+            </div>
           )}
 
           {/* Everything else: folded away, one click from open. */}

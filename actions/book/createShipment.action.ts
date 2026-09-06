@@ -77,9 +77,13 @@ import {
 } from "@/lib/booking/kyc";
 import {
   DOMESTIC_DOC_CONFIGS,
+  EWAY_BILL_NUMBER_DIGITS,
+  EWAY_BILL_THRESHOLD,
   domesticDocLabels,
   isCompanyParty,
   missingDomesticDocs,
+  needsEwayBillNumber,
+  normaliseEwayBillNumber,
 } from "@/lib/booking/domesticDocs";
 import { domesticCodAmount } from "@/lib/booking/domesticRequest";
 import { isKycWaived } from "@/lib/booking/waiver";
@@ -316,6 +320,14 @@ function preflight(data: BookingFormData): PreflightResult {
     const missing = missingDomesticDocs(data);
     if (missing.length > 0) {
       fieldErrors.domesticDocs = `Missing required documents: ${domesticDocLabels(missing)}.`;
+    }
+
+    // The e-way bill NUMBER, checked separately from the file. The courier takes
+    // it as a field on the order and refuses a consignment over the threshold
+    // without one, so a booking that gets past here without it is one the
+    // customer pays for and nobody can place.
+    if (needsEwayBillNumber(data)) {
+      fieldErrors.eWayBillNumber = `A valid ${EWAY_BILL_NUMBER_DIGITS}-digit e-way bill number is required because the declared value is over ₹${EWAY_BILL_THRESHOLD.toLocaleString("en-IN")}.`;
     }
   }
 
@@ -720,6 +732,12 @@ export async function createShipmentAction(
             // can see it and so the courier push can set it; it is deliberately
             // NOT part of what the wallet is debited below, which is the
             // freight and nothing else.
+            // Digits only, so what the courier is sent is the same number
+            // whether the customer pasted it with spaces, hyphens or neither.
+            eWayBillNumber: isDomestic
+              ? normaliseEwayBillNumber(data.eWayBillNumber) || null
+              : null,
+
             codEnabled: isDomestic && data.codEnabled,
             codAmount:
               isDomestic && data.codEnabled

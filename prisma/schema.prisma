@@ -1105,6 +1105,14 @@ model Shipment {
   codEnabled Boolean  @default(false)
   codAmount  Decimal? @db.Decimal(14, 2)
 
+  // The 12-digit e-way bill number, collected in the wizard once the declared
+  // value passes ₹50,000. Distinct from the e-way bill PDF, which is filed as a
+  // ShipmentDocument: the file travels with the parcel, this number goes to the
+  // courier as a field on the order and SpeedoPost refuses the consignment
+  // without it. Stored as entered, normalised to digits at the boundary.
+  // Null below the threshold, and on every international shipment.
+  eWayBillNumber String?
+
   // The door → door courier order, pushed automatically the moment the booking
   // commits (lib/inngest/functions/bookDomesticCourier.ts). Every external id is
   // written the instant the vendor returns it, so a retry after a mid-flow

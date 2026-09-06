@@ -38,6 +38,8 @@ import {
   domesticDocRequirement,
   isCompanyParty,
   missingDomesticDocs,
+  isValidEwayBillNumber,
+  needsEwayBillNumber,
 } from "@/lib/booking/domesticDocs";
 import { domesticCodAmount } from "@/lib/booking/domesticRequest";
 
@@ -200,6 +202,10 @@ function KycBlock({ data }: { data: BookingFormData }) {
 function DomesticDocsStatusBadge({ data }: { data: BookingFormData }) {
   const { required } = domesticDocRequirement(data);
   const missing = missingDomesticDocs(data);
+  // The e-way bill NUMBER blocks the booking exactly as a missing upload does,
+  // so it is counted here too. A badge reading "ready" over a booking the
+  // create action will refuse is the one thing this badge must never do.
+  const outstanding = missing.length + (needsEwayBillNumber(data) ? 1 : 0);
 
   if (required.length === 0) {
     return (
@@ -208,7 +214,7 @@ function DomesticDocsStatusBadge({ data }: { data: BookingFormData }) {
       </span>
     );
   }
-  if (missing.length === 0) {
+  if (outstanding === 0) {
     return (
       <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-400">
         <PackageCheck className="h-3 w-3" />
@@ -219,16 +225,17 @@ function DomesticDocsStatusBadge({ data }: { data: BookingFormData }) {
   return (
     <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">
       <Clock3 className="h-3 w-3" />
-      {missing.length} still needed
+      {outstanding} still needed
     </span>
   );
 }
 
 function DomesticDocsBlock({ data }: { data: BookingFormData }) {
-  const { required, senderIsCompany, receiverIsCompany } =
+  const { required, senderIsCompany, receiverIsCompany, needsEwayBill } =
     domesticDocRequirement(data);
   const missing = missingDomesticDocs(data);
   const docs = data.domesticDocs;
+  const hasEwayBillNumber = isValidEwayBillNumber(data.eWayBillNumber);
 
   const attached = DOMESTIC_DOC_CONFIGS.filter((c) => docs?.[c.key]);
 
@@ -272,6 +279,28 @@ function DomesticDocsBlock({ data }: { data: BookingFormData }) {
             ? "No documents are required for this shipment."
             : "No documents attached yet."}
         </p>
+      )}
+
+      {/* The number, shown beside the documents it belongs with. It is not a
+          document, so it is not in the grid above, but a customer checking their
+          paperwork before paying is checking for this too: it is what the
+          courier is actually given, and a wrong one stops the parcel. */}
+      {needsEwayBill && (
+        <div className="flex items-center gap-2 rounded-md border bg-muted/30 px-3 py-2 text-xs">
+          {hasEwayBillNumber ? (
+            <FileCheck2 className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
+          ) : (
+            <AlertCircle className="h-3.5 w-3.5 shrink-0 text-amber-600" />
+          )}
+          <div className="min-w-0">
+            <p className="font-medium text-foreground">E-way bill number</p>
+            <p className="truncate text-muted-foreground">
+              {hasEwayBillNumber
+                ? data.eWayBillNumber!.trim()
+                : "Not entered yet"}
+            </p>
+          </div>
+        </div>
       )}
 
       {missing.length > 0 && (

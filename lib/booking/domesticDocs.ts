@@ -39,6 +39,31 @@ import { totalDeclaredValue } from "@/lib/booking/cargo";
  */
 export const EWAY_BILL_THRESHOLD = 50_000;
 
+/**
+ * THE E-WAY BILL NUMBER, WHICH IS NOT THE SAME THING AS THE E-WAY BILL FILE.
+ *
+ * The upload slot above puts the PDF on the shipment so the parcel travels with
+ * its paperwork. This is the 12-digit number off that document, and it exists
+ * for a different reason: SpeedoPost takes `ewaybill` as a FIELD on CreateOrder
+ * and refuses a consignment over the threshold without it. A PDF in our own
+ * storage is no use to them.
+ *
+ * Twelve digits is the format the GST portal issues (EBN). Punctuation is
+ * stripped before counting, because a customer copying one off a printed
+ * challan will paste "1234 5678 9012" and being told that is wrong is a support
+ * ticket about a number they typed correctly.
+ */
+export const EWAY_BILL_NUMBER_DIGITS = 12;
+
+/** Digits only, so a pasted number with spaces or hyphens is read the same. */
+export function normaliseEwayBillNumber(value: string | null | undefined): string {
+  return (value ?? "").replace(/\D/g, "");
+}
+
+export function isValidEwayBillNumber(value: string | null | undefined): boolean {
+  return normaliseEwayBillNumber(value).length === EWAY_BILL_NUMBER_DIGITS;
+}
+
 export type DomesticDocKey = keyof DomesticDocs;
 
 export interface DomesticDocConfig {
@@ -150,6 +175,24 @@ export function missingDomesticDocs(
 ): DomesticDocKey[] {
   const { required } = domesticDocRequirement(data);
   return required.filter((key) => !data.domesticDocs?.[key]);
+}
+
+/**
+ * Whether this booking still owes an e-way bill NUMBER.
+ *
+ * Separate from missingDomesticDocs because the two are missing for different
+ * reasons and are fixed in different places: one is an upload, the other is a
+ * field. Both are checked again server-side in createShipmentAction, since
+ * which of them applies is derived from values that arrive in the same
+ * browser-editable payload.
+ */
+export function needsEwayBillNumber(
+  data: Pick<BookingFormData, "consignor" | "consignee" | "boxes" | "eWayBillNumber">,
+): boolean {
+  return (
+    domesticDocRequirement(data).needsEwayBill &&
+    !isValidEwayBillNumber(data.eWayBillNumber)
+  );
 }
 
 /** Human list for an error message, e.g. "Tax invoice, E-way bill". */

@@ -114,6 +114,7 @@ export default function ModeStep({ data, onChange, setValue }: Props) {
 
       // Domestic-only fields, cleared when going back to international.
       domesticDocs: isDomestic ? data.domesticDocs : EMPTY_DOMESTIC_DOCS,
+      eWayBillNumber: isDomestic ? data.eWayBillNumber : "",
       codEnabled: isDomestic ? data.codEnabled : false,
 
       // Values are always rupees on a domestic move; the international flow

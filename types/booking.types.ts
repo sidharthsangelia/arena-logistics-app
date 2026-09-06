@@ -216,6 +216,19 @@ export interface BookingFormData {
   domesticDocs: DomesticDocs;
 
   /**
+   * The 12-digit e-way bill number, DOMESTIC only, collected once the declared
+   * value passes EWAY_BILL_THRESHOLD.
+   *
+   * Distinct from `domesticDocs.eWayBill`, which is the PDF. The file travels
+   * with the parcel; this number goes to the courier as a field on the order.
+   * SpeedoPost refuses a consignment over the threshold without it, and a PDF
+   * sitting in our storage is no use to them.
+   *
+   * Empty string below the threshold, and nothing asks for it there.
+   */
+  eWayBillNumber?: string;
+
+  /**
    * Cash on delivery, offered on domestic rates only. This is Shipmozo's
    * facility, not how the customer pays Arena: the freight is still debited
    * from the org wallet at booking exactly as on a prepaid shipment. The amount
