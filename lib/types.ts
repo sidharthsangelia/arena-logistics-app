@@ -125,12 +125,16 @@ export type VendorId = (typeof AVAILABLE_VENDORS)[number]["id"];
 // appear twice at different prices — a Delhivery quoted via two aggregators is
 // two real, separately purchasable options, and the cheaper one wins on sort.
 // That is the point of sourcing from several, not a duplicate to collapse.
+/**
+ * Carriers the DOMESTIC RATE CALCULATOR may be asked to price. This is a
+ * quoting list, not a booking list: SpeedoPost quotes here but has no booking
+ * adapter, so the booking surfaces pin their own narrower lists
+ * (DOMESTIC_BOOKABLE_VENDOR_IDS, FIRST_MILE_VENDOR_IDS). See the block in
+ * lib/rate-adapters/vendors/domestic.index.ts.
+ */
 export const DOMESTIC_CALCULATOR_VENDORS = [
   { id: "shipmozo", label: "Shipmozo" },
-  // SpeedoPost is unregistered in the domestic rate registry (see the block in
-  // lib/rate-adapters/vendors/domestic.index.ts). Restore this line at the same
-  // time as that registration, not before.
-  // { id: "speedopost", label: "SpeedoPost" },
+  { id: "speedopost", label: "SpeedoPost" },
 ] as const;
 
 export type DomesticCalculatorVendorId =

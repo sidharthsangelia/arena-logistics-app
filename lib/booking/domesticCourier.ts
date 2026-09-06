@@ -56,6 +56,7 @@ export const DOMESTIC_COURIER_SHIPMENT_SELECT = {
 
   codEnabled: true,
   codAmount: true,
+  eWayBillNumber: true,
   quotedTotal: true,
   totalActualWeightKg: true,
 
@@ -296,6 +297,11 @@ export function buildDomesticBookingRequest(
       : { type: "PREPAID" },
 
     freightCharge: num(shipment.quotedTotal) || null,
+
+    // Collected in the wizard above the GST threshold and passed straight
+    // through. Null is the normal case and every adapter treats it as such; a
+    // carrier that requires one refuses the booking rather than inventing it.
+    eWayBillNumber: shipment.eWayBillNumber?.trim() || null,
 
     service: {
       vendorId,

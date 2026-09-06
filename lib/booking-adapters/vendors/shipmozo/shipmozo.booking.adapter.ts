@@ -40,6 +40,7 @@ import type {
   ExistingOrder,
   LabelFile,
   PickupPointResult,
+  SchedulePickupInput,
 } from "../../core/types";
 import {
   buildPushOrderPayload,
@@ -139,8 +140,9 @@ export class ShipmozoBookingAdapter extends BaseBookingAdapter {
     };
   }
 
-  async schedulePickup(vendorOrderId: string): Promise<void> {
-    await this.call(() => schedulePickup(vendorOrderId));
+  /** Shipmozo hangs the pickup off the order, so nothing else in the input is used. */
+  async schedulePickup(input: SchedulePickupInput): Promise<void> {
+    await this.call(() => schedulePickup(input.vendorOrderId));
   }
 
   async fetchLabel(input: {

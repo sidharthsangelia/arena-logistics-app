@@ -43,11 +43,25 @@ import type {
 // --- CONFIG -------------------------------------------------------------------
 
 /**
- * Both networks are priced on every search. B2C is the parcel couriers, B2B
- * the freight operators; they are different providers at different prices and a
- * domestic shipment can legitimately want either.
+ * WHICH SPEEDOPOST NETWORKS WE PRICE.
+ *
+ * B2C is the parcel couriers, B2B the freight operators — different providers
+ * at different prices, and `orderType` is required on every rate call, so each
+ * network needs its own call.
+ *
+ * B2C IS OFF as of 2026-09-05. Our account's B2C rate card answers
+ * "Base Rate not found." on every lane and weight tried (Mumbai → Delhi at
+ * 0.5kg and 2kg, Bengaluru → Chennai at 1kg, Delhi → Kolkata at 5kg), while B2B
+ * prices all of them. It priced in August, so this is a change on SpeedoPost's
+ * side, not ours. Calling it anyway bought nothing and cost a round trip plus a
+ * warning line on every single domestic search.
+ *
+ * Put "B2C" back the moment SpeedoPost restores the card — everything
+ * downstream (the payload builder, the segment mapper, the " Freight" suffix,
+ * the cross-segment de-duplication) still handles both and is still tested for
+ * both, so this list is the only thing that has to change.
  */
-export const SPEEDOPOST_SEGMENTS: SpeedoPostOrderType[] = ["B2C", "B2B"];
+export const SPEEDOPOST_SEGMENTS: SpeedoPostOrderType[] = ["B2B"];
 
 /**
  * Charge fields in the extended breakdown, in the order a reader expects them,

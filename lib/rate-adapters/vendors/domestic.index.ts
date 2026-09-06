@@ -15,7 +15,7 @@
 
 import { AdapterRegistry } from "../core/registry";
 import { ShipmozoDomesticAdapter } from "./shipmozo-domestic/shipmozo-domestic.adapter";
-// import { SpeedoPostDomesticAdapter } from "./speedopost/speedopost.adapter";
+import { SpeedoPostDomesticAdapter } from "./speedopost/speedopost.adapter";
 
 /**
  * Singleton domestic registry, pinned to globalThis (same rationale as the
@@ -37,29 +37,29 @@ globalForDomesticRegistry.__arenaDomesticAdapterRegistry =
 domesticAdapterRegistry.register(new ShipmozoDomesticAdapter());
 
 /**
- * SPEEDOPOST — WITHDRAWN FROM THE CALCULATOR, NOT DELETED.
+ * SPEEDOPOST — QUOTES HERE, BOOKS SINCE 2026-09-05.
  *
- * Its rate adapter still lives under ./speedopost/ and still compiles and
- * type-checks; it is simply not registered, so `getRates` never fans out to it
- * and no customer is offered a SpeedoPost service. The reason it went is the
- * asymmetry documented in speedopostBooking.md: SpeedoPost could quote but
- * never book, so every quote it won was a shipment paid for and then placed by
- * hand.
+ * Registered here so the DOMESTIC RATE CALCULATOR prices SpeedoPost alongside
+ * Shipmozo, and now backed by a booking adapter in
+ * lib/booking-adapters/vendors/domestic.booking.index.ts, so a customer can
+ * actually buy what is quoted. The analysis behind that adapter, including the
+ * questions still open with SpeedoPost, is in speedopostBooking.md.
  *
- * To bring it back, uncomment the import above and the register below. Two
- * other places opt in alongside it, and all three are needed for a working
- * vendor:
- *   1. DOMESTIC_CALCULATOR_VENDORS in lib/types.ts   (the calculator filter)
- *   2. A SpeedoPost adapter in
- *      lib/booking-adapters/vendors/domestic.booking.index.ts, without which
- *      the same take-the-money-and-stall behaviour returns
- *   3. FIRST_MILE_VENDOR_IDS in lib/booking/firstMile.ts, only once (2) is done
+ * The registry is shared, so the two booking surfaces still opt in by name
+ * instead of taking whatever is registered:
+ *   - DOMESTIC_BOOKABLE_VENDOR_IDS in lib/booking/domesticRequest.ts pins the
+ *     domestic booking wizard's service step. SpeedoPost is on it.
+ *   - FIRST_MILE_VENDOR_IDS in lib/booking/firstMile.ts pins the export
+ *     door → hub leg. SpeedoPost is NOT on it, and that is a judgement rather
+ *     than an oversight: see the note on that constant.
+ * Both lists mean "can quote AND book", and a name belongs on one only while an
+ * adapter for it is registered.
  *
- * Tracking is untouched on purpose — it stays registered in
- * lib/tracking-adapters/vendors/tracking.index.ts so SpeedoPost shipments
- * already in flight keep reporting scans.
+ * Tracking has been registered throughout in
+ * lib/tracking-adapters/vendors/tracking.index.ts, so scans have always come
+ * back regardless of who placed the order.
  */
-// domesticAdapterRegistry.register(new SpeedoPostDomesticAdapter());
+domesticAdapterRegistry.register(new SpeedoPostDomesticAdapter());
 
 // ↓ Future domestic vendors — add as needed
 // import { DelhiveryDomesticAdapter } from "./delhivery-domestic/delhivery-domestic.adapter";

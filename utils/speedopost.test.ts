@@ -32,6 +32,7 @@ import {
   speedoPostServiceName,
 } from "@/lib/speedopost/courierCatalogue";
 import {
+  SPEEDOPOST_SEGMENTS,
   buildSpeedoPostRatePayloads,
   dedupeSpeedoPostQuotes,
   mapSpeedoPostOption,
@@ -94,25 +95,104 @@ describe("speedoPostServiceName", () => {
     );
   });
 
-  it("keeps slab codes in caps, not sentence case", () => {
-    // "6cft" reads as a typo. These are cubic-feet slabs on the Delhivery B2B
-    // lanes and they are the only thing separating two real products.
+  it("drops the capacity slab, so one carrier is one option", () => {
+    // 6CFT and 10CFT are cubic-feet PRICE TIERS on one Delhivery service, not
+    // two services, and SpeedoPost only quotes a tier that can take the
+    // consignment. Left in the name they became two cards for one carrier and
+    // the customer had to choose on a number they cannot act on. The tier still
+    // reaches the booking, on the provider code.
     assert.equal(
       speedoPostServiceName("DELHIVERY B2B 6CFT", "B2B"),
-      "Delhivery 6CFT Freight",
+      "Delhivery Freight",
     );
     assert.equal(
       speedoPostServiceName("DELHIVERY_B2B_10CFT", "B2B"),
-      "Delhivery 10CFT Freight",
+      "Delhivery Freight",
     );
   });
 
-  it("strips a segment tag their documentation never showed", () => {
-    // "B2BC". Matched by shape, so the next variant needs no code change.
+  it("strips the segment tags their documentation never showed", () => {
+    // "B2BC" and "B2BRC", both live on 2026-09-05. Matched by shape, so the
+    // next variant needs no code change.
     assert.equal(
       speedoPostServiceName("DELHIVERY B2BC 10CFT", "B2B"),
-      "Delhivery 10CFT Freight",
+      "Delhivery Freight",
     );
+    assert.equal(
+      speedoPostServiceName("VASCHANDIGARHRP B2BRC", "B2B"),
+      "Delhivery Freight",
+    );
+  });
+
+  it("resolves the VAS account labels to the carrier behind them", () => {
+    // SpeedoPost resells one Delhivery through eleven provider codes. Eight are
+    // named after their own account and mention no carrier at all, so untouched
+    // they read as eight unrelated couriers at eight prices. Every live B2B code
+    // from ServiceProvider on 2026-09-05 is listed here.
+    const delhiveryCodes = [
+      "DELHIVERY B2B 6CFT",
+      "DELHIVERY_B2B_10CFT",
+      "DELHIVERY B2BC 10CFT",
+      "VASMARKETPLACE15 B2BC",
+      "VASC6 B2BC",
+      "VASC4 B2BC",
+      "VASCHANDIGARHRP B2BRC",
+      "VASMARKETPLACE04 B2BC",
+      "VASMARKET08 B2BC",
+      "VASMARKETPLACE10 B2BC",
+      "VASMARKETPLACECC B2BC",
+    ];
+
+    for (const raw of delhiveryCodes) {
+      assert.equal(
+        speedoPostServiceName(raw, "B2B"),
+        "Delhivery Freight",
+        `${raw} should read as Delhivery`,
+      );
+    }
+  });
+
+  it("leaves the carriers that are not Delhivery alone", () => {
+    // The alias is a prefix rule, so this is the guard that says it did not
+    // swallow the rest of the B2B catalogue.
+    assert.equal(speedoPostServiceName("Bluedart_PNK", "B2B"), "Blue Dart Freight");
+    assert.equal(speedoPostServiceName("MOVIN SURFACE", "B2B"), "MOVIN Surface Freight");
+    assert.equal(speedoPostServiceName("DP World", "B2B"), "DP World Freight");
+    assert.equal(
+      speedoPostServiceName("Essential Express-B2B", "B2B"),
+      "Essential Express Freight",
+    );
+    // A named Delhivery PRODUCT is not an account label and keeps its name.
+    assert.equal(speedoPostServiceName("DELHIVERY_HEAVY", "B2C"), "Delhivery Heavy");
+  });
+
+  it("collapses every Delhivery account to the cheapest single quote", () => {
+    // The naming above is only half of it. The rate card must end up with ONE
+    // Delhivery card, and it must be the cheapest, because the customer cannot
+    // tell the accounts apart and showing the dearest helps nobody.
+    const priced = [
+      { code: 37360, name: "DELHIVERY B2B 6CFT", total: 640 },
+      { code: 3765884, name: "DELHIVERY_B2B_10CFT", total: 620 },
+      { code: 27019481, name: "VASMARKETPLACE15 B2BC", total: 585 },
+      { code: 32220410, name: "VASCHANDIGARHRP B2BRC", total: 599 },
+      { code: 69477, name: "Bluedart_PNK", total: 700 },
+    ].map((p) =>
+      mapSpeedoPostOption(
+        { serviceProviderCode: p.code, serviceProviderName: p.name, totalCharge: p.total },
+        "B2B",
+        VENDOR,
+      ),
+    );
+
+    const quotes = dedupeSpeedoPostQuotes(priced);
+    const delhivery = quotes.filter((q) => q.productName === "Delhivery Freight");
+
+    assert.equal(delhivery.length, 1);
+    assert.equal(delhivery[0].totalWithTax, 585);
+    // And the code that survives is the one the booking will send back.
+    assert.equal(delhivery[0].courierId, "27019481");
+    // Blue Dart is untouched by any of it.
+    assert.equal(quotes.length, 2);
   });
 
   it("strips the origin-hub codes off the Blue Dart lanes", () => {
@@ -185,15 +265,33 @@ function rateRequest(
 }
 
 describe("buildSpeedoPostRatePayloads", () => {
-  it("prices both networks from one search", () => {
+  it("prices every configured network from one search", () => {
+    // Deliberately asserted against SPEEDOPOST_SEGMENTS rather than a literal
+    // list. Which networks we price is an operational fact that changes with
+    // SpeedoPost's rate cards (B2C is off as of 2026-09-05), and a test pinned
+    // to the literal fails on that switch without anything being broken. What
+    // must stay true is the mapping: one payload per configured segment,
+    // tagged with that segment.
     const calls = buildSpeedoPostRatePayloads(rateRequest());
     assert.deepEqual(
       calls.map((c) => c.orderType),
-      ["B2C", "B2B"],
+      SPEEDOPOST_SEGMENTS,
     );
-    // Same consignment, both times. Only the segment differs.
-    assert.deepEqual(calls[0].payload.dimensions, calls[1].payload.dimensions);
-    assert.equal(calls[0].payload.weight, calls[1].payload.weight);
+    calls.forEach((call) => assert.equal(call.payload.orderType, call.orderType));
+  });
+
+  it("sends the identical consignment to every network", () => {
+    // Only the segment may differ between calls. If the weight or the boxes
+    // drifted apart, the two networks would be pricing different shipments and
+    // the cheapest-wins comparison across them would be meaningless.
+    const calls = buildSpeedoPostRatePayloads(rateRequest());
+    assert.ok(calls.length >= 1);
+    for (const call of calls.slice(1)) {
+      assert.deepEqual(call.payload.dimensions, calls[0].payload.dimensions);
+      assert.equal(call.payload.weight, calls[0].payload.weight);
+      assert.equal(call.payload.sourcePin, calls[0].payload.sourcePin);
+      assert.equal(call.payload.consigneePin, calls[0].payload.consigneePin);
+    }
   });
 
   it("sends weight in kilograms, not grams", () => {

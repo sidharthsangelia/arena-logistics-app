@@ -19,14 +19,24 @@
  *      `DELHIVERYB2C` is one token, `GATI B2B` is two.
  *   3. Account-suffix noise is removed. `_VK` is an account marker, not a
  *      service.
- *   4. A known brand gets its real spelling from the table below.
- *   5. Anything unknown is title-cased and shown anyway. A provider we have
- *      never seen must appear as an option, not vanish because it is missing
- *      from a table.
- *   6. B2B gets " Freight" appended, because it is a materially different
+ *   4. A name that is PURELY an account label resolves to the carrier behind it
+ *      via ACCOUNT_ALIASES. SpeedoPost sells one Delhivery through nine codes,
+ *      eight of which are named `VAS...` and mention no carrier at all.
+ *   5. A known brand gets its real spelling from the table below.
+ *   6. Capacity slabs are dropped from the descriptor: `6CFT` and `10CFT` are
+ *      price tiers on one Delhivery service, not two services.
+ *   7. Anything still unknown is title-cased and shown anyway. A provider we
+ *      have never seen must appear as an option, not vanish because it is
+ *      missing from a table.
+ *   8. B2B gets " Freight" appended, because it is a materially different
  *      service: palletised, dock delivery, appointment-based. B2C is left bare.
  *
- * Rule 5 is the important one. This file is a display polish layer, never a
+ * Rules 4 and 6 exist so ONE carrier reads as one option. They feed
+ * `dedupeSpeedoPostQuotes`, which collapses same-named quotes to the cheapest,
+ * so making eleven Delhivery accounts share a name is also what makes the rate
+ * card show the cheapest of them and only that one.
+ *
+ * Rule 7 is the important one. This file is a display polish layer, never a
  * filter. When SpeedoPost adds a provider, the worst outcome is an unpolished
  * name — never a missing quote.
  * ────────────────────────────────────────────────────────────────────────────
@@ -80,14 +90,60 @@ const BRAND_NAMES: Record<string, string> = {
 const NOISE_TOKENS = new Set(["VK", "PNK", "DEL"]);
 
 /**
+ * RAW NAMES THAT ARE AN ACCOUNT LABEL AND NOTHING ELSE.
+ *
+ * SpeedoPost resells one carrier through several of their own accounts, and
+ * names each account rather than the carrier. Live `ServiceProvider` on
+ * 2026-09-05 returns eight of these in the B2B segment, none of which contains
+ * the word Delhivery, and all eight are Delhivery:
+ *
+ *     27019481 VASMARKETPLACE15 B2BC    32220410 VASCHANDIGARHRP B2BRC
+ *     32220078 VASC6 B2BC               32220532 VASMARKETPLACE04 B2BC
+ *     32220162 VASC4 B2BC               32220595 VASMARKET08 B2BC
+ *     39114409 VASMARKETPLACECC B2BC    32220653 VASMARKETPLACE10 B2BC
+ *
+ * Left alone they read as eight unrelated couriers on the rate card, at eight
+ * different prices, for what is one carrier. Confirmed by the operator on
+ * 2026-09-05.
+ *
+ * MATCHED BY PREFIX, NOT BY LISTING THE CODES. The set demonstrably grows
+ * (VASMARKETPLACECC carries the highest code of the eight, so it is the newest),
+ * and a list would let the next account through as a stray ninth Delhivery under
+ * a raw account name. The trade is stated plainly: if SpeedoPost ever puts a
+ * carrier that is NOT Delhivery behind a VAS account, this mislabels it, which
+ * is worse than an untidy name. That is a question for them the moment a VAS
+ * provider appears whose price does not track the Delhivery ones.
+ */
+const ACCOUNT_ALIASES: { pattern: RegExp; brand: string }[] = [
+  { pattern: /^VAS/, brand: "Delhivery" },
+];
+
+/**
+ * Capacity slabs, dropped from the descriptor.
+ *
+ * `DELHIVERY B2B 6CFT` and `DELHIVERY B2B 10CFT` are cubic-feet pricing tiers on
+ * one Delhivery service, not two services. SpeedoPost only quotes a slab that
+ * can actually take the consignment, so every slab that comes back is a valid
+ * way to ship the same boxes with the same carrier, and the only thing that
+ * separates them is the price. Dropping the token lets the de-duplication in
+ * rateShape collapse them to the cheapest, which is the honest answer: the
+ * customer cannot act on the difference.
+ *
+ * The slab still reaches the booking, because that travels on the provider code
+ * (`courierId`), never on the display name.
+ */
+const SLAB_TOKEN = /^\d+CFT$/;
+
+/**
  * Segment tags, stripped wherever they appear.
  *
- * Matched by shape rather than by membership because live data carries a
- * variant their documentation never showed: `DELHIVERY B2BC 10CFT`. `B2` plus
- * one or two letters covers B2B, B2C, B2X and B2BC without needing to predict
- * the next one.
+ * Matched by shape rather than by membership because live data carries variants
+ * their documentation never showed: `DELHIVERY B2BC 10CFT` and
+ * `VASCHANDIGARHRP B2BRC`. `B2` plus up to three letters covers B2B, B2C, B2X,
+ * B2BC and B2BRC without needing to predict the next one, and no carrier brand
+ * we have ever seen is shaped that way.
  */
-const SEGMENT_TAG = /^B2[A-Z]{1,2}$/;
+const SEGMENT_TAG = /^B2[A-Z]{1,3}$/;
 
 /** Words that are acronyms, not words, so title-casing must leave them alone. */
 const ACRONYMS = new Set(["DP", "DTDC", "VRL", "TCI", "EMS", "DHL", "UPS", "NDD", "SDD"]);
@@ -110,7 +166,7 @@ function tokenize(raw: string): string[] {
       if (!token) return [];
 
       // Peel a trailing segment tag off a glued token.
-      const glued = token.toUpperCase().match(/^(.*?)(B2[A-Z]{1,2})$/);
+      const glued = token.toUpperCase().match(/^(.*?)(B2[A-Z]{1,3})$/);
       const core = glued && glued[1] ? glued[1] : token;
 
       const upper = core.toUpperCase();
@@ -163,6 +219,14 @@ export function inferSpeedoPostSegment(
  * `Delhivery` plus the descriptor that makes it a distinct product.
  */
 function splitBrand(tokens: string[]): { brand: string | null; rest: string[] } {
+  // An account label describes no service, so a match consumes the whole name
+  // and leaves no descriptor behind: `VASMARKETPLACE15` is not a Delhivery
+  // product called "Marketplace 15", it is Delhivery.
+  const squashed = squash(tokens.join(""));
+  for (const alias of ACCOUNT_ALIASES) {
+    if (alias.pattern.test(squashed)) return { brand: alias.brand, rest: [] };
+  }
+
   for (let take = tokens.length; take > 0; take--) {
     const key = squash(tokens.slice(0, take).join(""));
     if (BRAND_NAMES[key]) {
@@ -193,7 +257,10 @@ export function speedoPostServiceName(
   }
 
   const { brand, rest } = splitBrand(tokenize(raw));
-  const descriptor = rest.map(titleCaseToken).join(" ");
+  const descriptor = rest
+    .filter((token) => !SLAB_TOKEN.test(token.toUpperCase()))
+    .map(titleCaseToken)
+    .join(" ");
 
   let name = [brand, descriptor].filter(Boolean).join(" ").trim();
 

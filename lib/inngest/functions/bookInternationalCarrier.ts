@@ -197,8 +197,14 @@ async function prepareBooking(shipmentId: string): Promise<PreparedIntlBooking> 
     );
   }
   if (!adapter.isConfigured()) {
+    // The adapter names the missing setting when it can. "API credentials are
+    // not configured" is the wrong sentence for a vendor whose gap is something
+    // else, and it sends ops to re-check a login that was never the problem.
+    const gap = adapter.configurationGap();
     throw new NonRetriableError(
-      `${adapter.vendorName} API credentials are not configured on the server.`,
+      gap
+        ? `${adapter.vendorName} cannot book: ${gap}`
+        : `${adapter.vendorName} API credentials are not configured on the server.`,
     );
   }
 

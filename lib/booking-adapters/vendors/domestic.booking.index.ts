@@ -19,14 +19,34 @@
 
 import { bookingAdapterRegistry } from "../core/registry";
 import { ShipmozoBookingAdapter } from "./shipmozo/shipmozo.booking.adapter";
+import { SpeedoPostBookingAdapter } from "./speedopost/speedopost.booking.adapter";
 
 bookingAdapterRegistry.register(new ShipmozoBookingAdapter());
 
-// SpeedoPost has never had a booking adapter, and it is no longer registered on
-// the rate side either (lib/rate-adapters/vendors/domestic.index.ts), so no
-// shipment can reach this layer carrying vendorId "speedopost" any more. Its
-// booking API is written up in speedopostBooking.md; the adapter would be
-// registered here, under that exact vendorId, whenever it is built.
+/**
+ * SPEEDOPOST — BOOKABLE SINCE 2026-09-05, WITH TWO THINGS TO KNOW.
+ *
+ * Registering it here is what closes the gap that made SpeedoPost quote-only:
+ * `resolveBookingAdapter("speedopost")` now returns an adapter, so a customer
+ * who selects a SpeedoPost service gets an order placed rather than a held
+ * payment and a CRITICAL notification. DOMESTIC_BOOKABLE_VENDOR_IDS in
+ * lib/booking/domesticRequest.ts is the list that lets the booking wizard offer
+ * it, and the two must be changed together: an entry in that list without an
+ * adapter here is the take-the-money-and-stall bug.
+ *
+ *   1. THEIR CREATE IS NOT SAFELY RETRYABLE. SpeedoPost publishes no way to ask
+ *      whether they already hold an order under our reference, so
+ *      `findExistingOrder` returns null and the adapter refuses to retry a
+ *      create whose outcome it could not read. That turns a possible second
+ *      parcel into a failed booking ops re-drive by hand. The header of
+ *      speedopost.booking.adapter.ts explains the trade.
+ *
+ *   2. SPEEDOPOST_CLIENT_CODE MUST BE SET. It is required on every order and
+ *      SpeedoPost has never explained where ours comes from. `isConfigured`
+ *      returns false without it, which the job turns into a clean permanent
+ *      failure rather than a rejected payload.
+ */
+bookingAdapterRegistry.register(new SpeedoPostBookingAdapter());
 
 // ↓ Future domestic vendors — add as needed
 // import { DelhiveryBookingAdapter } from "./delhivery/delhivery.booking.adapter";

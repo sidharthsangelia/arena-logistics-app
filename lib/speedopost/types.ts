@@ -3,11 +3,11 @@
  * -----------------------------------------------------------------------------
  * SpeedoPost's wire shapes, typed from vendor-api-docs/speedopost.json.
  *
- * Every endpoint in that document is typed here, not just the two we call
- * today (EstimatedRate and TrackingDetails). The booking endpoints are typed
- * and deliberately UNUSED: writing them down is what turns the doc's prose into
- * something the compiler checks, and the booking adapter that eventually lands
- * should not have to re-derive shapes from a JSON file.
+ * Every endpoint in that document is typed here, whether or not we call it.
+ * Writing them down is what turns the doc's prose into something the compiler
+ * checks. As of 2026-09-05 the rate, tracking, warehouse, order, pickup, label
+ * and cancel shapes are all in use; the rest (Reattempt, BookAppointment,
+ * CancelPickupRequest) are still typed ahead of any caller.
  *
  * These types never leave lib/speedopost and the two adapter folders. The rest
  * of the app speaks only the canonical RateQuote / CanonicalTrackResult.
@@ -269,8 +269,16 @@ export interface SpeedoPostOrderDimension {
 }
 
 export interface SpeedoPostCreateOrderPayload {
-  /** Omit and SpeedoPost assigns a provider at random. Always send it. */
-  serviceProviderCode?: string | null;
+  /**
+   * REQUIRED HERE, THOUGH SPEEDOPOST TREATS IT AS OPTIONAL.
+   *
+   * Their documentation: "If provided, system assigns this exact service
+   * provider; otherwise a random one is assigned." So a bug that drops this
+   * field ships the parcel on a courier nobody chose, at a price nobody quoted,
+   * and the API reports success. Making it non-optional means that bug is a
+   * compile error rather than a consignment.
+   */
+  serviceProviderCode: string;
   serviceProviderAwbNumber?: string | null;
   clientCode: string;
   /** Must already exist. See CreateWarehouse. */

@@ -42,10 +42,19 @@ import {
  * the door → hub leg of an international shipment unplaced.
  *
  * So this list is "vendors that can quote AND book", not "vendors that can
- * quote". SpeedoPost is absent twice over: it never had a booking adapter, and
- * as of the withdrawal noted in lib/rate-adapters/vendors/domestic.index.ts it
- * no longer quotes either (see speedopostBooking.md). Add it here only after
- * both its rate adapter and its booking adapter are registered, and not before.
+ * quote". The domestic booking wizard pins the same rule in
+ * DOMESTIC_BOOKABLE_VENDOR_IDS.
+ *
+ * SPEEDOPOST IS DELIBERATELY ABSENT, even though it gained a booking adapter on
+ * 2026-09-05 and is on the domestic list. The difference is the deadline. This
+ * leg has to reach an Arena hub in time for a specific export, and SpeedoPost
+ * publishes no way to ask whether an order they never answered about actually
+ * landed, so its adapter refuses to retry an ambiguous create and hands the
+ * booking to ops instead (the reasoning is in the header of
+ * speedopost.booking.adapter.ts). A domestic door → door shipment in that state
+ * waits a few hours for a person. A first-mile leg in that state misses a
+ * flight. Revisit once SpeedoPost answers whether `clientOrderId` is enforced
+ * unique, which is the question that would let the retry be safe.
  */
 export const FIRST_MILE_VENDOR_IDS = ["shipmozo"] as const;
 

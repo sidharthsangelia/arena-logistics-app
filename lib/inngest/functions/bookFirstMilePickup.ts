@@ -96,8 +96,14 @@ async function prepareFirstMile(shipmentId: string): Promise<PreparedFirstMile> 
     );
   }
   if (!adapter.isConfigured()) {
+    // The adapter names the missing setting when it can. "API credentials are
+    // not configured" is the wrong sentence for a vendor whose gap is something
+    // else, and it sends ops to re-check a login that was never the problem.
+    const gap = adapter.configurationGap();
     throw new NonRetriableError(
-      `${adapter.vendorName} API credentials are not configured on the server.`,
+      gap
+        ? `${adapter.vendorName} cannot book: ${gap}`
+        : `${adapter.vendorName} API credentials are not configured on the server.`,
     );
   }
 
@@ -372,10 +378,21 @@ export const bookFirstMilePickup = inngest.createFunction(
     // and treat a second request as an error, and none of them will un-book an
     // order because this failed. Failing the run here would re-enter it holding
     // an AWB it can no longer use.
+    const pickupPointForPickup = pickupPointId;
+
     await step.run("schedule-pickup", async () => {
       const adapter = requireAdapter(prepared.vendorId);
       try {
-        await adapter.schedulePickup(orderId);
+        // The whole booking, not just the order id: vendors disagree about what
+        // a pickup hangs off. Shipmozo attaches it to the order, SpeedoPost to a
+        // warehouse and a carrier. See SchedulePickupInput.
+        await adapter.schedulePickup({
+          vendorOrderId: orderId,
+          awbNumber: assigned.awbNumber,
+          pickupPointId: pickupPointForPickup,
+          courierId,
+          request: prepared.request,
+        });
         return { scheduled: true };
       } catch (err) {
         Sentry.captureException(err, {

@@ -24,6 +24,34 @@ import {
   totalDeclaredValue,
 } from "@/lib/booking/cargo";
 
+// ---------------------------------------------------------------------------
+// Which vendors may quote a bookable domestic shipment
+// ---------------------------------------------------------------------------
+
+/**
+ * The domestic rate registry can hold more vendors than can actually place an
+ * order for us. The rate calculator is free to price all of them, because a
+ * quote there is information and no money moves. The booking wizard is not:
+ * whatever the customer picks on the service step is what they pay for, and a
+ * vendor with no booking adapter would take that payment and leave the shipment
+ * unplaced (`resolveBookingAdapter` returns null, the money stays held, ops get
+ * a CRITICAL COURIER_BOOKING_FAILED and place the order by hand).
+ *
+ * So this list is "vendors that can quote AND book", the same rule as
+ * FIRST_MILE_VENDOR_IDS in lib/booking/firstMile.ts. A name only belongs here
+ * once an adapter for it is registered in
+ * lib/booking-adapters/vendors/domestic.booking.index.ts, and the two are
+ * changed together.
+ *
+ * SpeedoPost joined on 2026-09-05, when its booking adapter landed. It remains
+ * absent from FIRST_MILE_VENDOR_IDS, which is a separate judgement: the export
+ * door → hub leg has a hard deadline at our hub, and SpeedoPost's create call
+ * cannot be safely retried after an ambiguous failure (see the header of
+ * speedopost.booking.adapter.ts). A domestic door → door booking that fails
+ * that way waits for ops; a first-mile leg that does misses a flight.
+ */
+export const DOMESTIC_BOOKABLE_VENDOR_IDS = ["shipmozo", "speedopost"] as const;
+
 /**
  * The address the courier collects from: the dedicated pickup address when the
  * customer entered a separate one, otherwise the sender. Mirrors both

@@ -29,6 +29,7 @@ import type {
   ExistingOrder,
   LabelFile,
   PickupPointResult,
+  SchedulePickupInput,
 } from "./types";
 
 /**
@@ -69,6 +70,22 @@ export abstract class BaseBookingAdapter {
   abstract isConfigured(): boolean;
 
   /**
+   * WHICH setting is missing, when `isConfigured` is false.
+   *
+   * Exists because "credentials are not configured" is the wrong sentence for
+   * some vendors and sends the reader to check a username and password that
+   * were correct all along. SpeedoPost, for example, needs a `clientCode`
+   * alongside its login, and that is not a credential in any sense the reader
+   * would recognise.
+   *
+   * Default is null, meaning "nothing more specific to say", and the caller
+   * falls back to the generic wording. Override it to name the variable.
+   */
+  configurationGap(): string | null {
+    return null;
+  }
+
+  /**
    * Register (or reuse) the pickup location with the vendor.
    *
    * Vendors that take the pickup address inline should return
@@ -107,9 +124,13 @@ export abstract class BaseBookingAdapter {
    * Optional by default because several vendors schedule automatically on
    * assign. Failing here must never undo an assigned order, so the caller
    * treats it as best-effort.
+   *
+   * Takes the whole booking rather than just the order id: vendors disagree
+   * about what a pickup hangs off. Shipmozo attaches it to the order, SpeedoPost
+   * to a warehouse and a carrier. See SchedulePickupInput.
    */
-  async schedulePickup(vendorOrderId: string): Promise<void> {
-    void vendorOrderId;
+  async schedulePickup(input: SchedulePickupInput): Promise<void> {
+    void input;
   }
 
   /** Cancel the order at the vendor. Used by ops, never automatically. */

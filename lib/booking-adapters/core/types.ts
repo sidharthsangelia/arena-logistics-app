@@ -80,6 +80,16 @@ export interface CanonicalBookingRequest {
   freightCharge?: number | null;
 
   /**
+   * The e-way bill number, digits only, when the consignment needs one.
+   *
+   * India-specific and unavoidable at this layer: it is a FIELD on the courier's
+   * order, not a document, and a carrier that requires it refuses the
+   * consignment without it. Null below the GST threshold, which is the ordinary
+   * case, so an adapter that does not use it can ignore it entirely.
+   */
+  eWayBillNumber?: string | null;
+
+  /**
    * The exact service the customer chose and paid for. `courierId` is the
    * vendor's own id for it; when it is absent the caller has to decide whether
    * an auto-assign is acceptable, because a different courier at the same price
@@ -116,6 +126,30 @@ export interface LabelFile {
   mimeType: string;
   /** Suggested file name, without a path. */
   fileName: string;
+}
+
+/**
+ * Everything a vendor might need to ask for the physical collection.
+ *
+ * Wider than the order id alone because vendors disagree about what a pickup is
+ * attached to. Shipmozo schedules against the ORDER and needs nothing else.
+ * SpeedoPost schedules against the WAREHOUSE and the CARRIER, and never sees
+ * the order at all: it wants a provider code, a warehouse name, a box count and
+ * a weight. One field per vendor's idea of a pickup would make this layer keep
+ * a shape per vendor, which is exactly what it exists to avoid, so it carries
+ * the whole booking and each adapter takes the parts it uses.
+ */
+export interface SchedulePickupInput {
+  /** The vendor's handle for the order, as returned by createOrder. */
+  vendorOrderId: string;
+  /** The waybill, once assigned. */
+  awbNumber: string;
+  /** Whatever ensurePickupPoint returned; null for vendors that register none. */
+  pickupPointId: string | null;
+  /** The service the customer paid for, when it is known. */
+  courierId: string | null;
+  /** The booking itself, for the addresses, boxes and weight. */
+  request: CanonicalBookingRequest;
 }
 
 /**

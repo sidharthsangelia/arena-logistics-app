@@ -61,6 +61,15 @@ export abstract class BaseInternationalBookingAdapter {
   abstract isConfigured(): boolean;
 
   /**
+   * WHICH setting is missing, when `isConfigured` is false. Null means there is
+   * nothing more specific to say and the caller uses its generic wording. Same
+   * contract as BaseBookingAdapter.configurationGap; see the note there.
+   */
+  configurationGap(): string | null {
+    return null;
+  }
+
+  /**
    * Refuse the booking BEFORE anything exists at the vendor.
    *
    * This is the production safety net, and the reason international can be

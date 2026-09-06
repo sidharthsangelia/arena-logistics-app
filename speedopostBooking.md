@@ -1,21 +1,31 @@
-# SpeedoPost booking: analysis, not implementation
+# SpeedoPost booking
 
-What it would take to place a SpeedoPost order from Arena, and what stops that
-being written today.
+How Arena places a SpeedoPost order, why the adapter is shaped the way it is,
+and what is still unverified about their API.
 
-> **Status as of 2026-08-18: SpeedoPost is switched off.** Its rate adapter is
-> no longer registered in `lib/rate-adapters/vendors/domestic.index.ts`, so it
-> quotes nothing and no customer can select it. The code is all still in the
-> repo and still compiles; re-enabling is uncommenting the import and the
-> `register` call there, plus the entry in `DOMESTIC_CALCULATOR_VENDORS`
-> (`lib/types.ts`). Tracking stays registered so shipments already moving keep
-> reporting scans. The rest of this document describes the position before that
-> change and is the starting point for whoever builds the booking adapter.
+> **Status as of 2026-09-05: SpeedoPost quotes, books and tracks.** The booking
+> adapter is built and registered
+> (`lib/booking-adapters/vendors/speedopost/`), and SpeedoPost is on
+> `DOMESTIC_BOOKABLE_VENDOR_IDS`, so a customer can select and pay for a
+> SpeedoPost service and the order is placed automatically. It is deliberately
+> NOT on `FIRST_MILE_VENDOR_IDS`: see §7.
+>
+> It was switched off entirely on 2026-08-18 (quote-but-cannot-book), re-enabled
+> for quoting on 2026-09-05, and given the booking adapter the same day. Its B2C
+> rate card is still dead at their end, so only B2B is priced. The evidence is
+> on `SPEEDOPOST_SEGMENTS` in `lib/speedopost/rateShape.ts`.
 
-Nothing in this document is built. The tracking adapter is live and the rate
-adapter works but is unregistered; the booking adapter is deliberately absent. This is the reading of their
-booking API that the eventual implementation should start from, plus the list of
-answers we need from SpeedoPost before it can be written honestly.
+This document is now BOTH the reading of their booking API that the
+implementation was built from and the record of what is still unverified. The
+adapter is written against the readings below; §3 is the list of things that
+could still bite, and §6 is what to ask SpeedoPost. Sections 1 and 2 describe
+the position before the adapter existed and are kept because the reasoning has
+not changed.
+
+**Before the first live booking, verify three things** (§3.3, §3.5, §3.1):
+the CreateOrder success shape, what PrintLabel actually returns, and the
+clientCode for our account. The adapter logs the full CreateOrder response on
+every order precisely so the first one answers the first of those.
 
 ---
 
@@ -23,15 +33,15 @@ answers we need from SpeedoPost before it can be written honestly.
 
 | Layer | SpeedoPost | Status |
 | --- | --- | --- |
-| Rates | `lib/rate-adapters/vendors/speedopost/` | Built, unregistered. Prices B2C and B2B in parallel; not merged into the domestic calculator while it stays unregistered. |
+| Rates | `lib/rate-adapters/vendors/speedopost/` | Live in the domestic calculator. B2B only; the B2C card is dead at their end. |
 | Tracking | `lib/tracking-adapters/vendors/speedopost/` | Live. In the `/track` vendor fan-out. |
-| Booking | none | Not built. `resolveBookingAdapter("speedopost")` returns null. |
+| Booking | `lib/booking-adapters/vendors/speedopost/` | Live for domestic door → door. Not on the export first-mile leg (§7). |
 
-### The consequence of that gap, stated plainly
+### The gap this closed, kept because it explains the design
 
-`lib/booking-adapters/vendors/domestic.booking.index.ts` has no `speedopost`
-entry, so a customer who selects a SpeedoPost service in the booking wizard
-will:
+With no `speedopost` entry in
+`lib/booking-adapters/vendors/domestic.booking.index.ts`, a customer who selects
+a SpeedoPost service in the booking wizard would:
 
 1. Pay. The wallet is debited at booking exactly as on any domestic shipment.
 2. Trigger `bookDomesticCourier`, which stops at
@@ -42,10 +52,11 @@ will:
 4. Hold the money (decision D5 in `domesticCourierBooking.md`) and write a
    CRITICAL `COURIER_BOOKING_FAILED` notification to the Arena inbox.
 
-Ops then place the order in the SpeedoPost panel and record the AWB by hand.
-This was chosen knowingly: the rates are worth having in front of customers
-before the booking integration lands. Registering a booking adapter under the
-same `vendorId` is the whole fix, and no other layer changes when it does.
+That was the position until 2026-09-05. Registering a booking adapter under the
+same `vendorId` was the whole fix, and no other layer changed when it landed.
+The sequence above is still exactly what happens when the adapter reports itself
+unconfigured (no `SPEEDOPOST_CLIENT_CODE`) or refuses a booking it cannot place
+safely, so it is worth keeping in mind rather than treating as history.
 
 ---
 
@@ -110,8 +121,23 @@ parcel, and there is no way to detect it before it moves. Options, none free:
   timeout fails the booking rather than replaying it. This trades a rare double
   parcel for a more common failed booking that ops re-drive by hand.
 
-This is the single biggest open item and it should be settled with SpeedoPost
-before code is written, not after.
+**Resolved by taking option three.** The adapter treats a create whose outcome it
+could not read (a timeout, a reset, a 502, an unparseable body) as PERMANENT, so
+it is never replayed. Only a complete `status: FAIL` envelope, which is
+SpeedoPost saying they considered the request and created nothing, counts as a
+clean failure. `findExistingOrder` returns null because there is nothing to ask.
+The error message says which of the two happened, because the person reading it
+is deciding whether pressing retry is safe.
+
+One window stays open and is accepted rather than closed: if the vendor call
+succeeds and the job's own database write of the order id then fails, the step
+retries with nothing on file and creates a second order. It is one local write
+wide. Shipmozo covers that case with `findExistingOrder`; here there is nothing
+to ask.
+
+**Still worth settling with SpeedoPost.** If `clientOrderId` is enforced unique,
+the refusal above can be relaxed back to an ordinary retry and both the window
+and the extra ops work disappear.
 
 ### 3.2 Warehouses are keyed by name, and there is no way to list them
 
@@ -132,6 +158,18 @@ That leaves two unknowns:
 A deterministic, collision-proof naming scheme is required regardless. Something
 derived from the org id and the address, not from anything a customer types.
 
+**Resolved: the name IS the shipment number** (`speedoPostWarehouseName`, one
+warehouse per booking). Shipment numbers are a single global ARN series, so the
+name cannot collide across tenants no matter how the namespace is scoped, and it
+is deterministic, so a retry after a lost response addresses the warehouse that
+already exists rather than registering a second. It also makes a warehouse in
+their panel readable back to a booking without opening either.
+
+The adapter also treats an "already exists" refusal as success, because in that
+case the address is already registered under the name we just sent. That branch
+is a guess about their wording until question 4 is answered, and it is matched
+narrowly so it cannot swallow a general validation failure.
+
 ### 3.3 The CreateOrder response shape is undocumented
 
 Their doc says only that *"the response will provide the status and order
@@ -139,11 +177,20 @@ details"*. There is no example, so there is no confirmed field name for the AWB,
 the order id, or the assigned provider.
 
 `SpeedoPostCreateOrderData` in `lib/speedopost/types.ts` names the likely fields
-optionally rather than inventing required ones. The first live call must be
-logged in full and the type corrected before anything reads from it. Writing the
-adapter against a guessed field name produces an order that exists at the vendor
-and has no AWB on our side, which is exactly the state decision D4 exists to
-prevent.
+optionally rather than inventing required ones.
+
+**Handled, not resolved.** The adapter reads the first usable value from an
+ordered list of candidate field names (`AWB_FIELDS`), logs the FULL response body
+on every order so the shape can be confirmed from the first live one, and fails
+LOUDLY and permanently when it can find no waybill: the message says the order
+probably exists, says not to re-drive it, and prints what came back. That is
+exactly the state decision D4 exists to prevent, so it is surfaced rather than
+papered over.
+
+`serviceProviderAwbNumber` is last in that list on purpose. It is the downstream
+courier's waybill, which `TrackingDetails` will not accept as input, so taking it
+leaves us holding a number we cannot track. Better than nothing, worse than
+everything above it. **Confirm the real field name and reorder this list.**
 
 ### 3.4 Date formats differ between two endpoints in the same flow
 
@@ -159,6 +206,17 @@ in their own documentation is that failure: *"Pickup date and time cannot be in
 past"*. Their clock is presumably IST. Ours is UTC. A pickup scheduled for
 "today at 17:00" computed in UTC is refused for most of the Indian working day.
 
+**Resolved.** `formatOrderDate` and `speedoPostPickupSlot` are deliberately
+separate functions with a comment on each saying not to merge them, and the slot
+is computed against IST wall-clock time: a booking before 15:00 IST asks for a
+collection at 17:00 the same day, anything later for 11:00 the next morning. The
+order's `pickupDate` is derived from that same slot rather than from the booking
+date, so a retry days later does not send a date already in the past. A test
+sweeps a full day at ten-minute steps to pin that the slot is never behind the
+IST day it was computed on.
+
+Which timezone their validation actually uses is still question 10.
+
 ### 3.5 The label format is unknown
 
 `PrintLabel` is documented with a failure example only. It could return a URL, a
@@ -166,21 +224,47 @@ base64 payload, or binary content. `lib/booking/labelStorage.ts` copies a label
 into our own storage because Shipmozo's is a presigned URL that expires in an
 hour; whether that applies here is unknown until a real label is fetched.
 
+**Handled, not resolved.** The client reads this endpoint RAW rather than through
+the JSON path, and the adapter handles all three: a PDF body, an envelope
+carrying a URL (which it then downloads), and one carrying base64. Anything else
+fails permanently with the first 300 characters of what actually arrived, so the
+next person reads the answer instead of guessing again. The label is copied into
+our own storage either way, so an expiring URL costs nothing.
+
+**This is the most likely thing to fail on the first live booking.** A label
+failure does not lose the order, because the AWB is already recorded and the
+shipment is BOOKED, but the run ends FAILED and the customer gets no label until
+ops print one from the panel.
+
 ### 3.6 Smaller ones, each real
 
 - **`clientCode` is required and unexplained.** `"API"` in their example. We do
-  not know where ours comes from or whether it varies.
+  not know where ours comes from or whether it varies. Now read from
+  `SPEEDOPOST_CLIENT_CODE`; while it is blank the adapter reports itself
+  unconfigured and refuses to book rather than guessing. **This is the one thing
+  that must be answered before any SpeedoPost booking can succeed at all.**
 - **Dimension units are never stated anywhere.** Not in the rate call, not in
-  the order call. The rate adapter sends centimetres because that is what every
-  other domestic vendor takes, but this is an assumption and should be confirmed.
-- **`ewaybill` is mandatory above Rs 50,000 of goods value.** Enforced by them,
-  not by us today. The booking request builder would need to refuse such a
-  shipment up front rather than let it fail at the vendor.
+  the order call. Both adapters send centimetres because that is what every other
+  domestic vendor takes, but this is an assumption and should be confirmed. The
+  rate and the booking at least agree, so a wrong unit misprices consistently
+  rather than booking a different box from the one quoted.
+- **`ewaybill` is mandatory above Rs 50,000 of goods value.** Collected. The
+  domestic wizard already required the e-way bill DOCUMENT above that value; as
+  of 2026-09-05 it also asks for the 12-digit NUMBER, which is what the courier
+  actually takes as a field on the order. It is validated in the step schema and
+  again in `createShipmentAction`, stored on `Shipment.eWayBillNumber`, carried
+  on `CanonicalBookingRequest.eWayBillNumber` and sent as `ewaybill`. The
+  threshold is one constant, `EWAY_BILL_THRESHOLD` in
+  `lib/booking/domesticDocs.ts`, and it matches SpeedoPost's own. The mapper
+  still refuses a high-value booking with no number, which now only fires on a
+  row written before the field existed.
 - **`codAmount` is mandatory when `paymentType` is COD.** Same rule the rate
   call already follows.
 - **`CancelOrder` is a GET.** A mutating GET is easy to trigger by accident from
-  a retry, a prefetch, or a link. It must never sit behind anything a browser
-  can follow.
+  a retry, a prefetch, or a link. It sits behind `cancelOrderByAwb` in the
+  server-only client and is reachable only from the adapter's `cancelOrder`,
+  which ops call deliberately. It must never be put behind anything a browser can
+  follow.
 - **`ReattemptRequest` takes a bare JSON array**, not an object. It is the only
   endpoint in the API shaped that way.
 - **`BookAppointment` documents its URL as `https://localhost:8082/...`**, which
@@ -298,3 +382,40 @@ SPEEDOPOST_PASSWORD = "Secret@#\$123"
 A trailing `$` with nothing after it survives untouched, which is why
 `SHIPGLOBAL_PASSWORD` was unaffected. This applies to every secret in that file,
 not just SpeedoPost's. Noted in `env.example` next to the variable.
+
+---
+
+## 7. Why SpeedoPost books domestic shipments but not first-mile legs
+
+`DOMESTIC_BOOKABLE_VENDOR_IDS` lists SpeedoPost. `FIRST_MILE_VENDOR_IDS`, the
+export door → hub leg, does not. That is a judgement, not an oversight.
+
+The difference is the deadline. A domestic door → door shipment whose booking
+fails ambiguously (§3.1) waits a few hours for ops to check the SpeedoPost panel
+and re-drive it by hand; the customer's parcel is late, nothing is lost. A
+first-mile leg in the same state has to reach an Arena hub in time for a specific
+export, and hours of manual recovery is a missed flight and a re-booked
+international leg.
+
+Revisit the moment SpeedoPost answers whether `clientOrderId` is enforced unique.
+That single answer makes the create retriable, which removes the whole reason for
+the split.
+
+---
+
+## 8. What the first live booking has to confirm
+
+The adapter is written against readings, not observations. In order:
+
+1. **`SPEEDOPOST_CLIENT_CODE`.** Nothing books without it. Ask them.
+2. **The CreateOrder success shape.** The adapter logs the whole body; read the
+   log, then tighten `SpeedoPostCreateOrderData` and reorder `AWB_FIELDS`.
+3. **What PrintLabel returns.** The most likely thing to fail. A failure here
+   still leaves the order placed and the AWB recorded.
+4. **Whether CreatePickupRequest accepts our IST slot**, and what a success
+   response looks like.
+5. **Whether a repeated `warehouseName` is refused, duplicated or updated**, and
+   whether the "already exists" wording the adapter matches is what they send.
+
+Do the first one on a real but low-value consignment that Arena can absorb, and
+read the logs before booking a customer's.
