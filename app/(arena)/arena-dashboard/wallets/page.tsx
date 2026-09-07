@@ -19,7 +19,12 @@ import {
   type OrgSortField,
   type TxnSortField,
 } from "@/lib/wallet/adminConfig";
-import { getWalletOrgsPage, getWalletOverview } from "@/lib/wallet/adminQueries";
+import {
+  getCollectionAging,
+  getMoneyFlowSeries,
+  getWalletOrgsPage,
+  getWalletSummary,
+} from "@/lib/wallet/adminQueries";
 import {
   getCollectionsPage,
   getOrgFilterOptions,
@@ -31,11 +36,18 @@ import { CollectionsTable } from "@/components/wallet/admin/CollectionsTable";
 import { LedgerTable } from "@/components/wallet/admin/LedgerTable";
 import { MoneyPeriodSelect } from "@/components/wallet/admin/MoneyPeriodSelect";
 import { OrgBalancesTable } from "@/components/wallet/admin/OrgBalancesTable";
-import { WalletOverviewTab } from "@/components/wallet/admin/WalletOverviewTab";
+import {
+  CollectionAgingCard,
+  MoneyFlowCard,
+  WalletSummaryPanel,
+} from "@/components/wallet/admin/WalletOverviewTab";
 import { WalletTabsNav } from "@/components/wallet/admin/WalletTabsNav";
 import {
+  CollectionAgingCardSkeleton,
+  MoneyFlowCardSkeleton,
   WalletOverviewSkeleton,
   WalletTableSkeleton,
+  WalletTilesSkeleton,
 } from "@/components/wallet/admin/WalletPanelSkeletons";
 
 /**
@@ -168,9 +180,59 @@ function PanelSkeleton({ tab }: { tab: ReturnType<typeof coerceWalletTab> }) {
   return <WalletTableSkeleton columns={8} filters={4} />;
 }
 
-async function OverviewPanel({ period }: { period: ReturnType<typeof coerceMoneyPeriod> }) {
-  const data = await getWalletOverview(period);
-  return <WalletOverviewTab data={data} />;
+/**
+ * The overview tab, as three independent sections rather than one.
+ *
+ * These used to be one query returning one object, which meant the four figures —
+ * the thing people actually open this screen for — waited on a receivables scan
+ * and a daily-flow rollup they had not asked to see. Each section now owns a
+ * single-statement query and its own boundary, so whichever returns first is on
+ * screen first.
+ *
+ * This component itself awaits nothing, so it is not a boundary and costs no
+ * round trip. Marking it `async` would make the parent Suspense wait on it.
+ */
+function OverviewPanel({ period }: { period: ReturnType<typeof coerceMoneyPeriod> }) {
+  return (
+    <div className="space-y-6">
+      <Suspense fallback={<WalletTilesSkeleton />}>
+        <WalletFigures period={period} />
+      </Suspense>
+
+      {/* The grid lives here, not inside the components, so each card can be
+          wrapped in its own boundary and still be a direct grid child. Suspense
+          renders no DOM, so the two-column-plus-one layout is unaffected. */}
+      <div className="grid gap-6 lg:grid-cols-3">
+        <Suspense fallback={<MoneyFlowCardSkeleton />}>
+          <MoneyFlowSection period={period} />
+        </Suspense>
+
+        <Suspense fallback={<CollectionAgingCardSkeleton />}>
+          <AgingSection />
+        </Suspense>
+      </div>
+    </div>
+  );
+}
+
+async function WalletFigures({ period }: { period: ReturnType<typeof coerceMoneyPeriod> }) {
+  const data = await getWalletSummary(period);
+  return <WalletSummaryPanel data={data} />;
+}
+
+async function MoneyFlowSection({ period }: { period: ReturnType<typeof coerceMoneyPeriod> }) {
+  const series = await getMoneyFlowSeries(period);
+  return <MoneyFlowCard series={series} currency="INR" />;
+}
+
+/**
+ * Not period-scoped. A debt is outstanding or it is not, regardless of the window
+ * selected above, which is the same reason the collections tab hides the period
+ * select entirely.
+ */
+async function AgingSection() {
+  const aging = await getCollectionAging();
+  return <CollectionAgingCard aging={aging} currency="INR" />;
 }
 
 async function OrganisationsPanel({

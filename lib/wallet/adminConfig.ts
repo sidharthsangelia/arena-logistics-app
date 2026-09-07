@@ -121,7 +121,16 @@ export type MoneyAttention = {
   failedTopUpAmount: number;
 };
 
-export type WalletOverviewDTO = {
+/**
+ * The overview tab used to be one DTO fetched by one function. It is now three,
+ * because the tab is three independent things on screen and the slowest of them
+ * was holding up the other two.
+ *
+ * The figures below all come out of a single SQL statement, so they arrive
+ * together and there is nothing to gain by splitting them further. The two charts
+ * each own a separate scan and stream in on their own.
+ */
+export type WalletSummaryDTO = {
   currency: string;
   period: MoneyPeriod;
 
@@ -141,8 +150,6 @@ export type WalletOverviewDTO = {
   awaitingCollection: number;
   awaitingCollectionCount: number;
 
-  series: DailyMoneyPoint[];
-  aging: AgingBucket[];
   attention: MoneyAttention;
 };
 

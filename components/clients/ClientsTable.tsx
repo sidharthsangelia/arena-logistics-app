@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { ClientRow, ClientSortField } from "@/queries/clients";
 import {
   CLIENT_TOGGLEABLE_COLUMNS,
+  DEFAULT_CLIENT_COLUMN_VISIBILITY,
   getClientColumns,
 } from "@/app/(arena)/arena-dashboard/clients/Columns";
 import { DataTable } from "../data-table/DataTable";
@@ -35,10 +36,6 @@ interface Props {
   client?: boolean;
 }
 
-// "Created" is available but hidden by default to keep the table visually
-// identical to before unless someone opts in via the View menu.
-const DEFAULT_VISIBILITY: VisibilityState = { createdAt: false };
-
 const SEARCH_DEBOUNCE_MS = 350;
 
 export default function ClientsTable({
@@ -59,7 +56,7 @@ export default function ClientsTable({
   const searchParams = useSearchParams();
   const [isPending, startTransition] = React.useTransition();
   const [columnVisibility, setColumnVisibility] =
-    React.useState<VisibilityState>(DEFAULT_VISIBILITY);
+    React.useState<VisibilityState>(DEFAULT_CLIENT_COLUMN_VISIBILITY);
 
   const [searchValue, setSearchValue] = React.useState(query);
 

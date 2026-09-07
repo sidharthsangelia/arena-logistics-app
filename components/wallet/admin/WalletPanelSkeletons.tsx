@@ -22,8 +22,17 @@ import {
 } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 
-/** The four figures and the two charts. */
-export function WalletOverviewSkeleton() {
+// ---------------------------------------------------------------------------
+// Overview tab
+// ---------------------------------------------------------------------------
+//
+// Three fallbacks rather than one, because the overview is fed by three separate
+// queries behind three separate Suspense boundaries. Each of these has to hold
+// exactly the space its own section will occupy, since its neighbours may already
+// have resolved and be sitting on screen beside it.
+
+/** The four figures. */
+export function WalletTilesSkeleton() {
   return (
     <div className="space-y-6">
       {/* The attention strip is deliberately absent. It only renders when there
@@ -54,36 +63,66 @@ export function WalletOverviewSkeleton() {
           </Card>
         ))}
       </div>
+    </div>
+  );
+}
 
+/**
+ * The money-in-and-out card. Carries the same `lg:col-span-2` as the real card,
+ * because it sits in the page's chart grid as a direct child and would otherwise
+ * take one column and let the aging card jump sideways when it resolved.
+ */
+export function MoneyFlowCardSkeleton() {
+  return (
+    <Card className="lg:col-span-2">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm font-semibold">Money in and out</CardTitle>
+        {/* The real description states the net movement, which is the very
+            number being fetched, so this one line is a placeholder. */}
+        <CardDescription className="text-xs">
+          <Skeleton className="h-3.5 w-64 max-w-full" />
+        </CardDescription>
+      </CardHeader>
+      <div className="px-4 pb-4">
+        {/* h-64 matches MoneyFlowChart's own container, empty or not. */}
+        <Skeleton className="h-64 w-full" />
+      </div>
+    </Card>
+  );
+}
+
+/** The receivables aging card. Both header lines are fixed copy, so both stay. */
+export function CollectionAgingCardSkeleton() {
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm font-semibold">
+          What you are owed, by age
+        </CardTitle>
+        <CardDescription className="text-xs">
+          The older a balance gets, the less likely it is to be paid.
+        </CardDescription>
+      </CardHeader>
+      <div className="px-4 pb-4">
+        <Skeleton className="h-56 w-full" />
+      </div>
+    </Card>
+  );
+}
+
+/**
+ * All three at once, in the page's own layout. Used by the route's loading.tsx,
+ * which stands in for the whole tab before any of the three boundaries exist.
+ * The grid here must stay identical to the page's or the charts will shift
+ * sideways on handover.
+ */
+export function WalletOverviewSkeleton() {
+  return (
+    <div className="space-y-6">
+      <WalletTilesSkeleton />
       <div className="grid gap-6 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-semibold">Money in and out</CardTitle>
-            {/* The real description states the net movement, which is the very
-                number being fetched, so this one line is a placeholder. */}
-            <CardDescription className="text-xs">
-              <Skeleton className="h-3.5 w-64 max-w-full" />
-            </CardDescription>
-          </CardHeader>
-          <div className="px-4 pb-4">
-            {/* h-64 matches MoneyFlowChart's own container, empty or not. */}
-            <Skeleton className="h-64 w-full" />
-          </div>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-semibold">
-              What you are owed, by age
-            </CardTitle>
-            <CardDescription className="text-xs">
-              The older a balance gets, the less likely it is to be paid.
-            </CardDescription>
-          </CardHeader>
-          <div className="px-4 pb-4">
-            <Skeleton className="h-56 w-full" />
-          </div>
-        </Card>
+        <MoneyFlowCardSkeleton />
+        <CollectionAgingCardSkeleton />
       </div>
     </div>
   );

@@ -1,6 +1,7 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+
+import { revalidateClientLists } from "@/lib/clients/revalidate";
 import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/utils/db";
 import {
@@ -71,7 +72,7 @@ export async function createClientAction(
       },
     });
 
-    revalidatePath("/clients");
+    revalidateClientLists({ membershipChanged: true });
     return { success: true, client: created };
   } catch (error) {
     console.error("createClientAction", error);
@@ -96,7 +97,7 @@ export async function updateClientAction(
       data,
     });
 
-    revalidatePath("/clients");
+    revalidateClientLists();
     return { success: true };
   } catch (error) {
     console.error("updateClientAction", error);
@@ -117,7 +118,7 @@ export async function deleteClientAction(id: string): Promise<ActionResult> {
       data: { deletedAt: new Date() },
     });
 
-    revalidatePath("/clients");
+    revalidateClientLists({ membershipChanged: true });
     return { success: true };
   } catch (error) {
     console.error("deleteClientAction", error);

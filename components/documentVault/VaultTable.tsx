@@ -19,7 +19,6 @@ import { toast } from "sonner";
 
 import { DataTable } from "@/components/data-table/DataTable";
 import { DataTableColumnHeader } from "@/components/data-table/DataTableColumnHeader";
-import { DataTableSkeleton } from "@/components/data-table/DataTableSkeleton";
 import {
   DataTableBulkBar,
   selectedIds,
@@ -60,6 +59,8 @@ import {
   formatBytes,
   type VaultDocTypeFilter,
   type VaultDocumentRow,
+  type VaultListParams,
+  type VaultPage,
 } from "@/lib/documentVault/config";
 
 import { useVaultQuery } from "./useVaultQuery";
@@ -67,8 +68,15 @@ import { useVaultQuery } from "./useVaultQuery";
 /** "all" is the Select's stand-in for the empty filter, since "" is not a valid item value. */
 const ALL_TYPES = "all";
 
-export default function VaultTable() {
-  const t = useVaultQuery();
+export default function VaultTable({
+  initialData,
+  initialParams,
+}: {
+  /** The first page the route already rendered on the server, if it rendered one. */
+  initialData?: VaultPage;
+  initialParams?: VaultListParams;
+} = {}) {
+  const t = useVaultQuery({ initialData, initialParams });
   const invalidate = t.invalidate;
 
   const [selection, setSelection] = React.useState<RowSelectionState>({});
@@ -77,47 +85,71 @@ export default function VaultTable() {
 
   const chosen = selectedIds(selection);
 
+  // Optimistic. The row goes and the dialog closes on the click, rather than a
+  // second later when UploadThing has finished removing the file. If the server
+  // refuses, the row comes back and the toast says why — a delete that silently
+  // reappears reads as a bug rather than as a rejection.
   const handleSingleDelete = async () => {
     if (!toDelete) return;
+
+    const id = toDelete.id;
+    const undo = t.removeRowsOptimistically([id]);
+    setToDelete(null);
     setIsPending(true);
+
     try {
-      const result = await deleteKycDocumentAction(toDelete.id);
+      const result = await deleteKycDocumentAction(id);
       if (result.success) {
         toast.success("Document deleted.");
-        setToDelete(null);
-        invalidate();
       } else {
+        undo();
         toast.error(result.message);
       }
+    } catch {
+      undo();
+      toast.error("Could not delete the document. Please try again.");
     } finally {
       setIsPending(false);
+      // Run either way. On success the pages behind this one have shifted by a
+      // row; on failure the undo above restored a guess, and this replaces it
+      // with what the database actually holds.
+      invalidate();
     }
   };
 
   const handleBulkDelete = async () => {
+    const ids = chosen;
+    const undo = t.removeRowsOptimistically(ids);
+    setSelection({});
     setIsPending(true);
+
     try {
       // deleteKycDocumentAction handles one document at a time, because each one
       // also has to be removed from UploadThing.
       const results = await Promise.all(
-        chosen.map((id) => deleteKycDocumentAction(id)),
+        ids.map((id) => deleteKycDocumentAction(id)),
       );
       const failed = results.filter((r) => !r.success).length;
 
       if (failed === 0) {
         toast.success(
-          `${chosen.length} document${chosen.length !== 1 ? "s" : ""} deleted`,
+          `${ids.length} document${ids.length !== 1 ? "s" : ""} deleted`,
         );
       } else {
+        // Deliberately not undone. Some of these succeeded and some did not, so
+        // putting every row back would be as wrong as leaving every row gone.
+        // The refetch below is the only honest answer, and the toast says how
+        // many to expect back.
         toast.error(
           `${failed} deletion${failed !== 1 ? "s" : ""} failed. Please try again.`,
         );
       }
-      // Some may have succeeded even when others failed, so always refetch.
-      setSelection({});
-      invalidate();
+    } catch {
+      undo();
+      toast.error("Could not delete the documents. Please try again.");
     } finally {
       setIsPending(false);
+      invalidate();
     }
   };
 
@@ -328,17 +360,6 @@ export default function VaultTable() {
     </AlertDialog>
   );
 
-  // First load has nothing to keep on screen, so show the shape of the table.
-  // Every later fetch reuses the rows already rendered.
-  if (t.isFirstLoad) {
-    return (
-      <div className="space-y-4">
-        {toolbar}
-        <DataTableSkeleton columns={columns.length} rows={8} />
-      </div>
-    );
-  }
-
   if (t.error) {
     return (
       <div className="space-y-4">
@@ -370,6 +391,11 @@ export default function VaultTable() {
         sorting={t.sorting}
         onSortingChange={t.setSorting}
         isLoading={t.isFetching}
+        // First load draws the table's own header labels, border and pager and
+        // stands in only the cells, rather than handing over from a generic
+        // block of equal-width bars to columns of quite different widths.
+        isFirstLoad={t.isFirstLoad}
+        skeletonRows={t.pageSize}
         toolbar={toolbar}
         rowSelection={selection}
         onRowSelectionChange={setSelection}

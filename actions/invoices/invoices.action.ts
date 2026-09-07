@@ -36,8 +36,6 @@ import {
   type InvoicePage,
 } from "@/lib/invoices/config";
 import type {
-  AdminInvoiceFeedParams,
-  AdminInvoicePage,
 } from "@/lib/invoices/admin/config";
 import {
   INVOICES_TAG,
@@ -45,7 +43,6 @@ import {
   getOrgInvoicesPage,
 } from "@/lib/invoices/queries";
 import { getOrgInvoiceFeed } from "@/lib/invoices/feed";
-import { getAdminInvoiceFeed } from "@/lib/invoices/admin/feed";
 
 const TENANT_PATH = "/invoices";
 const ARENA_PATH = "/arena-dashboard/invoices";
@@ -88,22 +85,6 @@ export async function listAllInvoicesAction(
 ): Promise<InvoicePage> {
   await requireArenaAdmin();
   return getAllInvoicesPage(params);
-}
-
-/**
- * Arena admin: booking invoices, manual invoices and uploaded bills in one
- * list, which is what /arena-dashboard/invoices renders.
- *
- * This spans every organisation and states what each of them owes, so it is
- * admin-only without exception. The check is not redundant with the route guard:
- * proxy.ts is an optimistic redirect and a direct POST to a server action never
- * passes through it.
- */
-export async function listAdminInvoiceFeedAction(
-  params: AdminInvoiceFeedParams,
-): Promise<AdminInvoicePage> {
-  await requireArenaAdmin();
-  return getAdminInvoiceFeed(params);
 }
 
 /** Arena admin: orgs to choose from when issuing an invoice. */

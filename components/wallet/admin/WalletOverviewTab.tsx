@@ -12,7 +12,12 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import StatCard from "@/components/StatCard";
-import { MONEY_PERIODS, type WalletOverviewDTO } from "@/lib/wallet/adminConfig";
+import {
+  MONEY_PERIODS,
+  type AgingBucket,
+  type DailyMoneyPoint,
+  type WalletSummaryDTO,
+} from "@/lib/wallet/adminConfig";
 import { formatMoney } from "@/utils/format";
 
 import { CollectionAgingChart } from "./CollectionAgingChart";
@@ -25,17 +30,30 @@ import { MoneyFlowChart } from "./MoneyFlowChart";
  * Kept deliberately short. Everything here answers a question an admin would
  * otherwise have to ask someone: how much of this money is ours to spend, is more
  * coming in than going out, and how much is stuck with people who have not paid.
+ *
+ * ── WHY THIS IS THREE COMPONENTS AND NOT ONE ────────────────────────────────
+ * The three sections are fed by three separate queries, and the page gives each
+ * its own Suspense boundary so the figures do not wait behind the charts. That
+ * only works if each section is mountable on its own, which is why none of them
+ * takes the whole overview DTO any more — each takes exactly what it draws.
+ *
+ * The grid that puts the two charts side by side lives in the page rather than
+ * here, because the two cards have to be direct children of it to lay out. A
+ * Suspense boundary renders no DOM of its own, so wrapping each card
+ * individually leaves the grid intact.
  */
 
-export function WalletOverviewTab({ data }: { data: WalletOverviewDTO }) {
+// ---------------------------------------------------------------------------
+// The figures
+// ---------------------------------------------------------------------------
+
+export function WalletSummaryPanel({ data }: { data: WalletSummaryDTO }) {
   const periodLabel = MONEY_PERIODS[data.period].label.toLowerCase();
-  const netMovement = data.toppedUp - data.spent;
 
   return (
     <div className="space-y-6">
       <MoneyAttentionStrip data={data} />
 
-      {/* ── The four figures ─────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <StatCard
           label="Money in wallets"
@@ -77,47 +95,91 @@ export function WalletOverviewTab({ data }: { data: WalletOverviewDTO }) {
           tooltip="Owed on bookings that were allowed to ship before paying. Record payments as they come in on the Collections tab."
         />
       </div>
-
-      {/* ── Charts ───────────────────────────────────────────────────────── */}
-      <div className="grid gap-6 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-semibold">Money in and out</CardTitle>
-            <CardDescription className="text-xs">
-              {netMovement >= 0
-                ? `Wallets gained ${formatMoney(netMovement, data.currency)} overall in this period.`
-                : `Wallets drained by ${formatMoney(Math.abs(netMovement), data.currency)} overall in this period.`}
-            </CardDescription>
-          </CardHeader>
-          <div className="px-4 pb-4">
-            <MoneyFlowChart data={data.series} currency={data.currency} />
-          </div>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-semibold">What you are owed, by age</CardTitle>
-            <CardDescription className="text-xs">
-              The older a balance gets, the less likely it is to be paid.
-            </CardDescription>
-          </CardHeader>
-          <div className="px-4 pb-4">
-            <CollectionAgingChart data={data.aging} currency={data.currency} />
-          </div>
-        </Card>
-      </div>
     </div>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Money in and out
+// ---------------------------------------------------------------------------
+
+/**
+ * The caption's net figure is derived from the series this card draws, not from
+ * the tiles above it. Those two are not the same number: the tiles report
+ * top-ups excluding refunds, because a refund is money going back to a customer
+ * rather than money arriving. The chart counts a refund as a credit, because it
+ * genuinely does land back in the wallet. A caption sitting under the bars has to
+ * describe the bars, so it adds up what is plotted.
+ */
+export function MoneyFlowCard({
+  series,
+  currency,
+}: {
+  series: DailyMoneyPoint[];
+  currency: string;
+}) {
+  const netMovement = series.reduce((sum, p) => sum + p.moneyIn - p.moneyOut, 0);
+
+  return (
+    <Card className="lg:col-span-2">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm font-semibold">Money in and out</CardTitle>
+        <CardDescription className="text-xs">
+          {netMovement >= 0
+            ? `Wallets gained ${formatMoney(netMovement, currency)} overall in this period.`
+            : `Wallets drained by ${formatMoney(Math.abs(netMovement), currency)} overall in this period.`}
+        </CardDescription>
+      </CardHeader>
+      <div className="px-4 pb-4">
+        <MoneyFlowChart data={series} currency={currency} />
+      </div>
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Receivables aging
+// ---------------------------------------------------------------------------
+
+export function CollectionAgingCard({
+  aging,
+  currency,
+}: {
+  aging: AgingBucket[];
+  currency: string;
+}) {
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm font-semibold">What you are owed, by age</CardTitle>
+        <CardDescription className="text-xs">
+          The older a balance gets, the less likely it is to be paid.
+        </CardDescription>
+      </CardHeader>
+      <div className="px-4 pb-4">
+        <CollectionAgingChart data={aging} currency={currency} />
+      </div>
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Attention strip
+// ---------------------------------------------------------------------------
 
 /**
  * Only renders when there is something to act on. An always-present "all clear"
  * panel trains people to scroll past this area, which defeats the purpose.
  *
+ * It shares the figures' Suspense boundary rather than getting one of its own,
+ * and it comes out of the same query. Streaming it separately would mean pushing
+ * the tiles down the page the moment it arrived, which is exactly the jump the
+ * rest of this screen is built to avoid.
+ *
  * Failures come first and in the destructive style, because a rejected payment is
  * the one case where a customer thinks they have paid and the system disagrees.
  */
-function MoneyAttentionStrip({ data }: { data: WalletOverviewDTO }) {
+function MoneyAttentionStrip({ data }: { data: WalletSummaryDTO }) {
   const { attention } = data;
   const hasFailures = attention.failedTopUpCount > 0;
   const hasStale = attention.staleTopUpCount > 0;

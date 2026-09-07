@@ -40,7 +40,6 @@ import { useDebounce } from "@/hooks/useDebounce";
 import { formatDate } from "@/utils/format";
 import { DataTable } from "@/components/data-table/DataTable";
 import { DataTableColumnHeader } from "@/components/data-table/DataTableColumnHeader";
-import { InvoicesTableSkeleton } from "@/components/invoices/InvoicesTableSkeleton";
 import { BillingPartyKind } from "@/generated/prisma";
 import {
   BILLING_PARTY_FILTERS,
@@ -53,7 +52,6 @@ import {
   type BillingPartyPage,
   type BillingPartyRow,
 } from "@/lib/invoices/manual/config";
-import { listBillingPartiesAction } from "@/actions/invoices/manualInvoices.action";
 import { BillingPartyDialog } from "@/components/invoices/manual/BillingPartyDialog";
 import { BillingPartySummaryCards } from "./BillingPartySummaryCards";
 
@@ -96,6 +94,10 @@ export function BillingPartyTable({
   // The server rendered exactly this view, so it seeds the cache. The moment
   // anything is filtered, sorted or paged the key changes and those rows would
   // be the wrong result set.
+  //
+  // Reads go to a GET at /api/invoices/billing-parties rather than a server
+  // action, so a keystroke in the search box does not queue behind the filter
+  // change before it. See app/api/invoices/feed/route.ts for the full reasoning.
   const isDefaultView =
     page === 1 &&
     pageSize === DEFAULT_BILLING_PARTY_PAGE_SIZE &&
@@ -107,7 +109,7 @@ export function BillingPartyTable({
 
   const query = useQuery({
     queryKey: ["billing-parties", params],
-    queryFn: () => listBillingPartiesAction(params),
+    queryFn: ({ signal }) => fetchBillingParties(params, signal),
     staleTime: 15_000,
     placeholderData: keepPreviousData,
     initialData: isDefaultView ? initialData : undefined,
@@ -219,25 +221,27 @@ export function BillingPartyTable({
         </Button>
       </div>
 
-      {query.isLoading ? (
-        <InvoicesTableSkeleton columns={7} rows={pageSize} />
-      ) : (
-        <DataTable
-          columns={columns}
-          data={data?.rows ?? []}
-          page={page}
-          pageSize={pageSize}
-          totalRows={data?.total ?? 0}
-          pageCount={data?.pageCount ?? 1}
-          onPageChange={setPage}
-          onPageSizeChange={setPageSize}
-          sorting={sorting}
-          onSortingChange={setSorting}
-          isLoading={query.isFetching}
-          getRowId={(row) => row.id}
-          emptyState={<EmptyState filtered={filtered} onReset={reset} />}
-        />
-      )}
+      {/* Real headers, real column widths and a real pager while the first page
+          is in flight; only the cells stand in. The seven-column stand-in this
+          replaced drew every column the same width, so the header row shifted
+          the moment the rows arrived. */}
+      <DataTable
+        columns={columns}
+        data={data?.rows ?? []}
+        page={page}
+        pageSize={pageSize}
+        totalRows={data?.total ?? 0}
+        pageCount={data?.pageCount ?? 1}
+        onPageChange={setPage}
+        onPageSizeChange={setPageSize}
+        sorting={sorting}
+        onSortingChange={setSorting}
+        isLoading={query.isFetching}
+        isFirstLoad={query.isLoading}
+        skeletonRows={pageSize}
+        getRowId={(row) => row.id}
+        emptyState={<EmptyState filtered={filtered} onReset={reset} />}
+      />
 
       <BillingPartyDialog
         open={creating}
@@ -481,4 +485,23 @@ function EmptyState({
       </p>
     </div>
   );
+}
+
+async function fetchBillingParties(
+  params: BillingPartyListParams,
+  signal: AbortSignal,
+): Promise<BillingPartyPage> {
+  const qs = new URLSearchParams({
+    page: String(params.page ?? 1),
+    pageSize: String(params.pageSize ?? DEFAULT_BILLING_PARTY_PAGE_SIZE),
+    sort: params.sortField ?? "legalName",
+    dir: params.sortDir ?? "asc",
+    filter: params.filter ?? "ALL",
+  });
+  if (params.kind) qs.set("kind", params.kind);
+  if (params.search) qs.set("q", params.search);
+
+  const res = await fetch(`/api/invoices/billing-parties?${qs}`, { signal });
+  if (!res.ok) throw new Error("Could not load customers.");
+  return res.json();
 }

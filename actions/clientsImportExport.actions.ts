@@ -3,7 +3,7 @@
 import * as XLSX from "xlsx";
 import * as Sentry from "@sentry/nextjs";
 import { prisma } from "@/utils/db";
-import { revalidatePath } from "next/cache";
+import { revalidateClientLists } from "@/lib/clients/revalidate";
 import { getDbOrgId } from "@/utils/tenant";
 import { CompanyKind } from "@/generated/prisma";
 import {
@@ -314,7 +314,11 @@ export async function importClientsAction(
     };
   }
 
-  revalidatePath("/clients");
+  // membershipChanged, because a CSV can carry the first clients an
+  // organisation has ever had, which puts it on the Business Associate filter.
+  // That list is cached for an hour, so leaving it alone here would hide a
+  // freshly imported org from the filter for an hour.
+  revalidateClientLists({ membershipChanged: true });
 
   return { ...baseResult, committed: true, importedCount };
 }

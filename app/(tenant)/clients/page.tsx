@@ -69,7 +69,13 @@ export default async function ClientsPage({ searchParams }: PageProps) {
         // Keyed on the query so changing a filter swaps to the skeleton rather
         // than leaving the previous page's rows up while the new ones load.
         key={JSON.stringify(params)}
-        fallback={<ClientsTableSkeleton />}
+        fallback={
+          <ClientsTableSkeleton
+            client
+            rows={params.pageSize}
+            pageSize={params.pageSize}
+          />
+        }
       >
         <ClientsTableSection params={params} />
       </Suspense>
