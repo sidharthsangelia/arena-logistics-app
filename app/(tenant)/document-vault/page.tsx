@@ -22,6 +22,8 @@
  */
 
 import { Suspense } from "react";
+import { unstable_rethrow } from "next/navigation";
+import * as Sentry from "@sentry/nextjs";
 
 import { getCurrentOrgContext } from "@/actions/book/getOrgs";
 import { getCachedOrgKycDocs } from "@/actions/book/kyc";
@@ -35,6 +37,7 @@ import {
   coerceVaultDocTypeFilter,
   coerceVaultSortField,
   type VaultListParams,
+  type VaultPage,
 } from "@/lib/documentVault/config";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -156,6 +159,12 @@ async function ClientDocumentsSection({ params }: { params: VaultListParams }) {
   );
 }
 
+/**
+ * The prefetch is an optimisation, not a dependency — see the Arena vault route
+ * for the full reasoning. A failure here degrades to the behaviour this screen
+ * had before it prefetched anything: the table mounts unseeded, fetches for
+ * itself, and shows its own retry. Sentry still hears about it.
+ */
 async function ClientDocumentsTable({
   orgId,
   params,
@@ -163,8 +172,25 @@ async function ClientDocumentsTable({
   orgId: string;
   params: VaultListParams;
 }) {
-  const firstPage = await getTenantVaultPage(orgId, params);
-  return <VaultTable initialData={firstPage} initialParams={params} />;
+  // Only the await is guarded; the JSX is built after. React renders it later,
+  // so a render-time error would not be caught here regardless.
+  let firstPage: VaultPage | null = null;
+
+  try {
+    firstPage = await getTenantVaultPage(orgId, params);
+  } catch (error) {
+    unstable_rethrow(error);
+    Sentry.captureException(error, {
+      tags: { location: "TenantDocumentVaultPage.prefetch" },
+      extra: { orgId, params },
+    });
+  }
+
+  return firstPage ? (
+    <VaultTable initialData={firstPage} initialParams={params} />
+  ) : (
+    <VaultTable />
+  );
 }
 
 /** Mirrors OrgDocumentsSection's shape: two baseline doc cards + the

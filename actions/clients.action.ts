@@ -1,8 +1,7 @@
 "use server";
 
-import { revalidatePath, updateTag } from "next/cache";
 
-import { CLIENT_ORG_OPTIONS_TAG } from "@/queries/clients";
+import { revalidateClientLists } from "@/lib/clients/revalidate";
 import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/utils/db";
 import {
@@ -42,20 +41,6 @@ export type CreateClientResult =
   | { success: true; client: ClientSearchResult }
   | { success: false; message: string };
 
-/**
- * The same client list is rendered at two routes: the tenant's own at /clients
- * and Arena's cross-org one at /arena-dashboard/clients.
- *
- * Only the first used to be revalidated. Creating a client from the Arena screen
- * therefore left the table showing the list as it was before, and the row only
- * appeared after a hard reload — which reads exactly like the save having failed.
- * Both are refreshed here, in one place, so a third cannot be forgotten.
- */
-function revalidateClientLists() {
-  revalidatePath("/clients");
-  revalidatePath("/arena-dashboard/clients");
-}
-
 // ---------------------------------------------------------------------------
 // createClientAction
 // ---------------------------------------------------------------------------
@@ -87,13 +72,7 @@ export async function createClientAction(
       },
     });
 
-    revalidateClientLists();
-    // An org with no clients is absent from the Business Associate filter, so
-    // the first client created for one changes that list. updateTag rather than
-    // revalidateTag: this is a server action and the person who just added the
-    // client should see the change on the next render, not the render after.
-    // revalidateTag's "max" profile serves the stale list once first.
-    updateTag(CLIENT_ORG_OPTIONS_TAG);
+    revalidateClientLists({ membershipChanged: true });
     return { success: true, client: created };
   } catch (error) {
     console.error("createClientAction", error);
@@ -139,9 +118,7 @@ export async function deleteClientAction(id: string): Promise<ActionResult> {
       data: { deletedAt: new Date() },
     });
 
-    revalidateClientLists();
-    // Deleting an org's last client takes it back out of the filter list.
-    updateTag(CLIENT_ORG_OPTIONS_TAG);
+    revalidateClientLists({ membershipChanged: true });
     return { success: true };
   } catch (error) {
     console.error("deleteClientAction", error);

@@ -24,7 +24,8 @@
  */
 
 import { Suspense } from "react";
-import { redirect } from "next/navigation";
+import { redirect, unstable_rethrow } from "next/navigation";
+import * as Sentry from "@sentry/nextjs";
 
 import AdminVaultTable from "@/components/documentVault/AdminVaultTable";
 import { DataTableSkeleton } from "@/components/data-table/DataTableSkeleton";
@@ -36,6 +37,7 @@ import {
   coerceAdminVaultSortField,
   coerceVaultDocTypeFilter,
   type AdminVaultListParams,
+  type AdminVaultPage,
 } from "@/lib/documentVault/config";
 
 export const metadata = {
@@ -101,7 +103,42 @@ export default async function ArenaDocumentVaultPage({
   );
 }
 
+/**
+ * The prefetch is an optimisation, not a dependency.
+ *
+ * Before this route fetched anything, a database blip showed up as the table's
+ * own error state with a retry button, because the fetch happened in the
+ * browser. Rendering the first page on the server would have turned that into
+ * the whole route throwing — a strictly worse failure for a strictly better
+ * happy path.
+ *
+ * So a failure here degrades to what used to happen: the table mounts with no
+ * seed, fetches for itself, and shows its own retry if that fails too. The error
+ * still reaches Sentry, because a silent fallback that nobody is told about is
+ * how a broken query survives for a month.
+ *
+ * unstable_rethrow first, because redirect() and notFound() signal themselves by
+ * throwing and must never be caught as if they were database failures.
+ */
 async function VaultSection({ params }: { params: AdminVaultListParams }) {
-  const firstPage = await getAdminVaultPage(params);
-  return <AdminVaultTable initialData={firstPage} initialParams={params} />;
+  // Only the await is guarded. Constructing the JSX inside the try would be
+  // misleading: React renders it later, so a render-time error would not land
+  // here anyway.
+  let firstPage: AdminVaultPage | null = null;
+
+  try {
+    firstPage = await getAdminVaultPage(params);
+  } catch (error) {
+    unstable_rethrow(error);
+    Sentry.captureException(error, {
+      tags: { location: "ArenaDocumentVaultPage.prefetch" },
+      extra: { params },
+    });
+  }
+
+  return firstPage ? (
+    <AdminVaultTable initialData={firstPage} initialParams={params} />
+  ) : (
+    <AdminVaultTable />
+  );
 }

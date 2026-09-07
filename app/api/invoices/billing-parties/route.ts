@@ -21,9 +21,16 @@ import {
   coerceBillingPartySortField,
 } from "@/lib/invoices/manual/config";
 
-/** "" and anything unrecognised mean "every kind", matching the table's "ALL". */
+/**
+ * "" and anything unrecognised mean "every kind", matching the table's "ALL".
+ *
+ * Object.hasOwn, not `in`. A Prisma enum is a plain object literal, so it
+ * inherits from Object.prototype and `"constructor" in BillingPartyKind` is
+ * true — which would have let ?kind=constructor through to the query as if it
+ * were a real value.
+ */
 function readKind(value: string | null): BillingPartyKind | null {
-  return value && value in BillingPartyKind
+  return value && Object.hasOwn(BillingPartyKind, value)
     ? (value as BillingPartyKind)
     : null;
 }
