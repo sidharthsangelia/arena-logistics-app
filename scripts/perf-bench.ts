@@ -67,7 +67,15 @@ async function main() {
   await time("3 parallel, pool cold for two of them", () =>
     Promise.all([ping(), ping(), ping()]),
   );
-  await time("8 parallel, pool now warm", () =>
+  await time("8 parallel, pool cold for five of them", () =>
+    Promise.all(Array.from({ length: 8 }, ping)),
+  );
+
+  // Unmeasured. The run above left the pool holding eight connections; without
+  // this the next line would still be opening some of them and "warm" would be
+  // measuring handshakes.
+  await Promise.all(Array.from({ length: 8 }, ping));
+  await time("8 parallel, pool genuinely warm", () =>
     Promise.all(Array.from({ length: 8 }, ping)),
   );
   await time("8 sequential (the shape to avoid)", async () => {
