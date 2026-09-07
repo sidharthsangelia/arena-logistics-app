@@ -51,9 +51,7 @@ import {
   manualInvoiceSchema,
   type BillingPartyDefaults,
   type BillingPartyDetail,
-  type BillingPartyListParams,
   type BillingPartyOption,
-  type BillingPartyPage,
   type ChargePresetOption,
   type ChargeTypeOption,
   type CustomerSearchResult,
@@ -69,7 +67,6 @@ import {
   ManualInvoiceBuildError,
 } from "@/lib/invoices/manual/build";
 import {
-  getBillingPartiesPage,
   getBillingParty,
   getBillingPartyLink,
   getManualInvoiceDetail,
@@ -538,13 +535,6 @@ function revalidateCustomers(id?: string) {
   revalidatePath(ARENA_PATH);
   revalidatePath(CUSTOMERS_PATH);
   if (id) revalidatePath(`${CUSTOMERS_PATH}/${id}`);
-}
-
-export async function listBillingPartiesAction(
-  params: BillingPartyListParams,
-): Promise<BillingPartyPage> {
-  await requireArenaAdmin();
-  return getBillingPartiesPage(params);
 }
 
 /**

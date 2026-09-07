@@ -84,7 +84,6 @@ import {
 } from "@/lib/invoices/admin/config";
 import type { InvoiceRow } from "@/lib/invoices/config";
 import {
-  listAdminInvoiceFeedAction,
   listInvoiceOrgsAction,
 } from "@/actions/invoices/invoices.action";
 import { retryTaxInvoiceAction } from "@/actions/invoices/taxInvoices.action";
@@ -94,7 +93,6 @@ import { AdminInvoiceRowActions } from "./AdminInvoiceRowActions";
 import { EditInvoiceDialog } from "./EditInvoiceDialog";
 import { InvoicePreviewDialog } from "./InvoicePreviewDialog";
 import { InvoiceSummaryCards } from "./InvoiceSummaryCards";
-import { InvoicesTableSkeleton } from "./InvoicesTableSkeleton";
 import { NewInvoiceSheet } from "./NewInvoiceSheet";
 import { ManualInvoiceRowActions } from "./manual/ManualInvoiceRowActions";
 
@@ -140,6 +138,12 @@ export function AdminInvoiceFeedTable({
 
   // The server rendered exactly one view: the untouched default. Seeding any
   // other query key with those rows would be showing the wrong result set.
+  //
+  // Reads go to a GET at /api/invoices/feed rather than through a server action.
+  // Next.js runs server actions one at a time per client, and this table has a
+  // search box, a status filter, a kind switch, an organisation picker and a
+  // pager that can all be moved while a request is still in flight — so each one
+  // queued behind the last and the newest was sent last. Writes stay as actions.
   const isDefaultView =
     page === 1 &&
     pageSize === DEFAULT_INVOICE_PAGE_SIZE &&
@@ -152,7 +156,7 @@ export function AdminInvoiceFeedTable({
 
   const query = useQuery({
     queryKey: [QUERY_KEY, params],
-    queryFn: () => listAdminInvoiceFeedAction(params),
+    queryFn: ({ signal }) => fetchAdminInvoiceFeed(params, signal),
     staleTime: 15_000,
     placeholderData: keepPreviousData,
     initialData: isDefaultView ? initialData : undefined,
@@ -412,25 +416,28 @@ export function AdminInvoiceFeedTable({
           ) : null}
         </div>
 
-        {query.isLoading ? (
-          <InvoicesTableSkeleton columns={8} />
-        ) : (
-          <DataTable
-            columns={columns}
-            data={data?.rows ?? []}
-            page={page}
-            pageSize={pageSize}
-            totalRows={data?.total ?? 0}
-            pageCount={data?.pageCount ?? 1}
-            onPageChange={setPage}
-            onPageSizeChange={setPageSize}
-            sorting={sorting}
-            onSortingChange={setSorting}
-            isLoading={query.isFetching}
-            getRowId={(row) => row.id}
-            emptyState={<EmptyState filtered={filtered} onReset={reset} />}
-          />
-        )}
+        {/* The table draws its own chrome while the first page is in flight —
+            real header labels, real column widths, real pager — and stands in
+            only the cells. It used to swap in a separate eight-column skeleton
+            whose columns were all the same width, so the header row and every
+            boundary moved at the moment the rows landed. */}
+        <DataTable
+          columns={columns}
+          data={data?.rows ?? []}
+          page={page}
+          pageSize={pageSize}
+          totalRows={data?.total ?? 0}
+          pageCount={data?.pageCount ?? 1}
+          onPageChange={setPage}
+          onPageSizeChange={setPageSize}
+          sorting={sorting}
+          onSortingChange={setSorting}
+          isLoading={query.isFetching}
+          isFirstLoad={query.isLoading}
+          skeletonRows={pageSize}
+          getRowId={(row) => row.id}
+          emptyState={<EmptyState filtered={filtered} onReset={reset} />}
+        />
 
         <InvoicePreviewDialog
           invoice={preview}
@@ -881,4 +888,29 @@ function EmptyState({
       </Button>
     </div>
   );
+}
+
+/**
+ * The feed as a URL. Every value is a filter the table already validates, and
+ * the route revalidates all of them anyway, so nothing here has to be trusted on
+ * arrival.
+ */
+async function fetchAdminInvoiceFeed(
+  params: AdminInvoiceFeedParams,
+  signal: AbortSignal,
+): Promise<AdminInvoicePage> {
+  const qs = new URLSearchParams({
+    page: String(params.page ?? 1),
+    pageSize: String(params.pageSize ?? DEFAULT_INVOICE_PAGE_SIZE),
+    sort: params.sortField ?? "issueDate",
+    dir: params.sortDir ?? "desc",
+    status: params.statusFilter ?? "ALL",
+    kind: params.kindFilter ?? "ALL",
+  });
+  if (params.orgId) qs.set("orgId", params.orgId);
+  if (params.search) qs.set("q", params.search);
+
+  const res = await fetch(`/api/invoices/feed?${qs}`, { signal });
+  if (!res.ok) throw new Error("Could not load invoices.");
+  return res.json();
 }
