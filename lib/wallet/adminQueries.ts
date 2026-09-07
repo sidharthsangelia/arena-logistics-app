@@ -19,7 +19,7 @@ import {
   type OrgSortField,
   type WalletOrgRow,
   type WalletOrgsResult,
-  type WalletOverviewDTO,
+  type WalletSummaryDTO,
 } from "./adminConfig";
 
 /**
@@ -34,11 +34,18 @@ import {
  * someone opens it to answer a question about money right now, often straight
  * after recording a payment, and a stale figure would be worse than a slow one.
  *
+ * ROUND TRIPS, NOT QUERY COST. The production dataset is small — tens of orgs,
+ * tens of wallet transactions — so nothing here is slow because the database is
+ * working hard. It is slow because every statement is a trip across the internet
+ * to Neon. Read that as the budget: the unit of cost on this screen is the
+ * statement, not the row. Adding a query to a function here is expensive in a way
+ * that adding a column to one is not.
+ *
  * CURRENCY. Every wallet in the system is INR and there is no path to create one
  * in another currency, so totals here add up in a single unit. If a second
  * currency ever appears, these aggregates become wrong rather than merely
- * incomplete, so `assertSingleCurrency` reports it to Sentry instead of silently
- * summing rupees and dollars together.
+ * incomplete, so the summary query counts distinct currencies and reports to
+ * Sentry instead of silently summing rupees and dollars together.
  *
  * DECIMALS. Prisma hands back `Decimal`, which survives neither JSON nor the
  * server to client boundary. Every DTO below exposes plain numbers, converted at
@@ -62,119 +69,158 @@ function periodStart(period: MoneyPeriod): Date {
   return start;
 }
 
+// ---------------------------------------------------------------------------
+// Overview tab
+// ---------------------------------------------------------------------------
+//
+// ── WHY THIS IS THREE FUNCTIONS AND THREE SQL STATEMENTS ────────────────────
+// This used to be one function issuing eleven queries through Promise.all and
+// returning one DTO. Promise.all is not free here: the app talks to Neon over
+// the open internet, and measured from a Mumbai function against the Singapore
+// database a single round trip costs about 75ms while ten in parallel cost
+// 338ms — the pool does not fan out for free. Those eleven aggregates measured
+// 212ms against production data of seventy-six wallet transactions. Almost none
+// of that was the database doing work.
+//
+// So the fix is not a faster query, it is fewer of them. Each function below is
+// exactly one round trip, and the three are independent: the figures do not wait
+// on the charts and the charts do not wait on each other. The page gives each its
+// own Suspense boundary, so the tiles paint as soon as their statement returns.
+//
+// Aggregates are computed with FILTER rather than by scanning the table once per
+// figure. Postgres evaluates every one of them in a single pass.
+
 /**
- * Every total on this screen adds amounts together without converting between
- * currencies, which is correct only while there is exactly one. Reports rather
- * than throws: a second currency should page us, not break the money screen for
- * the person trying to investigate it.
+ * Every figure on the overview tiles, plus the attention strip, in one
+ * statement.
+ *
+ * The three tables involved (Wallet, WalletTransaction, Shipment) are unrelated
+ * to each other here — nothing joins, they are three independent aggregates that
+ * happen to be displayed together. That is why they are scalar subqueries in one
+ * statement rather than a join: a join across them would multiply rows and the
+ * sums would be wrong.
+ *
+ * `toppedUp` deliberately counts TOP_UP and MANUAL_CREDIT only, not the whole of
+ * CREDIT_TYPES. A refund is money going back to a customer, not money arriving,
+ * and it is reported on its own line.
  */
-async function assertSingleCurrency(): Promise<string> {
-  const groups = await prisma.wallet.groupBy({
-    by: ["currency"],
-    _count: { _all: true },
-  });
-
-  if (groups.length > 1) {
-    Sentry.captureMessage("Arena wallets screen: more than one wallet currency", {
-      level: "error",
-      tags: { location: "adminQueries.assertSingleCurrency" },
-      extra: { currencies: groups.map((g) => g.currency) },
-    });
-  }
-
-  return groups[0]?.currency ?? "INR";
-}
-
-// ---------------------------------------------------------------------------
-// Overview
-// ---------------------------------------------------------------------------
-
-export async function getWalletOverview(period: MoneyPeriod): Promise<WalletOverviewDTO> {
+export async function getWalletSummary(period: MoneyPeriod): Promise<WalletSummaryDTO> {
   try {
     const since = periodStart(period);
     const lowThreshold = resolveLowBalanceThreshold();
     const staleBefore = new Date(Date.now() - STALE_TOPUP_MINUTES * 60_000);
 
-    const [
-      currency,
-      walletTotals,
-      lowBalanceCount,
-      creditTotals,
-      debitTotals,
-      refundTotals,
-      staleTopUps,
-      failedTopUps,
-      collections,
-      series,
-      aging,
-    ] = await Promise.all([
-      assertSingleCurrency(),
+    const [row] = await prisma.$queryRaw<
+      {
+        currency: string | null;
+        currency_count: bigint;
+        held: unknown;
+        wallet_count: bigint;
+        low_count: bigint;
+        topped_up: unknown;
+        topped_up_count: bigint;
+        spent: unknown;
+        spent_count: bigint;
+        refunded: unknown;
+        stale_amount: unknown;
+        stale_count: bigint;
+        failed_amount: unknown;
+        failed_count: bigint;
+        awaiting: unknown;
+        awaiting_count: bigint;
+      }[]
+    >`
+      WITH wallets AS (
+        SELECT
+          MIN(currency)                                             AS currency,
+          COUNT(DISTINCT currency)                                  AS currency_count,
+          COALESCE(SUM(balance), 0)                                 AS held,
+          COUNT(*)                                                  AS wallet_count,
+          COUNT(*) FILTER (WHERE balance <= ${lowThreshold})        AS low_count
+        FROM "Wallet"
+      ),
+      txns AS (
+        SELECT
+          COALESCE(SUM(amount) FILTER (
+            WHERE status = 'SUCCESS' AND type::text = ANY(${["TOP_UP", "MANUAL_CREDIT"]})
+              AND "createdAt" >= ${since}), 0)                      AS topped_up,
+          COUNT(*) FILTER (
+            WHERE status = 'SUCCESS' AND type::text = ANY(${["TOP_UP", "MANUAL_CREDIT"]})
+              AND "createdAt" >= ${since})                          AS topped_up_count,
 
-      prisma.wallet.aggregate({ _sum: { balance: true }, _count: { _all: true } }),
+          COALESCE(SUM(amount) FILTER (
+            WHERE status = 'SUCCESS' AND type::text = ANY(${[...DEBIT_TYPES]})
+              AND "createdAt" >= ${since}), 0)                      AS spent,
+          COUNT(*) FILTER (
+            WHERE status = 'SUCCESS' AND type::text = ANY(${[...DEBIT_TYPES]})
+              AND "createdAt" >= ${since})                          AS spent_count,
 
-      prisma.wallet.count({ where: { balance: { lte: lowThreshold } } }),
+          COALESCE(SUM(amount) FILTER (
+            WHERE status = 'SUCCESS' AND type = 'REFUND'
+              AND "createdAt" >= ${since}), 0)                      AS refunded,
 
-      prisma.walletTransaction.aggregate({
-        where: { status: "SUCCESS", type: { in: ["TOP_UP", "MANUAL_CREDIT"] }, createdAt: { gte: since } },
-        _sum: { amount: true },
-        _count: { _all: true },
-      }),
+          -- Not bounded by the period on purpose. An abandoned checkout from six
+          -- weeks ago is still an abandoned checkout, and narrowing this to the
+          -- selected window would hide the oldest and most suspect ones.
+          COALESCE(SUM(amount) FILTER (
+            WHERE status = 'PENDING' AND type = 'TOP_UP'
+              AND "createdAt" < ${staleBefore}), 0)                 AS stale_amount,
+          COUNT(*) FILTER (
+            WHERE status = 'PENDING' AND type = 'TOP_UP'
+              AND "createdAt" < ${staleBefore})                     AS stale_count,
 
-      prisma.walletTransaction.aggregate({
-        where: { status: "SUCCESS", type: { in: [...DEBIT_TYPES] }, createdAt: { gte: since } },
-        _sum: { amount: true },
-        _count: { _all: true },
-      }),
+          COALESCE(SUM(amount) FILTER (
+            WHERE status = 'FAILED' AND "createdAt" >= ${since}), 0) AS failed_amount,
+          COUNT(*) FILTER (
+            WHERE status = 'FAILED' AND "createdAt" >= ${since})    AS failed_count
+        FROM "WalletTransaction"
+      ),
+      owed AS (
+        SELECT
+          COALESCE(SUM(COALESCE("quotedTotal", 0) - "paymentCollectedAmount"), 0) AS awaiting,
+          COUNT(*)                                                                AS awaiting_count
+        FROM "Shipment"
+        WHERE "paymentDeferred" = true
+          AND "paymentCollectionStatus" IN ('PENDING', 'PART_PAID')
+      )
+      SELECT * FROM wallets, txns, owed
+    `;
 
-      prisma.walletTransaction.aggregate({
-        where: { status: "SUCCESS", type: "REFUND", createdAt: { gte: since } },
-        _sum: { amount: true },
-      }),
-
-      prisma.walletTransaction.aggregate({
-        where: { status: "PENDING", type: "TOP_UP", createdAt: { lt: staleBefore } },
-        _sum: { amount: true },
-        _count: { _all: true },
-      }),
-
-      prisma.walletTransaction.aggregate({
-        where: { status: "FAILED", createdAt: { gte: since } },
-        _sum: { amount: true },
-        _count: { _all: true },
-      }),
-
-      getAwaitingCollectionTotal(),
-
-      getDailyMoneySeries(since),
-
-      getCollectionAging(),
-    ]);
+    // Every total on this screen adds amounts together without converting
+    // between currencies, which is correct only while there is exactly one.
+    // Reported rather than thrown: a second currency should page us, not break
+    // the money screen for the person trying to investigate it.
+    if (Number(row?.currency_count ?? 0) > 1) {
+      Sentry.captureMessage("Arena wallets screen: more than one wallet currency", {
+        level: "error",
+        tags: { location: "adminQueries.getWalletSummary" },
+        extra: { currencyCount: Number(row.currency_count) },
+      });
+    }
 
     return {
-      currency,
+      currency: row?.currency ?? "INR",
       period,
-      heldInWallets: toNumber(walletTotals._sum.balance),
-      walletCount: walletTotals._count._all,
-      lowBalanceCount,
-      toppedUp: toNumber(creditTotals._sum.amount),
-      toppedUpCount: creditTotals._count._all,
-      spent: toNumber(debitTotals._sum.amount),
-      spentCount: debitTotals._count._all,
-      refunded: toNumber(refundTotals._sum.amount),
-      awaitingCollection: collections.amount,
-      awaitingCollectionCount: collections.count,
-      series,
-      aging,
+      heldInWallets: toNumber(row?.held as string),
+      walletCount: Number(row?.wallet_count ?? 0),
+      lowBalanceCount: Number(row?.low_count ?? 0),
+      toppedUp: toNumber(row?.topped_up as string),
+      toppedUpCount: Number(row?.topped_up_count ?? 0),
+      spent: toNumber(row?.spent as string),
+      spentCount: Number(row?.spent_count ?? 0),
+      refunded: toNumber(row?.refunded as string),
+      awaitingCollection: toNumber(row?.awaiting as string),
+      awaitingCollectionCount: Number(row?.awaiting_count ?? 0),
       attention: {
-        staleTopUpCount: staleTopUps._count._all,
-        staleTopUpAmount: toNumber(staleTopUps._sum.amount),
-        failedTopUpCount: failedTopUps._count._all,
-        failedTopUpAmount: toNumber(failedTopUps._sum.amount),
+        staleTopUpCount: Number(row?.stale_count ?? 0),
+        staleTopUpAmount: toNumber(row?.stale_amount as string),
+        failedTopUpCount: Number(row?.failed_count ?? 0),
+        failedTopUpAmount: toNumber(row?.failed_amount as string),
       },
     };
   } catch (error) {
     Sentry.captureException(error, {
-      tags: { location: "getWalletOverview" },
+      tags: { location: "getWalletSummary" },
       extra: { period },
     });
     throw error;
@@ -186,39 +232,49 @@ export async function getWalletOverview(period: MoneyPeriod): Promise<WalletOver
  * day ops actually made it. Gaps are filled with zeroes: a bar chart that skips
  * quiet days silently compresses time and misreads as busier than it was.
  */
-async function getDailyMoneySeries(since: Date): Promise<DailyMoneyPoint[]> {
-  const rows = await prisma.$queryRaw<
-    { day: string; money_in: unknown; money_out: unknown }[]
-  >`
-    SELECT
-      to_char(date_trunc('day', "createdAt" AT TIME ZONE ${REPORTING_TIMEZONE}), 'YYYY-MM-DD') AS day,
-      SUM(CASE WHEN type::text = ANY(${[...CREDIT_TYPES]}) THEN amount ELSE 0 END) AS money_in,
-      SUM(CASE WHEN type::text = ANY(${[...DEBIT_TYPES]}) THEN amount ELSE 0 END) AS money_out
-    FROM "WalletTransaction"
-    WHERE status = 'SUCCESS' AND "createdAt" >= ${since}
-    GROUP BY 1
-    ORDER BY 1
-  `;
+export async function getMoneyFlowSeries(period: MoneyPeriod): Promise<DailyMoneyPoint[]> {
+  try {
+    const since = periodStart(period);
 
-  const byDay = new Map(
-    rows.map((r) => [
-      r.day,
-      { moneyIn: toNumber(r.money_in as string), moneyOut: toNumber(r.money_out as string) },
-    ]),
-  );
+    const rows = await prisma.$queryRaw<
+      { day: string; money_in: unknown; money_out: unknown }[]
+    >`
+      SELECT
+        to_char(date_trunc('day', "createdAt" AT TIME ZONE ${REPORTING_TIMEZONE}), 'YYYY-MM-DD') AS day,
+        SUM(amount) FILTER (WHERE type::text = ANY(${[...CREDIT_TYPES]})) AS money_in,
+        SUM(amount) FILTER (WHERE type::text = ANY(${[...DEBIT_TYPES]}))  AS money_out
+      FROM "WalletTransaction"
+      WHERE status = 'SUCCESS' AND "createdAt" >= ${since}
+      GROUP BY 1
+      ORDER BY 1
+    `;
 
-  const points: DailyMoneyPoint[] = [];
-  const cursor = new Date(since);
-  const today = new Date();
+    const byDay = new Map(
+      rows.map((r) => [
+        r.day,
+        { moneyIn: toNumber(r.money_in as string), moneyOut: toNumber(r.money_out as string) },
+      ]),
+    );
 
-  while (cursor <= today) {
-    const key = istDateKey(cursor);
-    const found = byDay.get(key);
-    points.push({ date: key, moneyIn: found?.moneyIn ?? 0, moneyOut: found?.moneyOut ?? 0 });
-    cursor.setDate(cursor.getDate() + 1);
+    const points: DailyMoneyPoint[] = [];
+    const cursor = new Date(since);
+    const today = new Date();
+
+    while (cursor <= today) {
+      const key = istDateKey(cursor);
+      const found = byDay.get(key);
+      points.push({ date: key, moneyIn: found?.moneyIn ?? 0, moneyOut: found?.moneyOut ?? 0 });
+      cursor.setDate(cursor.getDate() + 1);
+    }
+
+    return points;
+  } catch (error) {
+    Sentry.captureException(error, {
+      tags: { location: "getMoneyFlowSeries" },
+      extra: { period },
+    });
+    throw error;
   }
-
-  return points;
 }
 
 /** YYYY-MM-DD for a Date, as seen in IST. Matches the SQL bucketing above. */
@@ -231,58 +287,58 @@ function istDateKey(date: Date): string {
   }).format(date);
 }
 
-/** Total still owed on deferred bookings. */
-async function getAwaitingCollectionTotal(): Promise<{ amount: number; count: number }> {
-  const rows = await prisma.$queryRaw<{ owed: unknown; n: bigint }[]>`
-    SELECT
-      COALESCE(SUM(COALESCE("quotedTotal", 0) - "paymentCollectedAmount"), 0) AS owed,
-      COUNT(*) AS n
-    FROM "Shipment"
-    WHERE "paymentDeferred" = true
-      AND "paymentCollectionStatus" IN ('PENDING', 'PART_PAID')
-  `;
-
-  return {
-    amount: toNumber(rows[0]?.owed as string),
-    count: Number(rows[0]?.n ?? 0),
-  };
-}
-
 /**
  * How old the money owed to us is. Standard receivables aging: the longer a
  * bucket, the less likely it is ever collected, which is exactly the thing worth
  * looking at rather than the total alone.
+ *
+ * Bucketed in SQL rather than in JavaScript. The previous version selected one
+ * row per unpaid deferred shipment and totalled them in a loop, which meant the
+ * whole outstanding book crossed the wire on every page load to produce four
+ * numbers. The CASE arms are generated from AGING_BUCKETS so the boundaries
+ * cannot drift away from the labels rendered next to them.
  */
-async function getCollectionAging(): Promise<AgingBucket[]> {
-  const rows = await prisma.$queryRaw<{ age_days: unknown; owed: unknown }[]>`
-    SELECT
-      EXTRACT(EPOCH FROM (now() - COALESCE("bookedAt", "createdAt"))) / 86400 AS age_days,
-      COALESCE("quotedTotal", 0) - "paymentCollectedAmount" AS owed
-    FROM "Shipment"
-    WHERE "paymentDeferred" = true
-      AND "paymentCollectionStatus" IN ('PENDING', 'PART_PAID')
-  `;
+export async function getCollectionAging(): Promise<AgingBucket[]> {
+  try {
+    const bounded = AGING_BUCKETS.filter((b) => b.upToDays !== null);
+    const overflow = AGING_BUCKETS[AGING_BUCKETS.length - 1];
 
-  const totals = new Map(AGING_BUCKETS.map((b) => [b.key, { amount: 0, count: 0 }]));
+    const arms = bounded.map(
+      (b) =>
+        Prisma.sql`WHEN EXTRACT(EPOCH FROM (now() - COALESCE("bookedAt", "createdAt"))) / 86400 < ${b.upToDays} THEN ${b.key}`,
+    );
 
-  for (const row of rows) {
-    const age = toNumber(row.age_days as string);
-    const owed = toNumber(row.owed as string);
-    const bucket =
-      AGING_BUCKETS.find((b) => b.upToDays !== null && age < b.upToDays) ??
-      AGING_BUCKETS[AGING_BUCKETS.length - 1];
+    const rows = await prisma.$queryRaw<{ bucket: string; owed: unknown; n: bigint }[]>`
+      SELECT
+        CASE ${Prisma.join(arms, " ")} ELSE ${overflow.key} END                    AS bucket,
+        COALESCE(SUM(COALESCE("quotedTotal", 0) - "paymentCollectedAmount"), 0)    AS owed,
+        COUNT(*)                                                                   AS n
+      FROM "Shipment"
+      WHERE "paymentDeferred" = true
+        AND "paymentCollectionStatus" IN ('PENDING', 'PART_PAID')
+      GROUP BY 1
+    `;
 
-    const entry = totals.get(bucket.key)!;
-    entry.amount += owed;
-    entry.count += 1;
+    const byBucket = new Map(rows.map((r) => [r.bucket, r]));
+
+    // Mapped over the config rather than over the rows, so a bucket with nothing
+    // in it still renders as an empty bar. Dropping it would silently change the
+    // chart's x-axis depending on the data.
+    return AGING_BUCKETS.map((b) => {
+      const found = byBucket.get(b.key);
+      return {
+        key: b.key,
+        label: b.label,
+        amount: toNumber(found?.owed as string),
+        count: Number(found?.n ?? 0),
+      };
+    });
+  } catch (error) {
+    Sentry.captureException(error, {
+      tags: { location: "getCollectionAging" },
+    });
+    throw error;
   }
-
-  return AGING_BUCKETS.map((b) => ({
-    key: b.key,
-    label: b.label,
-    amount: totals.get(b.key)!.amount,
-    count: totals.get(b.key)!.count,
-  }));
 }
 
 // ---------------------------------------------------------------------------
