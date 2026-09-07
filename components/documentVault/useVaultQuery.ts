@@ -3,7 +3,6 @@
 import { useCallback } from "react";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { listVaultDocumentsAction } from "@/actions/documentVault/documentValut.action";
 import { useTableUrlState } from "@/hooks/useTableUrlState";
 import {
   DEFAULT_VAULT_PAGE_SIZE,
@@ -14,15 +13,21 @@ import {
   coerceVaultSortField,
   type VaultDocTypeFilter,
   type VaultListParams,
+  type VaultPage,
 } from "@/lib/documentVault/config";
 
 export const VAULT_QUERY_KEY = "vault-documents";
 
 /**
  * State + data for the tenant's own client-document table. Same contract as
- * useAdminVaultQuery, pointed at the org-scoped action.
+ * useAdminVaultQuery, pointed at the org-scoped endpoint — see that hook for why
+ * both read a GET rather than calling a server action, and why the prefetch is
+ * matched on params rather than on "is this the default view".
  */
-export function useVaultQuery() {
+export function useVaultQuery(opts?: {
+  initialData?: VaultPage;
+  initialParams?: VaultListParams;
+}) {
   const qc = useQueryClient();
 
   const url = useTableUrlState({
@@ -45,11 +50,22 @@ export function useVaultQuery() {
     search: url.search || undefined,
   };
 
+  const seed = opts?.initialParams;
+  const matchesPrefetch =
+    Boolean(opts?.initialData && seed) &&
+    seed!.page === params.page &&
+    seed!.pageSize === params.pageSize &&
+    seed!.sortField === params.sortField &&
+    seed!.sortDir === params.sortDir &&
+    (seed!.docType ?? "") === (params.docType ?? "") &&
+    (seed!.search ?? "") === (params.search ?? "");
+
   const query = useQuery({
     queryKey: [VAULT_QUERY_KEY, params],
-    queryFn: () => listVaultDocumentsAction(params),
+    queryFn: ({ signal }) => fetchTenantVaultPage(params, signal),
     staleTime: 15_000,
     placeholderData: keepPreviousData,
+    initialData: matchesPrefetch ? opts?.initialData : undefined,
   });
 
   // Deleting shifts what every cached page holds, so drop the whole key rather
@@ -74,4 +90,22 @@ export function useVaultQuery() {
     refetch: query.refetch,
     invalidate,
   };
+}
+
+async function fetchTenantVaultPage(
+  params: VaultListParams,
+  signal: AbortSignal,
+): Promise<VaultPage> {
+  const qs = new URLSearchParams({
+    page: String(params.page ?? 1),
+    pageSize: String(params.pageSize ?? DEFAULT_VAULT_PAGE_SIZE),
+    sort: params.sortField ?? DEFAULT_VAULT_SORT,
+    dir: params.sortDir ?? "desc",
+  });
+  if (params.docType) qs.set("docType", params.docType);
+  if (params.search) qs.set("q", params.search);
+
+  const res = await fetch(`/api/document-vault/tenant?${qs}`, { signal });
+  if (!res.ok) throw new Error("Could not load documents.");
+  return res.json();
 }

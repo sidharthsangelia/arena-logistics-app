@@ -19,7 +19,6 @@ import { toast } from "sonner";
 
 import { DataTable } from "@/components/data-table/DataTable";
 import { DataTableColumnHeader } from "@/components/data-table/DataTableColumnHeader";
-import { DataTableSkeleton } from "@/components/data-table/DataTableSkeleton";
 import {
   DataTableBulkBar,
   selectedIds,
@@ -60,6 +59,8 @@ import {
   formatBytes,
   type VaultDocTypeFilter,
   type VaultDocumentRow,
+  type VaultListParams,
+  type VaultPage,
 } from "@/lib/documentVault/config";
 
 import { useVaultQuery } from "./useVaultQuery";
@@ -67,8 +68,15 @@ import { useVaultQuery } from "./useVaultQuery";
 /** "all" is the Select's stand-in for the empty filter, since "" is not a valid item value. */
 const ALL_TYPES = "all";
 
-export default function VaultTable() {
-  const t = useVaultQuery();
+export default function VaultTable({
+  initialData,
+  initialParams,
+}: {
+  /** The first page the route already rendered on the server, if it rendered one. */
+  initialData?: VaultPage;
+  initialParams?: VaultListParams;
+} = {}) {
+  const t = useVaultQuery({ initialData, initialParams });
   const invalidate = t.invalidate;
 
   const [selection, setSelection] = React.useState<RowSelectionState>({});
@@ -328,17 +336,6 @@ export default function VaultTable() {
     </AlertDialog>
   );
 
-  // First load has nothing to keep on screen, so show the shape of the table.
-  // Every later fetch reuses the rows already rendered.
-  if (t.isFirstLoad) {
-    return (
-      <div className="space-y-4">
-        {toolbar}
-        <DataTableSkeleton columns={columns.length} rows={8} />
-      </div>
-    );
-  }
-
   if (t.error) {
     return (
       <div className="space-y-4">
@@ -370,6 +367,11 @@ export default function VaultTable() {
         sorting={t.sorting}
         onSortingChange={t.setSorting}
         isLoading={t.isFetching}
+        // First load draws the table's own header labels, border and pager and
+        // stands in only the cells, rather than handing over from a generic
+        // block of equal-width bars to columns of quite different widths.
+        isFirstLoad={t.isFirstLoad}
+        skeletonRows={t.pageSize}
         toolbar={toolbar}
         rowSelection={selection}
         onRowSelectionChange={setSelection}

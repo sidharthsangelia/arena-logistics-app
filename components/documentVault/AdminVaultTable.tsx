@@ -15,7 +15,6 @@ import { Building2, FileText, ImageIcon } from "lucide-react";
 
 import { DataTable } from "@/components/data-table/DataTable";
 import { DataTableColumnHeader } from "@/components/data-table/DataTableColumnHeader";
-import { DataTableSkeleton } from "@/components/data-table/DataTableSkeleton";
 import {
   DataTableEmptyState,
   DataTableErrorState,
@@ -39,18 +38,25 @@ import {
   VAULT_QUICK_DOC_TYPES,
   formatBytes,
   type AdminVaultDocumentRow,
+  type AdminVaultListParams,
+  type AdminVaultPage,
   type VaultDocTypeFilter,
 } from "@/lib/documentVault/config";
 
 import { useAdminVaultQuery } from "./useAdminVaultQuery";
 
-const COLUMN_COUNT = 7;
-
 /** "all" is the Select's stand-in for the empty filter, since "" is not a valid item value. */
 const ALL_TYPES = "all";
 
-export default function AdminVaultTable() {
-  const t = useAdminVaultQuery();
+export default function AdminVaultTable({
+  initialData,
+  initialParams,
+}: {
+  /** The first page the route already rendered on the server, if it rendered one. */
+  initialData?: AdminVaultPage;
+  initialParams?: AdminVaultListParams;
+} = {}) {
+  const t = useAdminVaultQuery({ initialData, initialParams });
 
   const columns = React.useMemo<ColumnDef<AdminVaultDocumentRow>[]>(
     () => [
@@ -216,17 +222,6 @@ export default function AdminVaultTable() {
     </DataTableToolbar>
   );
 
-  // First load has nothing to keep on screen, so show the shape of the table.
-  // Every later fetch reuses the rows already rendered.
-  if (t.isFirstLoad) {
-    return (
-      <div className="space-y-4">
-        {toolbar}
-        <DataTableSkeleton columns={COLUMN_COUNT} rows={10} />
-      </div>
-    );
-  }
-
   if (t.error) {
     return (
       <div className="space-y-4">
@@ -257,6 +252,14 @@ export default function AdminVaultTable() {
       sorting={t.sorting}
       onSortingChange={t.setSorting}
       isLoading={t.isFetching}
+      // First load has nothing to keep on screen, so the table draws its own
+      // header labels, border and pager and stands in only the cells. It used to
+      // return a generic DataTableSkeleton here instead, which meant seven
+      // equal-width grey bars handing over to seven columns of quite different
+      // widths — a jump at the exact moment the rows arrived. Every later fetch
+      // keeps the rows already rendered and dims them.
+      isFirstLoad={t.isFirstLoad}
+      skeletonRows={t.pageSize}
       toolbar={toolbar}
       emptyState={
         <DataTableEmptyState
