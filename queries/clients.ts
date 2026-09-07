@@ -198,6 +198,24 @@ export async function getClientsPage({
   };
 }
 
+// ---------------------------------------------------------------------------
+// Cache tag
+//
+// The one read on this screen worth caching. Everything else here is a row list
+// that someone is about to act on; this is a dropdown of organisation names.
+//
+// The tag matters more than the TTL. The list is "organisations that have at
+// least one client", so it changes when an org is renamed, created or removed —
+// and also when a client is created for an org that had none, or the last client
+// of an org is deleted. A TTL alone cannot express that: it would either be short
+// enough to be pointless or long enough that a business associate's first client
+// leaves them missing from the filter for an hour. So every one of those write
+// paths expires this tag, and the TTL below is only a backstop for a change made
+// outside the app entirely.
+// ---------------------------------------------------------------------------
+
+export const CLIENT_ORG_OPTIONS_TAG = "client-org-options";
+
 /**
  * Business Associate filter options.
  *
@@ -212,11 +230,14 @@ export async function getClientOrgOptions(client = false) {
   return fetchClientOrgOptions(orgId);
 }
 
-// Cached for 60s. These are organisation names for a filter dropdown: renaming
-// an org is rare, and on the tenant side the list is a single row — the caller's
-// own org — which cannot change at all within a session. Safe to cache as-is
-// because the shape is plain strings, with no Date or Decimal to survive the
-// JSON round trip.
+// Cached for an hour, expired by tag on every write that can change it. These
+// are organisation names for a filter dropdown: renaming an org is rare, and on
+// the tenant side the list is a single row — the caller's own org — which cannot
+// change at all within a session.
+//
+// Safe to cache as-is because the shape is plain strings, with no Date or
+// Decimal to survive the JSON round trip. That is not true of getClientsPage
+// above, which is why that one stays live.
 const fetchClientOrgOptions = unstable_cache(
   async (orgId: string | null) => {
     if (orgId) {
@@ -245,5 +266,5 @@ const fetchClientOrgOptions = unstable_cache(
     });
   },
   ["client-org-options"],
-  { revalidate: 60 },
+  { tags: [CLIENT_ORG_OPTIONS_TAG], revalidate: 3600 },
 );

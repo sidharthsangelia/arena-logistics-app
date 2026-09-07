@@ -74,6 +74,39 @@ export function useVaultQuery(opts?: {
     qc.invalidateQueries({ queryKey: [VAULT_QUERY_KEY] });
   }, [qc]);
 
+  /**
+   * Take rows off the page the user is looking at, before the server has agreed.
+   *
+   * Deleting a document is a slow operation — the row goes, and so does the file
+   * in UploadThing — and watching a row sit there for a second after confirming
+   * its deletion reads as the click not having registered. So the row goes
+   * immediately and the truth catches up.
+   *
+   * Only the visible page is patched, not every cached page: the ones behind it
+   * shift by a row and there is no honest way to guess how. `invalidate()` is
+   * what puts them right, and the caller runs it either way.
+   *
+   * Returns the undo. The caller keeps it and calls it if the server says no,
+   * which is the whole reason this hands back a function rather than just
+   * mutating and hoping.
+   */
+  const removeRowsOptimistically = (ids: string[]) => {
+    const key = [VAULT_QUERY_KEY, params];
+    const previous = qc.getQueryData<VaultPage>(key);
+    if (!previous) return () => {};
+
+    const doomed = new Set(ids);
+    qc.setQueryData<VaultPage>(key, {
+      ...previous,
+      rows: previous.rows.filter((row) => !doomed.has(row.id)),
+      // The pager has to agree with the rows, or removing the last row of a page
+      // leaves a count claiming it is still there.
+      total: Math.max(0, previous.total - ids.length),
+    });
+
+    return () => qc.setQueryData(key, previous);
+  };
+
   return {
     ...url,
     docType,
@@ -89,6 +122,7 @@ export function useVaultQuery(opts?: {
     error: query.error,
     refetch: query.refetch,
     invalidate,
+    removeRowsOptimistically,
   };
 }
 

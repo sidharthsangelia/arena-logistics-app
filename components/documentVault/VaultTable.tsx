@@ -85,47 +85,71 @@ export default function VaultTable({
 
   const chosen = selectedIds(selection);
 
+  // Optimistic. The row goes and the dialog closes on the click, rather than a
+  // second later when UploadThing has finished removing the file. If the server
+  // refuses, the row comes back and the toast says why — a delete that silently
+  // reappears reads as a bug rather than as a rejection.
   const handleSingleDelete = async () => {
     if (!toDelete) return;
+
+    const id = toDelete.id;
+    const undo = t.removeRowsOptimistically([id]);
+    setToDelete(null);
     setIsPending(true);
+
     try {
-      const result = await deleteKycDocumentAction(toDelete.id);
+      const result = await deleteKycDocumentAction(id);
       if (result.success) {
         toast.success("Document deleted.");
-        setToDelete(null);
-        invalidate();
       } else {
+        undo();
         toast.error(result.message);
       }
+    } catch {
+      undo();
+      toast.error("Could not delete the document. Please try again.");
     } finally {
       setIsPending(false);
+      // Run either way. On success the pages behind this one have shifted by a
+      // row; on failure the undo above restored a guess, and this replaces it
+      // with what the database actually holds.
+      invalidate();
     }
   };
 
   const handleBulkDelete = async () => {
+    const ids = chosen;
+    const undo = t.removeRowsOptimistically(ids);
+    setSelection({});
     setIsPending(true);
+
     try {
       // deleteKycDocumentAction handles one document at a time, because each one
       // also has to be removed from UploadThing.
       const results = await Promise.all(
-        chosen.map((id) => deleteKycDocumentAction(id)),
+        ids.map((id) => deleteKycDocumentAction(id)),
       );
       const failed = results.filter((r) => !r.success).length;
 
       if (failed === 0) {
         toast.success(
-          `${chosen.length} document${chosen.length !== 1 ? "s" : ""} deleted`,
+          `${ids.length} document${ids.length !== 1 ? "s" : ""} deleted`,
         );
       } else {
+        // Deliberately not undone. Some of these succeeded and some did not, so
+        // putting every row back would be as wrong as leaving every row gone.
+        // The refetch below is the only honest answer, and the toast says how
+        // many to expect back.
         toast.error(
           `${failed} deletion${failed !== 1 ? "s" : ""} failed. Please try again.`,
         );
       }
-      // Some may have succeeded even when others failed, so always refetch.
-      setSelection({});
-      invalidate();
+    } catch {
+      undo();
+      toast.error("Could not delete the documents. Please try again.");
     } finally {
       setIsPending(false);
+      invalidate();
     }
   };
 

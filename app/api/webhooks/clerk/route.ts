@@ -4,9 +4,11 @@
 // this upserts it so nothing is ever out of sync.
 
 import { NextRequest, NextResponse } from "next/server";
+import { revalidateTag } from "next/cache";
 import { Webhook } from "svix";
 import { prisma } from "@/utils/db";
 import { syncOrgTypeMetadata } from "@/lib/org-type.server";
+import { CLIENT_ORG_OPTIONS_TAG } from "@/queries/clients";
 
 type ClerkOrgEvent = {
   type: string;
@@ -91,6 +93,12 @@ export async function POST(req: NextRequest) {
             logoUrl: data.logo_url ?? null,
           },
         });
+        // The Business Associate filter on the clients screens is a cached list
+        // of organisation names, and this is the only path that renames one.
+        // revalidateTag rather than updateTag: updateTag is server-actions-only,
+        // and nobody is waiting on this render anyway — the rename happened in
+        // Clerk, not in a form someone is watching.
+        revalidateTag(CLIENT_ORG_OPTIONS_TAG, "max");
         break;
       }
 
