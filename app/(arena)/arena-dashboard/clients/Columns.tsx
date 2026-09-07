@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import type { ColumnDef } from "@tanstack/react-table";
+import type { ColumnDef, VisibilityState } from "@tanstack/react-table";
 import ClientRowActions from "@/components/clients/ClientRow";
 import { formatDate } from "@/utils/format";
 import { DataTableColumnHeader } from "@/components/data-table/DataTableColumnHeader";
@@ -11,6 +11,17 @@ import { ClientRow } from "@/queries/clients";
 // Columns a user is allowed to hide via the "View" menu. Identity
 // (companyName) and the row action column are always visible, so they're
 // intentionally left out of this list.
+/**
+ * "Created" is available but hidden by default, so the table looks the way it
+ * always has unless someone opts in through the View menu.
+ *
+ * Lives here rather than in ClientsTable because the table's loading fallback
+ * has to start from the same visibility set. A fallback showing a different
+ * number of columns than the table it stands in for is a guaranteed layout jump
+ * at the exact moment the data lands.
+ */
+export const DEFAULT_CLIENT_COLUMN_VISIBILITY: VisibilityState = { createdAt: false };
+
 export const CLIENT_TOGGLEABLE_COLUMNS: { id: string; label: string }[] = [
   { id: "orgName", label: "Business Associate" },
   { id: "contactName", label: "Contact" },
