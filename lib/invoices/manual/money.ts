@@ -312,6 +312,13 @@ export function buildManualInvoiceMoney(
     .filter((line) => line.grossMinor > 0);
 
   // ── fold ────────────────────────────────────────────────────────────────
+  //
+  // The printed order is the order the admin added the charges in the builder,
+  // consignment by consignment. A Map iterates in insertion order, so a folded
+  // line sits where its label first appeared. Do NOT sort the result: the admin
+  // lays a bill out the way the customer expects to read it, and re-ordering it
+  // by label or rate prints a document nobody wrote. The PDF lifts
+  // reimbursements into their own section and keeps this order within each.
   const folded = new Map<string, ComputedLine>();
   for (const line of computed) {
     const existing = folded.get(line.key);
@@ -332,14 +339,7 @@ export function buildManualInvoiceMoney(
     if (existing.rateMinor !== line.rateMinor) existing.rateMinor = null;
   }
 
-  // Taxable lines first in rate order, reimbursements last. Reimbursements sit
-  // beneath the tax on the printed table because they are outside it, and a
-  // reader scanning the GST columns should hit the end of them cleanly.
-  const lines = [...folded.values()].sort((a, b) => {
-    if (a.reimbursement !== b.reimbursement) return a.reimbursement ? 1 : -1;
-    if (a.ratePercent !== b.ratePercent) return a.ratePercent - b.ratePercent;
-    return a.label.localeCompare(b.label);
-  });
+  const lines = [...folded.values()];
 
   // ── totals ──────────────────────────────────────────────────────────────
   let taxableMinor = 0;

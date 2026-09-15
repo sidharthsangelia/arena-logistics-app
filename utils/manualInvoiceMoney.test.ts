@@ -212,14 +212,37 @@ test("zero-value lines are dropped", () => {
   assert.equal(money.lineItems.length, 1);
 });
 
-test("reimbursements sort below the taxed lines", () => {
+test("lines print in the order they were added, not alphabetically", () => {
   const money = build([
-    charge({ label: "Duty", amount: 100, reimbursement: true }),
     charge({ label: "Freight charges", amount: 100 }),
+    charge({ label: "Airway bill fee", amount: 100, ratePercent: 5 }),
+    charge({ label: "Duty", amount: 100, reimbursement: true }),
+    charge({ label: "Customs clearance", amount: 100, ratePercent: 0 }),
   ]);
 
-  assert.equal(money.lineItems[0].reimbursement, false);
-  assert.equal(money.lineItems.at(-1)?.reimbursement, true);
+  assert.deepEqual(
+    money.lineItems.map((l) => l.description),
+    ["Freight charges", "Airway bill fee", "Duty", "Customs clearance"],
+  );
+});
+
+test("a folded line keeps the position of its first appearance", () => {
+  const money = build([
+    charge({ label: "Zone surcharge", amount: 100, consignmentIndex: 0 }),
+    charge({ label: "Freight charges", amount: 100, consignmentIndex: 0 }),
+    charge({ label: "Freight charges", amount: 200, consignmentIndex: 1 }),
+    charge({ label: "Zone surcharge", amount: 300, consignmentIndex: 1 }),
+    charge({ label: "Address correction", amount: 50, consignmentIndex: 1 }),
+  ]);
+
+  assert.deepEqual(
+    money.lineItems.map((l) => [l.description, l.taxableValue]),
+    [
+      ["Zone surcharge", 400],
+      ["Freight charges", 300],
+      ["Address correction", 50],
+    ],
+  );
 });
 
 test("an empty invoice is zero, not NaN", () => {
