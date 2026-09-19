@@ -27,8 +27,12 @@ src/
 │       └── rate-calculator.service.ts  ← Fans out to all adapters, merges results
 └── app/
     └── api/
-        └── rates/
-            └── route.ts          ← Next.js API route (thin HTTP layer only)
+        └── v1/
+            ├── rates/
+            │   ├── international/route.ts   ← partner API (thin HTTP layer only)
+            │   └── domestic/route.ts
+            ├── track/route.ts
+            └── health/route.ts
 ```
 
 ---
@@ -36,10 +40,16 @@ src/
 ## Data Flow
 
 ```
-Client POST /api/rates
+Partner POST /api/v1/rates/international
         │
         ▼
-  route.ts                     ← parse, validate, call service
+  withPublicApi()              ← authenticate key, check scope, check quota
+        │
+        ▼
+  route.ts                     ← parse, validate, convert to canonical
+        │
+        ▼
+  quoteForPublicApi()          ← resolve markup, read/write cache
         │
         ▼
   rate-calculator.service.ts   ← fan out to N adapters in parallel
@@ -66,7 +76,12 @@ skart.adapter.ts   aramex.adapter.ts   (... more vendors)
 
 ## Canonical API Contract
 
-### Request  `POST /api/rates`
+### Request  `POST /api/v1/rates/international`
+
+> The canonical shape below is the INTERNAL one the adapters speak. The partner
+> API validates a stricter version of it and returns a deliberately narrower
+> response (no vendor ids, no raw vendor names). The contract an integrator
+> codes against is [publicApi.md](publicApi.md), not this section.
 
 ```json
 {
@@ -91,9 +106,11 @@ skart.adapter.ts   aramex.adapter.ts   (... more vendors)
 }
 ```
 
-Optional query param to restrict to specific vendors:
-```
-POST /api/rates?vendors=skart,aramex
+Optional body field to restrict to specific vendors. Unlike the old query
+param, an id we do not recognise is rejected rather than ignored, so a caller
+debugging one source cannot silently pay for a full fan-out:
+```json
+{ "vendorIds": ["skart", "aramex"] }
 ```
 
 ### Response

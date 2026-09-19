@@ -164,10 +164,10 @@ Used by future roadmap items.
 
 # Server Actions
 
-The web application must never call:
+The web application must never call its own HTTP API:
 
 ```ts
-fetch("/api/rates")
+fetch("/api/v1/rates/domestic")
 ```
 
 for its own internal requests.
@@ -195,27 +195,34 @@ rateCalculatorService()
 # API Route Responsibility
 
 ```text
-app/api/rates/route.ts
+app/api/v1/rates/international/route.ts
+app/api/v1/rates/domestic/route.ts
+app/api/v1/track/route.ts
+app/api/v1/health/route.ts
 ```
 
-Exists only for:
+These exist only for:
 
-- External consumers
+- External consumers (partner websites)
 - n8n workflows
-- Webhooks
 - Third party integrations
 
-The route should remain a thin HTTP layer.
+They replaced `app/api/rates/route.ts`, which was unauthenticated and returned
+raw un-marked-up vendor cost to anyone who posted to it. That route is deleted.
+The contract for the new ones is [publicApi.md](publicApi.md).
 
-Responsibilities:
+Each route stays a thin HTTP layer. Responsibilities:
 
 - Parse request
-- Validate request
-- Sanitize vendor IDs
+- Validate request (zod, in lib/publicApi/schema.ts)
+- Reject unknown vendor IDs rather than ignoring them
 - Call service
 - Return response
 
-Business logic should never live here.
+Business logic should never live here. Neither should any of the four things
+that make this a public door rather than an internal one: authentication,
+quota, markup and vendor-name masking all live in `lib/publicApi/` and are
+applied by the shared wrapper, so no single route can forget one.
 
 ---
 
@@ -507,10 +514,10 @@ The web application and service layer run inside the same Next.js application.
 Using:
 
 ```ts
-fetch("/api/rates")
+fetch("/api/v1/rates/domestic")
 ```
 
-creates unnecessary HTTP overhead.
+from inside the app creates unnecessary HTTP overhead.
 
 Server Actions allow direct service invocation while preserving:
 

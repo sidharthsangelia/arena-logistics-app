@@ -58,7 +58,14 @@ export interface Shipment {
   codAmount?: number;
 }
 
-/** Body sent to POST /api/rates */
+/**
+ * The rate calculator's request shape, shared by the two server actions.
+ *
+ * It used to be "the body sent to POST /api/rates". That route is gone, and the
+ * partner API that replaced it has a validated shape of its own
+ * (lib/publicApi/schema.ts) so that a refactor here cannot silently become a
+ * breaking change for an external integrator.
+ */
 export interface RateRequest {
   origin: Address;
   destination: Address;
@@ -93,7 +100,7 @@ export interface VendorError {
   message: string;
 }
 
-/** Shape returned by POST /api/rates */
+/** What the rate calculator actions return. See the note on RateRequest. */
 export interface RateResponse {
   success: boolean;
   quotes: RateQuote[];

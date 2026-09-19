@@ -356,13 +356,26 @@ retract them.
 
 ### Open security finding, unrelated to the UI
 
-`POST /api/rates` ([app/api/rates/route.ts](app/api/rates/route.ts)) has **no
-authentication** and **no caller anywhere in the app**. It returns raw
-`vendorName` and `productName` to anyone who posts to it. Masking the UI while
-leaving this endpoint open defeats the whole feature. Decide one of: delete it,
-put it behind auth, or apply the same masking. Recommendation: delete it, since
-nothing calls it, and reintroduce it deliberately if an external partner ever
-needs it.
+**RESOLVED.** `POST /api/rates` had **no authentication** and **no caller
+anywhere in the app**, and returned raw `vendorName` and `productName` to
+anyone who posted to it. Masking the UI while leaving that endpoint open
+defeated the whole feature.
+
+It was deleted, and the recommendation's second half was taken up at the same
+time: the partner API that replaces it was reintroduced deliberately, behind a
+key. `/api/v1/rates/*` is authenticated, marked up, and masks service names
+through the same `displayServiceName` path as every other customer surface.
+An external site is a customer surface by definition, so it gets the customer's
+view and never the raw one.
+
+On top of the per-field masking, `scrubVendorBrands` (lib/publicApi/serialize.ts)
+walks every finished response and masks any string that still matches a vendor
+token, reporting to Sentry when it fires. That is the section 11 guard applied
+at the boundary rather than only in tests: masking by hand is only as good as
+the list of fields somebody remembered, and vendor names turn up inside text we
+did not write, such as a courier's own event description.
+
+See [publicApi.md](publicApi.md).
 
 ---
 
@@ -471,7 +484,8 @@ Each step is independently shippable and testable.
 2. Wire into `getRates` behind `RATE_BRANDING_ENABLED`, add the `audience`
    option defaulting to `"customer"`.
 3. Strip raw vendor fields in `getRatesAction` for non-Arena orgs.
-4. Resolve `POST /api/rates` (section 9).
+4. Resolve `POST /api/rates` (section 9). DONE: deleted, and replaced by the
+   masked, authenticated `/api/v1` partner API.
 5. Update the two customer-facing outbound surfaces first: `QuoteDocument` and
    `SendQuoteDialog`.
 6. Update the calculator UI: `RateResultCard`, `RateResultList`, `ComparePanel`,

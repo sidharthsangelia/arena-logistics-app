@@ -104,16 +104,39 @@ export const RATE_LIMIT_POLICIES = {
   ratesInternational: { limit: 30, windowMs: 60_000 },
   /** getDomesticRatesAction — Shipmozo domestic. Per org. */
   ratesDomestic: { limit: 30, windowMs: 60_000 },
-  /** POST /api/rates, per caller. Same fan-out, so the same per-caller budget. */
-  ratesApiCaller: { limit: 30, windowMs: 60_000 },
   /**
-   * POST /api/rates, whole process. The per-caller key on that route is an IP
-   * when there is no session, and an IP is rotatable, so the per-caller budget
-   * alone bounds nothing. This is the number that actually caps what the route
-   * can spend: generous enough that real traffic never sees it, low enough that
-   * a distributed flood costs us a bounded amount per instance per minute.
+   * ── PUBLIC API (/api/v1) ─────────────────────────────────────────────────
+   * These replace the old ratesApiCaller/ratesApiGlobal pair, which threw an IP
+   * at the problem because POST /api/rates had no caller identity at all. The
+   * v1 routes require a key, so the subject is the consumer NAME — stable,
+   * unforgeable and not rotatable, which an IP never was.
+   *
+   * Each of these is enforced twice: in process memory and against a shared
+   * Postgres counter. See lib/publicApi/quota.ts for why both are needed.
    */
-  ratesApiGlobal: { limit: 300, windowMs: 60_000 },
+  /** POST /api/v1/rates/international, per key. Fans out to four paid vendors. */
+  publicApiRatesIntl: { limit: 30, windowMs: 60_000 },
+  /** POST /api/v1/rates/domestic, per key. Separate vendor accounts, separate budget. */
+  publicApiRatesDomestic: { limit: 30, windowMs: 60_000 },
+  /**
+   * GET /api/v1/track, per key. Higher than the rate budgets because a tracking
+   * page is refreshed far more often than a quote is requested, and most of
+   * these resolve against our own records rather than a vendor.
+   */
+  publicApiTrack: { limit: 120, windowMs: 60_000 },
+  /**
+   * GET /api/v1/health, per key. Cheap — it touches no vendor and no shipment —
+   * but it is the one endpoint reachable by a key with no scopes at all, so it
+   * still gets a ceiling of its own rather than sharing a budget it could drain.
+   */
+  publicApiHealth: { limit: 60, windowMs: 60_000 },
+  /**
+   * Every /api/v1 call, all keys together. The backstop: it caps total public
+   * API spend even if a key leaks and is hammered from everywhere at once.
+   * Generous enough that normal traffic from several partner sites never sees
+   * it, low enough that a leak costs a bounded amount per minute.
+   */
+  publicApiGlobal: { limit: 600, windowMs: 60_000 },
 } as const;
 
 export type RateLimitPolicy = keyof typeof RATE_LIMIT_POLICIES;

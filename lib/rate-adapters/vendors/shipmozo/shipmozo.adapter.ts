@@ -256,22 +256,7 @@ export class ShipmozoAdapter extends BaseVendorAdapter<
   ): Promise<string> {
     const countries = await this.getCountries();
 
-    const normalizedCode = countryCode.trim().toUpperCase();
-    const normalizedName = countryName?.trim().toUpperCase();
-
-    const match = countries.find((c) => {
-      const iso2 = c.iso2?.toUpperCase();
-      const iso3 = c.iso3?.toUpperCase();
-      const code = c.code?.toUpperCase();
-      const name = c.name?.toUpperCase();
-
-      return (
-        iso2 === normalizedCode ||
-        iso3 === normalizedCode ||
-        code === normalizedCode ||
-        (normalizedName !== undefined && name === normalizedName)
-      );
-    });
+    const match = matchShipmozoCountry(countries, countryCode, countryName);
 
     if (!match) {
       // The catalogue loaded and this country is not in it, so Shipmozo does
@@ -403,3 +388,37 @@ export class ShipmozoAdapter extends BaseVendorAdapter<
 // packageType, shipmentPurpose, packages[]) now live directly in
 // lib/rate-adapters/core/types.ts — the previous `declare module`
 // augmentation here has been removed to keep a single source of truth.
+
+/**
+ * Find a country in Shipmozo catalogue by ISO code or by name.
+ *
+ * Exported and pure so a test can hold it to the shape the live catalogue
+ * actually returns. It used to look for iso2, iso3 and code, none of which the
+ * payload carries: a row is
+ *   { id, name, phone_code, country_code: "AU", iso_code: "AUS" }
+ * so in practice the resolver only ever matched on the NAME. Any caller who
+ * sent an ISO code and no country name, which is every partner posting JSON at
+ * the public API, got no Shipmozo quote for any destination at all.
+ *
+ * The code is tried first and the name second, because a code either matches or
+ * does not while a name has to agree on spelling with whoever typed it.
+ */
+export function matchShipmozoCountry(
+  countries: ShipmozoCountry[],
+  countryCode: string,
+  countryName?: string,
+): ShipmozoCountry | undefined {
+  const normalizedCode = countryCode.trim().toUpperCase();
+  const normalizedName = countryName?.trim().toUpperCase();
+
+  return countries.find((c) => {
+    const codes = [c.country_code, c.iso_code, c.iso2, c.iso3, c.code]
+      .filter((v): v is string => typeof v === "string" && v.length > 0)
+      .map((v) => v.trim().toUpperCase());
+
+    if (normalizedCode.length > 0 && codes.includes(normalizedCode)) return true;
+
+    const name = c.name?.trim().toUpperCase();
+    return normalizedName !== undefined && name === normalizedName;
+  });
+}

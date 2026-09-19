@@ -9,7 +9,16 @@ const isPublicRoute = createRouteMatcher([
   "/activate-org",
   "/api/uploadthing",
   "/api/cron(.*)",
-  "/api/inngest(.*)"
+  "/api/inngest(.*)",
+  // The public partner API. "Public" here means "not Clerk-protected", not
+  // "unauthenticated": every /api/v1 route authenticates an API key of its own
+  // in lib/publicApi/handler.ts and refuses anything it does not recognise.
+  //
+  // It has to be listed. Without it, step 5 below calls auth.protect() on a
+  // request that has no Clerk session and never will, so a correctly-keyed
+  // partner call would be rejected before our own key check ever ran — and the
+  // failure would read as an auth bug on their side.
+  "/api/v1(.*)"
 ]);
 
 const isArenaRoute = createRouteMatcher(["/arena-dashboard(.*)"]);
