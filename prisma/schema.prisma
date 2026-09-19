@@ -3007,3 +3007,63 @@ model RateQuotation {
   @@index([clientId])
   @@index([generatedByUserId])
 }
+
+// ─────────────────────────────────────────────
+// Public API v1 — partner integrations
+// ─────────────────────────────────────────────
+//
+// Two tables behind /api/v1/*. Both are infrastructure for an endpoint that
+// anyone holding a key can reach, and neither holds customer data.
+//
+// They exist because the process-memory limiter (lib/rateLimit.ts) cannot bound
+// anything on Vercel: each lambda keeps its own window, so the real ceiling is
+// limit x instance count, and an instance count we do not control. For an
+// internal calculator that is fine. For a door a partner site hits from their
+// own servers, spending our paid vendor quota, it is not.
+
+/// One fixed rate-limit window for one subject, shared across instances.
+///
+/// Fixed window, not sliding: the whole point is an atomic increment that any
+/// instance can perform in one round trip, and a timestamp log cannot be
+/// incremented atomically. The known property of a fixed window is that a
+/// caller can land `limit` requests at the end of one window and `limit` more
+/// at the start of the next, so the worst-case burst is 2x the limit over a
+/// window boundary. That is accepted: this is a cost control, and 2x a
+/// deliberately generous number is still bounded.
+model ApiRateLimitWindow {
+  id String @id @default(cuid())
+
+  /// "<policy>:<subject>" — the same key space lib/rateLimit.ts uses in memory,
+  /// so a key means the same thing in both layers.
+  bucketKey String
+  /// Window start, truncated to a multiple of the policy's window length.
+  windowStart DateTime
+  count       Int      @default(0)
+
+  /// windowStart + windowMs. Only used to sweep dead rows.
+  expiresAt DateTime
+
+  @@unique([bucketKey, windowStart])
+  @@index([expiresAt])
+}
+
+/// A cached vendor rate fan-out, keyed by the normalised request.
+///
+/// The payload stores quotes BEFORE markup. A cached row therefore survives a
+/// markup change: the env var is read on every response, so editing it takes
+/// effect on the next request rather than when the last cache entry expires.
+/// Storing sell prices here would have made the cache a second, stale source of
+/// truth for pricing, which is the one thing it must never be.
+model ApiRateCacheEntry {
+  id String @id @default(cuid())
+
+  /// sha256 of {scope, vendorIds, normalised request}. See lib/publicApi/cache.ts.
+  cacheKey String @unique
+  /// CanonicalRateResponse with markupPercent 0. Never customer-facing as-is.
+  payload  Json
+
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+
+  @@index([expiresAt])
+}

@@ -123,22 +123,31 @@ describe("named policies", () => {
 
   it("namespaces the subject, so two policies cannot collide on one id", () => {
     at(0);
-    checkRateLimit("ratesApiCaller", "all");
+    checkRateLimit("publicApiRatesIntl", "all");
     // "all" is also the global bucket's subject. If the policy name were not
-    // part of the key, one caller's hits would drain the process-wide budget.
-    const { limit } = RATE_LIMIT_POLICIES.ratesApiGlobal;
+    // part of the key, one consumer's hits would drain the process-wide budget.
+    const { limit } = RATE_LIMIT_POLICIES.publicApiGlobal;
     for (let i = 0; i < limit; i++) {
-      assert.equal(checkRateLimit("ratesApiGlobal", "all").ok, true, `global call ${i + 1}`);
+      assert.equal(checkRateLimit("publicApiGlobal", "all").ok, true, `global call ${i + 1}`);
     }
   });
 
-  it("caps the API route below what one caller alone could spend", () => {
-    // The per-caller key on that route is an IP, which is rotatable, so the
-    // global window is what actually bounds the cost. It has to be reachable.
-    assert.ok(
-      RATE_LIMIT_POLICIES.ratesApiGlobal.limit > RATE_LIMIT_POLICIES.ratesApiCaller.limit,
-      "a global cap at or below the per-caller cap would throttle the first honest client",
-    );
+  it("caps the public API above what any one key alone could spend", () => {
+    // publicApiGlobal is the backstop for a leaked key, so it has to sit above
+    // every per-key budget. At or below one of them, the first honest consumer
+    // would exhaust the global window on its own and lock out the others.
+    const perKey = [
+      RATE_LIMIT_POLICIES.publicApiRatesIntl.limit,
+      RATE_LIMIT_POLICIES.publicApiRatesDomestic.limit,
+      RATE_LIMIT_POLICIES.publicApiTrack.limit,
+    ];
+
+    for (const limit of perKey) {
+      assert.ok(
+        RATE_LIMIT_POLICIES.publicApiGlobal.limit > limit,
+        "a global cap at or below a per-key cap would throttle the first honest consumer",
+      );
+    }
   });
 });
 

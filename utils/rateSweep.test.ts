@@ -334,7 +334,7 @@ describe("sweep request", () => {
 
   it("keeps the legacy single-box fields consistent with the package array", () => {
     // Adapters read `packages`, but the canonical type still carries the older
-    // shape for external /api/rates callers. Letting the two disagree would be
+    // shape for external /api/v1 callers. Letting the two disagree would be
     // a trap for whoever writes the next adapter.
     const request = buildSweepRequest({ country, weightKg: 7 });
     const pkg = request.shipment.packages![0];
