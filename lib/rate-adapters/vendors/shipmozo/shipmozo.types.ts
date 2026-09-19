@@ -25,9 +25,22 @@ export interface ShipmozoEnvelope<T> {
 
 // --- COUNTRIES ---------------------------------------------------------------
 
+/**
+ * One row of GET /countries.
+ *
+ * The code fields are spelled the way the live payload spells them, which is
+ * not how this type first guessed. A row reads:
+ *   { id, name, phone_code, country_code: "BQ", iso_code: "BES" }
+ * The older iso2/iso3/code names are kept optional so that a payload using
+ * them still resolves, but nothing has ever been observed sending them.
+ */
 export interface ShipmozoCountry {
   id: number | string;
   name: string;
+  /** ISO alpha-2, e.g. "AU". */
+  country_code?: string;
+  /** ISO alpha-3, e.g. "AUS". */
+  iso_code?: string;
   code?: string;
   iso2?: string;
   iso3?: string;
