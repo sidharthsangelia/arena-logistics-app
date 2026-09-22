@@ -16,6 +16,7 @@ import {
   listChargePresets,
   listChargeTypes,
   listForwarderProducts,
+  listInvoiceFieldLabels,
   listForwarders,
   listServiceTypes,
 } from "@/lib/invoices/manual/queries";
@@ -131,6 +132,7 @@ async function BuilderSection({
     forwarderHistory,
     productHistory,
     party,
+    fieldLabels,
   ] = await Promise.all([
     listChargeTypes(),
     listChargePresets(),
@@ -140,6 +142,7 @@ async function BuilderSection({
     // A customer that has since been deleted resolves to null and the form
     // opens with the picker empty, which is the same as arriving without one.
     partyId ? getBillingParty(partyId) : Promise.resolve(null),
+    listInvoiceFieldLabels(),
   ]);
 
   return (
@@ -151,6 +154,7 @@ async function BuilderSection({
       serviceHistory={serviceHistory}
       forwarderHistory={forwarderHistory}
       productHistory={productHistory}
+      fieldLabels={fieldLabels}
       sellerStateCode={sellerStateCode}
     />
   );

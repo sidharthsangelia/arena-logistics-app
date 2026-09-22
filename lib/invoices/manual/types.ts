@@ -23,8 +23,14 @@
  * "undefined". Nothing is ever backfilled.
  */
 
-import type { ManualInvoiceDocType, ShipmentMode, TaxMode } from "@/generated/prisma";
+import type {
+  ManualInvoiceDocType,
+  ManualTaxType,
+  ShipmentMode,
+  TaxMode,
+} from "@/generated/prisma";
 import type { InvoiceIssuer } from "../tax/config";
+import type { CustomField } from "./config";
 import type { ManualLineItem } from "./money";
 
 export const MANUAL_SNAPSHOT_VERSION = 1;
@@ -75,6 +81,8 @@ export interface ManualChargeSnapshot {
   discount: number;
   ratePercent: number;
   reimbursement: boolean;
+  /** Added later: optional, absent on older snapshots. */
+  taxType?: ManualTaxType | null;
   notes: string | null;
 }
 
@@ -128,6 +136,8 @@ export interface ManualConsignmentSnapshot {
   consigneeName: string | null;
   containerNumber: string | null;
   jobNumber: string | null;
+  /** Added later: optional, absent on older snapshots. */
+  customFields?: CustomField[];
   notes: string | null;
   /** Net of this consignment's own charges, so the block can show a subtotal. */
   netAmount: number;

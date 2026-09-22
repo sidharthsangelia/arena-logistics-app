@@ -2296,6 +2296,16 @@ model ManualInvoice {
   lastSentAt DateTime?
   lastSentTo String?
 
+  // ── revisions after issue ──
+  // An issued or paid invoice can be corrected in place under the same number.
+  // Each correction files the version it replaces as a ManualInvoiceRevision,
+  // so every PDF a customer may have been sent stays retrievable. "Revised
+  // after sending" is derived: revisedAt later than lastSentAt.
+  revisionCount Int       @default(0)
+  revisedAt     DateTime?
+  revisedByName String?
+  revisions     ManualInvoiceRevision[]
+
   cancelledAt     DateTime?
   cancelledReason String?
 
@@ -2319,6 +2329,42 @@ model ManualInvoice {
   @@index([createdAt])
 }
 
+/// A version of an issued manual invoice that a later correction replaced.
+/// Written by reviseManualInvoiceAction just before it overwrites the invoice.
+/// Nothing here is ever edited: it is the record of what the document said.
+model ManualInvoiceRevision {
+  id String @id @default(cuid())
+
+  invoiceId String
+  invoice   ManualInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  /// 1 is the document as first issued, 2 its first correction, and so on.
+  revision Int
+
+  // ── what the document said ──
+  issueDate           DateTime
+  taxableValue        Decimal  @db.Decimal(14, 2)
+  totalTax            Decimal  @db.Decimal(14, 2)
+  total               Decimal  @db.Decimal(14, 2)
+  sellerSnapshot      Json?
+  buyerSnapshot       Json?
+  consignmentSnapshot Json?
+  lineItems           Json?
+
+  /// The replaced PDF. Uploads get a fresh key, so this file is never
+  /// overwritten by the correction.
+  fileUrl  String?
+  fileKey  String?
+  fileName String?
+
+  // ── who replaced it, and when ──
+  supersededAt     DateTime @default(now())
+  supersededById   String?
+  supersededByName String?
+
+  @@unique([invoiceId, revision])
+}
+
 enum ManualInvoiceStatus {
   DRAFT // no number, no PDF, freely editable
   ISSUED // numbered, rendered, immutable, unpaid
@@ -2331,6 +2377,31 @@ enum ManualInvoiceStatus {
 enum ManualInvoiceDocType {
   TAX_INVOICE
   CREDIT_NOTE
+}
+
+/// A saved label for the custom fields on a manual invoice consignment. One
+/// list shared by every admin, offered as suggestions in the builder. Removing
+/// a row only stops suggesting it: invoices hold the label as plain text.
+model InvoiceFieldLabel {
+  id    String @id @default(cuid())
+  label String
+  /// Lower-cased, trimmed label. Stops "Seal no." and "seal no. " both being saved.
+  key   String @unique
+
+  createdByName String?
+  createdAt     DateTime @default(now())
+}
+
+/// Printed per line on a manual invoice as T, P, E or R.
+enum ManualTaxType {
+  /// Ordinary taxable supply at the line's GST rate.
+  TAXABLE
+  /// Recovered at cost as the customer's agent. Outside taxable value.
+  PURE_AGENT
+  /// Exempt supply: in the taxable value, no GST.
+  EXEMPT
+  /// Tax payable by the recipient. No GST charged on the document.
+  REVERSE_CHARGE
 }
 
 enum TaxMode {
@@ -2479,6 +2550,12 @@ model ManualInvoiceConsignment {
   containerNumber  String?
   jobNumber        String?
 
+  /// Up to three admin-labelled facts the fixed fields above do not cover,
+  /// e.g. [{ "label": "Seal no.", "value": "SL-4471" }]. Printed with the
+  /// consignment's other facts. The label is copied as text, so removing it
+  /// from InvoiceFieldLabel later never changes an invoice.
+  customFields Json?
+
   notes String?
 
   charges ManualInvoiceCharge[]
@@ -2535,6 +2612,12 @@ model ManualInvoiceCharge {
   /// year means a year of credit notes, so this flag matters more than its size
   /// suggests.
   reimbursement Boolean @default(false)
+
+  /// The line's tax nature as the admin chose it, printed as T/P/E/R. Drives
+  /// the money: PURE_AGENT is the reimbursement above (kept in sync with it),
+  /// EXEMPT and REVERSE_CHARGE charge no GST. Null on lines saved before the
+  /// column existed, which derive it from reimbursement and the rate instead.
+  taxType ManualTaxType?
 
   notes String?
 

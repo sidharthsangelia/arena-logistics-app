@@ -49,6 +49,8 @@ import {
   type ManualSortField,
   type ManualStatusFilter,
   type PresetLine,
+  type InvoiceFieldLabelOption,
+  readCustomFields,
 } from "./config";
 
 export const MANUAL_INVOICES_TAG = "manual-invoices";
@@ -671,6 +673,17 @@ export async function listChargeTypes(): Promise<ChargeTypeOption[]> {
   }));
 }
 
+/** Saved custom field labels, for the builder's combobox. Alphabetical. */
+export async function listInvoiceFieldLabels(): Promise<
+  InvoiceFieldLabelOption[]
+> {
+  const rows = await prisma.invoiceFieldLabel.findMany({
+    orderBy: { label: "asc" },
+    select: { id: true, label: true },
+  });
+  return rows;
+}
+
 export async function listChargePresets(): Promise<ChargePresetOption[]> {
   const rows = await prisma.chargePreset.findMany({
     where: { deletedAt: null },
@@ -791,6 +804,7 @@ const detailInclude = {
     orderBy: { sortOrder: "asc" },
     include: { charges: { orderBy: { sortOrder: "asc" } } },
   },
+  revisions: { orderBy: { revision: "desc" } },
 } satisfies Prisma.ManualInvoiceInclude;
 
 /**
@@ -911,6 +925,7 @@ export async function getManualInvoiceDetail(
       consigneeName: c.consigneeName,
       containerNumber: c.containerNumber,
       jobNumber: c.jobNumber,
+      customFields: readCustomFields(c.customFields),
       notes: c.notes,
       charges: c.charges.map((charge) => ({
         id: charge.id,
@@ -923,6 +938,7 @@ export async function getManualInvoiceDetail(
         discount: num(charge.discount),
         ratePercent: num(charge.ratePercent),
         reimbursement: charge.reimbursement,
+        taxType: charge.taxType,
         notes: charge.notes,
       })),
     })),
@@ -937,6 +953,19 @@ export async function getManualInvoiceDetail(
     cancelledReason: row.cancelledReason,
     createdByName: row.createdByName,
     createdAt: row.createdAt.toISOString(),
+
+    revisionCount: row.revisionCount,
+    revisedAt: row.revisedAt?.toISOString() ?? null,
+    revisedByName: row.revisedByName,
+    revisions: row.revisions.map((r) => ({
+      id: r.id,
+      revision: r.revision,
+      total: num(r.total),
+      fileUrl: r.fileUrl,
+      fileName: r.fileName,
+      supersededAt: r.supersededAt.toISOString(),
+      supersededByName: r.supersededByName,
+    })),
   };
 }
 

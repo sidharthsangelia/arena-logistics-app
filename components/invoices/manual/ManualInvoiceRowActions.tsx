@@ -96,11 +96,13 @@ export function ManualInvoiceRowActions({
           </Link>
         </DropdownMenuItem>
 
-        {isDraft ? (
+        {/* A draft is continued; an issued or paid invoice is corrected under
+            the same number. Only a cancelled one is frozen. */}
+        {!isCancelled ? (
           <DropdownMenuItem asChild>
             <Link href={`/arena-dashboard/invoices/manual/${id}/edit`}>
               <Pencil className="mr-2 h-4 w-4" />
-              Continue editing
+              {isDraft ? "Continue editing" : "Edit"}
             </Link>
           </DropdownMenuItem>
         ) : null}

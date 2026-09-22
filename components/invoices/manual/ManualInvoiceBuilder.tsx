@@ -67,7 +67,12 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { ShipmentMode, TaxMode } from "@/generated/prisma";
+import {
+  ManualInvoiceStatus,
+  ManualTaxType,
+  ShipmentMode,
+  TaxMode,
+} from "@/generated/prisma";
 import {
   CSB_CATEGORIES,
   forwarderKey,
@@ -76,13 +81,16 @@ import {
   PAYMENT_TERMS,
   SHIP_MODES,
   TAX_MODE_COPY,
+  TAX_TYPE_COPY,
   currencySymbol,
   formatMoney,
   manualInvoiceSchema,
   type BillingPartyDetail,
   type ChargePresetOption,
   type ChargeTypeOption,
+  type InvoiceFieldLabelOption,
   type ManualInvoiceDetail,
+  MAX_CUSTOM_FIELDS,
 } from "@/lib/invoices/manual/config";
 import {
   buildManualInvoiceMoney,
@@ -92,11 +100,14 @@ import { OUTSIDE_INDIA } from "@/lib/invoices/tax/gst";
 import {
   issueManualInvoiceAction,
   previewManualInvoiceAction,
+  previewManualInvoiceRevisionAction,
+  reviseManualInvoiceAction,
   saveManualInvoiceAction,
 } from "@/actions/invoices/manualInvoices.action";
 
 import { BillingPartyPicker } from "./BillingPartyPicker";
 import { ChargePicker } from "./ChargePicker";
+import { FieldLabelPicker } from "./FieldLabelPicker";
 import {
   ForwarderPicker,
   ProductPicker,
@@ -113,6 +124,7 @@ import {
   consignmentNet,
   emptyCharge,
   emptyConsignment,
+  emptyCustomField,
   emptyState,
   chargeFromCatalog,
   chargeFromPreset,
@@ -125,6 +137,7 @@ import {
   type BuilderState,
   type ChargeRow,
   type ConsignmentRow,
+  type CustomFieldRow,
 } from "./builderState";
 
 export function ManualInvoiceBuilder({
@@ -135,6 +148,7 @@ export function ManualInvoiceBuilder({
   serviceHistory,
   forwarderHistory,
   productHistory,
+  fieldLabels: initialFieldLabels,
   sellerStateCode,
 }: {
   /** An existing draft to edit, or null for a fresh one. */
@@ -153,6 +167,8 @@ export function ManualInvoiceBuilder({
   forwarderHistory: string[];
   /** Products already used, keyed by the forwarder they were used under. */
   productHistory: ProductHistory;
+  /** Saved labels for the consignments' custom fields, shared by all admins. */
+  fieldLabels: InvoiceFieldLabelOption[];
   /** Arena's own GST state code. Decides IGST against CGST plus SGST. */
   sellerStateCode: string;
 }) {
@@ -172,6 +188,9 @@ export function ManualInvoiceBuilder({
     );
   });
   const [catalog, setCatalog] = React.useState(initialCatalog);
+  // One copy for the page, so a label saved or removed in one consignment's
+  // picker is reflected in every other.
+  const [fieldLabels, setFieldLabels] = React.useState(initialFieldLabels);
   const [invoiceId, setInvoiceId] = React.useState<string | null>(
     initial?.id ?? null,
   );
@@ -365,8 +384,43 @@ export function ManualInvoiceBuilder({
 
   // ── save and issue ──────────────────────────────────────────────────────
 
+  // An issued or paid invoice opened here is being CORRECTED: same number, a
+  // new PDF, the old one kept as a revision. No draft save and no issue; one
+  // "Save correction" instead, and the customer and the invoice month are
+  // locked because the number depends on them. See reviseManualInvoiceAction.
+  const revising =
+    !!initial &&
+    (initial.status === ManualInvoiceStatus.ISSUED ||
+      initial.status === ManualInvoiceStatus.PAID);
+
+  // The first and last day of the month the number carries, for the date
+  // input's bounds. The server enforces the same rule.
+  const issueMonthBounds = React.useMemo(() => {
+    if (!revising || !initial) return null;
+    const month = new Intl.DateTimeFormat("en-CA", {
+      year: "numeric",
+      month: "2-digit",
+      timeZone: "Asia/Kolkata",
+    }).format(new Date(initial.issueDate));
+    const [y, m] = month.split("-").map(Number);
+    const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    return { min: `${month}-01`, max: `${month}-${String(last).padStart(2, "0")}` };
+  }, [revising, initial]);
+
+  const [revisingNow, setRevisingNow] = React.useState(false);
+
   const validate = React.useCallback((): string | null => {
     if (!state.party) return "Choose who this invoice is for.";
+    // The payload keeps only complete pairs, so a half-filled custom field
+    // would otherwise vanish on save without a word.
+    for (const [index, c] of state.consignments.entries()) {
+      const half = c.customFields.find(
+        (f) => !f.label.trim() !== !f.value.trim(),
+      );
+      if (half) {
+        return `Consignment ${index + 1}: give "${half.label.trim() || half.value.trim()}" both a label and a value, or remove it.`;
+      }
+    }
     const parsed = manualInvoiceSchema.safeParse(toPayload(state));
     if (!parsed.success) {
       return parsed.error.issues[0]?.message ?? "Check the form and try again.";
@@ -426,6 +480,38 @@ export function ManualInvoiceBuilder({
     }
   }, [chargeCount, save, router]);
 
+  const saveCorrection = React.useCallback(async () => {
+    if (!invoiceId) return;
+    const problem = validate();
+    if (problem) {
+      toast.error(problem);
+      return;
+    }
+    if (chargeCount === 0) {
+      toast.error("An issued invoice has to bill something.");
+      return;
+    }
+
+    setRevisingNow(true);
+    try {
+      const result = await reviseManualInvoiceAction(
+        invoiceId,
+        toPayload(state),
+      );
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success(
+        `${result.data.invoiceNumber} corrected. The previous version is kept in its history.`,
+      );
+      router.push(`/arena-dashboard/invoices/manual/${invoiceId}`);
+      router.refresh();
+    } finally {
+      setRevisingNow(false);
+    }
+  }, [invoiceId, validate, chargeCount, state, router]);
+
   // ── preview ─────────────────────────────────────────────────────────────
   //
   // Saves the draft first, exactly as issuing does, then renders the stored row
@@ -448,6 +534,29 @@ export function ManualInvoiceBuilder({
     setPreviewOpen(true);
     setPreviewing(true);
     try {
+      // A correction cannot save first, because saving IS the correction. The
+      // server renders the edited rows and rolls them back instead.
+      if (revising && invoiceId) {
+        const problem = validate();
+        if (problem) {
+          toast.error(problem);
+          setPreviewOpen(false);
+          return;
+        }
+        const result = await previewManualInvoiceRevisionAction(
+          invoiceId,
+          toPayload(state),
+        );
+        if (!result.ok) {
+          toast.error(result.error);
+          setPreviewOpen(false);
+          return;
+        }
+        setPreviewPdf(result.data.pdf);
+        setPreviewName(result.data.fileName);
+        return;
+      }
+
       const id = await save({ silent: true });
       if (!id) {
         setPreviewOpen(false);
@@ -464,9 +573,9 @@ export function ManualInvoiceBuilder({
     } finally {
       setPreviewing(false);
     }
-  }, [save]);
+  }, [save, revising, invoiceId, validate, state]);
 
-  const busy = saving || issuing || previewing;
+  const busy = saving || issuing || previewing || revisingNow;
   const cur = state.currency;
   const international = state.mode === ShipmentMode.INTERNATIONAL;
 
@@ -487,13 +596,24 @@ export function ManualInvoiceBuilder({
 
   return (
     <div>
+      {/* The IRN is registered on the GST portal against the document as it
+          was, and nothing here reaches the portal. Saying so beats finding out
+          at return time. */}
+      {revising && initial?.irn ? (
+        <p className="mb-5 rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-sm">
+          This invoice has an IRN. Correcting it here does not change the
+          e-invoice on the GST portal, so amend or cancel it there as well and
+          update the IRN fields below.
+        </p>
+      ) : null}
+
       {/* ── who and when ──────────────────────────────────────────────── */}
       <section className="grid gap-5 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
         <div className="grid gap-2">
           <Label>Customer</Label>
           <BillingPartyPicker
             value={state.party}
-            disabled={busy}
+            disabled={busy || revising}
             onChange={async (party) => {
               setState((prev) =>
                 applyPartyDefaults(prev, party, null, touched.current),
@@ -518,6 +638,12 @@ export function ManualInvoiceBuilder({
               }
             }}
           />
+          {revising ? (
+            <p className="text-xs text-muted-foreground">
+              The customer on an issued invoice cannot change. To bill someone
+              else, cancel this invoice and raise a new one.
+            </p>
+          ) : null}
           {state.party?.orgName ? (
             <p className="text-xs text-muted-foreground">
               Linked to {state.party.orgName}, so they will also see this in
@@ -539,6 +665,9 @@ export function ManualInvoiceBuilder({
               type="date"
               value={state.issueDate}
               disabled={busy}
+              // A correction keeps the invoice month: the number carries it.
+              min={issueMonthBounds?.min}
+              max={issueMonthBounds?.max}
               onChange={(e) => set("issueDate", e.target.value)}
             />
           </div>
@@ -673,7 +802,8 @@ export function ManualInvoiceBuilder({
               Reverse charge
             </Label>
             <p className="text-xs text-muted-foreground">
-              The customer pays the GST, so none is charged here.
+              The customer pays the GST, so none is charged here. Every line
+              except pure agent prints as R.
             </p>
           </div>
         </div>
@@ -763,6 +893,8 @@ export function ManualInvoiceBuilder({
             onRemoveCharge={(chargeIndex) => removeCharge(index, chargeIndex)}
             onApplyPreset={(preset) => applyPreset(index, preset)}
             onCatalogAdd={(type) => setCatalog((prev) => [...prev, type])}
+            fieldLabels={fieldLabels}
+            onFieldLabelsChange={setFieldLabels}
             onRemove={
               state.consignments.length > 1
                 ? () =>
@@ -929,19 +1061,21 @@ export function ManualInvoiceBuilder({
             </div>
 
             <div className="flex items-center gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                disabled={busy}
-                onClick={() => save()}
-              >
-                {saving && !issuing && !previewing ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <FileText className="mr-2 h-4 w-4" />
-                )}
-                Save draft
-              </Button>
+              {revising ? null : (
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={busy}
+                  onClick={() => save()}
+                >
+                  {saving && !issuing && !previewing ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <FileText className="mr-2 h-4 w-4" />
+                  )}
+                  Save draft
+                </Button>
+              )}
 
               {/* Disabled rather than hidden: a button that appears once you
                   have done enough is a button nobody knows they are working
@@ -973,14 +1107,25 @@ export function ManualInvoiceBuilder({
                 </TooltipContent>
               </Tooltip>
 
-              <Button type="button" disabled={busy} onClick={issue}>
-                {issuing ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <Send className="mr-2 h-4 w-4" />
-                )}
-                Issue invoice
-              </Button>
+              {revising ? (
+                <Button type="button" disabled={busy} onClick={saveCorrection}>
+                  {revisingNow ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <FileText className="mr-2 h-4 w-4" />
+                  )}
+                  Save correction
+                </Button>
+              ) : (
+                <Button type="button" disabled={busy} onClick={issue}>
+                  {issuing ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Send className="mr-2 h-4 w-4" />
+                  )}
+                  Issue invoice
+                </Button>
+              )}
             </div>
           </div>
         </div>
@@ -1029,6 +1174,8 @@ function ConsignmentCard({
   onRemoveCharge,
   onApplyPreset,
   onCatalogAdd,
+  fieldLabels,
+  onFieldLabelsChange,
   onRemove,
   onDuplicate,
 }: {
@@ -1051,6 +1198,8 @@ function ConsignmentCard({
   onRemoveCharge: (chargeIndex: number) => void;
   onApplyPreset: (preset: ChargePresetOption) => void;
   onCatalogAdd: (type: ChargeTypeOption) => void;
+  fieldLabels: InvoiceFieldLabelOption[];
+  onFieldLabelsChange: (labels: InvoiceFieldLabelOption[]) => void;
   onRemove?: () => void;
   onDuplicate: () => void;
 }) {
@@ -1224,6 +1373,8 @@ function ConsignmentCard({
           mode={mode}
           services={services}
           customerName={customerName}
+          fieldLabels={fieldLabels}
+          onFieldLabelsChange={onFieldLabelsChange}
           disabled={disabled}
           onChange={onChange}
         />
@@ -1257,15 +1408,15 @@ function ChargeTable({
 }) {
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[820px] border-separate border-spacing-0 text-sm">
+      <table className="w-full min-w-200 border-separate border-spacing-0 text-sm">
         <thead>
           <tr className="text-xs text-muted-foreground">
-            <th className="pb-2 text-left font-normal">Charge</th>
-            <th className="w-24 pb-2 text-left font-normal">SAC</th>
-            <th className="w-28 pb-2 text-right font-normal">Amount</th>
-            <th className="w-24 pb-2 text-right font-normal">Discount</th>
-            <th className="w-20 pb-2 text-right font-normal">GST %</th>
-            <th className="w-28 pb-2 text-center font-normal">On their behalf</th>
+            <th className="pb-2 pr-2 text-left font-normal">Charge</th>
+            <th className="w-24 pb-2 pr-2 text-left font-normal">SAC</th>
+            <th className="w-28 pb-2 pr-2 text-right font-normal">Amount</th>
+            <th className="w-24 pb-2 pr-2 text-right font-normal">Discount</th>
+            <th className="w-16 pb-2 pl-2.5 pr-2 text-left font-normal">Tax</th>
+            <th className="w-20 pb-2 pr-2 text-right font-normal">GST %</th>
             <th className="w-8 pb-2" />
           </tr>
         </thead>
@@ -1284,7 +1435,7 @@ function ChargeTable({
                       label: seeded.label,
                       sacCode: seeded.sacCode,
                       ratePercent: seeded.ratePercent,
-                      reimbursement: seeded.reimbursement,
+                      taxType: seeded.taxType,
                     });
                   }}
                   onFreeText={(label) =>
@@ -1340,30 +1491,71 @@ function ChargeTable({
               </td>
 
               <td className="border-t py-1 pr-2">
+                {/* T, P, E or R. Prints on the PDF and decides the tax: only
+                    a taxable line carries a GST rate. */}
+                <Select
+                  value={charge.taxType}
+                  disabled={disabled}
+                  onValueChange={(value) => {
+                    const taxType = value as ManualTaxType;
+                    const current = Number(charge.ratePercent);
+                    onChargeChange(index, {
+                      taxType,
+                      // Back to taxable restores a rate if there was none,
+                      // anything else carries no GST so the rate is zeroed.
+                      ratePercent:
+                        taxType === ManualTaxType.TAXABLE
+                          ? current > 0
+                            ? charge.ratePercent
+                            : "18"
+                          : "0",
+                    });
+                  }}
+                >
+                  <SelectTrigger
+                    size="sm"
+                    className="h-8 w-full font-mono"
+                    aria-label={TAX_TYPE_COPY[charge.taxType].label}
+                  >
+                    {/* The letter only. The full names are in the dropdown
+                        and in the key under the table. */}
+                    <SelectValue>
+                      {TAX_TYPE_COPY[charge.taxType].letter}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Object.values(ManualTaxType).map((type) => (
+                      <SelectItem key={type} value={type}>
+                        <span className="font-mono text-xs text-muted-foreground">
+                          {TAX_TYPE_COPY[type].letter}
+                        </span>
+                        {TAX_TYPE_COPY[type].label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </td>
+
+              <td className="border-t py-1 pr-2">
                 <Input
                   className="h-8 text-right tabular-nums"
                   inputMode="decimal"
-                  // A reimbursement carries no GST in either pricing mode, so
+                  // Only a taxable line carries GST in either pricing mode, so
                   // the field is disabled rather than merely ignored. A number
                   // that has no effect is worse than no field.
-                  value={charge.reimbursement ? "" : charge.ratePercent}
-                  disabled={disabled || charge.reimbursement}
-                  placeholder={charge.reimbursement ? "n/a" : "18"}
+                  value={
+                    charge.taxType === ManualTaxType.TAXABLE
+                      ? charge.ratePercent
+                      : ""
+                  }
+                  disabled={
+                    disabled || charge.taxType !== ManualTaxType.TAXABLE
+                  }
+                  placeholder={
+                    charge.taxType === ManualTaxType.TAXABLE ? "18" : "n/a"
+                  }
                   onChange={(e) =>
                     onChargeChange(index, { ratePercent: e.target.value })
-                  }
-                />
-              </td>
-
-              <td className="border-t py-1 text-center">
-                <Switch
-                  checked={charge.reimbursement}
-                  disabled={disabled}
-                  onCheckedChange={(checked) =>
-                    onChargeChange(index, {
-                      reimbursement: checked,
-                      ratePercent: checked ? "0" : "18",
-                    })
                   }
                 />
               </td>
@@ -1385,12 +1577,34 @@ function ChargeTable({
         </tbody>
       </table>
 
-      {row.charges.some((c) => c.reimbursement) ? (
-        <p className="mt-2 text-xs text-muted-foreground">
-          Charges marked &ldquo;on their behalf&rdquo; are recovered at cost. No
-          GST is charged on them and they stay out of the taxable value, though
-          the customer still owes them.
-        </p>
+      {/* The key for the one-letter tax column, the same letters the PDF
+          prints. */}
+      <p className="mt-2 text-xs text-muted-foreground">
+        Tax:{" "}
+        {Object.values(ManualTaxType).map((type, i) => (
+          <React.Fragment key={type}>
+            {i > 0 ? ", " : null}
+            <span className="font-mono text-foreground">
+              {TAX_TYPE_COPY[type].letter}
+            </span>{" "}
+            {TAX_TYPE_COPY[type].label}
+          </React.Fragment>
+        ))}
+      </p>
+
+      {row.charges.some((c) => c.taxType !== ManualTaxType.TAXABLE) ? (
+        <ul className="mt-2 grid gap-0.5 text-xs text-muted-foreground">
+          {[...new Set(row.charges.map((c) => c.taxType))]
+            .filter((type) => type !== ManualTaxType.TAXABLE)
+            .map((type) => (
+              <li key={type}>
+                <span className="font-medium text-foreground">
+                  {TAX_TYPE_COPY[type].label}:
+                </span>{" "}
+                {TAX_TYPE_COPY[type].help}
+              </li>
+            ))}
+        </ul>
       ) : null}
     </div>
   );
@@ -1492,6 +1706,8 @@ function ConsignmentDetails({
   mode,
   services,
   customerName,
+  fieldLabels,
+  onFieldLabelsChange,
   disabled,
   onChange,
 }: {
@@ -1499,6 +1715,8 @@ function ConsignmentDetails({
   mode: ShipmentMode;
   services: string[];
   customerName: string | null;
+  fieldLabels: InvoiceFieldLabelOption[];
+  onFieldLabelsChange: (labels: InvoiceFieldLabelOption[]) => void;
   disabled: boolean;
   onChange: (patch: Partial<ConsignmentRow>) => void;
 }) {
@@ -1569,6 +1787,9 @@ function ConsignmentDetails({
     row.serviceType.trim(),
     row.trackingNumber.trim(),
     row.shipperName.trim(),
+    ...row.customFields
+      .filter((field) => field.label.trim() && field.value.trim())
+      .map((field) => `${field.label.trim()} ${field.value.trim()}`),
   ]
     .filter(Boolean)
     .slice(0, 4)
@@ -1786,7 +2007,99 @@ function ConsignmentDetails({
               : null}
           </div>
         </section>
+
+        <CustomFieldsSection
+          fields={row.customFields}
+          labels={fieldLabels}
+          disabled={disabled}
+          onChange={(customFields) => onChange({ customFields })}
+          onLabelsChange={onFieldLabelsChange}
+        />
       </CollapsibleContent>
     </Collapsible>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Custom fields
+// ---------------------------------------------------------------------------
+
+/**
+ * Up to MAX_CUSTOM_FIELDS facts the fixed fields do not cover, each a label
+ * picked or typed in a combobox and a value typed beside it. They print with
+ * the consignment's other facts on the PDF.
+ */
+function CustomFieldsSection({
+  fields,
+  labels,
+  disabled,
+  onChange,
+  onLabelsChange,
+}: {
+  fields: CustomFieldRow[];
+  labels: InvoiceFieldLabelOption[];
+  disabled: boolean;
+  onChange: (fields: CustomFieldRow[]) => void;
+  onLabelsChange: (labels: InvoiceFieldLabelOption[]) => void;
+}) {
+  const update = (index: number, patch: Partial<CustomFieldRow>) =>
+    onChange(fields.map((f, i) => (i === index ? { ...f, ...patch } : f)));
+
+  const full = fields.length >= MAX_CUSTOM_FIELDS;
+
+  return (
+    <section className="grid gap-3">
+      <SectionHeading
+        right={`Anything else to print, up to ${MAX_CUSTOM_FIELDS}`}
+      >
+        Other details
+      </SectionHeading>
+
+      {fields.map((field, index) => (
+        <div
+          key={field.key}
+          className="grid grid-cols-[minmax(0,14rem)_minmax(0,1fr)_auto] items-center gap-2"
+        >
+          <FieldLabelPicker
+            value={field.label}
+            labels={labels}
+            disabled={disabled}
+            onChange={(label) => update(index, { label })}
+            onLabelsChange={onLabelsChange}
+          />
+          <Input
+            value={field.value}
+            disabled={disabled}
+            placeholder="Value"
+            aria-label={field.label ? `${field.label} value` : "Value"}
+            onChange={(e) => update(index, { value: e.target.value })}
+          />
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-9 w-9 text-muted-foreground hover:text-destructive"
+            disabled={disabled}
+            aria-label="Remove this field"
+            onClick={() => onChange(fields.filter((_, i) => i !== index))}
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      ))}
+
+      <div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={disabled || full}
+          onClick={() => onChange([...fields, emptyCustomField()])}
+        >
+          <Plus className="mr-1.5 h-3.5 w-3.5" />
+          {full ? `Limit of ${MAX_CUSTOM_FIELDS} reached` : "Add a field"}
+        </Button>
+      </div>
+    </section>
   );
 }

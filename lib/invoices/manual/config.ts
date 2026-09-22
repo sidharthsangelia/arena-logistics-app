@@ -23,6 +23,7 @@ import {
   ChargeApplicability,
   ManualInvoiceDocType,
   ManualInvoiceStatus,
+  ManualTaxType,
   ShipmentMode,
   TaxMode,
 } from "@/generated/prisma";
@@ -450,6 +451,37 @@ export const TAX_MODE_COPY: Record<TaxMode, { label: string; help: string }> = {
   [TaxMode.INCLUSIVE]: {
     label: "GST already included",
     help: "Amounts you type already contain GST. The total is what you typed.",
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Tax type, per charge line
+// ---------------------------------------------------------------------------
+
+/** What the builder's picker shows. The letter is what prints on the PDF. */
+export const TAX_TYPE_COPY: Record<
+  ManualTaxType,
+  { letter: string; label: string; help: string }
+> = {
+  [ManualTaxType.TAXABLE]: {
+    letter: "T",
+    label: "Taxable",
+    help: "GST charged at the line's rate.",
+  },
+  [ManualTaxType.PURE_AGENT]: {
+    letter: "P",
+    label: "Pure agent",
+    help: "Paid on the customer's behalf and recovered at cost. No GST, outside the taxable value, still owed.",
+  },
+  [ManualTaxType.EXEMPT]: {
+    letter: "E",
+    label: "Exempt",
+    help: "In the taxable value, no GST charged.",
+  },
+  [ManualTaxType.REVERSE_CHARGE]: {
+    letter: "R",
+    label: "Reverse charge",
+    help: "The customer pays the GST themselves. None is charged on this invoice.",
   },
 };
 
@@ -1010,6 +1042,25 @@ export interface ManualInvoiceDetail {
   cancelledReason: string | null;
   createdByName: string | null;
   createdAt: string;
+
+  /** How many times it has been corrected since issue. 0 = never. */
+  revisionCount: number;
+  revisedAt: string | null;
+  revisedByName: string | null;
+  /** The versions corrections replaced, newest first. */
+  revisions: ManualInvoiceRevisionSummary[];
+}
+
+export interface ManualInvoiceRevisionSummary {
+  id: string;
+  /** 1 is the document as first issued. */
+  revision: number;
+  total: number;
+  fileUrl: string | null;
+  fileName: string | null;
+  /** When a correction replaced it, and who made that correction. */
+  supersededAt: string;
+  supersededByName: string | null;
 }
 
 export interface ManualConsignmentDetail {
@@ -1054,6 +1105,7 @@ export interface ManualConsignmentDetail {
   consigneeName: string | null;
   containerNumber: string | null;
   jobNumber: string | null;
+  customFields: CustomField[];
   notes: string | null;
   charges: ManualChargeDetail[];
 }
@@ -1069,6 +1121,8 @@ export interface ManualChargeDetail {
   discount: number;
   ratePercent: number;
   reimbursement: boolean;
+  /** Null on lines saved before the choice existed. */
+  taxType: ManualTaxType | null;
   notes: string | null;
 }
 
@@ -1159,8 +1213,62 @@ export const chargeLineSchema = z.object({
     .min(0, "GST rate cannot be negative.")
     .max(100, "GST rate cannot exceed 100%."),
   reimbursement: z.boolean().default(false),
+  taxType: z.enum(ManualTaxType).nullable().optional(),
   notes: optionalText(500),
 });
+
+// ---------------------------------------------------------------------------
+// Custom fields on a consignment
+// ---------------------------------------------------------------------------
+
+/**
+ * How many admin-labelled facts one consignment may carry. A cap rather than a
+ * repeater: these exist for the odd fact the fixed fields miss, and a
+ * consignment needing more than three is a sign a real field is missing.
+ */
+export const MAX_CUSTOM_FIELDS = 3;
+
+/** One admin-labelled fact, printed as LABEL value with the consignment. */
+export interface CustomField {
+  label: string;
+  value: string;
+}
+
+/** A saved label, offered in the builder's custom field combobox. */
+export interface InvoiceFieldLabelOption {
+  id: string;
+  label: string;
+}
+
+export const customFieldSchema = z.object({
+  label: trimmed(40).min(1, "Every custom field needs a label."),
+  value: trimmed(200).min(1, "Every custom field needs a value."),
+});
+
+/**
+ * The custom fields stored on a row, read defensively. The column is JSON, so
+ * anything malformed is dropped rather than trusted, and the cap is re-applied.
+ */
+export function readCustomFields(value: unknown): CustomField[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter(
+      (f): f is CustomField =>
+        !!f &&
+        typeof f === "object" &&
+        typeof (f as CustomField).label === "string" &&
+        typeof (f as CustomField).value === "string" &&
+        !!(f as CustomField).label.trim() &&
+        !!(f as CustomField).value.trim(),
+    )
+    .slice(0, MAX_CUSTOM_FIELDS)
+    .map((f) => ({ label: f.label.trim(), value: f.value.trim() }));
+}
+
+/** The normalised form labels are de-duplicated on. */
+export function fieldLabelKey(label: string): string {
+  return label.trim().replace(/\s+/g, " ").toLowerCase();
+}
 
 export const consignmentSchema = z.object({
   id: z.string().min(1).nullable().optional(),
@@ -1216,6 +1324,13 @@ export const consignmentSchema = z.object({
   consigneeName: optionalText(200),
   containerNumber: optionalText(60),
   jobNumber: optionalText(60),
+  customFields: z
+    .array(customFieldSchema)
+    .max(
+      MAX_CUSTOM_FIELDS,
+      `A consignment can carry at most ${MAX_CUSTOM_FIELDS} custom fields.`,
+    )
+    .default([]),
 
   notes: optionalText(500),
 
@@ -1271,6 +1386,8 @@ export const manualInvoiceSchema = z
       message: "A credit note must name the invoice it reverses.",
     },
   );
+
+export type ManualInvoiceInput = z.infer<typeof manualInvoiceSchema>;
 
 /**
  * Issuing is stricter than saving a draft. A draft may be half-finished on

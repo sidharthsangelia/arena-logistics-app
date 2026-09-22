@@ -37,7 +37,7 @@
  * accumulate exactly the error this module exists to prevent.
  */
 
-import { TaxMode } from "@/generated/prisma";
+import { ManualTaxType, TaxMode } from "@/generated/prisma";
 
 import { isIntraState } from "../tax/gst";
 
@@ -95,6 +95,12 @@ export interface ManualChargeInput {
    * still owed by the customer. See the note on ManualInvoiceCharge.
    */
   reimbursement: boolean;
+  /**
+   * The tax nature the admin chose. When present it is the source of truth and
+   * `reimbursement` follows it. Absent on lines saved before it existed; see
+   * effectiveTaxType.
+   */
+  taxType?: ManualTaxType | null;
   /** Which consignment it came from, so the roll-up can report coverage. */
   consignmentIndex?: number;
 }
@@ -147,6 +153,11 @@ export interface ManualLineItem {
   /** taxableValue + this line's tax, or the recovered amount if reimbursement. */
   lineTotal: number;
   reimbursement: boolean;
+  /**
+   * Optional because invoices snapshotted before it existed carry none; the PDF
+   * derives the letter for those.
+   */
+  taxType?: ManualTaxType;
 }
 
 export interface ManualInvoiceMoney {
@@ -182,6 +193,34 @@ interface ComputedLine {
   igstMinor: number;
   totalMinor: number;
   reimbursement: boolean;
+  taxType: ManualTaxType;
+}
+
+/**
+ * The tax nature a line is actually billed under.
+ *
+ * An explicit choice wins, except that an invoice-wide reverse charge turns
+ * every line that is not a pure agent recovery into R: the recipient pays the
+ * tax on the whole supply. A line saved before the choice existed is derived
+ * the way it always behaved (reimbursement, then reverse charge, then a 0% rate
+ * reading as exempt), so re-building an old invoice does not move a paisa.
+ */
+export function effectiveTaxType(
+  line: Pick<ManualChargeInput, "taxType" | "reimbursement" | "ratePercent">,
+  reverseCharge: boolean,
+): ManualTaxType {
+  const chosen = line.taxType;
+  if (chosen) {
+    if (reverseCharge && chosen !== ManualTaxType.PURE_AGENT) {
+      return ManualTaxType.REVERSE_CHARGE;
+    }
+    return chosen;
+  }
+  if (line.reimbursement) return ManualTaxType.PURE_AGENT;
+  if (reverseCharge) return ManualTaxType.REVERSE_CHARGE;
+  const rate = Number(line.ratePercent);
+  if (!Number.isFinite(rate) || rate <= 0) return ManualTaxType.EXEMPT;
+  return ManualTaxType.TAXABLE;
 }
 
 function computeLine(
@@ -190,6 +229,8 @@ function computeLine(
   reverseCharge: boolean,
   intraState: boolean,
 ): ComputedLine {
+  const taxType = effectiveTaxType(line, reverseCharge);
+  const reimbursement = taxType === ManualTaxType.PURE_AGENT;
   const grossMinor = Math.max(0, toMinor(Number(line.amount) || 0));
   // A discount larger than the line is a typo, not a credit. Clamping keeps the
   // invariants intact without silently inventing a negative charge.
@@ -199,17 +240,19 @@ function computeLine(
   );
   const netMinor = grossMinor - discountMinor;
 
+  // Only a taxable line carries a rate. Exempt and reverse charge lines are in
+  // the taxable value with no GST; a pure agent line is outside it entirely.
   const rawRate = Number(line.ratePercent);
   const ratePercent =
-    reverseCharge || line.reimbursement || !Number.isFinite(rawRate)
+    taxType !== ManualTaxType.TAXABLE || !Number.isFinite(rawRate)
       ? 0
       : Math.max(0, rawRate);
 
   // ── Reimbursement: no tax in either direction, and it never touches the
   // taxable value. This is the whole point of the flag.
-  if (line.reimbursement) {
+  if (reimbursement) {
     return {
-      key: lineKey(line, 0),
+      key: lineKey(line, 0, taxType),
       label: line.label,
       sacCode: line.sacCode,
       quantity: Number(line.quantity) || 0,
@@ -223,6 +266,7 @@ function computeLine(
       igstMinor: 0,
       totalMinor: netMinor,
       reimbursement: true,
+      taxType,
     };
   }
 
@@ -250,7 +294,7 @@ function computeLine(
   const igstMinor = intraState ? 0 : taxMinor;
 
   return {
-    key: lineKey(line, ratePercent),
+    key: lineKey(line, ratePercent, taxType),
     label: line.label,
     sacCode: line.sacCode,
     quantity: Number(line.quantity) || 0,
@@ -264,21 +308,27 @@ function computeLine(
     igstMinor,
     totalMinor: taxableMinor + taxMinor,
     reimbursement: false,
+    taxType,
   };
 }
 
 /**
  * Rows fold together only when everything printed on the line matches. Rate and
- * reimbursement are in the key because two rows with the same label at
- * different GST rates are genuinely different lines on a tax invoice, and
- * merging them would state a rate that applies to neither.
+ * tax type are in the key because two rows with the same label at different
+ * GST rates, or one taxable and one exempt, are genuinely different lines on a
+ * tax invoice, and merging them would state a treatment that applies to
+ * neither.
  */
-function lineKey(line: ManualChargeInput, ratePercent: number): string {
+function lineKey(
+  line: ManualChargeInput,
+  ratePercent: number,
+  taxType: ManualTaxType,
+): string {
   return [
     line.label.trim().toLowerCase(),
     line.sacCode.trim(),
     ratePercent,
-    line.reimbursement ? "R" : "T",
+    taxType,
   ].join("|");
 }
 
@@ -383,6 +433,7 @@ export function buildManualInvoiceMoney(
       igstAmount: fromMinor(line.igstMinor),
       lineTotal: fromMinor(line.totalMinor),
       reimbursement: line.reimbursement,
+      taxType: line.taxType,
     })),
     taxableValue: fromMinor(taxableMinor),
     cgstAmount: fromMinor(cgstMinor),

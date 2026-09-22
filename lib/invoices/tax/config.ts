@@ -104,6 +104,11 @@ export interface InvoiceIssuer {
    * field existed has no value here and must still render.
    */
   cin?: string;
+  /**
+   * Udyam (MSME) registration number, printed beside the CIN. Optional for the
+   * same reason: older frozen snapshots carry none.
+   */
+  msme?: string;
   email: string;
   phone: string;
   website?: string;
@@ -159,6 +164,7 @@ const ISSUER: InvoiceIssuer = {
   gstin: process.env.INVOICE_ISSUER_GSTIN ?? "REPLACE ME",
   pan: process.env.INVOICE_ISSUER_PAN ?? "REPLACE ME",
   cin: process.env.INVOICE_ISSUER_CIN,
+  msme: process.env.INVOICE_ISSUER_MSME?.trim() || undefined,
   email: process.env.INVOICE_ISSUER_EMAIL ?? "info@arenalogistics.co.in",
   // Empty, not "REPLACE ME". Unlike the GSTIN and the address, a missing phone
   // number does not block issuing (see issuerIsConfigured), so the placeholder

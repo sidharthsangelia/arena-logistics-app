@@ -14,7 +14,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { TaxMode } from "../generated/prisma";
+import { ManualTaxType, TaxMode } from "../generated/prisma";
 import {
   buildManualInvoiceMoney,
   toMinor,
@@ -144,6 +144,79 @@ test("reverse charge zeroes the tax in both modes", () => {
     assert.equal(money.taxableValue, 1000);
     assert.equal(money.total, 1000);
   }
+});
+
+test("an exempt line is in the taxable value with no GST, whatever its rate", () => {
+  const money = build([
+    charge({ amount: 1000, ratePercent: 18, taxType: ManualTaxType.EXEMPT }),
+  ]);
+  assert.equal(money.taxableValue, 1000);
+  assert.equal(money.totalTax, 0);
+  assert.equal(money.total, 1000);
+  assert.equal(money.lineItems[0].taxType, ManualTaxType.EXEMPT);
+});
+
+test("a reverse charge line charges no GST while the rest are taxed", () => {
+  const money = build([
+    charge({ label: "Freight", amount: 1000 }),
+    charge({
+      label: "Road transport",
+      amount: 500,
+      taxType: ManualTaxType.REVERSE_CHARGE,
+    }),
+  ]);
+  assert.equal(money.taxableValue, 1500);
+  assert.equal(money.totalTax, 180);
+  assert.equal(money.lineItems[1].taxType, ManualTaxType.REVERSE_CHARGE);
+  assert.equal(money.lineItems[1].igstAmount, 0);
+});
+
+test("a pure agent choice wins over a stale reimbursement flag", () => {
+  const money = build([
+    charge({
+      amount: 700,
+      reimbursement: false,
+      taxType: ManualTaxType.PURE_AGENT,
+    }),
+  ]);
+  assert.equal(money.taxableValue, 0);
+  assert.equal(money.reimbursements, 700);
+  assert.equal(money.lineItems[0].reimbursement, true);
+});
+
+test("invoice-wide reverse charge turns every chosen type but P into R", () => {
+  const money = build(
+    [
+      charge({ label: "Freight", taxType: ManualTaxType.TAXABLE }),
+      charge({ label: "Duty", taxType: ManualTaxType.PURE_AGENT }),
+    ],
+    { reverseCharge: true },
+  );
+  assert.deepEqual(
+    money.lineItems.map((l) => l.taxType),
+    [ManualTaxType.REVERSE_CHARGE, ManualTaxType.PURE_AGENT],
+  );
+  assert.equal(money.totalTax, 0);
+});
+
+test("lines saved without a tax type derive it as before", () => {
+  const money = build([
+    charge({ label: "Freight" }),
+    charge({ label: "Zero", ratePercent: 0 }),
+    charge({ label: "Duty", reimbursement: true, ratePercent: 0 }),
+  ]);
+  assert.deepEqual(
+    money.lineItems.map((l) => l.taxType),
+    [ManualTaxType.TAXABLE, ManualTaxType.EXEMPT, ManualTaxType.PURE_AGENT],
+  );
+});
+
+test("the same label taxed and exempt stays two lines", () => {
+  const money = build([
+    charge({ label: "Handling" }),
+    charge({ label: "Handling", taxType: ManualTaxType.EXEMPT }),
+  ]);
+  assert.equal(money.lineItems.length, 2);
 });
 
 test("discount comes off before tax", () => {

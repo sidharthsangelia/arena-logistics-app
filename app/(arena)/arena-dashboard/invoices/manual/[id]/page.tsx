@@ -1,20 +1,22 @@
 import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Download } from "lucide-react";
+import { ArrowLeft, Download, Pencil } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { getArenaAuth } from "@/utils/arena-auth";
-import { ManualInvoiceStatus } from "@/generated/prisma";
+import { ManualInvoiceStatus, ManualTaxType } from "@/generated/prisma";
 import { getManualInvoiceDetail } from "@/lib/invoices/manual/queries";
 import {
   MANUAL_STATUS_TONE,
+  TAX_TYPE_COPY,
   csbLabel,
   formatMoney,
   partySubtitle,
   paymentTermLabel,
 } from "@/lib/invoices/manual/config";
+import { effectiveTaxType } from "@/lib/invoices/manual/money";
 import { ManualInvoiceActions } from "@/components/invoices/manual/ManualInvoiceActions";
 
 export const metadata = {
@@ -57,6 +59,18 @@ export default async function ManualInvoiceDetailPage({
   const tone = MANUAL_STATUS_TONE[invoice.view];
   const party = invoice.party;
 
+  // Issued and paid invoices can be corrected under the same number.
+  const correctable =
+    invoice.status === ManualInvoiceStatus.ISSUED ||
+    invoice.status === ManualInvoiceStatus.PAID;
+
+  // Corrected after the customer was last emailed, so the copy they hold is
+  // out of date. Nothing is re-sent automatically; this is the prompt to.
+  const revisedAfterSending =
+    !!invoice.revisedAt &&
+    !!invoice.lastSentAt &&
+    new Date(invoice.revisedAt) > new Date(invoice.lastSentAt);
+
   const facts: Array<[string, string | null]> = [
     ["Issued", formatDate(invoice.issueDate)],
     ["Due", formatDate(invoice.dueDate)],
@@ -70,6 +84,14 @@ export default async function ManualInvoiceDetailPage({
     ["SAC column", invoice.showSacCode ? null : "Not printed"],
     ["IRN", invoice.irn],
     ["Raised by", invoice.createdByName],
+    [
+      "Last corrected",
+      invoice.revisedAt
+        ? [formatDate(invoice.revisedAt), invoice.revisedByName]
+            .filter(Boolean)
+            .join(" by ")
+        : null,
+    ],
     ["Paid", formatDate(invoice.paidAt)],
     [
       "Sent",
@@ -100,6 +122,14 @@ export default async function ManualInvoiceDetailPage({
             </Badge>
             {invoice.docType === "CREDIT_NOTE" ? (
               <Badge variant="secondary">Credit note</Badge>
+            ) : null}
+            {invoice.revisionCount > 0 ? (
+              <Badge variant="outline">
+                Corrected{" "}
+                {invoice.revisionCount === 1
+                  ? "once"
+                  : `${invoice.revisionCount} times`}
+              </Badge>
             ) : null}
           </div>
           {/* "Unregistered" is a fact worth stating about a company and
@@ -144,6 +174,15 @@ export default async function ManualInvoiceDetailPage({
           </Button>
         ) : null}
 
+        {correctable ? (
+          <Button asChild variant="outline">
+            <Link href={`/arena-dashboard/invoices/manual/${invoice.id}/edit`}>
+              <Pencil className="mr-2 h-4 w-4" />
+              Edit
+            </Link>
+          </Button>
+        ) : null}
+
         <ManualInvoiceActions
           id={invoice.id}
           status={invoice.status}
@@ -151,6 +190,14 @@ export default async function ManualInvoiceDetailPage({
           alreadySent={!!invoice.lastSentAt}
         />
       </div>
+
+      {revisedAfterSending ? (
+        <p className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-sm">
+          Revised after sending. {invoice.lastSentTo ?? "The customer"} was
+          emailed the earlier version on {formatDate(invoice.lastSentAt)}. Send
+          it again to give them the corrected copy.
+        </p>
+      ) : null}
 
       {invoice.cancelledReason ? (
         <p className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-sm">
@@ -224,6 +271,10 @@ export default async function ManualInvoiceDetailPage({
                 .filter(Boolean)
                 .join(". ") || null,
             ],
+            // The admin's own labelled facts, as they print on the PDF.
+            ...c.customFields.map(
+              (field): [string, string | null] => [field.label, field.value],
+            ),
           ].filter(([, v]) => !!v) as Array<[string, string]>;
 
           return (
@@ -255,8 +306,7 @@ export default async function ManualInvoiceDetailPage({
                 <div className="mt-2 flex flex-wrap gap-x-6 gap-y-1">
                   {chips.map(([label, value]) => (
                     <span key={label} className="text-xs text-muted-foreground">
-                      {label}{" "}
-                      <span className="text-foreground">{value}</span>
+                      {label} <span className="text-foreground">{value}</span>
                     </span>
                   ))}
                 </div>
@@ -265,29 +315,34 @@ export default async function ManualInvoiceDetailPage({
               <div className="mt-3 overflow-x-auto">
                 <table className="w-full min-w-md text-sm">
                   <tbody>
-                    {c.charges.map((charge) => (
-                      <tr key={charge.id} className="border-b last:border-0">
-                        <td className="py-1.5 pr-4">
-                          {charge.label}
-                          {charge.reimbursement ? (
+                    {c.charges.map((charge) => {
+                      const taxType = effectiveTaxType(
+                        charge,
+                        invoice.reverseCharge,
+                      );
+                      return (
+                        <tr key={charge.id} className="border-b last:border-0">
+                          <td className="py-1.5 pr-4">
+                            {charge.label}
                             <span className="ml-2 text-xs text-muted-foreground">
-                              paid on their behalf
+                              {TAX_TYPE_COPY[taxType].letter} ·{" "}
+                              {TAX_TYPE_COPY[taxType].label.toLowerCase()}
                             </span>
-                          ) : null}
-                        </td>
-                        <td className="w-20 py-1.5 pr-4 text-right text-xs text-muted-foreground tabular-nums">
-                          {charge.reimbursement
-                            ? "no GST"
-                            : `${charge.ratePercent}%`}
-                        </td>
-                        <td className="w-28 py-1.5 text-right tabular-nums">
-                          {formatMoney(
-                            Math.max(0, charge.amount - charge.discount),
-                            invoice.currency,
-                          )}
-                        </td>
-                      </tr>
-                    ))}
+                          </td>
+                          <td className="w-20 py-1.5 pr-4 text-right text-xs text-muted-foreground tabular-nums">
+                            {taxType === ManualTaxType.TAXABLE
+                              ? `${charge.ratePercent}%`
+                              : "no GST"}
+                          </td>
+                          <td className="w-28 py-1.5 text-right tabular-nums">
+                            {formatMoney(
+                              Math.max(0, charge.amount - charge.discount),
+                              invoice.currency,
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -303,6 +358,50 @@ export default async function ManualInvoiceDetailPage({
             Notes
           </h2>
           <p className="mt-3 text-sm">{invoice.notes}</p>
+        </>
+      ) : null}
+
+      {/* ── history ─────────────────────────────────────────────────────
+          Every version a correction replaced, with its PDF. The number never
+          changed, so these are the copies a customer may be holding. */}
+      {invoice.revisions.length > 0 ? (
+        <>
+          <Separator className="my-7" />
+          <h2 className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
+            Earlier versions
+          </h2>
+          <table className="mt-4 w-full text-sm">
+            <tbody>
+              {invoice.revisions.map((r) => (
+                <tr key={r.id} className="border-b last:border-0">
+                  <td className="py-1.5 pr-4">
+                    {r.revision === 1
+                      ? "As first issued"
+                      : `Correction ${r.revision - 1}`}
+                  </td>
+                  <td className="py-1.5 pr-4 text-xs text-muted-foreground">
+                    Replaced {formatDate(r.supersededAt)}
+                    {r.supersededByName ? ` by ${r.supersededByName}` : ""}
+                  </td>
+                  <td className="w-32 py-1.5 pr-4 text-right tabular-nums">
+                    {formatMoney(r.total, invoice.currency)}
+                  </td>
+                  <td className="w-20 py-1.5 text-right">
+                    {r.fileUrl ? (
+                      <a
+                        href={r.fileUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-xs underline underline-offset-4"
+                      >
+                        PDF
+                      </a>
+                    ) : null}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </>
       ) : null}
     </div>

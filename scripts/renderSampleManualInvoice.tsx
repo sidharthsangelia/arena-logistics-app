@@ -65,6 +65,7 @@ const SELLER: ManualSellerSnapshot = {
   gstin: "06AABCA1234A1Z5",
   pan: "AABCA1234A",
   cin: "U63030HR2019PTC078451",
+  msme: "UDYAM-HR-05-0167184",
   email: "info@arenalogistics.co.in",
   phone: "+91 98100 00000",
   website: "arenalogistics.co.in",
@@ -425,6 +426,10 @@ const DOMESTIC_SAMPLE = assemble({
       chargeableWeightKg: 62,
       boxCount: 4,
       goodsDescription: "Machined components",
+      customFields: [
+        { label: "Seal no.", value: "SL-4471" },
+        { label: "E-way bill", value: "6410 2293 8817" },
+      ],
       hsnCode: "84839000",
       charges: [
         charge("Freight charges", 8_400, { rate: 135.48, quantity: 62 }),
