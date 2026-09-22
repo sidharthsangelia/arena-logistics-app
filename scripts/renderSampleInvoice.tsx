@@ -34,6 +34,7 @@ const SELLER: SellerSnapshot = {
   gstin: "07AABCA1234A1Z5",
   pan: "AABCA1234A",
   cin: "U63030HR2019PTC078451",
+  msme: "UDYAM-HR-05-0167184",
   email: "info@arenalogistics.co.in",
   phone: "+91 98100 00000",
   website: "arenalogistics.co.in",

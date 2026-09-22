@@ -82,16 +82,19 @@ import { ShipmentMode } from "@/generated/prisma";
 import {
   Band,
   C,
+  COMPUTER_GENERATED_NOTE,
   Fact,
   type InvoiceVariant,
   Metric,
   PaymentPanel,
+  TAX_TYPE_KEY,
   TermsBlock,
   TotalsRow,
   kg,
   money,
   splitLegalName,
   t,
+  taxTypeOf,
   trim,
 } from "../../pdf/theme";
 import { DEFAULT_INVOICE_VARIANT } from "../../pdf/variant";
@@ -127,6 +130,8 @@ const COL = {
   // The S.No column. Narrow on purpose: it is an index, not data.
   sno: 24,
   sac: 46,
+  // The tax type letter (T, P, E, R), decoded by TAX_TYPE_KEY in the band note.
+  taxType: 28,
   taxable: 66,
   gst: 62,
   amount: 74,
@@ -700,15 +705,16 @@ export function TaxInvoiceDocument({
                 .filter(Boolean)
                 .join(", ")}
             </Text>
-            {/* GSTIN, PAN and CIN on one line. CIN is guarded: an invoice
-                issued before the field existed carries none in its frozen
-                seller snapshot, and a bare "CIN" with nothing after it is
-                worse than no CIN at all. */}
+            {/* GSTIN, PAN, CIN and MSME on one line. CIN and MSME are
+                guarded: an invoice issued before either field existed carries
+                none in its frozen seller snapshot, and a bare label with
+                nothing after it is worse than no label at all. */}
             <Text style={s.sellerIds}>
               {[
                 `GSTIN ${seller.gstin}`,
                 `PAN ${seller.pan}`,
                 seller.cin ? `CIN ${seller.cin}` : null,
+                seller.msme ? `MSME ${seller.msme}` : null,
               ]
                 .filter(Boolean)
                 .join("    ")}
@@ -1000,7 +1006,7 @@ export function TaxInvoiceDocument({
         <Band
           label="Charges"
           variant={variant}
-          note="Amounts include GST"
+          note={`Amounts include GST   ${TAX_TYPE_KEY}`}
           // Kept whole at ordinary length: a charges table split across a page
           // break loses its column heads on the second half, and a column of
           // unlabelled figures on a tax invoice is worse than a page that ends
@@ -1017,6 +1023,11 @@ export function TaxInvoiceDocument({
             </View>
             <Text style={[headCell, { width: COL.sac, textAlign: "right" }]}>
               SAC
+            </Text>
+            <Text
+              style={[headCell, { width: COL.taxType, textAlign: "center" }]}
+            >
+              TYPE
             </Text>
             <Text
               style={[headCell, { width: COL.taxable, textAlign: "right" }]}
@@ -1049,6 +1060,11 @@ export function TaxInvoiceDocument({
               </View>
               <Text style={[s.cellMuted, { width: COL.sac }]}>
                 {line.sacCode}
+              </Text>
+              <Text
+                style={[s.cellMuted, { width: COL.taxType, textAlign: "center" }]}
+              >
+                {taxTypeOf(line)}
               </Text>
               <Text style={[s.cell, { width: COL.taxable }]}>
                 {money(line.taxableValue, cur)}
@@ -1229,7 +1245,8 @@ export function TaxInvoiceDocument({
             the queries to somebody who cannot answer them. */}
         <Text style={s.contact} fixed>
           {[
-            `Computer generated invoice. Billing queries: ${billingEmails}`,
+            COMPUTER_GENERATED_NOTE,
+            `Billing queries: ${billingEmails}`,
             seller.website ? `More at ${seller.website}` : null,
           ]
             .filter(Boolean)

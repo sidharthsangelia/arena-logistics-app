@@ -394,6 +394,79 @@ export function chunked(value: string | null, size = 8): string | null {
   return value.replace(new RegExp(`(.{${size}})`, "g"), "$1 ").trim();
 }
 
+/**
+ * The issuer's address as exactly TWO lines: the street lines run together,
+ * then city, state and PIN. The street half is split on "|" in the env, and one
+ * printed line per part pushed the masthead to three lines of address, which
+ * the page does not have room for.
+ */
+export function issuerAddress(issuer: {
+  addressLines: string[];
+  city: string;
+  stateName: string;
+  postalCode: string;
+}): string[] {
+  return [
+    issuer.addressLines
+      .map((l) => l?.trim())
+      .filter(Boolean)
+      .join(", "),
+    [issuer.city, issuer.stateName, issuer.postalCode]
+      .map((v) => v?.trim())
+      .filter(Boolean)
+      .join(", "),
+  ].filter(Boolean);
+}
+
+/**
+ * The tax nature of one charge line, printed as a single letter in the charges
+ * table and decoded by TAX_TYPE_KEY.
+ *
+ *   T  an ordinary taxable supply
+ *   P  a pure agent recovery, outside the taxable value (Rule 33)
+ *   E  an exempt supply, no GST
+ *   R  reverse charge: the recipient pays the GST
+ *
+ * A manual invoice line carries the type its admin chose, and that wins. A
+ * booking invoice line, or a manual one snapshotted before the choice existed,
+ * has none and is derived, so it still prints a letter on a re-render.
+ */
+export type TaxTypeCode = "T" | "P" | "E" | "R";
+
+const TAX_TYPE_LETTER: Record<string, TaxTypeCode> = {
+  TAXABLE: "T",
+  PURE_AGENT: "P",
+  EXEMPT: "E",
+  REVERSE_CHARGE: "R",
+};
+
+export function taxTypeOf(line: {
+  ratePercent: number;
+  reimbursement?: boolean;
+  reverseCharge?: boolean;
+  /** The stored ManualTaxType, when the line has one. */
+  taxType?: string | null;
+}): TaxTypeCode {
+  const chosen = line.taxType ? TAX_TYPE_LETTER[line.taxType] : undefined;
+  if (chosen) return chosen;
+  if (line.reimbursement) return "P";
+  if (line.reverseCharge) return "R";
+  if (!(line.ratePercent > 0)) return "E";
+  return "T";
+}
+
+/**
+ * The legend for the tax type column. Printed as the charges band's note, which
+ * is room the header row already has: a line of its own under the table cost the
+ * booking invoice its single page.
+ */
+export const TAX_TYPE_KEY =
+  "(T : Taxable, P : Pure Agent, E : Exemption, R : Reverse Charge)";
+
+/** Printed in the page footer of both invoices. */
+export const COMPUTER_GENERATED_NOTE =
+  "This is a computer generated invoice, signature is not required.";
+
 // ---------------------------------------------------------------------------
 // Pieces
 // ---------------------------------------------------------------------------
