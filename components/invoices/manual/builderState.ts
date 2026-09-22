@@ -22,7 +22,7 @@
 
 import { nanoid } from "nanoid";
 
-import { ShipmentMode, TaxMode } from "@/generated/prisma";
+import { ManualTaxType, ShipmentMode, TaxMode } from "@/generated/prisma";
 import { OUTSIDE_INDIA } from "@/lib/invoices/tax/gst";
 import {
   DEFAULT_CURRENCY,
@@ -33,7 +33,10 @@ import {
   type ManualInvoiceDetail,
   type PresetLine,
 } from "@/lib/invoices/manual/config";
-import type { ManualChargeInput } from "@/lib/invoices/manual/money";
+import {
+  effectiveTaxType,
+  type ManualChargeInput,
+} from "@/lib/invoices/manual/money";
 
 // ---------------------------------------------------------------------------
 // Shape
@@ -50,7 +53,11 @@ export interface ChargeRow {
   amount: string;
   discount: string;
   ratePercent: string;
-  reimbursement: boolean;
+  /**
+   * T, P, E or R as the admin chose it. The single source for the line's tax
+   * nature: the reimbursement flag the server stores is derived from it.
+   */
+  taxType: ManualTaxType;
 }
 
 /**
@@ -79,6 +86,17 @@ export interface RouteEnd {
 
 /** Domestic lanes are India at both ends, and the form never asks otherwise. */
 export const HOME_COUNTRY = "India";
+
+/** One custom field as typed. `key` is client-only, for React. */
+export interface CustomFieldRow {
+  key: string;
+  label: string;
+  value: string;
+}
+
+export function emptyCustomField(): CustomFieldRow {
+  return { key: nanoid(8), label: "", value: "" };
+}
 
 export interface ConsignmentRow {
   key: string;
@@ -111,6 +129,8 @@ export interface ConsignmentRow {
   consigneeName: string;
   containerNumber: string;
   jobNumber: string;
+  /** Up to MAX_CUSTOM_FIELDS admin-labelled facts. */
+  customFields: CustomFieldRow[];
   charges: ChargeRow[];
 }
 
@@ -150,7 +170,7 @@ export function emptyCharge(over: Partial<ChargeRow> = {}): ChargeRow {
     amount: "",
     discount: "",
     ratePercent: "18",
-    reimbursement: false,
+    taxType: ManualTaxType.TAXABLE,
     ...over,
   };
 }
@@ -167,7 +187,13 @@ export function chargeFromCatalog(type: ChargeTypeOption): ChargeRow {
     ratePercent: type.defaultReimbursement
       ? "0"
       : String(type.defaultRatePercent),
-    reimbursement: type.defaultReimbursement,
+    taxType: effectiveTaxType(
+      {
+        reimbursement: type.defaultReimbursement,
+        ratePercent: type.defaultRatePercent,
+      },
+      false,
+    ),
   });
 }
 
@@ -176,7 +202,7 @@ export function chargeFromPreset(line: PresetLine): ChargeRow {
     label: line.label,
     sacCode: line.sacCode,
     ratePercent: String(line.ratePercent),
-    reimbursement: line.reimbursement,
+    taxType: effectiveTaxType(line, false),
   });
 }
 
@@ -252,6 +278,7 @@ export function emptyConsignment(
     consigneeName: "",
     containerNumber: "",
     jobNumber: "",
+    customFields: [],
     charges: [emptyCharge()],
     ...over,
   };
@@ -278,6 +305,13 @@ export function duplicateConsignment(source: ConsignmentRow): ConsignmentRow {
     referenceNo: "",
     origin: { ...source.origin },
     destination: { ...source.destination },
+    // The labels come along and the values do not: the next consignment
+    // usually needs the same kind of fact with a different answer.
+    customFields: source.customFields.map((field) => ({
+      ...field,
+      key: nanoid(8),
+      value: "",
+    })),
     charges: source.charges.map((charge) => ({ ...charge, key: nanoid(8) })),
   };
 }
@@ -498,6 +532,11 @@ export function stateFromDetail(detail: ManualInvoiceDetail): BuilderState {
       consigneeName: str(c.consigneeName),
       containerNumber: str(c.containerNumber),
       jobNumber: str(c.jobNumber),
+      customFields: c.customFields.map((field) => ({
+        key: nanoid(8),
+        label: field.label,
+        value: field.value,
+      })),
       charges: c.charges.map((charge) => ({
         key: charge.id,
         chargeTypeId: charge.chargeTypeId,
@@ -508,7 +547,10 @@ export function stateFromDetail(detail: ManualInvoiceDetail): BuilderState {
         amount: charge.amount ? String(charge.amount) : "",
         discount: charge.discount ? String(charge.discount) : "",
         ratePercent: String(charge.ratePercent),
-        reimbursement: charge.reimbursement,
+        // Lines saved before the choice existed derive it. The invoice-wide
+        // reverse charge is deliberately not applied here: it stays a toggle of
+        // its own, and the engine applies it on top.
+        taxType: charge.taxType ?? effectiveTaxType(charge, false),
       })),
     })),
   };
@@ -571,6 +613,7 @@ export function isConsignmentFilled(row: ConsignmentRow): boolean {
     row.jobNumber,
     row.goodsDescription,
     row.hsnCode,
+    ...row.customFields.map((field) => field.value),
   ].some((v) => v.trim().length > 0);
 }
 
@@ -644,6 +687,14 @@ export function toPayload(state: BuilderState) {
       consigneeName: blankToNull(c.consigneeName),
       containerNumber: blankToNull(c.containerNumber),
       jobNumber: blankToNull(c.jobNumber),
+      // Only complete pairs are saved. A label with no value, or a value with
+      // no label, is a row the admin started and abandoned.
+      customFields: c.customFields
+        .map((field) => ({
+          label: field.label.trim(),
+          value: field.value.trim(),
+        }))
+        .filter((field) => field.label && field.value),
       notes: null,
       charges: c.charges.filter(isChargeFilled).map((charge) => ({
         chargeTypeId: charge.chargeTypeId,
@@ -654,7 +705,8 @@ export function toPayload(state: BuilderState) {
         amount: toNumber(charge.amount),
         discount: toNumber(charge.discount),
         ratePercent: toNumber(charge.ratePercent),
-        reimbursement: charge.reimbursement,
+        reimbursement: charge.taxType === ManualTaxType.PURE_AGENT,
+        taxType: charge.taxType,
         notes: null,
       })),
     })),
@@ -676,7 +728,8 @@ export function toMoneyLines(state: BuilderState): ManualChargeInput[] {
       amount: toNumber(charge.amount),
       discount: toNumber(charge.discount),
       ratePercent: toNumber(charge.ratePercent),
-      reimbursement: charge.reimbursement,
+      reimbursement: charge.taxType === ManualTaxType.PURE_AGENT,
+      taxType: charge.taxType,
       consignmentIndex: index,
     })),
   );

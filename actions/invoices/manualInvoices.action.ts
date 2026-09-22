@@ -33,6 +33,7 @@ import {
 import {
   ManualInvoiceDocType,
   ManualInvoiceStatus,
+  ManualTaxType,
   Prisma,
 } from "@/generated/prisma";
 import { getInvoiceIssuer, issuerIsConfigured } from "@/lib/invoices/tax/config";
@@ -46,8 +47,11 @@ import {
   billingPartySchema,
   chargePresetSchema,
   chargeTypeSchema,
+  customFieldSchema,
   dueDateFor,
+  fieldLabelKey,
   DRAFT_NUMBER_PLACEHOLDER,
+  issueChecks,
   manualInvoiceSchema,
   type BillingPartyDefaults,
   type BillingPartyDetail,
@@ -56,7 +60,9 @@ import {
   type ChargeTypeOption,
   type CustomerSearchResult,
   type CustomerSource,
+  type InvoiceFieldLabelOption,
   type ManualInvoiceDetail,
+  type ManualInvoiceInput,
   type ManualInvoiceListParams,
   type ManualInvoicePage,
 } from "@/lib/invoices/manual/config";
@@ -704,6 +710,66 @@ export async function createChargeTypeAction(
   }
 }
 
+/**
+ * Save a custom field label so the next invoice offers it. Idempotent: saving a
+ * label that already exists (ignoring case and spacing) returns that one.
+ */
+export async function createInvoiceFieldLabelAction(
+  label: string,
+): Promise<ActionResult<InvoiceFieldLabelOption>> {
+  try {
+    const { userId } = await requireArenaAdmin();
+    const parsed = customFieldSchema.shape.label.safeParse(label);
+    if (!parsed.success) return { ok: false, error: firstIssue(parsed.error) };
+
+    const clean = parsed.data.replace(/\s+/g, " ");
+    const saved = await prisma.invoiceFieldLabel.upsert({
+      where: { key: fieldLabelKey(clean) },
+      update: {},
+      create: {
+        label: clean,
+        key: fieldLabelKey(clean),
+        createdByName: await getActorName(userId),
+      },
+      select: { id: true, label: true },
+    });
+
+    return { ok: true, data: saved };
+  } catch (error) {
+    return {
+      ok: false,
+      error: toMessage(
+        error,
+        "createInvoiceFieldLabelAction",
+        "Could not save the label. It is still used on this invoice.",
+      ),
+    };
+  }
+}
+
+/**
+ * Stop suggesting a saved label. Invoices keep the label as plain text, so this
+ * changes no invoice, issued or draft.
+ */
+export async function deleteInvoiceFieldLabelAction(
+  id: string,
+): Promise<ActionResult> {
+  try {
+    await requireArenaAdmin();
+    await prisma.invoiceFieldLabel.deleteMany({ where: { id } });
+    return { ok: true };
+  } catch (error) {
+    return {
+      ok: false,
+      error: toMessage(
+        error,
+        "deleteInvoiceFieldLabelAction",
+        "Could not remove the label. Try again.",
+      ),
+    };
+  }
+}
+
 export async function saveChargePresetAction(
   input: unknown,
 ): Promise<ActionResult<{ id: string }>> {
@@ -809,124 +875,15 @@ export async function saveManualInvoiceAction(
         return {
           ok: false,
           error:
-            "This invoice has been issued and cannot be edited. Raise a credit note instead.",
+            "This invoice has been issued. Save the change as a correction instead.",
         };
       }
     }
 
-    const party = await prisma.billingParty.findFirst({
-      where: { id: v.billingPartyId, deletedAt: null },
-      select: { id: true, orgId: true, gstin: true, stateCode: true, state: true },
-    });
-    if (!party) return { ok: false, error: "Choose a customer for this invoice." };
+    const prepared = await prepareInvoiceWrite(v);
+    if (!prepared.ok) return prepared;
+    const { party, issuer, scalar, children } = prepared.data;
 
-    const issueDate = new Date(v.issueDate);
-    const dueDate = v.dueDate
-      ? new Date(v.dueDate)
-      : dueDateFor(v.paymentTerms, issueDate);
-
-    const issuer = getInvoiceIssuer();
-    const place = v.placeOfSupplyCode
-      ? { code: v.placeOfSupplyCode, name: null as string | null }
-      : (() => {
-          const r = resolvePlaceOfSupply({
-            gstin: party.gstin,
-            stateCode: party.stateCode,
-            stateName: party.state,
-            sellerStateCode: issuer.stateCode,
-          });
-          return { code: r.code, name: r.name };
-        })();
-
-    const scalar = {
-      billingPartyId: party.id,
-      // Denormalised so the tenant list can be scoped without walking through
-      // the party, and so unlinking a party from its org later does not
-      // retroactively hide invoices that org has already seen.
-      orgId: party.orgId,
-      docType: v.docType,
-      relatedInvoiceId: v.relatedInvoiceId ?? null,
-      mode: v.mode,
-      csbCategory: v.csbCategory ?? null,
-      issueDate,
-      dueDate,
-      paymentTerms: v.paymentTerms ?? null,
-      reference: v.reference ?? null,
-      currency: v.currency,
-      taxMode: v.taxMode,
-      reverseCharge: v.reverseCharge,
-      showSacCode: v.showSacCode,
-      placeOfSupplyCode: place.code,
-      placeOfSupplyName: place.name,
-      irn: v.irn ?? null,
-      irnAckNo: v.irnAckNo ?? null,
-      irnAckDate: v.irnAckDate ? new Date(v.irnAckDate) : null,
-      irnQrData: v.irnQrData ?? null,
-      notes: v.notes ?? null,
-      termsOverride: v.termsOverride ?? null,
-    };
-
-    const children = {
-      create: v.consignments.map((c, index) => ({
-        sortOrder: index,
-        awbNumber: c.awbNumber ?? null,
-        mawbNumber: c.mawbNumber ?? null,
-        trackingNumber: c.trackingNumber ?? null,
-        bookingDate: c.bookingDate ? new Date(c.bookingDate) : null,
-        pickupDate: c.pickupDate ? new Date(c.pickupDate) : null,
-        origin: c.origin ?? null,
-        originPostalCode: c.originPostalCode ?? null,
-        originCity: c.originCity ?? null,
-        originState: c.originState ?? null,
-        originCountry: c.originCountry ?? null,
-        destination: c.destination ?? null,
-        destinationPostalCode: c.destinationPostalCode ?? null,
-        destinationCity: c.destinationCity ?? null,
-        destinationState: c.destinationState ?? null,
-        destinationCountry: c.destinationCountry ?? null,
-        serviceType: c.serviceType ?? null,
-        productType: c.productType ?? null,
-        parcelType: c.parcelType ?? null,
-        shipMode: c.shipMode ?? null,
-        originPort: c.originPort ?? null,
-        destinationPort: c.destinationPort ?? null,
-        flightNumber: c.flightNumber ?? null,
-        airlineName: c.airlineName ?? null,
-        forwarderName: c.forwarderName ?? null,
-        subAgent: c.subAgent ?? null,
-        pieces: c.pieces ?? null,
-        grossWeightKg: c.grossWeightKg ?? null,
-        chargeableWeightKg: c.chargeableWeightKg ?? null,
-        boxCount: c.boxCount ?? null,
-        palletCount: c.palletCount ?? null,
-        cartonCount: c.cartonCount ?? null,
-        goodsDescription: c.goodsDescription ?? null,
-        hsnCode: c.hsnCode ?? null,
-        particulars: c.particulars ?? null,
-        exportInvoiceNo: c.exportInvoiceNo ?? null,
-        referenceNo: c.referenceNo ?? null,
-        shipperName: c.shipperName ?? null,
-        consigneeName: c.consigneeName ?? null,
-        containerNumber: c.containerNumber ?? null,
-        jobNumber: c.jobNumber ?? null,
-        notes: c.notes ?? null,
-        charges: {
-          create: c.charges.map((charge, chargeIndex) => ({
-            sortOrder: chargeIndex,
-            chargeTypeId: charge.chargeTypeId ?? null,
-            label: charge.label,
-            sacCode: charge.sacCode,
-            rate: charge.rate,
-            quantity: charge.quantity,
-            amount: charge.amount,
-            discount: charge.discount,
-            ratePercent: charge.ratePercent,
-            reimbursement: charge.reimbursement,
-            notes: charge.notes ?? null,
-          })),
-        },
-      })),
-    };
 
     const savedId = await prisma.$transaction(async (tx) => {
       const invoiceId = id
@@ -995,6 +952,164 @@ export async function saveManualInvoiceAction(
       ),
     };
   }
+}
+
+/**
+ * Everything a save writes, derived from the validated input: the party, the
+ * scalar columns and the consignment and charge rows to create. Shared by the
+ * draft save and the correction of an issued invoice, so the two can never
+ * store the same form differently.
+ */
+async function prepareInvoiceWrite(v: ManualInvoiceInput) {
+  const party = await prisma.billingParty.findFirst({
+    where: { id: v.billingPartyId, deletedAt: null },
+    select: { id: true, orgId: true, gstin: true, stateCode: true, state: true },
+  });
+  if (!party) {
+    return { ok: false as const, error: "Choose a customer for this invoice." };
+  }
+
+  const issueDate = new Date(v.issueDate);
+  const dueDate = v.dueDate
+    ? new Date(v.dueDate)
+    : dueDateFor(v.paymentTerms, issueDate);
+
+  const issuer = getInvoiceIssuer();
+  const place = v.placeOfSupplyCode
+    ? { code: v.placeOfSupplyCode, name: null as string | null }
+    : (() => {
+        const r = resolvePlaceOfSupply({
+          gstin: party.gstin,
+          stateCode: party.stateCode,
+          stateName: party.state,
+          sellerStateCode: issuer.stateCode,
+        });
+        return { code: r.code, name: r.name };
+      })();
+
+  const scalar = {
+    billingPartyId: party.id,
+    // Denormalised so the tenant list can be scoped without walking through
+    // the party, and so unlinking a party from its org later does not
+    // retroactively hide invoices that org has already seen.
+    orgId: party.orgId,
+    docType: v.docType,
+    relatedInvoiceId: v.relatedInvoiceId ?? null,
+    mode: v.mode,
+    csbCategory: v.csbCategory ?? null,
+    issueDate,
+    dueDate,
+    paymentTerms: v.paymentTerms ?? null,
+    reference: v.reference ?? null,
+    currency: v.currency,
+    taxMode: v.taxMode,
+    reverseCharge: v.reverseCharge,
+    showSacCode: v.showSacCode,
+    placeOfSupplyCode: place.code,
+    placeOfSupplyName: place.name,
+    irn: v.irn ?? null,
+    irnAckNo: v.irnAckNo ?? null,
+    irnAckDate: v.irnAckDate ? new Date(v.irnAckDate) : null,
+    irnQrData: v.irnQrData ?? null,
+    notes: v.notes ?? null,
+    termsOverride: v.termsOverride ?? null,
+  };
+
+  const children = {
+    create: v.consignments.map((c, index) => ({
+      sortOrder: index,
+      awbNumber: c.awbNumber ?? null,
+      mawbNumber: c.mawbNumber ?? null,
+      trackingNumber: c.trackingNumber ?? null,
+      bookingDate: c.bookingDate ? new Date(c.bookingDate) : null,
+      pickupDate: c.pickupDate ? new Date(c.pickupDate) : null,
+      origin: c.origin ?? null,
+      originPostalCode: c.originPostalCode ?? null,
+      originCity: c.originCity ?? null,
+      originState: c.originState ?? null,
+      originCountry: c.originCountry ?? null,
+      destination: c.destination ?? null,
+      destinationPostalCode: c.destinationPostalCode ?? null,
+      destinationCity: c.destinationCity ?? null,
+      destinationState: c.destinationState ?? null,
+      destinationCountry: c.destinationCountry ?? null,
+      serviceType: c.serviceType ?? null,
+      productType: c.productType ?? null,
+      parcelType: c.parcelType ?? null,
+      shipMode: c.shipMode ?? null,
+      originPort: c.originPort ?? null,
+      destinationPort: c.destinationPort ?? null,
+      flightNumber: c.flightNumber ?? null,
+      airlineName: c.airlineName ?? null,
+      forwarderName: c.forwarderName ?? null,
+      subAgent: c.subAgent ?? null,
+      pieces: c.pieces ?? null,
+      grossWeightKg: c.grossWeightKg ?? null,
+      chargeableWeightKg: c.chargeableWeightKg ?? null,
+      boxCount: c.boxCount ?? null,
+      palletCount: c.palletCount ?? null,
+      cartonCount: c.cartonCount ?? null,
+      goodsDescription: c.goodsDescription ?? null,
+      hsnCode: c.hsnCode ?? null,
+      particulars: c.particulars ?? null,
+      exportInvoiceNo: c.exportInvoiceNo ?? null,
+      referenceNo: c.referenceNo ?? null,
+      shipperName: c.shipperName ?? null,
+      consigneeName: c.consigneeName ?? null,
+      containerNumber: c.containerNumber ?? null,
+      jobNumber: c.jobNumber ?? null,
+      // Json column: an empty list is stored as null, not [].
+      customFields:
+        c.customFields.length > 0
+          ? (c.customFields as unknown as Prisma.InputJsonValue)
+          : Prisma.JsonNull,
+      notes: c.notes ?? null,
+      charges: {
+        create: c.charges.map((charge, chargeIndex) => ({
+          sortOrder: chargeIndex,
+          chargeTypeId: charge.chargeTypeId ?? null,
+          label: charge.label,
+          sacCode: charge.sacCode,
+          rate: charge.rate,
+          quantity: charge.quantity,
+          amount: charge.amount,
+          discount: charge.discount,
+          ratePercent: charge.ratePercent,
+          // The chosen tax type wins, and the stored flag follows it, so the
+          // two columns can never disagree about a pure agent line.
+          reimbursement: charge.taxType
+            ? charge.taxType === ManualTaxType.PURE_AGENT
+            : charge.reimbursement,
+          taxType: charge.taxType ?? null,
+          notes: charge.notes ?? null,
+        })),
+      },
+    })),
+  };
+
+  return { ok: true as const, data: { party, issuer, scalar, children } };
+}
+
+/**
+ * Swap an invoice's scalar columns and replace all of its consignment and
+ * charge rows, inside the caller's transaction.
+ */
+async function replaceInvoiceRows(
+  tx: Prisma.TransactionClient,
+  id: string,
+  write: Pick<
+    Extract<Awaited<ReturnType<typeof prepareInvoiceWrite>>, { ok: true }>["data"],
+    "scalar" | "children"
+  >,
+) {
+  await tx.manualInvoice.update({
+    where: { id },
+    data: { ...write.scalar, consignments: { deleteMany: {} } },
+  });
+  await tx.manualInvoice.update({
+    where: { id },
+    data: { consignments: write.children },
+  });
 }
 
 /**
@@ -1278,6 +1393,292 @@ export async function issueManualInvoiceAction(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Correcting an issued invoice
+// ---------------------------------------------------------------------------
+//
+// An issued or paid invoice with a mistake in it is corrected in place, under
+// the SAME number. The version it replaces is filed as a ManualInvoiceRevision
+// first (its figures, its snapshots and a link to its PDF), so every copy a
+// customer may already hold can still be produced.
+//
+// What cannot change, and why:
+//   - the customer. Billing somebody else is a different invoice; cancel this
+//     one and raise a new one.
+//   - the month of the invoice date. The number carries it (ARN + MMYY), and a
+//     date that moved to another month would make the number claim a month the
+//     document no longer does. Any day within the same month is fine.
+//   - the document type, and for a credit note the invoice it is raised against.
+//
+// Status is untouched: a paid invoice stays paid.
+
+/** "2026-09" for a date, as the month reads in India. */
+function istMonth(date: Date): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    year: "numeric",
+    month: "2-digit",
+    timeZone: "Asia/Kolkata",
+  }).format(date);
+}
+
+const REVISABLE: ManualInvoiceStatus[] = [
+  ManualInvoiceStatus.ISSUED,
+  ManualInvoiceStatus.PAID,
+];
+
+/**
+ * The reason a correction is refused, or null when it may go ahead. Checked
+ * before anything is written, and again inside the transaction against the row
+ * as it stands then, so a concurrent cancel cannot slip through.
+ */
+function revisionRefusal(
+  existing: {
+    status: ManualInvoiceStatus;
+    invoiceNumber: string | null;
+    billingPartyId: string;
+    docType: ManualInvoiceDocType;
+    relatedInvoiceId: string | null;
+    issueDate: Date;
+  },
+  v: ManualInvoiceInput,
+): string | null {
+  if (!existing.invoiceNumber || !REVISABLE.includes(existing.status)) {
+    return existing.status === ManualInvoiceStatus.CANCELLED
+      ? "A cancelled invoice cannot be edited."
+      : "Only an issued or paid invoice can be corrected here.";
+  }
+  if (v.billingPartyId !== existing.billingPartyId) {
+    return "The customer on an issued invoice cannot change. Cancel it and raise a new one instead.";
+  }
+  if (
+    v.docType !== existing.docType ||
+    (v.relatedInvoiceId ?? null) !== existing.relatedInvoiceId
+  ) {
+    return "The document type and the invoice it corrects cannot change.";
+  }
+  if (istMonth(new Date(v.issueDate)) !== istMonth(existing.issueDate)) {
+    return `The invoice date has to stay in the same month, because ${existing.invoiceNumber} carries it.`;
+  }
+  if (!issueChecks.hasCharges(v.consignments)) {
+    return "An issued invoice has to bill something. Add at least one charge.";
+  }
+  return null;
+}
+
+/**
+ * Correct an issued or paid invoice under its existing number.
+ *
+ * One transaction, holding only this invoice's rows: file the current version
+ * as a revision, replace the rows, rebuild the document with the same number,
+ * render and upload the new PDF, and point the invoice at it. Unlike issuing,
+ * no shared counter is touched, so holding the transaction across the render
+ * delays nobody else. A failure anywhere rolls the whole thing back and the
+ * invoice is exactly as it was; the only possible leftover is an uploaded file
+ * nothing points at.
+ */
+export async function reviseManualInvoiceAction(
+  id: string,
+  input: unknown,
+): Promise<ActionResult<{ invoiceNumber: string; revision: number }>> {
+  try {
+    const { userId } = await requireArenaAdmin();
+    const parsed = manualInvoiceSchema.safeParse(input);
+    if (!parsed.success) return { ok: false, error: firstIssue(parsed.error) };
+    const v = parsed.data;
+
+    const existing = await prisma.manualInvoice.findFirst({
+      where: { id, deletedAt: null },
+    });
+    if (!existing) return { ok: false, error: "That invoice no longer exists." };
+
+    const refusal = revisionRefusal(existing, v);
+    if (refusal) return { ok: false, error: refusal };
+
+    const prepared = await prepareInvoiceWrite(v);
+    if (!prepared.ok) return prepared;
+
+    const actorName = await getActorName(userId);
+
+    const result = await prisma.$transaction(
+      async (tx) => {
+        const current = await tx.manualInvoice.findFirstOrThrow({
+          where: { id, deletedAt: null },
+        });
+        const late = revisionRefusal(current, v);
+        if (late) throw new RevisionRefusedError(late);
+
+        const invoiceNumber = current.invoiceNumber as string;
+        const revision = current.revisionCount + 1;
+
+        // The version being replaced, exactly as it stands.
+        await tx.manualInvoiceRevision.create({
+          data: {
+            invoiceId: id,
+            revision,
+            issueDate: current.issueDate,
+            taxableValue: current.taxableValue,
+            totalTax: current.totalTax,
+            total: current.total,
+            sellerSnapshot: current.sellerSnapshot ?? Prisma.JsonNull,
+            buyerSnapshot: current.buyerSnapshot ?? Prisma.JsonNull,
+            consignmentSnapshot: current.consignmentSnapshot ?? Prisma.JsonNull,
+            lineItems: current.lineItems ?? Prisma.JsonNull,
+            fileUrl: current.fileUrl,
+            fileKey: current.fileKey,
+            fileName: current.fileName,
+            supersededById: userId,
+            supersededByName: actorName,
+          },
+        });
+
+        await replaceInvoiceRows(tx, id, prepared.data);
+
+        const fresh = await tx.manualInvoice.findUniqueOrThrow({
+          where: { id },
+          include: manualInvoiceInclude,
+        });
+        const { data, money } = buildManualInvoiceDocument(fresh, {
+          invoiceNumber,
+        });
+
+        const rendered = await renderManualInvoicePdf(data);
+        const uploaded = await uploadManualInvoicePdf(rendered);
+
+        await tx.manualInvoice.update({
+          where: { id },
+          data: {
+            placeOfSupplyCode: data.placeOfSupplyCode,
+            placeOfSupplyName: data.placeOfSupplyName,
+
+            taxableValue: money.taxableValue,
+            cgstAmount: money.cgstAmount,
+            sgstAmount: money.sgstAmount,
+            igstAmount: money.igstAmount,
+            totalTax: money.totalTax,
+            reimbursements: money.reimbursements,
+            total: money.total,
+            taxNote: data.taxNote,
+
+            sellerSnapshot: data.seller as unknown as Prisma.InputJsonValue,
+            buyerSnapshot: data.buyer as unknown as Prisma.InputJsonValue,
+            consignmentSnapshot:
+              data.consignments as unknown as Prisma.InputJsonValue,
+            lineItems: data.lineItems as unknown as Prisma.InputJsonValue,
+
+            fileUrl: uploaded.fileUrl,
+            fileKey: uploaded.fileKey,
+            fileName: uploaded.fileName,
+            fileSize: uploaded.fileSize,
+            mimeType: uploaded.mimeType,
+
+            revisionCount: revision,
+            revisedAt: new Date(),
+            revisedByName: actorName,
+          },
+        });
+
+        return { invoiceNumber, revision };
+      },
+      { maxWait: 10_000, timeout: 60_000 },
+    );
+
+    revalidateBoth();
+    return { ok: true, data: result };
+  } catch (error) {
+    if (error instanceof RevisionRefusedError) {
+      return { ok: false, error: error.message };
+    }
+    return {
+      ok: false,
+      error: toMessage(
+        error,
+        "reviseManualInvoiceAction",
+        "Could not save the correction. The invoice is unchanged; try again.",
+      ),
+    };
+  }
+}
+
+class RevisionRefusedError extends Error {}
+
+/** Carries a rendered preview out of a transaction that must not commit. */
+class PreviewRollback extends Error {
+  constructor(readonly result: { pdf: string; fileName: string }) {
+    super("preview rollback");
+  }
+}
+
+/**
+ * Preview a correction to an issued invoice without saving it.
+ *
+ * A draft's preview saves first and renders the stored rows. An issued invoice
+ * cannot do that, because saving IS the correction. So this writes the edited
+ * rows inside a transaction, builds and renders the document from them through
+ * the same path the correction uses, and then throws to roll the writes back.
+ * The customer's invoice is never touched, and the preview is still rendered
+ * from stored rows rather than from a second path from form to document.
+ */
+export async function previewManualInvoiceRevisionAction(
+  id: string,
+  input: unknown,
+): Promise<ActionResult<{ pdf: string; fileName: string }>> {
+  try {
+    await requireArenaAdmin();
+    const parsed = manualInvoiceSchema.safeParse(input);
+    if (!parsed.success) return { ok: false, error: firstIssue(parsed.error) };
+    const v = parsed.data;
+
+    const existing = await prisma.manualInvoice.findFirst({
+      where: { id, deletedAt: null },
+    });
+    if (!existing) return { ok: false, error: "That invoice no longer exists." };
+    const refusal = revisionRefusal(existing, v);
+    if (refusal) return { ok: false, error: refusal };
+
+    const prepared = await prepareInvoiceWrite(v);
+    if (!prepared.ok) return prepared;
+
+    try {
+      await prisma.$transaction(
+        async (tx) => {
+          await replaceInvoiceRows(tx, id, prepared.data);
+          const fresh = await tx.manualInvoice.findUniqueOrThrow({
+            where: { id },
+            include: manualInvoiceInclude,
+          });
+          const { data } = buildManualInvoiceDocument(fresh, {
+            invoiceNumber: existing.invoiceNumber as string,
+          });
+          const rendered = await renderManualInvoicePdf(data);
+          throw new PreviewRollback({
+            pdf: rendered.buffer.toString("base64"),
+            fileName: rendered.fileName,
+          });
+        },
+        { maxWait: 10_000, timeout: 60_000 },
+      );
+    } catch (error) {
+      if (error instanceof PreviewRollback) {
+        return { ok: true, data: error.result };
+      }
+      throw error;
+    }
+
+    // Unreachable: the transaction always throws.
+    return { ok: false, error: "Could not build the preview. Try again." };
+  } catch (error) {
+    return {
+      ok: false,
+      error: toMessage(
+        error,
+        "previewManualInvoiceRevisionAction",
+        "Could not build the preview. Try again.",
+      ),
+    };
+  }
+}
+
+
 /**
  * Copy an invoice into a fresh draft.
  *
@@ -1367,6 +1768,7 @@ export async function duplicateManualInvoiceAction(
             consigneeName: c.consigneeName,
             containerNumber: c.containerNumber,
             jobNumber: c.jobNumber,
+            customFields: c.customFields ?? Prisma.JsonNull,
             notes: c.notes,
             charges: {
               create: c.charges.map((charge, chargeIndex) => ({
@@ -1380,6 +1782,7 @@ export async function duplicateManualInvoiceAction(
                 discount: charge.discount,
                 ratePercent: charge.ratePercent,
                 reimbursement: charge.reimbursement,
+                taxType: charge.taxType,
                 notes: charge.notes,
               })),
             },
@@ -1484,6 +1887,7 @@ export async function createCreditNoteAction(
                 discount: charge.discount,
                 ratePercent: charge.ratePercent,
                 reimbursement: charge.reimbursement,
+                taxType: charge.taxType,
               })),
             },
           })),

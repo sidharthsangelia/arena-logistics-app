@@ -65,16 +65,20 @@ import { ManualInvoiceDocType } from "@/generated/prisma";
 import {
   Band,
   C,
+  COMPUTER_GENERATED_NOTE,
   Fact,
   type InvoiceVariant,
   Pair,
   PaymentPanel,
+  TAX_TYPE_KEY,
   TermsBlock,
   TotalsRow,
   chunked,
+  issuerAddress,
   money,
   splitLegalName,
   t,
+  taxTypeOf,
   trim,
 } from "../../pdf/theme";
 import { DEFAULT_INVOICE_VARIANT } from "../../pdf/variant";
@@ -112,6 +116,8 @@ const COL = {
   sac: 46,
   qty: 30,
   rate: 58,
+  // The tax type letter (T, P, E, R), decoded by TAX_TYPE_KEY in the band note.
+  taxType: 30,
   taxable: 64,
   gstRate: 32,
   gst: 60,
@@ -666,10 +672,21 @@ export function ManualInvoiceDocument({
   const serviceAmount = taxedLines.reduce((sum, l) => sum + l.grossAmount, 0);
   const discount = taxedLines.reduce((sum, l) => sum + l.discount, 0);
 
-  const sellerAddress = [
-    ...seller.addressLines,
-    [seller.city, seller.stateName, seller.postalCode].filter(Boolean).join(" "),
-  ].filter(Boolean);
+  // Two lines, never more: see issuerAddress in the shared theme.
+  const sellerAddress = issuerAddress(seller);
+
+  type SellerId = { label: string; value: string };
+  const taxIds: SellerId[] = [
+    { label: "GSTIN", value: seller.gstin },
+    { label: "PAN", value: seller.pan },
+  ];
+  const companyIds = [
+    seller.cin ? { label: "CIN", value: seller.cin } : null,
+    seller.msme ? { label: "MSME", value: seller.msme } : null,
+  ].filter((id): id is SellerId => !!id);
+  const sellerIdLines: SellerId[][] = seller.msme
+    ? [taxIds, companyIds]
+    : [[...taxIds, ...companyIds]];
 
   const buyerAddress = [
     ...buyer.addressLines,
@@ -724,24 +741,25 @@ export function ManualInvoiceDocument({
                 {line}
               </Text>
             ))}
-            {/* GSTIN, PAN and CIN on one line rather than three. All three are
-                looked up rather than read, the labels carry the weight, and
-                three separate lines pushed the party panel down the page for no
-                gain. CIN is guarded: an invoice issued before the field existed
-                has none, and a bare "CIN" with nothing after it is worse than
-                no CIN at all. */}
-            <Text style={s.sellerIds}>
-              <Text style={s.sellerIdLabel}>GSTIN </Text>
-              {seller.gstin}
-              <Text style={s.sellerIdLabel}>   PAN </Text>
-              {seller.pan}
-              {seller.cin ? (
-                <>
-                  <Text style={s.sellerIdLabel}>   CIN </Text>
-                  {seller.cin}
-                </>
-              ) : null}
-            </Text>
+            {/* GSTIN, PAN and CIN on one line when they are all there is: they
+                are looked up rather than read and the labels carry the weight.
+                With an MSME number the four no longer fit beside the title
+                block and a wrap falls mid-label, so they break deliberately
+                instead: tax IDs first, company IDs second. CIN and MSME are
+                guarded, since older snapshots carry neither. */}
+            {sellerIdLines.map((line, i) => (
+              <Text key={i} style={s.sellerIds}>
+                {line.map((id, j) => (
+                  <React.Fragment key={id.label}>
+                    <Text style={s.sellerIdLabel}>
+                      {j > 0 ? "   " : ""}
+                      {id.label}{" "}
+                    </Text>
+                    {id.value}
+                  </React.Fragment>
+                ))}
+              </Text>
+            ))}
             {/* Labelled, unlike the run of identifiers above. GSTIN, PAN and
                 CIN are self-evident from their shape; an email, a phone number
                 and a domain stacked bare are three strings a reader has to sort
@@ -1008,6 +1026,15 @@ export function ManualInvoiceDocument({
                         days apart. */}
                     <Pair label="Booked" value={shortDate(c.bookingDate)} />
                     <Pair label="Picked up" value={shortDate(c.pickupDate)} />
+                    {/* The admin's own labelled facts, last: they are the
+                        odd ones the fixed fields above do not cover. */}
+                    {(c.customFields ?? []).map((field, i) => (
+                      <Pair
+                        key={`custom-${i}`}
+                        label={field.label}
+                        value={field.value}
+                      />
+                    ))}
                   </View>
 
                   {/* ── THE TWO FULL-WIDTH LINES ─────────────────────────
@@ -1048,11 +1075,14 @@ export function ManualInvoiceDocument({
         {/* ── charges ──────────────────────────────────────────────────── */}
         <Band
           label="Charges"
-          note={
+          note={[
             data.consignments.length > 1
               ? "totalled across all consignments"
-              : null
-          }
+              : null,
+            TAX_TYPE_KEY,
+          ]
+            .filter(Boolean)
+            .join("   ")}
           variant={variant}
         >
           <View style={grid ? s.tableHeadGrid : s.tableHead}>
@@ -1082,6 +1112,9 @@ export function ManualInvoiceDocument({
                 RATE
               </Text>
             ) : null}
+            <Text style={[grid ? s.headCellGrid : s.headCell, { width: COL.taxType, textAlign: "center" }]}>
+              TYPE
+            </Text>
             <Text style={[grid ? s.headCellGrid : s.headCell, { width: COL.taxable, textAlign: "right" }]}>
               TAXABLE
             </Text>
@@ -1125,6 +1158,9 @@ export function ManualInvoiceDocument({
                   {line.rate === null ? "" : money(line.rate, cur)}
                 </Text>
               ) : null}
+              <Text style={[s.cellMuted, { width: COL.taxType, textAlign: "center" }]}>
+                {taxTypeOf({ ...line, reverseCharge: data.reverseCharge })}
+              </Text>
               <Text style={[s.cell, { width: COL.taxable }]}>
                 {money(line.taxableValue, cur)}
               </Text>
@@ -1180,6 +1216,9 @@ export function ManualInvoiceDocument({
                   ) : null}
                   {showQty ? <Text style={[s.cellMuted, { width: COL.qty }]} /> : null}
                   {showRate ? <Text style={[s.cellMuted, { width: COL.rate }]} /> : null}
+                  <Text style={[s.cellMuted, { width: COL.taxType, textAlign: "center" }]}>
+                    {taxTypeOf(line)}
+                  </Text>
                   <Text style={[s.cellMuted, { width: COL.taxable }]}>-</Text>
                   <Text style={[s.cellMuted, { width: COL.gstRate }]}>-</Text>
                   <Text style={[s.cellMuted, { width: COL.gst }]}>-</Text>
@@ -1338,6 +1377,7 @@ export function ManualInvoiceDocument({
             cannot answer them. */}
         <Text style={s.contact} fixed>
           {[
+            COMPUTER_GENERATED_NOTE,
             `Billing queries: ${billingContacts}`,
             seller.website ? `More at ${seller.website}` : null,
           ]

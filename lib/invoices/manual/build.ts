@@ -15,6 +15,7 @@ import "server-only";
 
 import {
   ManualInvoiceDocType,
+  ManualTaxType,
   ShipmentMode,
   TaxMode,
   type Prisma,
@@ -26,7 +27,7 @@ import {
   taxTreatmentFor,
 } from "../tax/config";
 import { formatGstin, gstStateName, resolvePlaceOfSupply } from "../tax/gst";
-import { csbLabel, paymentTermLabel } from "./config";
+import { csbLabel, paymentTermLabel, readCustomFields } from "./config";
 import {
   buildManualInvoiceMoney,
   verifyManualInvoiceMoney,
@@ -139,6 +140,7 @@ export function computeManualMoney(
         discount: num(charge.discount),
         ratePercent: num(charge.ratePercent),
         reimbursement: charge.reimbursement,
+        taxType: charge.taxType,
         consignmentIndex: index,
       });
     }
@@ -203,6 +205,7 @@ export function buildConsignmentSnapshots(
       discount: num(charge.discount),
       ratePercent: num(charge.ratePercent),
       reimbursement: charge.reimbursement,
+      taxType: charge.taxType,
       notes: charge.notes,
     }));
 
@@ -257,6 +260,7 @@ export function buildConsignmentSnapshots(
       consigneeName: consignment.consigneeName,
       containerNumber: consignment.containerNumber,
       jobNumber: consignment.jobNumber,
+      customFields: readCustomFields(consignment.customFields),
       notes: consignment.notes,
       netAmount: Math.round(netAmount * 100) / 100,
       charges,
@@ -418,9 +422,20 @@ function resolveTaxNote(
   money: ManualInvoiceMoney,
 ): string | null {
   if (invoice.taxNote) return invoice.taxNote;
-  if (money.totalTax > 0) return null;
 
-  if (invoice.reverseCharge) {
+  // Some lines on reverse charge and some taxed: the document must still say
+  // that tax on the R lines is the recipient's, even though GST was charged
+  // on the rest.
+  const someReverse = money.lineItems.some(
+    (l) => l.taxType === ManualTaxType.REVERSE_CHARGE,
+  );
+  if (money.totalTax > 0) {
+    return someReverse
+      ? "Tax on lines marked R is payable by the recipient under reverse charge."
+      : null;
+  }
+
+  if (invoice.reverseCharge || someReverse) {
     return "Tax payable by the recipient under reverse charge.";
   }
   if (money.taxableValue === 0 && money.reimbursements > 0) {
