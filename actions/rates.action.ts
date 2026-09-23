@@ -3,6 +3,7 @@
 import { auth } from "@clerk/nextjs/server";
 
 import { getOrgMarkupPercent } from "@/utils/tenant";
+import { isArenaOrgId } from "@/lib/branding/isArenaOrg.server";
 import { getRates } from "@/lib/services/rate-calculator.service";
 import { checkRateLimit, rateLimitMessage } from "@/lib/rateLimit";
 
@@ -112,6 +113,20 @@ export async function getRatesAction(
     const result = await getRates(request, {
       vendorIds: sanitisedVendorIds,
       markupPercent,
+
+      /**
+       * Arena staff see every sourcing account; everyone else sees the cheapest.
+       *
+       * Decided HERE, from the server-side org id, and never taken as an
+       * argument. A client-supplied flag would let any tenant ask for the
+       * breakdown of how we source a rate, which is the one thing this is meant
+       * to withhold. See lib/rates/sourcingAccounts.ts.
+       *
+       * This also covers the booking wizard's service step, which calls this
+       * action: an Arena staffer booking on a customer's behalf can pick the
+       * account deliberately, and the booking is placed on whichever they chose.
+       */
+      showSourcingAccounts: isArenaOrgId(orgId),
     });
 
     return {

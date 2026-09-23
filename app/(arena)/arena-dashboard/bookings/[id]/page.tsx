@@ -79,6 +79,7 @@ import { intlAutoBookEnabled } from "@/lib/booking/intlAutoBook";
 import { CSB4_MAX_VALUE, SHIPMENT_TYPE_INFO } from "@/lib/booking/cargo";
 import { PartyType } from "@/generated/prisma";
 import { cn } from "@/lib/utils";
+import { aramexAccountLabel } from "@/lib/aramex/accountKeys";
 
 /** One-word read-out for the collapsed carrier-booking card in the ops rail. */
 const INTL_BOOKING_SUMMARY: Record<IntlBookingStatus, string> = {
@@ -909,6 +910,20 @@ export default async function BookingDetailPage({
               <div className="grid grid-cols-2 gap-x-8 gap-y-5 sm:grid-cols-3">
                 <Field label="Carrier" value={s.selectedVendorName} strong />
                 <Field label="Product" value={s.selectedProductName} />
+                {/*
+                  ARENA-STAFF-ONLY, and the whole reason the account is tracked.
+                  Aramex quotes are priced across several of Arena's contracts
+                  and the cheapest wins, so this is the only place that says
+                  WHICH contract will be invoiced for this export. Renders
+                  nothing for every other vendor, and must never be copied to a
+                  tenant-facing surface — see lib/aramex/accountKeys.ts.
+                */}
+                {aramexAccountLabel(s.selectedCourierId) && (
+                  <Field
+                    label="Vendor account"
+                    value={aramexAccountLabel(s.selectedCourierId)}
+                  />
+                )}
                 <Field
                   label="Quoted total"
                   value={fmtMoney(s.quotedTotal, s.currency)}

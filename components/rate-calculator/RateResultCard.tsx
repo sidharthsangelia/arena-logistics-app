@@ -23,6 +23,7 @@ import { RateQuote } from "@/lib/types";
 import { useIsArenaOrg } from "@/hooks/useIsArenaOrg";
 import { carrierLogo } from "@/lib/carrierLogo";
 import { brandServiceName } from "@/lib/branding/serviceName";
+import { aramexAccountShortLabel } from "@/lib/aramex/accountKeys";
 import { RATE_VARIANTS, type RateVariant } from "./rateVariants";
 import CourierAlternatives from "./CourierAlternatives";
 
@@ -143,6 +144,20 @@ export default function RateResultCard({
       ? brandServiceName(quote.productName)
       : quote.productName;
 
+  /**
+   * WHICH Aramex contract quoted this rate. Arena staff only.
+   *
+   * Aramex is priced across several of Arena's accounts at different tariffs
+   * and only the cheapest is shown, so without this an operator cannot tell a
+   * direct-channel rate from a UPS-channel one — and they are billed on
+   * different monthly invoices. Null for every other vendor, so nothing renders.
+   *
+   * Read off `courierId`, which is the same value that gets snapshotted onto
+   * the shipment and decides which account the export is actually booked on.
+   * See lib/aramex/accounts.ts.
+   */
+  const accountLabel = aramexAccountShortLabel(quote.courierId);
+
   // Resolved from the DISPLAYED name, not the raw one, so the logo can never
   // contradict the label it sits next to: a white-labelled "Arena Direct" gets
   // the Arena logo, while the raw "ShipGlobal Direct" an Arena staffer sees
@@ -212,15 +227,33 @@ export default function RateResultCard({
               </div>
 
               {isArena ? (
-                <Badge
-                  variant="outline"
-                  className={cn(
-                    "w-fit text-[10px] font-medium",
-                    vendorBadgeClass(quote.vendorId),
+                <div className="flex flex-wrap items-center gap-1">
+                  <Badge
+                    variant="outline"
+                    className={cn(
+                      "w-fit text-[10px] font-medium",
+                      vendorBadgeClass(quote.vendorId),
+                    )}
+                  >
+                    {quote.vendorName}
+                  </Badge>
+                  {/*
+                    Arena-staff-only, and inside the isArena branch for the same
+                    reason the vendor badge is: it names how we sourced the rate.
+                    Deliberately neutral styling rather than another colour —
+                    the colour cue on this row already means "which vendor", and
+                    a second palette competing with it would make the list
+                    harder to scan, not easier.
+                  */}
+                  {accountLabel && (
+                    <Badge
+                      variant="outline"
+                      className="w-fit text-[10px] font-medium text-muted-foreground"
+                    >
+                      {accountLabel}
+                    </Badge>
                   )}
-                >
-                  {quote.vendorName}
-                </Badge>
+                </div>
               ) : null}
             </div>
 
