@@ -23,6 +23,7 @@
  */
 
 import { internationalBookingAdapterRegistry } from "../core/registry";
+import { AramexBookingAdapter } from "./aramex/aramex.booking.adapter";
 import { ShipmozoInternationalBookingAdapter } from "./shipmozo-intl/shipmozo-intl.booking.adapter";
 import { SkartBookingAdapter } from "./skart/skart.booking.adapter";
 
@@ -31,13 +32,26 @@ internationalBookingAdapterRegistry.register(
 );
 internationalBookingAdapterRegistry.register(new SkartBookingAdapter());
 
+/**
+ * Registered unconditionally, like the others, and with one consequence worth
+ * stating: an Aramex-quoted shipment that used to wait for a human is now booked
+ * automatically.
+ *
+ * That only applies to shipments quoted AFTER the multi-account rate adapter
+ * shipped. Older Aramex quotes carry no account key, so `resolveServiceId`
+ * returns null and the orchestrator stops — which is exactly what happens to
+ * them today. See the header of aramex.booking.adapter.ts for why the adapter
+ * refuses rather than choosing an account.
+ */
+internationalBookingAdapterRegistry.register(new AramexBookingAdapter());
+
 // ↓ Future international vendors — add as needed.
-//   Aramex and ShipGlobal are RATE vendors today: their published docs cover a
-//   rate calculator and nothing else, so they are quotable but not bookable
-//   through the API. They register here the day their booking APIs are
-//   documented, and nothing outside this folder changes.
-// import { AramexBookingAdapter } from "./aramex/aramex.booking.adapter";
-// internationalBookingAdapterRegistry.register(new AramexBookingAdapter());
+//   ShipGlobal is a RATE vendor today: rates are live but booking is halted
+//   pending answers from their tech team, so it is quotable and not bookable
+//   through the API. It registers here the day that is resolved, and nothing
+//   outside this folder changes.
+// import { ShipGlobalBookingAdapter } from "./shipglobal/shipglobal.booking.adapter";
+// internationalBookingAdapterRegistry.register(new ShipGlobalBookingAdapter());
 
 export { internationalBookingAdapterRegistry };
 
