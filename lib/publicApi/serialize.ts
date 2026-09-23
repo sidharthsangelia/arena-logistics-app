@@ -31,6 +31,7 @@
 
 import * as Sentry from "@sentry/nextjs";
 
+import { isAramexAccountKey } from "@/lib/aramex/accountKeys";
 import { brandServiceName, containsVendorBrand } from "@/lib/branding/serviceName";
 import type {
   CanonicalChargeBreakdown,
@@ -80,13 +81,16 @@ export interface PublicQuote {
   /** Brand-masked service name, e.g. "Arena Direct", "DHL Express". */
   service: string;
   /**
-   * The source's own id for this exact service, where it has one. Null for
+   * The source's own id for this exact service, where it has one. Absent for
    * sources that do not expose one.
    *
    * It is an opaque token, not a carrier name, so it carries no branding. Its
    * use is precision: a caller that stores it can refer to the exact service a
    * customer chose rather than re-matching on a display name that may be
    * spelled differently on the next call.
+   *
+   * That "carries no branding" is a PROMISE, and it is enforced rather than
+   * assumed — see publishableCourierId below.
    */
   courierId?: string | null;
   currency: string;
@@ -189,18 +193,46 @@ function toPublicCharge(charge: CanonicalChargeBreakdown): PublicCharge {
  * layer already sorts cheapest first and we preserve that order.
  */
 export function toPublicQuote(quote: RateQuote, index: number): PublicQuote {
+  const courierId = publishableCourierId(quote.courierId);
+
   return {
     id: `q_${index + 1}`,
     // `false` is not a decision made here: an external caller is never Arena
     // staff, so there is no branch. Passing the flag at all would invite one.
     service: brandServiceName(quote.productName),
-    ...(quote.courierId !== undefined ? { courierId: quote.courierId } : {}),
+    ...(courierId !== undefined ? { courierId } : {}),
     currency: quote.currency,
     totalWithTax: quote.totalWithTax,
     totalWithoutTax: quote.totalWithoutTax,
     transitDays: quote.tatDays,
     charges: quote.charges.map(toPublicCharge),
   };
+}
+
+/**
+ * The courier id a partner may see, which is not always the one we hold.
+ *
+ * ── WHY THIS IS NOT JUST A PASS-THROUGH ─────────────────────────────────────
+ * For most vendors `courierId` is their own numeric service id and publishing
+ * it is harmless. Aramex's is different: Arena holds several Aramex contracts
+ * at different tariffs, so the "id" stamped on an Aramex quote is OUR name for
+ * which contract quoted it ("aramex-ups"), not a service id of Aramex's.
+ *
+ * Publishing that would tell an integrator how we source the rate, which is the
+ * precise thing carrierBranding.md exists to prevent — and it would do it while
+ * the field's own documentation promised the opposite.
+ *
+ * Nothing is lost by withholding it. The partner API is rates, tracking and
+ * health; it has no booking endpoint, so the id is informational there. It is
+ * still stored, and still handed to the booking layer internally, which is what
+ * makes an export bill to the contract that sold it.
+ */
+function publishableCourierId(
+  courierId: string | null | undefined,
+): string | null | undefined {
+  if (courierId === undefined) return undefined;
+  if (isAramexAccountKey(courierId)) return undefined;
+  return courierId;
 }
 
 /**
