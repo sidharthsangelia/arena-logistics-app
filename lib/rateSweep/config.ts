@@ -307,6 +307,18 @@ export const DEFAULT_CALLS_PER_MINUTE = 30;
 
 export const VENDOR_CALLS_PER_MINUTE: Readonly<Record<string, number>> = {
   skart: 8,
+  /**
+   * Halved, because one Aramex "call" is now two.
+   *
+   * The Aramex adapter prices every lane against every account Arena holds
+   * (lib/aramex/accounts.ts) and returns the cheapest, so a single cell makes
+   * one HTTP request per account — two today. This figure paces CELLS, so
+   * 15 cells/minute is the same ~30 requests/minute Aramex saw before the
+   * second contract was added.
+   *
+   * If a third account is configured, drop this to 10 for the same reason.
+   */
+  aramex: 15,
 };
 
 export function callsPerMinuteFor(vendorId: string): number {
@@ -442,6 +454,16 @@ export const DEFAULT_SECONDS_PER_CALL = 8;
 export const VENDOR_SECONDS_PER_CALL: Readonly<Record<string, number>> = {
   skart: 13,
   shipmozo: 9,
+  /**
+   * Unchanged in substance from the 4.0 s/cell measured on 20 Aug, rounded up
+   * to the default and left explicit so the next person does not have to work
+   * out whether multi-account changed it.
+   *
+   * It did not, materially: the per-account calls run in PARALLEL, so a cell
+   * costs one vendor latency rather than two. Re-measure after a full run on
+   * both accounts rather than trusting this sentence.
+   */
+  aramex: 8,
 };
 
 export function secondsPerCallFor(vendorId: string): number {

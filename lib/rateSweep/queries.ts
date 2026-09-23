@@ -292,6 +292,17 @@ export interface MatrixRow {
   vendorId: string;
   vendorName: string;
   productName: string;
+  /**
+   * The vendor's own service id, or — for a vendor Arena buys on more than one
+   * contract — WHICH CONTRACT priced this row.
+   *
+   * Selected because Aramex returns one row per account and they are otherwise
+   * indistinguishable: same vendor, same "Aramex Express", two prices. Storing
+   * both and then being unable to tell them apart would defeat the point of
+   * sweeping both. Rendered through aramexAccountShortLabel, which says nothing
+   * for every other vendor. Arena-internal only.
+   */
+  courierId: string | null;
   carrier: string;
   dutyMode: RateDutyMode;
   contentType: RateContentType;
@@ -349,6 +360,7 @@ export async function browseMatrix(filters: MatrixFilters): Promise<MatrixRow[]>
       vendorId: true,
       vendorName: true,
       productName: true,
+      courierId: true,
       carrier: true,
       dutyMode: true,
       contentType: true,

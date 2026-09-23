@@ -22,6 +22,7 @@ import { Button } from "@/components/ui/button";
 import type { RateQuote } from "@/lib/types";
 import { useAppStore } from "@/store";
 import { useIsArenaOrg } from "@/hooks/useIsArenaOrg";
+import { aramexAccountShortLabel } from "@/lib/aramex/accountKeys";
 import { displayServiceName } from "@/lib/branding/serviceName";
 import { fmt } from "@/utils/helpers";
 
@@ -30,8 +31,22 @@ import { fmt } from "@/utils/helpers";
 // ---------------------------------------------------------------------------
 
 
+/**
+ * Stable identity for a quote within one result list. Drives compare selection,
+ * the cheapest/fastest badges and the React keys in RateResultList.
+ *
+ * `courierId` IS PART OF THE IDENTITY, and it has to be. Arena staff see one
+ * row per sourcing account, so a lane can return two quotes with the same
+ * vendor and the same product name that are genuinely different options at
+ * different prices. Keyed on vendor + product alone they would share an
+ * identity: selecting one for comparison would select both, the badges would
+ * land on whichever matched first, and React would warn on duplicate keys.
+ *
+ * Price is deliberately NOT in the key. It changes on every re-quote, and an
+ * identity that moves with it cannot survive a refresh.
+ */
 export function quoteKey(q: RateQuote): string {
-  return `${q.vendorId}::${q.productName}`;
+  return `${q.vendorId}::${q.productName}::${q.courierId ?? ""}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -89,9 +104,22 @@ export default function ComparePanel() {
                   <X className="h-3.5 w-3.5" />
                 </button>
 
+                {/*
+                  Arena staff see the sourcing vendor and, for Aramex, WHICH of
+                  Arena's contracts quoted it — the compare panel is where two
+                  rates are weighed against each other, so "the cheaper one, on
+                  which account" is exactly the question being asked here.
+                  Renders nothing for every other vendor.
+                */}
                 {isArena && (
                   <p className="text-[10px] font-medium uppercase tracking-wide text-slate-400 mb-1">
                     {q.vendorName}
+                    {aramexAccountShortLabel(q.courierId) && (
+                      <span className="text-slate-400/80">
+                        {" · "}
+                        {aramexAccountShortLabel(q.courierId)}
+                      </span>
+                    )}
                   </p>
                 )}
                 <p className="text-sm font-semibold text-slate-800 pr-5 leading-snug mb-2">

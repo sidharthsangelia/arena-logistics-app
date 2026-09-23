@@ -60,9 +60,18 @@ import CourierAlternatives from "@/components/rate-calculator/CourierAlternative
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Stable identity for a quote — matches ServiceOption.productCode upstream. */
+/**
+ * Stable identity for a quote — matches ServiceOption.productCode upstream.
+ *
+ * `courierId` is in the key because Arena staff booking on a customer's behalf
+ * see one row per sourcing account (lib/rates/sourcingAccounts.ts), and two
+ * Aramex accounts return the same vendor and product name at different prices.
+ * Without it those two rows share an identity and picking one selects the
+ * other — which, for the account that gets billed, is the exact confusion this
+ * whole feature exists to avoid.
+ */
 export function quoteKey(q: RateQuote): string {
-  return `${q.vendorId}-${q.productName}-${q.totalWithTax}`;
+  return `${q.vendorId}-${q.productName}-${q.courierId ?? ""}-${q.totalWithTax}`;
 }
 
 /** RateQuote → the slim ServiceOption the booking form persists on select. */
