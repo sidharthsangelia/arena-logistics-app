@@ -14,6 +14,7 @@ import {
 import { carrierLabel } from "@/lib/rateSweep/carrier";
 import { SWEEP_COUNTRIES, WEIGHT_SLABS_KG } from "@/lib/rateSweep/config";
 import type { MatrixRow } from "@/lib/rateSweep/queries";
+import { aramexAccountShortLabel } from "@/lib/aramex/accountKeys";
 
 /**
  * The stored rates, filterable by lane, vendor and weight.
@@ -166,6 +167,15 @@ export function MatrixBrowser({
                         against duty-paid ones looks cheapest and leaves the
                         customer a customs bill, so it is never left implicit. */}
                     <div className="mt-0.5 flex flex-wrap gap-1">
+                      {/* WHICH of Arena's contracts priced this row. Aramex is
+                          swept on every account we hold and they quote
+                          different tariffs, so two rows here can be the same
+                          vendor and the same product at two prices — this is
+                          the only thing that tells them apart. Renders nothing
+                          for every other vendor. */}
+                      {aramexAccountShortLabel(row.courierId) ? (
+                        <Tag>{aramexAccountShortLabel(row.courierId)}</Tag>
+                      ) : null}
                       {row.dutyMode !== "UNKNOWN" ? (
                         <Tag>{row.dutyMode === "DUTY_PAID" ? "duty paid" : "duty unpaid"}</Tag>
                       ) : null}
