@@ -27,6 +27,7 @@ import { finaliseRateSweep } from "@/lib/inngest/functions/finaliseRateSweep";
 import { generateShipmentInvoice } from "@/lib/inngest/functions/generateShipmentInvoice";
 import { planRateSweep } from "@/lib/inngest/functions/planRateSweep";
 import { sweepRateLane } from "@/lib/inngest/functions/sweepRateLane";
+import { syncCarrierTracking } from "@/lib/inngest/functions/syncCarrierTracking";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -48,5 +49,9 @@ export const { GET, POST, PUT } = serve({
     planRateSweep,
     sweepRateLane,
     finaliseRateSweep,
+
+    // Every 4 hours: move shipment status from carrier scans, batched so one
+    // step covers 50 shipments. See the cost note in its file.
+    syncCarrierTracking,
   ],
 });
