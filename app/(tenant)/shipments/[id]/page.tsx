@@ -22,6 +22,10 @@ import {
 import { Button } from "@/components/ui/button";
 import { getShipmentTaxInvoiceAction } from "@/actions/invoices/taxInvoices.action";
 import { PackageBoxList } from "@/components/booking/PackageBoxList";
+import {
+  ShipmentHistory,
+  ShipmentHistorySkeleton,
+} from "@/components/tracking/ShipmentHistory";
 import { FirstMilePickupCard } from "@/components/booking/FirstMilePickupCard";
 import {
   Tooltip,
@@ -52,7 +56,6 @@ import {
   DocumentsSkeleton,
   WalletTransactionsSkeleton,
   BookingSummarySkeleton,
-  StatusHistorySkeleton,
 } from "./skeletons";
 
 // ---------------------------------------------------------------------------
@@ -787,12 +790,13 @@ async function StatusSection({
   const cfg = STATUS_CONFIG[s.status];
   const { cancelled } = getJourneyState(s.status);
   const isDomestic = s.mode === "DOMESTIC";
-  // Whichever waybill is on file. Domestic runs on the courier's AWB; an export
-  // has two, and the House AWB is the one we generate and hand to the customer,
-  // so it takes priority over the airline's Master AWB.
+  // Whichever waybill is on file. Domestic runs on the courier's AWB. An export
+  // booked through a carrier API holds the carrier's waybill, which is what
+  // the customer tracks by; a manually booked one has the House AWB we hand
+  // out, ahead of the airline's Master AWB. Same order the tracker uses.
   const trackingNumber = isDomestic
     ? s.domesticAwbNumber
-    : (s.hawbNumber ?? s.mawbNumber);
+    : (s.intlAwbNumber ?? s.hawbNumber ?? s.mawbNumber);
 
   return (
     <section className="space-y-6">
@@ -1483,64 +1487,28 @@ async function BookingSummarySection({
   );
 }
 
+/**
+ * Our status changes merged with the carrier's scans, newest first. The
+ * carrier lookup is cached and moves the status forward when the scans are
+ * ahead of it (see components/tracking/ShipmentHistory.tsx).
+ */
 async function StatusHistorySection({
   shipmentPromise,
+  orgId,
 }: {
   shipmentPromise: ShipmentPromise;
+  orgId: string;
 }) {
   const s = await shipmentPromise;
-
   return (
-    <section className="space-y-5">
-      <SectionTitle>History</SectionTitle>
-
-      {s.statusHistory.length === 0 ? (
-        <p className="text-xs text-muted-foreground">No events recorded yet.</p>
-      ) : (
-        <div className="relative">
-          {/* One vertical hairline threading the events together */}
-          <div className="absolute bottom-3 left-0.75 top-2 w-px bg-border" />
-          <ol>
-            {s.statusHistory.map((evt, i) => {
-              const evtCfg = STATUS_CONFIG[evt.toStatus];
-              // History is newest-first, so the top row is current.
-              const isCurrent = i === 0;
-              return (
-                <li key={evt.id} className="relative pb-5 pl-5 last:pb-0">
-                  <span
-                    className={cn(
-                      "absolute left-0 top-1.5 h-1.75 w-1.75 rounded-full ring-2 ring-background",
-                      evtCfg?.dotClassName ?? "bg-muted-foreground/30",
-                    )}
-                  />
-                  <p
-                    className={cn(
-                      "text-sm text-foreground",
-                      isCurrent && "font-semibold",
-                    )}
-                  >
-                    {evtCfg?.label ?? formatEnumLabel(evt.toStatus)}
-                    {isCurrent && (
-                      <span className="ml-1.5 text-xs font-normal text-muted-foreground">
-                        Current
-                      </span>
-                    )}
-                  </p>
-                  <p className="mt-0.5 text-xs text-muted-foreground/70">
-                    {formatDateTime(evt.createdAt)}
-                  </p>
-                  {evt.note && (
-                    <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                      {evt.note}
-                    </p>
-                  )}
-                </li>
-              );
-            })}
-          </ol>
-        </div>
-      )}
-    </section>
+    <ShipmentHistory
+      shipmentNumber={s.shipmentNumber}
+      scope={{ kind: "org", orgId }}
+      currentStatus={s.status}
+      bookedAt={s.bookedAt}
+      createdAt={s.createdAt}
+      history={s.statusHistory}
+    />
   );
 }
 
@@ -1620,9 +1588,16 @@ export default async function ShipmentDetailPage({
                   <BookingSummarySection shipmentPromise={shipmentPromise} />
                 </Suspense>
 
-                <Suspense fallback={<StatusHistorySkeleton />}>
-                  <StatusHistorySection shipmentPromise={shipmentPromise} />
-                </Suspense>
+                {/* Heading is static; only the history and carrier scans wait. */}
+                <section className="space-y-5">
+                  <SectionTitle>History</SectionTitle>
+                  <Suspense fallback={<ShipmentHistorySkeleton />}>
+                    <StatusHistorySection
+                      shipmentPromise={shipmentPromise}
+                      orgId={orgId}
+                    />
+                  </Suspense>
+                </section>
               </div>
             </div>
           </div>

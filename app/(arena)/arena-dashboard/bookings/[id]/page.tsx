@@ -36,6 +36,11 @@ import {
   Receipt,
   StickyNote,
 } from "lucide-react";
+import { Suspense } from "react";
+import {
+  ShipmentHistory,
+  ShipmentHistorySkeleton,
+} from "@/components/tracking/ShipmentHistory";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
@@ -1208,64 +1213,18 @@ export default async function BookingDetailPage({
                   : `${s.statusHistory.length} event${s.statusHistory.length !== 1 ? "s" : ""}`
               }
             >
-              {s.statusHistory.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  No events recorded yet.
-                </p>
-              ) : (
-                <div className="relative">
-                  {/* One hairline threading the events together */}
-                  <div className="absolute bottom-3 left-0.75 top-2 w-px bg-border" />
-                  <ol>
-                    {s.statusHistory.map((evt, i) => {
-                      const toCfg = STATUS_CONFIG[evt.toStatus];
-                      const isCurrent = i === 0;
-                      return (
-                        <li
-                          key={evt.id}
-                          className="relative pb-4 pl-5 last:pb-0"
-                        >
-                          <span
-                            className={cn(
-                              "absolute left-0 top-1.5 h-1.75 w-1.75 rounded-full ring-2 ring-background",
-                              toCfg?.dotClassName ?? "bg-muted-foreground/30",
-                            )}
-                          />
-                          <p
-                            className={cn(
-                              "text-sm text-foreground",
-                              isCurrent && "font-semibold",
-                            )}
-                          >
-                            {evt.fromStatus && (
-                              <span className="font-normal text-muted-foreground">
-                                {STATUS_CONFIG[evt.fromStatus]?.label ??
-                                  evt.fromStatus}{" "}
-                                →{" "}
-                              </span>
-                            )}
-                            {toCfg?.label ?? evt.toStatus}
-                            {isCurrent && (
-                              <span className="ml-1.5 text-xs font-normal text-muted-foreground">
-                                Current
-                              </span>
-                            )}
-                          </p>
-                          <p className="mt-0.5 text-xs text-muted-foreground/70">
-                            {fmtDatetime(evt.createdAt)} · by{" "}
-                            {evt.changedByType.toLowerCase()}
-                          </p>
-                          {evt.note && (
-                            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                              {evt.note}
-                            </p>
-                          )}
-                        </li>
-                      );
-                    })}
-                  </ol>
-                </div>
-              )}
+              {/* Our changes merged with the carrier's scans; it also moves the
+                  status forward when the scans are ahead (ShipmentHistory). */}
+              <Suspense fallback={<ShipmentHistorySkeleton />}>
+                <ShipmentHistory
+                  shipmentNumber={s.shipmentNumber}
+                  scope={{ kind: "arena" }}
+                  currentStatus={s.status}
+                  bookedAt={s.bookedAt}
+                  createdAt={s.createdAt}
+                  history={s.statusHistory}
+                />
+              </Suspense>
             </CollapsibleCard>
           </div>
         </div>

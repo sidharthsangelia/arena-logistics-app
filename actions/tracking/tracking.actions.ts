@@ -21,12 +21,19 @@
 
 import { auth } from "@clerk/nextjs/server";
 import * as Sentry from "@sentry/nextjs";
+import { updateTag } from "next/cache";
 import { z } from "zod";
 
 import {
   trackByQuery,
   type TrackingScope,
 } from "@/lib/services/shipmentTracking.service";
+import {
+  getShipmentLiveTracking,
+  liveTrackingTag,
+} from "@/lib/services/shipmentLiveTracking.service";
+import type { RefreshTrackingResult } from "@/lib/tracking/liveTracking.types";
+import { syncShipmentStatusFromTracking } from "@/lib/tracking/carrierStatusSync";
 import { getOrgShell } from "@/utils/tenant";
 import type { TrackActionResult } from "./tracking.types";
 
@@ -83,6 +90,104 @@ export async function trackShipmentAction(input: {
       data: null,
       validationError: "Tracking is unavailable right now. Please try again.",
     };
+  }
+}
+
+// --- REFRESH (shipment detail pages) -----------------------------------------
+
+/**
+ * Below this age a refresh returns what is cached instead of asking the
+ * carrier again, so a held-down button cannot hammer a vendor API.
+ */
+const REFRESH_MIN_INTERVAL_MS = 60_000;
+
+const RefreshSchema = z.object({
+  shipmentNumber: z.string().min(1).max(50).trim(),
+});
+
+/**
+ * The Refresh button on the shipment history panel. Re-asks the carrier, then
+ * moves the shipment's status forward if the scans are ahead of it (same
+ * guarded transition as the sync job; see lib/tracking/carrierStatusSync.ts).
+ *
+ * Scoped like the track box: a tenant can only refresh their own org's
+ * shipment, because the lookup underneath resolves within their org. A number
+ * from another org comes back unavailable, which is never cached, so its tag
+ * is never touched.
+ */
+export async function refreshShipmentTrackingAction(input: {
+  shipmentNumber: string;
+}): Promise<RefreshTrackingResult> {
+  const parsed = RefreshSchema.safeParse(input);
+  if (!parsed.success) {
+    return { success: false, data: null, error: "Invalid shipment number." };
+  }
+
+  const scope = await resolveScope();
+  if (!scope) {
+    return { success: false, data: null, error: "Sign in to track a shipment." };
+  }
+
+  const number = parsed.data.shipmentNumber;
+
+  try {
+    const current = await getShipmentLiveTracking(number, scope);
+    const age = Date.now() - new Date(current.fetchedAt).getTime();
+
+    // "unavailable" was never cached, so the read above already asked the
+    // carrier just now. Anything younger than the interval is fresh enough.
+    const live =
+      current.state === "unavailable" || age < REFRESH_MIN_INTERVAL_MS
+        ? current
+        : (updateTag(liveTrackingTag(number)),
+          await getShipmentLiveTracking(number, scope));
+
+    const sync = await syncShipmentStatusFromTracking(number, live);
+    return { success: true, data: live, statusChanged: sync.changed };
+  } catch (err) {
+    Sentry.captureException(err, {
+      tags: { location: "refreshShipmentTrackingAction" },
+      extra: { shipmentNumber: number, scope: scope.kind },
+    });
+    return {
+      success: false,
+      data: null,
+      error: "Tracking is unavailable right now. Please try again.",
+    };
+  }
+}
+
+/**
+ * Fired by the history panel when the scans it was rendered with are ahead of
+ * the shipment's saved status. The page itself cannot write while it renders,
+ * so the panel asks once on mount.
+ *
+ * Reads the same cached answer the page just showed (no second carrier call)
+ * under the caller's own scope, so a tenant can only ever sync their own
+ * shipment: another org's number resolves to "unavailable" and syncs nothing.
+ */
+export async function syncShipmentStatusAction(input: {
+  shipmentNumber: string;
+}): Promise<{ changed: boolean }> {
+  const parsed = RefreshSchema.safeParse(input);
+  if (!parsed.success) return { changed: false };
+
+  const scope = await resolveScope();
+  if (!scope) return { changed: false };
+
+  try {
+    const live = await getShipmentLiveTracking(parsed.data.shipmentNumber, scope);
+    const sync = await syncShipmentStatusFromTracking(
+      parsed.data.shipmentNumber,
+      live,
+    );
+    return { changed: sync.changed };
+  } catch (err) {
+    Sentry.captureException(err, {
+      tags: { location: "syncShipmentStatusAction" },
+      extra: { shipmentNumber: parsed.data.shipmentNumber, scope: scope.kind },
+    });
+    return { changed: false };
   }
 }
 

@@ -8,7 +8,6 @@ import {
   Package,
   MapPin,
   Truck,
-  Clock,
   Building2,
   User,
   Phone,
@@ -27,6 +26,11 @@ import {
   Bell,
   RefreshCw,
 } from "lucide-react";
+import { Suspense } from "react";
+import {
+  ShipmentHistory,
+  ShipmentHistorySkeleton,
+} from "@/components/tracking/ShipmentHistory";
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -669,31 +673,18 @@ export default async function DomesticBookingDetailPage({
             title="Status history"
             summary={`${s.statusHistory.length} event${s.statusHistory.length === 1 ? "" : "s"}`}
           >
-            <ul className="space-y-3">
-              {s.statusHistory.map((e) => (
-                <li key={e.id} className="flex items-start gap-3 text-sm">
-                  <Clock className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  <div className="min-w-0">
-                    <p className="text-foreground">
-                      {e.fromStatus
-                        ? `${STATUS_CONFIG[e.fromStatus]?.label ?? e.fromStatus} → `
-                        : ""}
-                      <span className="font-medium">
-                        {STATUS_CONFIG[e.toStatus]?.label ?? e.toStatus}
-                      </span>
-                    </p>
-                    {e.note && (
-                      <p className="mt-0.5 text-xs text-muted-foreground">
-                        {e.note}
-                      </p>
-                    )}
-                    <p className="mt-0.5 text-xs text-muted-foreground">
-                      {fmtDatetime(e.createdAt)} · {e.changedByType}
-                    </p>
-                  </div>
-                </li>
-              ))}
-            </ul>
+            {/* Our changes merged with the carrier's scans; it also moves the
+                status forward when the scans are ahead (ShipmentHistory). */}
+            <Suspense fallback={<ShipmentHistorySkeleton />}>
+              <ShipmentHistory
+                shipmentNumber={s.shipmentNumber}
+                scope={{ kind: "arena" }}
+                currentStatus={s.status}
+                bookedAt={s.bookedAt}
+                createdAt={s.createdAt}
+                history={s.statusHistory}
+              />
+            </Suspense>
           </CollapsibleSection>
 
           {/* Reference */}
