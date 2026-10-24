@@ -34,6 +34,7 @@ import type { IntlExporterProfile } from "@/lib/booking-adapters/core/intl.types
 /** The columns this module reads off an Org or a Client. */
 export interface ExportProfileSource {
   gstin?: string | null;
+  aadhaarEncrypted?: string | null;
   iecNumber?: string | null;
   adCode?: string | null;
   lutNumber?: string | null;
@@ -200,10 +201,19 @@ export function resolveExportProfile(input: {
       ? "client"
       : "org";
 
+  // An IDENTITY, not a paperwork field, so it never falls back from client to
+  // org: on a BA booking the org's Aadhaar is the BA owner's, not the
+  // exporter's. The client's when there is a client, else the org's own.
+  const aadhaarEncrypted = client
+    ? clean(client.aadhaarEncrypted)
+    : clean(org?.aadhaarEncrypted);
+  if (aadhaarEncrypted) sources.aadhaarEncrypted = client ? "client" : "org";
+
   return {
     iecNumber,
     adCode,
     gstin,
+    aadhaarEncrypted,
     lutNumber,
     lutIssueDate,
     lutTillDate,

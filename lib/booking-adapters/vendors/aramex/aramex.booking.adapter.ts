@@ -43,6 +43,7 @@ import {
   aramexAccountByKey,
   aramexAccounts,
   aramexClientInfo,
+  aramexTransaction,
   aramexConfigurationGap,
   isAramexConfigured,
   type AramexAccount,
@@ -51,6 +52,7 @@ import {
   describeNotifications,
   looksLikeAramexDuplicate,
 } from "@/lib/aramex/notifications";
+import { decryptAadhaar } from "@/lib/kyc/aadhaarVault";
 
 import {
   BaseInternationalBookingAdapter,
@@ -73,6 +75,7 @@ import {
   ARAMEX_PRODUCT_GROUP,
   ARAMEX_PRODUCT_TYPE,
   buildAramexBookingPayload,
+  isIndividualShipper,
 } from "./aramex.booking.mapper";
 import type {
   AramexAddressValidationRequest,
@@ -186,7 +189,14 @@ export class AramexBookingAdapter extends BaseInternationalBookingAdapter {
     const account =
       aramexAccountByKey(context.serviceId) ?? this.requireAccount(request);
 
-    const payload = buildAramexBookingPayload(request, { account });
+    // An individual's Aadhaar is their tax ID at Aramex. Decrypted here, inside
+    // the step that makes the call, so the plaintext is never returned from a
+    // step (Inngest persists step output) and dies with this function.
+    const individualTaxId = isIndividualShipper(request)
+      ? decryptAadhaar(request.exporter.aadhaarEncrypted)
+      : null;
+
+    const payload = buildAramexBookingPayload(request, { account, individualTaxId });
 
     const response = await this.call(() =>
       createShipments<AramexCreateShipmentsResponse>(payload),
@@ -194,8 +204,10 @@ export class AramexBookingAdapter extends BaseInternationalBookingAdapter {
 
     const processed = readProcessedShipment(response);
 
-    // Aramex reports per-shipment failures INSIDE a response whose envelope says
-    // HasErrors: false, so the client's envelope check does not catch this one.
+    // A refused shipment normally arrives with the envelope's HasErrors set too,
+    // and the client throws with the per-shipment reason (see
+    // collectNotifications). This catches the shape where only the shipment
+    // itself is flagged.
     if (!processed || processed.HasErrors) {
       const detail = describeNotifications(
         processed?.Notifications,
@@ -314,7 +326,7 @@ export class AramexBookingAdapter extends BaseInternationalBookingAdapter {
     for (const account of accounts) {
       const payload: AramexHoldShipmentsRequest = {
         ClientInfo: aramexClientInfo(account),
-        Transaction: { Reference1: vendorOrderId },
+        Transaction: aramexTransaction(vendorOrderId),
         ShipmentHolds: [
           {
             ShipmentNumber: vendorOrderId,
@@ -412,7 +424,7 @@ export class AramexBookingAdapter extends BaseInternationalBookingAdapter {
         ProductType: ARAMEX_PRODUCT_TYPE,
         ServiceMode: 1,
       },
-      Transaction: { Reference1: request.displayReference },
+      Transaction: aramexTransaction(request.displayReference),
     };
 
     let response: AramexAddressValidationResponse;

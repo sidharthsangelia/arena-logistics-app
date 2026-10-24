@@ -48,7 +48,7 @@ import {
   ARAMEX_ACCOUNT_DEFINITIONS,
   type AramexAccountDefinition,
 } from "./accountKeys";
-import type { AramexClientInfo } from "./types";
+import type { AramexClientInfo, AramexTransaction } from "./types";
 
 export {
   ARAMEX_ACCOUNT_DEFINITIONS,
@@ -187,5 +187,22 @@ export function aramexClientInfo(account: AramexAccount): AramexClientInfo {
     AccountEntity: account.accountEntity,
     AccountCountryCode: account.accountCountryCode,
     Source: 24,
+  };
+}
+
+/**
+ * The Transaction block with every member present, which Aramex insists on.
+ * Unused references go as empty strings. See AramexTransaction.
+ */
+export function aramexTransaction(
+  ...references: string[]
+): AramexTransaction {
+  const [r1 = "", r2 = "", r3 = "", r4 = "", r5 = ""] = references;
+  return {
+    Reference1: r1,
+    Reference2: r2,
+    Reference3: r3,
+    Reference4: r4,
+    Reference5: r5,
   };
 }

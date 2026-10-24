@@ -46,9 +46,6 @@ import type {
 export const ARAMEX_PRODUCT_GROUP = "EXP";
 export const ARAMEX_PRODUCT_TYPE = "PPX";
 
-/** Appendix C. Sender pays the duty and taxes, i.e. DDP. */
-const SERVICE_FREE_DOMICILE = "FRDM";
-
 /**
  * Aramex's report template for the label. See AramexLabelInfo.
  */
@@ -183,15 +180,51 @@ function toItems(request: CanonicalIntlBookingRequest): AramexShipmentItem[] {
 }
 
 /**
+ * Whether the sender is an individual rather than a company, for Aramex's KYC
+ * rules: no company name on the sender's address means an individual.
+ *
+ * Deliberately simple, and the rule the business asked for (2026-09-25). If it
+ * proves too loose (a sole trader who types their shop name, say), replace it
+ * here; every caller goes through this function.
+ */
+export function isIndividualShipper(request: CanonicalIntlBookingRequest): boolean {
+  return !request.pickup.companyName?.trim();
+}
+
+/**
+ * Aramex's ExporterType for a courier export under neither an LUT nor a bond.
+ *
+ * Aramex India (Tanmay, 2026-09-25): an individual "selects not applicable in
+ * courier case". The exact API string was not given; "NA" matches their `UT`
+ * style of short code and our own ExportType. Overridable without a deploy if
+ * Aramex says otherwise.
+ */
+function exporterTypeNotApplicable(): string {
+  return process.env.ARAMEX_EXPORTER_TYPE_NA?.trim() || "NA";
+}
+
+/**
  * The customs block, as Aramex's key-value extension properties.
  *
- * EVERY VALUE HERE IS CONDITIONAL. A property is sent only when we actually hold
- * it, because Aramex files these straight onto the export declaration and an
- * empty-stringed tax number is a worse declaration than an absent one — it
- * asserts that the exporter has none.
+ * Aramex India refuses an export without the shipper's KYC number and exporter
+ * type (ERR48), although their manual marks both optional. What they want, per
+ * Aramex India (2026-09-25):
+ *
+ *   company     ShipperTaxIdVATEINNumber = GSTIN
+ *               ExporterType = UT (LUT) or BOND, as the shipper confirms,
+ *               else "not applicable"
+ *   individual  ShipperTaxIdVATEINNumber = Aadhaar number
+ *               ExporterType = "not applicable"
+ *
+ * The Aadhaar arrives already decrypted from the adapter (`individualTaxId`),
+ * so this module never touches the vault and stays pure.
+ *
+ * Everything else is sent only when we hold it: an empty-stringed tax number
+ * asserts to customs that the exporter has none.
  */
 function toAdditionalProperties(
   request: CanonicalIntlBookingRequest,
+  individualTaxId: string | null,
 ): AramexAdditionalProperty[] {
   const props: AramexAdditionalProperty[] = [];
   const add = (name: string, value: string | null | undefined) => {
@@ -204,14 +237,17 @@ function toAdditionalProperties(
   add("InvoiceNumber", customs.invoiceNumber);
   add("InvoiceDate", toAramexPropertyDate(customs.invoiceDate));
 
-  // The exporter's GSTIN is what Aramex's India customs flow reads as the
-  // shipper's tax identity.
-  add("ShipperTaxIdVATEINNumber", exporter.gstin);
-  if (exporter.gstin?.trim()) add("RegisteredToGST", "1");
-
-  // BOND / UT. "NA" means neither applies, and saying "NA" to customs is not
-  // the same as saying nothing, so it is omitted rather than sent.
-  if (customs.exportType !== "NA") add("ExporterType", customs.exportType);
+  if (isIndividualShipper(request)) {
+    add("ShipperTaxIdVATEINNumber", individualTaxId);
+    add("ExporterType", exporterTypeNotApplicable());
+  } else {
+    add("ShipperTaxIdVATEINNumber", exporter.gstin);
+    if (exporter.gstin?.trim()) add("RegisteredToGST", "1");
+    add(
+      "ExporterType",
+      customs.exportType === "NA" ? exporterTypeNotApplicable() : customs.exportType,
+    );
+  }
 
   // EU consignments below the VAT threshold moving under our customer's IOSS
   // registration.
@@ -236,7 +272,15 @@ function round2(n: number): number {
  */
 export function buildAramexBookingPayload(
   request: CanonicalIntlBookingRequest,
-  options: { account: AramexAccount; now?: Date },
+  options: {
+    account: AramexAccount;
+    now?: Date;
+    /**
+     * An individual shipper's decrypted Aadhaar, supplied by the adapter at call
+     * time. Never persisted, logged or returned.
+     */
+    individualTaxId?: string | null;
+  },
 ): AramexCreateShipmentsRequest {
   const { account } = options;
   const now = options.now ?? new Date();
@@ -324,12 +368,14 @@ export function buildAramexBookingPayload(
           CashAdditionalAmountDescription: "",
           CollectAmount: null,
 
-          // DDP means the sender pays the duty, which is Free Domicile. On DDU
-          // the receiver pays, which is Aramex's default and needs no code.
-          Services: request.customs.incoterms === "DDP" ? SERVICE_FREE_DOMICILE : "",
+          // No service codes. The receiver pays any destination duty, which is
+          // Aramex's default. Free Domicile (FRDM) would bill the duty to the
+          // shipper account, i.e. to Arena, so it is never sent, whatever the
+          // export profile's incoterms say (business rule, 2026-10-16).
+          Services: "",
 
           Items: toItems(request),
-          AdditionalProperties: toAdditionalProperties(request),
+          AdditionalProperties: toAdditionalProperties(request, options.individualTaxId ?? null),
         },
 
         Attachments: [],

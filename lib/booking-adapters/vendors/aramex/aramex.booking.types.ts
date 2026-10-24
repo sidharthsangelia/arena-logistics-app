@@ -94,7 +94,10 @@ export interface AramexShipmentDetails {
   CashAdditionalAmount: AramexMoney | null;
   CashAdditionalAmountDescription: string;
   CollectAmount: AramexMoney | null;
-  /** Appendix C service codes, comma-joined. "FRDM" = sender pays duty. */
+  /**
+   * Appendix C service codes, comma-joined. Always empty from us: no COD, and
+   * no "FRDM" (sender pays duty). The receiver pays any duty.
+   */
   Services: string;
   Items: AramexShipmentItem[];
   AdditionalProperties: AramexAdditionalProperty[];

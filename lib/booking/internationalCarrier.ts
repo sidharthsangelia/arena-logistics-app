@@ -57,6 +57,7 @@ const ADDRESS_SELECT = {
 /** The export-profile columns, identical on Org and Client. */
 const EXPORT_PROFILE_SELECT = {
   gstin: true,
+  aadhaarEncrypted: true,
   iecNumber: true,
   adCode: true,
   lutNumber: true,

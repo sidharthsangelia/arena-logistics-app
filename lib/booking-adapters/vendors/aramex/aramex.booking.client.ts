@@ -21,7 +21,10 @@
 
 import "server-only";
 
-import { describeResponseErrors } from "@/lib/aramex/notifications";
+import {
+  collectNotifications,
+  describeResponseErrors,
+} from "@/lib/aramex/notifications";
 import type { AramexBaseResponse } from "@/lib/aramex/types";
 
 const SHIPPING_BASE =
@@ -162,7 +165,7 @@ async function post<TResponse extends AramexBaseResponse>(
   if (json.HasErrors && !options.expectEnvelopeErrors) {
     throw new AramexApiError(describeResponseErrors(json), {
       kind: "rejection",
-      codes: (json.Notifications ?? [])
+      codes: collectNotifications(json)
         .map((n) => n?.Code)
         .filter((code): code is string => Boolean(code)),
     });

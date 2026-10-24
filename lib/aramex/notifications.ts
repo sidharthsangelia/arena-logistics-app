@@ -42,12 +42,34 @@ export function describeNotifications(
   return parts.length > 0 ? parts.join("; ") : fallback;
 }
 
+/**
+ * Every notification on a response, the envelope's AND each shipment's.
+ *
+ * CreateShipments does not put a shipment's rejection on the envelope. Measured
+ * against the live endpoint: a refused shipment comes back as envelope
+ * `HasErrors: true` with `Notifications: []`, and the actual reason sits on
+ * `Shipments[i].Notifications`. Reading only the envelope loses the one line
+ * that says what to fix.
+ */
+export function collectNotifications(
+  response: AramexBaseResponse & {
+    Shipments?: (AramexBaseResponse | null)[] | null;
+    ProcessedShipments?: (AramexBaseResponse | null)[] | null;
+  },
+): AramexNotification[] {
+  const shipments = response.Shipments ?? response.ProcessedShipments ?? [];
+  return [
+    ...(response.Notifications ?? []),
+    ...shipments.flatMap((s) => s?.Notifications ?? []),
+  ];
+}
+
 /** Same, for any response carrying the standard envelope. */
 export function describeResponseErrors(
   response: AramexBaseResponse,
   fallback?: string,
 ): string {
-  return describeNotifications(response.Notifications, fallback);
+  return describeNotifications(collectNotifications(response), fallback);
 }
 
 /**

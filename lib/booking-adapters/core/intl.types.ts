@@ -83,6 +83,12 @@ export interface IntlExporterProfile {
   lutTillDate?: string | null;
   /** IOSS registration, for consignments into the EU below the VAT threshold. */
   iossNumber?: string | null;
+  /**
+   * The individual exporter's full Aadhaar as AES-GCM CIPHERTEXT, never the
+   * number. Safe to carry through Inngest step state; only a vendor adapter
+   * decrypts it, inside its call (lib/kyc/aadhaarVault.ts).
+   */
+  aadhaarEncrypted?: string | null;
 }
 
 /**
