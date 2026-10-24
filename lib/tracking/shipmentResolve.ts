@@ -96,6 +96,7 @@ export async function resolveTrackedShipment(
         { domesticAwbNumber: query },
         { hawbNumber: query },
         { mawbNumber: query },
+        { intlAwbNumber: query },
         { firstMileTrackingNumber: query },
       ],
     },
@@ -112,6 +113,7 @@ export async function resolveTrackedShipment(
 
       mawbNumber: true,
       hawbNumber: true,
+      intlAwbNumber: true,
       carrierAirline: true,
 
       pickupIncluded: true,
@@ -163,9 +165,16 @@ export async function resolveTrackedShipment(
       });
     }
 
-    // HAWB first: it is the shipper's own waybill and the one a customer is
-    // told to track by. The MAWB covers the whole consolidated load.
-    const airAwb = shipment.hawbNumber?.trim() || shipment.mawbNumber?.trim();
+    // The carrier's own waybill first: an auto-booked export (Aramex, sKart,
+    // Shipmozo) records it only in intlAwbNumber, and it is the one number the
+    // carrier is guaranteed to recognise. Before this, those shipments had no
+    // air leg at all and tracked by ARN as "no carrier scans". Then the HAWB,
+    // the shipper's waybill on a manually booked load; the MAWB covers the
+    // whole consolidated load.
+    const airAwb =
+      shipment.intlAwbNumber?.trim() ||
+      shipment.hawbNumber?.trim() ||
+      shipment.mawbNumber?.trim();
     if (airAwb) {
       legs.push({
         kind: "main",
