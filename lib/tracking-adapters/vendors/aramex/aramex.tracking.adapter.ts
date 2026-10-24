@@ -41,6 +41,7 @@ import {
   aramexAccounts,
   aramexClientInfo,
   aramexConfigurationGap,
+  aramexTransaction,
 } from "@/lib/aramex/accounts";
 import { describeResponseErrors } from "@/lib/aramex/notifications";
 import { parseWcfDate } from "@/lib/aramex/wcfDate";
@@ -67,13 +68,31 @@ const ARAMEX_TRACK_TIMEOUT_MS = Number(
  * The consequence of a miss is "unknown", which the UI shows as a plain timeline
  * entry with its description intact. That is a perfectly readable outcome, which
  * is why this map is allowed to be incomplete and why nothing here guesses.
+ *
+ * ── RE-MAPPED FROM LIVE SCANS ON 2026-10-24 ────────────────────────────────
+ * The first version of this map came from the docs and was badly wrong:
+ * SH014 ("Record created.") was mapped to delivered, so every Aramex waybill
+ * showed as delivered the moment it was booked, while SH005 ("Delivered") and
+ * SH006 ("Collected by Consignee") were mapped to in transit. Every code below
+ * has now been seen on a real Arena waybill with the description in its
+ * comment. SH029, SH043, SH103 and SH104 are still from the docs only.
  */
 const ARAMEX_CODE_MAP: Readonly<Record<string, TrackingEventType>> = {
-  SH001: "booked",
-  SH003: "in_transit",
-  SH005: "in_transit",
-  SH006: "in_transit",
-  SH014: "delivered",
+  SH014: "booked", // Record created.
+  SH001: "in_transit", // Under processing at operations facility
+  SH411: "in_transit", // Shipment received at Aramex origin sorting facility
+  SH047: "in_transit", // Received at Origin Facility
+  SH022: "in_transit", // Departed Operations facility – In Transit
+  SH041: "in_transit", // Cleared from Customs
+  SH273: "in_transit", // Delivery Scheduled
+  SH003: "out_for_delivery", // Out for Delivery
+  SH577: "out_for_delivery", // Shipment Ready For Customer Pickup (at an outlet)
+  SH005: "delivered", // Delivered
+  SH006: "delivered", // Collected by Consignee
+  SH156: "exception", // Held for Customs Clearance - ...
+  SH157: "exception", // Unable to Forward
+  SH162: "exception", // Forwarding Delay
+  SH615: "exception", // On Hold - will depart on next scheduled flight
   SH029: "out_for_delivery",
   SH043: "picked_up",
   SH103: "exception",
@@ -96,7 +115,9 @@ const DESCRIPTION_RULES: readonly {
   { pattern: /return|rts\b|sent back/i, type: "returned" },
   { pattern: /attempt|undeliver|unsuccessful|no answer|refus/i, type: "attempted" },
   { pattern: /hold|held|exception|damage|delay|detain|seiz|clearance issue/i, type: "exception" },
-  { pattern: /delivered|consignee|signed|receiv(ed|er) signature/i, type: "delivered" },
+  // Not a bare "consignee": Aramex sends "WhatsApp Notification Sent to
+  // Consignee", which is a message, not a handover.
+  { pattern: /\bdelivered\b|collected by consignee|signed|receiv(ed|er) signature/i, type: "delivered" },
   { pattern: /out for delivery|with (the )?courier|on vehicle/i, type: "out_for_delivery" },
   { pattern: /picked up|collected|pickup/i, type: "picked_up" },
   { pattern: /transit|departed|arrived|processed|customs|facility|sorted|uplift|flight/i, type: "in_transit" },
@@ -130,7 +151,7 @@ export class AramexTrackingAdapter extends BaseTrackingAdapter<
       Shipments: [input.awb],
       // Always the full history. A timeline is the point.
       GetLastTrackingUpdateOnly: false,
-      Transaction: { Reference1: input.awb },
+      Transaction: aramexTransaction(input.awb),
     }));
   }
 
@@ -219,8 +240,14 @@ export class AramexTrackingAdapter extends BaseTrackingAdapter<
     });
 
     if (!res.ok) {
+      // A malformed request comes back as an HTML WCF error page whose only
+      // useful part is "The exception message is '...'". Without it a 400 reads
+      // like a bad waybill when it is really a bad payload.
+      const body = await res.text().catch(() => "");
+      const reason = body.match(/The exception message is '([^]*?)'\. See server logs/)?.[1];
       throw new Error(
-        `Aramex Tracking API returned ${res.status} ${res.statusText}`,
+        `Aramex Tracking API returned ${res.status} ${res.statusText}` +
+          (reason ? `: ${reason.slice(0, 400)}` : ""),
       );
     }
 

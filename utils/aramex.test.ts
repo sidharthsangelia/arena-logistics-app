@@ -27,6 +27,7 @@ import {
 } from "@/lib/aramex/accountKeys";
 import {
   describeNotifications,
+  describeResponseErrors,
   looksLikeAramexAuthFailure,
   looksLikeAramexDuplicate,
 } from "@/lib/aramex/notifications";
@@ -43,7 +44,10 @@ import {
 import type { RateQuote } from "@/lib/rate-adapters/core/types";
 import type { AramexAccount } from "@/lib/aramex/accounts";
 import type { CanonicalIntlBookingRequest } from "@/lib/booking-adapters/core/intl.types";
-import { buildAramexBookingPayload } from "@/lib/booking-adapters/vendors/aramex/aramex.booking.mapper";
+import {
+  buildAramexBookingPayload,
+  isIndividualShipper,
+} from "@/lib/booking-adapters/vendors/aramex/aramex.booking.mapper";
 import { toPublicQuote } from "@/lib/publicApi/serialize";
 import {
   aramexAccountHealthSnapshot,
@@ -267,6 +271,26 @@ describe("reading Aramex's notifications", () => {
     assert.equal(describeNotifications([{ Code: "ERR09", Message: "" }]), "ERR09");
     assert.equal(describeNotifications([], "fallback"), "fallback");
     assert.equal(describeNotifications(null, "fallback"), "fallback");
+  });
+
+  it("reads a refused shipment's reason from the shipment, not the empty envelope", () => {
+    // The live CreateShipments shape for a rejection: envelope flagged, its own
+    // list empty, the reason on the shipment.
+    assert.equal(
+      describeResponseErrors({
+        HasErrors: true,
+        Notifications: [],
+        Shipments: [
+          {
+            HasErrors: true,
+            Notifications: [
+              { Code: "ERR23", Message: "Details.ActualWeight.Value - Value is less than zero" },
+            ],
+          },
+        ],
+      } as Parameters<typeof describeResponseErrors>[0]),
+      "Details.ActualWeight.Value - Value is less than zero (ERR23)",
+    );
   });
 
   describe("auth detection", () => {
@@ -586,6 +610,21 @@ describe("the Aramex booking payload", () => {
       assert.equal(shipment.Details.PaymentType, "P");
       assert.equal(shipment.ThirdParty, null);
     });
+
+    it("asks Aramex to collect nothing at the door", () => {
+      // A plain prepaid export. Any amount here, or a CODS service code, puts
+      // cash on delivery on the label and on the receiver.
+      for (const incoterms of ["DDP", "DDU"] as const) {
+        const details = build({ customs: { ...request().customs, incoterms } })
+          .Shipments[0].Details;
+        assert.equal(details.CashOnDeliveryAmount, null);
+        assert.equal(details.CollectAmount, null);
+        assert.equal(details.CashAdditionalAmount, null);
+        assert.equal(details.InsuranceAmount, null);
+        assert.equal(details.PaymentOptions, "");
+        assert.doesNotMatch(details.Services, /COD/i);
+      }
+    });
   });
 
   describe("what is declared", () => {
@@ -630,16 +669,17 @@ describe("the Aramex booking payload", () => {
       assert.deepEqual(item.CustomsValue, { CurrencyCode: "INR", Value: 8000 });
     });
 
-    it("asks for Free Domicile only when the sender pays the duty", () => {
-      // FRDM is Appendix C's "sender pays part or all of the customs charges".
-      // On DDU the receiver pays, which is Aramex's default and needs no code —
-      // sending FRDM there would bill Arena for the destination duty.
-      assert.equal(build().Shipments[0].Details.Services, "FRDM");
-      assert.equal(
-        build({ customs: { ...request().customs, incoterms: "DDU" } })
-          .Shipments[0].Details.Services,
-        "",
-      );
+    it("never asks for Free Domicile, so the receiver pays any duty", () => {
+      // FRDM is Appendix C's "sender pays part or all of the customs charges",
+      // which bills the destination duty to Arena's account. Not sent even when
+      // the export profile says DDP.
+      for (const incoterms of ["DDP", "DDU"] as const) {
+        assert.equal(
+          build({ customs: { ...request().customs, incoterms } })
+            .Shipments[0].Details.Services,
+          "",
+        );
+      }
     });
   });
 
@@ -666,21 +706,66 @@ describe("the Aramex booking payload", () => {
       assert.equal(p.ExporterType, "UT");
     });
 
-    it("omits what we do not hold rather than declaring it empty", () => {
+    it("omits a tax number we do not hold rather than declaring it empty", () => {
       /**
        * These land on an export declaration. An empty-stringed tax number does
        * not mean "unknown" to customs, it asserts the exporter has none.
        */
       const p = props({
         exporter: { iecNumber: null, adCode: null, gstin: null, iossNumber: null },
-        customs: { ...request().customs, exportType: "NA" },
       });
       assert.equal(p.ShipperTaxIdVATEINNumber, undefined);
       assert.equal(p.RegisteredToGST, undefined);
-      // "NA" means neither bond nor LUT applies, and saying "NA" to customs is
-      // not the same as saying nothing.
-      assert.equal(p.ExporterType, undefined);
       assert.equal(p.IOSS, undefined);
+    });
+
+    it("declares a company under neither LUT nor bond as not applicable", () => {
+      // Aramex refuses an Indian export with no ExporterType at all (ERR48).
+      const p = props({ customs: { ...request().customs, exportType: "NA" } });
+      assert.equal(p.ShipperTaxIdVATEINNumber, "07AAACH7409R1ZZ");
+      assert.equal(p.ExporterType, "NA");
+    });
+
+    describe("an individual sender", () => {
+      /**
+       * Aramex India, 2026-09-25: an individual's KYC number is their Aadhaar,
+       * and their exporter type is "not applicable". Individual means the
+       * sender's address has no company name.
+       */
+      const individual = {
+        pickup: { ...request().pickup, companyName: null },
+        // An org-level GSTIN or LUT must not leak onto a person's declaration.
+        customs: { ...request().customs, exportType: "UT" as const },
+      };
+      const AADHAAR = "234567890124";
+
+      it("is recognised by the missing company name", () => {
+        assert.equal(isIndividualShipper(request(individual)), true);
+        assert.equal(
+          isIndividualShipper(request({ pickup: { ...request().pickup, companyName: "  " } })),
+          true,
+        );
+        assert.equal(isIndividualShipper(request()), false);
+      });
+
+      it("sends the Aadhaar as the tax ID and not applicable as the exporter type", () => {
+        const p = Object.fromEntries(
+          buildAramexBookingPayload(request(individual), {
+            account: ACCOUNT,
+            now: new Date("2026-09-23T04:30:00.000Z"),
+            individualTaxId: AADHAAR,
+          }).Shipments[0].Details.AdditionalProperties.map((x) => [x.Name, x.Value]),
+        );
+        assert.equal(p.ShipperTaxIdVATEINNumber, AADHAAR);
+        assert.equal(p.ExporterType, "NA");
+        assert.equal(p.RegisteredToGST, undefined);
+      });
+
+      it("never falls back to a GSTIN when the Aadhaar is missing", () => {
+        const p = props(individual);
+        assert.equal(p.ShipperTaxIdVATEINNumber, undefined);
+        assert.equal(p.ExporterType, "NA");
+      });
     });
 
     it("carries an IOSS registration when the consignment has one", () => {
@@ -1029,5 +1114,76 @@ describe("suspending one rejected account", () => {
     const snapshot = aramexAccountHealthSnapshot();
     assert.equal(snapshot["aramex-ups"].suspended, true);
     assert.equal(snapshot["aramex-ups"].consecutiveAuthFailures, 3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+
+describe("the Transaction block", () => {
+  it("always carries all five references, because Aramex 400s without them", async () => {
+    const { aramexTransaction } = await import("@/lib/aramex/accounts");
+    assert.deepEqual(aramexTransaction("34932148274"), {
+      Reference1: "34932148274",
+      Reference2: "",
+      Reference3: "",
+      Reference4: "",
+      Reference5: "",
+    });
+  });
+});
+
+describe("classifying Aramex tracking scans", () => {
+  async function classify(code: string, description: string, comments = "") {
+    const { AramexTrackingAdapter } = await import(
+      "@/lib/tracking-adapters/vendors/aramex/aramex.tracking.adapter"
+    );
+    // transformResponse is protected; reached through a cast for the test.
+    const adapter = new AramexTrackingAdapter() as unknown as {
+      transformResponse(r: unknown, awb: string): { events: { eventType: string }[]; isDelivered: boolean };
+    };
+    const result = adapter.transformResponse(
+      {
+        HasErrors: false,
+        Notifications: [],
+        TrackingResults: [
+          {
+            Key: "1",
+            Value: [
+              {
+                UpdateCode: code,
+                UpdateDescription: description,
+                UpdateDateTime: "/Date(1792746480000+0200)/",
+                Comments: comments,
+              },
+            ],
+          },
+        ],
+      },
+      "1",
+    );
+    return result;
+  }
+
+  // Observed on real Arena waybills on 2026-10-24.
+  const cases: [string, string, string][] = [
+    ["SH014", "Record created.", "booked"],
+    ["SH001", "Under processing at operations facility", "in_transit"],
+    ["SH003", "Out for Delivery", "out_for_delivery"],
+    ["SH005", "Delivered", "delivered"],
+    ["SH006", "Collected by Consignee", "delivered"],
+    ["SH156", "Shipment Held for Customs Clearance - Commercial Invoice Required", "exception"],
+    ["SH578", "WhatsApp Notification Sent to Consignee", "unknown"],
+  ];
+
+  for (const [code, description, expected] of cases) {
+    it(`${code} "${description}" is ${expected}`, async () => {
+      const result = await classify(code, description);
+      assert.equal(result.events[0].eventType, expected);
+    });
+  }
+
+  it("a freshly created waybill is not reported as delivered", async () => {
+    const result = await classify("SH014", "Record created.");
+    assert.equal(result.isDelivered, false);
   });
 });

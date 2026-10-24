@@ -28,13 +28,19 @@ export interface AramexClientInfo {
  * identification and is never checked, which makes it the right place to carry
  * our shipment reference through a call whose response we might otherwise not
  * be able to match up.
+ *
+ * ALL FIVE ARE REQUIRED ON THE WIRE, even though nothing reads them. Their WCF
+ * deserialiser marks every member required, so a block carrying only
+ * Reference1 is refused with HTTP 400 and an HTML "Request Error" page before
+ * the call is looked at. That is what broke Aramex tracking and cancel. Build
+ * this with `aramexTransaction` (lib/aramex/accounts.ts) rather than by hand.
  */
 export interface AramexTransaction {
-  Reference1?: string;
-  Reference2?: string;
-  Reference3?: string;
-  Reference4?: string;
-  Reference5?: string;
+  Reference1: string;
+  Reference2: string;
+  Reference3: string;
+  Reference4: string;
+  Reference5: string;
 }
 
 /**
