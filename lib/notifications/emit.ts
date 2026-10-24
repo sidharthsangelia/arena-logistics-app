@@ -496,6 +496,48 @@ export async function notifyShipmentStuck(params: {
 }
 
 /**
+ * The carrier reported a problem: an exception, a failed delivery attempt, or a
+ * return. Automatic status sync never acts on these (lib/tracking/carrierStatus.ts),
+ * so a person has to: move it to On hold, call the receiver, chase the carrier.
+ *
+ * Filed under SHIPMENT_STUCK rather than a new kind, because it is the same ask
+ * of ops (this one is not moving, look at it) and a new enum value would be a
+ * production schema change for a label.
+ *
+ * Keyed on the scan itself, so the page view, the Refresh button and the 4-hourly
+ * sync all re-reading the same exception record it once. A later, different
+ * problem scan on the same shipment is a new fact and alerts again.
+ */
+export async function notifyCarrierProblem(params: {
+  shipmentId: string;
+  shipmentNumber: string;
+  isDomestic: boolean;
+  eventType: string;
+  scanStatus: string;
+  scanLocation: string;
+  scanTimestamp: string;
+}): Promise<boolean> {
+  const what =
+    params.eventType === "attempted"
+      ? "a failed delivery attempt"
+      : params.eventType === "returned"
+        ? "a return to sender"
+        : "a problem";
+  const where = params.scanLocation ? ` at ${params.scanLocation}` : "";
+  return emitNotification({
+    kind: "SHIPMENT_STUCK",
+    title: `${params.shipmentNumber}: carrier reported ${what}`,
+    body: `"${params.scanStatus}"${where}. The status was left as it is; decide what happens next.`,
+    severity: "WARNING",
+    linkHref: params.isDomestic
+      ? `/arena-dashboard/domestic-bookings/${params.shipmentId}`
+      : `/arena-dashboard/bookings/${params.shipmentId}`,
+    shipmentId: params.shipmentId,
+    dedupeKey: `carrier-problem:${params.shipmentId}:${params.eventType}:${params.scanTimestamp}`,
+  });
+}
+
+/**
  * A paid domestic booking the courier vendor would not take, after every retry.
  *
  * No dedupeKey on purpose. Retries are exhausted before this is written, so one

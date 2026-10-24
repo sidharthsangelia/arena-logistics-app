@@ -55,7 +55,7 @@ export async function applyDomesticCourierStatus(
 ): Promise<ApplyDomesticStatusResult> {
   const current = await prisma.shipment.findUnique({
     where: { id: shipmentId },
-    select: { status: true, mode: true },
+    select: { mode: true },
   });
 
   if (!current) return { success: false, message: "Shipment not found." };
@@ -66,6 +66,31 @@ export async function applyDomesticCourierStatus(
       message: "Only a domestic booking moves on its courier's own status.",
     };
   }
+
+  return applyCarrierStatus(shipmentId, newStatus, opts);
+}
+
+/**
+ * The same transition for any shipment, domestic or export, driven by its
+ * carrier's tracking (lib/tracking/carrierStatusSync.ts). Same two guards.
+ *
+ * The write is conditional on the status still being the one that was read.
+ * A page view, its Refresh and the sync job can all reach the same shipment
+ * at once; without this two of them could each record the move and the
+ * customer would get the "Delivered" email twice. The loser sees zero rows
+ * updated and reports no change.
+ */
+export async function applyCarrierStatus(
+  shipmentId: string,
+  newStatus: ShipmentStatus,
+  opts: ApplyDomesticStatusOptions,
+): Promise<ApplyDomesticStatusResult> {
+  const current = await prisma.shipment.findUnique({
+    where: { id: shipmentId },
+    select: { status: true, mode: true },
+  });
+
+  if (!current) return { success: false, message: "Shipment not found." };
 
   // Guard 1: leave anything a person parked off the happy path exactly where
   // they left it. Reported as success — there is nothing wrong here, and the
@@ -79,12 +104,14 @@ export async function applyDomesticCourierStatus(
     return { success: true, changed: false, emailed: false };
   }
 
-  await prisma.$transaction([
-    prisma.shipment.update({
-      where: { id: shipmentId },
+  const moved = await prisma.$transaction(async (tx) => {
+    const { count } = await tx.shipment.updateMany({
+      where: { id: shipmentId, status: current.status },
       data: { status: newStatus },
-    }),
-    prisma.shipmentStatusEvent.create({
+    });
+    if (count === 0) return false;
+
+    await tx.shipmentStatusEvent.create({
       data: {
         shipmentId,
         fromStatus: current.status,
@@ -93,11 +120,18 @@ export async function applyDomesticCourierStatus(
         changedByType: opts.changedByType,
         changedById: opts.changedById ?? null,
       },
-    }),
-  ]);
+    });
+    return true;
+  });
 
-  revalidatePath(`/arena-dashboard/domestic-bookings/${shipmentId}`);
-  revalidatePath("/arena-dashboard/domestic-bookings");
+  if (!moved) return { success: true, changed: false, emailed: false };
+
+  const opsPath =
+    current.mode === ShipmentMode.DOMESTIC
+      ? "/arena-dashboard/domestic-bookings"
+      : "/arena-dashboard/bookings";
+  revalidatePath(`${opsPath}/${shipmentId}`);
+  revalidatePath(opsPath);
   revalidatePath(`/shipments/${shipmentId}`);
   // revalidateTag, not updateTag: this runs in a route handler, where updateTag
   // is not allowed. `expire: 0` rather than the "max" profile because the
@@ -113,7 +147,7 @@ export async function applyDomesticCourierStatus(
 
   Sentry.addBreadcrumb({
     level: "info",
-    message: `Domestic ${shipmentId}: ${current.status} -> ${newStatus} (${opts.changedByType})`,
+    message: `Carrier status ${shipmentId}: ${current.status} -> ${newStatus} (${opts.changedByType})`,
     data: { emailed },
   });
 
