@@ -6,6 +6,8 @@ import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/utils/db";
 import { updateQuotePdfAction } from "@/actions/quote/quotes.action";
 import { saveKycDocumentAction } from "@/actions/documentVault/clientsDocument.action";
+import { resolveKycNumber } from "@/lib/kyc/idNumbers";
+import { encryptAadhaar } from "@/lib/kyc/aadhaarVault";
 import { revalidatePath } from "next/cache";
 
 const f = createUploadthing();
@@ -111,6 +113,16 @@ export const ourFileRouter = {
       if (!docType) throw new Error("Missing x-doc-type header.");
       if (!label) throw new Error("Missing x-doc-label header.");
 
+      // Checked BEFORE the file is accepted, so a bad number never leaves an
+      // orphaned upload behind. Only the stored form travels on from here:
+      // metadata round-trips through UploadThing, and a full Aadhaar must not.
+      const number = resolveKycNumber(docType, req.headers.get("x-doc-number"));
+      if (!number.ok) throw new UploadThingError(number.message);
+      const docNumber = number.spec ? number.stored : null;
+      // The full Aadhaar leaves here only as ciphertext (lib/kyc/aadhaarVault.ts).
+      const aadhaarEncrypted =
+        docType === "ADHAR_CARD" && number.spec ? encryptAadhaar(number.normalised) : null;
+
       // Verify the client belongs to this org before accepting the upload
       const client = await prisma.client.findFirst({
         where: { id: clientId, orgId, deletedAt: null },
@@ -118,7 +130,7 @@ export const ourFileRouter = {
       });
       if (!client) throw new Error("Client not found or access denied.");
 
-      return { clientId, docType, label, orgId, uploadedBy: userId };
+      return { clientId, docType, label, docNumber, aadhaarEncrypted, orgId, uploadedBy: userId };
     })
     .onUploadComplete(async ({ metadata, file }) => {
       // No auth() call here — use orgId from metadata
@@ -136,6 +148,8 @@ export const ourFileRouter = {
         clientId: metadata.clientId,
         docType: metadata.docType as any,
         label: metadata.label,
+        docNumber: metadata.docNumber,
+        aadhaarEncrypted: metadata.aadhaarEncrypted,
         fileUrl: file.ufsUrl,
         fileKey: file.key,
         fileName: file.name,

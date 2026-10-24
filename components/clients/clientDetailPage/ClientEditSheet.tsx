@@ -16,13 +16,28 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { clientCompanyName, isIndividualClient } from "@/lib/clients/clientKind";
+
+type ClientKind = "COMPANY" | "INDIVIDUAL";
 import { toast } from "sonner";
 import { updateClientAction } from "@/actions/clients.action";
-import type { ClientFormValues } from "@/lib/validations/clients.schema";
+import {
+  clientSchema,
+  type ClientFormValues,
+} from "@/lib/validations/clients.schema";
 
-export default function ClientEditSheet({ client }: { client: Client }) {
+export default function ClientEditSheet({
+  client,
+}: {
+  /** aadhaarEncrypted is never loaded for the browser (see utils/db.ts). */
+  client: Omit<Client, "aadhaarEncrypted">;
+}) {
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [kind, setKind] = useState<ClientKind>(
+    isIndividualClient(client) ? "INDIVIDUAL" : "COMPANY",
+  );
   const router = useRouter();
 
  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -36,7 +51,8 @@ export default function ClientEditSheet({ client }: { client: Client }) {
     (fd.get(key) as string | null) || undefined;
 
   const input: ClientFormValues = {
-    companyName: fd.get("companyName") as string,
+    companyKind: kind,
+    companyName: str("companyName"),
     contactName: str("contactName"),
     email: str("email"),
     phone: str("phone"),
@@ -46,7 +62,21 @@ export default function ClientEditSheet({ client }: { client: Client }) {
     country: str("country"),
     postalCode: str("postalCode"),
     notes: str("notes"),
+    // Sent even when blank: clearing the box clears the number. A blank Aadhaar
+    // keeps the one on file, since it is never shown.
+    gstin: (fd.get("gstin") as string | null) ?? "",
+    panNumber: (fd.get("panNumber") as string | null) ?? "",
+    aadhaarNumber: (fd.get("aadhaarNumber") as string | null) ?? "",
   };
+
+  // Checked here so a mistyped number names itself; the action only answers
+  // with a generic failure.
+  const parsed = clientSchema.safeParse(input);
+  if (!parsed.success) {
+    toast.error(parsed.error.issues[0]?.message ?? "Please check the details.");
+    setSaving(false);
+    return;
+  }
 
   const result = await updateClientAction(client.id, input);
 
@@ -84,21 +114,38 @@ export default function ClientEditSheet({ client }: { client: Client }) {
             <div className="flex-1 space-y-5 px-6 py-5">
 
               <section className="space-y-3">
-                <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                  Company
-                </p>
+                <Tabs value={kind} onValueChange={(v) => setKind(v as ClientKind)}>
+                  <TabsList className="grid w-full grid-cols-2">
+                    <TabsTrigger value="COMPANY">Company</TabsTrigger>
+                    <TabsTrigger value="INDIVIDUAL">Individual</TabsTrigger>
+                  </TabsList>
+                </Tabs>
                 <div className="space-y-1.5">
-                  <Label htmlFor="companyName" className="text-xs">
-                    Company name *
+                  <Label htmlFor="contactName" className="text-xs">
+                    {kind === "INDIVIDUAL" ? "Full name *" : "Contact name"}
                   </Label>
                   <Input
-                    id="companyName"
-                    name="companyName"
-                    defaultValue={client.companyName}
-                    required
+                    id="contactName"
+                    name="contactName"
+                    defaultValue={client.contactName ?? ""}
+                    required={kind === "INDIVIDUAL"}
                     className="h-8 text-sm"
                   />
                 </div>
+                {kind === "COMPANY" && (
+                  <div className="space-y-1.5">
+                    <Label htmlFor="companyName" className="text-xs">
+                      Company name *
+                    </Label>
+                    <Input
+                      id="companyName"
+                      name="companyName"
+                      defaultValue={clientCompanyName(client)}
+                      required
+                      className="h-8 text-sm"
+                    />
+                  </div>
+                )}
               </section>
 
               <Separator />
@@ -107,15 +154,6 @@ export default function ClientEditSheet({ client }: { client: Client }) {
                 <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
                   Contact
                 </p>
-                <div className="space-y-1.5">
-                  <Label htmlFor="contactName" className="text-xs">Contact name</Label>
-                  <Input
-                    id="contactName"
-                    name="contactName"
-                    defaultValue={client.contactName ?? ""}
-                    className="h-8 text-sm"
-                  />
-                </div>
                 <div className="space-y-1.5">
                   <Label htmlFor="email" className="text-xs">Email</Label>
                   <Input
@@ -192,6 +230,62 @@ export default function ClientEditSheet({ client }: { client: Client }) {
                     />
                   </div>
                 </div>
+              </section>
+
+              <Separator />
+
+              <section className="space-y-3">
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                    Identity numbers
+                  </p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    Optional. GSTIN for a company, Aadhaar for an individual.
+                  </p>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="gstin" className="text-xs">GSTIN</Label>
+                  <Input
+                    id="gstin"
+                    name="gstin"
+                    defaultValue={client.gstin ?? ""}
+                    placeholder="07ABCDE1234F1Z5"
+                    maxLength={15}
+                    autoComplete="off"
+                    className="h-8 font-mono text-sm uppercase"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="panNumber" className="text-xs">PAN</Label>
+                    <Input
+                      id="panNumber"
+                      name="panNumber"
+                      defaultValue={client.panNumber ?? ""}
+                      placeholder="ABCDE1234F"
+                      maxLength={10}
+                      autoComplete="off"
+                      className="h-8 font-mono text-sm uppercase"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="aadhaarNumber" className="text-xs">Aadhaar</Label>
+                    <Input
+                      id="aadhaarNumber"
+                      name="aadhaarNumber"
+                      inputMode="numeric"
+                      placeholder={client.aadhaarMasked ?? "1234 5678 9012"}
+                      maxLength={14}
+                      autoComplete="off"
+                      className="h-8 font-mono text-sm"
+                    />
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {client.aadhaarMasked
+                    ? "Aadhaar on file. Leave it blank to keep it."
+                    : "Aadhaar is stored encrypted."}
+                </p>
               </section>
 
               <Separator />

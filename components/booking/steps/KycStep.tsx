@@ -48,6 +48,8 @@ import { cn } from "@/lib/utils";
 import type { BookingFormData, FileMeta, ShipmentTypeValue } from "@/types/booking.types";
 import type { Party } from "@/types/booking";
 import { getKycDocs, saveKycDocAction, type PartyKycDoc } from "@/actions/book/kyc";
+import { kycNumberSpecForDocType } from "@/lib/kyc/idNumbers";
+import { DocNumberField, docNumberReady } from "@/components/kyc/DocNumberField";
 import {
   KYC_DOC_CONFIGS,
   requiredKycKeys,
@@ -210,6 +212,10 @@ function UploadZone({
   const [uploading, setUploading] = useState(false);
   const [uploadErr, setUploadErr] = useState<string | null>(null);
   const inputId = `upload-${config.key}`;
+  // PAN, Aadhaar and GST must be uploaded with their number.
+  const numberSpec = kycNumberSpecForDocType(config.docType);
+  const [docNumber, setDocNumber] = useState("");
+  const numberReady = docNumberReady(numberSpec, docNumber);
 
   const { startUpload } = useUploadThing("bookingDocument", {
     onClientUploadComplete: async (res) => {
@@ -232,6 +238,7 @@ function UploadZone({
         key: config.key,
         label: config.label,
         ...meta,
+        docNumber: numberSpec ? docNumber : undefined,
       });
 
       if (!saveResult.success) {
@@ -262,13 +269,25 @@ function UploadZone({
 
   return (
     <div className="space-y-1.5">
+      {numberSpec && (
+        <div className="pb-1.5">
+          <DocNumberField
+            spec={numberSpec}
+            value={docNumber}
+            onChange={setDocNumber}
+            disabled={uploading}
+          />
+        </div>
+      )}
       <label
         htmlFor={inputId}
         className={cn(
-          "flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed px-4 py-4 text-sm transition-colors",
+          "flex items-center justify-center gap-2 rounded-lg border border-dashed px-4 py-4 text-sm transition-colors",
           uploading
             ? "border-primary/40 bg-primary/5 text-primary"
-            : "text-muted-foreground hover:border-primary/50 hover:bg-muted/40",
+            : !numberReady
+              ? "cursor-not-allowed text-muted-foreground opacity-60"
+              : "cursor-pointer text-muted-foreground hover:border-primary/50 hover:bg-muted/40",
           displayError && "border-destructive/60 bg-destructive/5",
         )}
       >
@@ -280,7 +299,7 @@ function UploadZone({
         ) : (
           <>
             <Upload className="h-4 w-4" />
-            Click to upload
+            {!numberReady && numberSpec ? `Enter the ${numberSpec.label} first` : "Click to upload"}
             <span className="text-xs text-muted-foreground">PDF, JPG or PNG, up to 16 MB</span>
           </>
         )}
@@ -289,7 +308,7 @@ function UploadZone({
           type="file"
           accept="image/*,.pdf"
           className="hidden"
-          disabled={uploading}
+          disabled={uploading || !numberReady}
           onChange={handleFile}
         />
       </label>

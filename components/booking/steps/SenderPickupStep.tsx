@@ -31,13 +31,16 @@ import { ClientCombobox } from "../ClientComboBox";
 import { AddressFields } from "../AddressFields";
 import { AddressBookControls } from "../AddressBookControls";
 import { EMPTY_CONSIGNOR, selfToConsignor } from "@/lib/booking/consignorPrefill";
+import { clientCompanyName } from "@/lib/clients/clientKind";
 
 // ── Prefill mappers ────────────────────────────────────────────────────────
 
 function clientToConsignor(client: ClientSummary): ConsignorForm {
   return {
     contactName: client.contactName ?? "",
-    companyName: client.companyName ?? "",
+    // Blank for an individual: a sender with a company name is declared to the
+    // carrier as a company. See lib/clients/clientKind.ts.
+    companyName: clientCompanyName(client),
     email: client.email ?? "",
     phone: client.phone ?? "",
     addressLine1: client.addressLine1 ?? "",

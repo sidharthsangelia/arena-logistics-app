@@ -6,8 +6,9 @@
  * Compact inline form rendered inside QuoteSheet when the user clicks
  * "Add new client". Mirrors every field on the full clients form
  * (components/clients/toolbar/ClientForm) so a quote-time client is never
- * missing detail — but only Company name is required. Everything else is
- * optional so the flow stays fast.
+ * missing detail. Only one name is required: the company name for a company,
+ * the person's name for an individual. Everything else is optional so the
+ * flow stays fast.
  *
  * On save it calls createClientAction (which returns the created record) and
  * passes the result back to QuoteSheet via onSaved. No re-search needed.
@@ -18,10 +19,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Loader2, Save, X } from "lucide-react";
 import { createClientAction } from "@/actions/clients.action";
 import { clientSchema } from "@/lib/validations/clients.schema";
 import type { ClientSearchResult } from "@/actions/clientSrearch.action";
+
+type ClientKind = "COMPANY" | "INDIVIDUAL";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -45,6 +49,9 @@ interface FormState {
   country: string;
   postalCode: string;
   notes: string;
+  gstin: string;
+  panNumber: string;
+  aadhaarNumber: string;
 }
 
 const empty: FormState = {
@@ -58,6 +65,9 @@ const empty: FormState = {
   country: "",
   postalCode: "",
   notes: "",
+  gstin: "",
+  panNumber: "",
+  aadhaarNumber: "",
 };
 
 // ---------------------------------------------------------------------------
@@ -74,6 +84,18 @@ export default function AddClientForm({
     companyName: initialCompanyName?.trim() ?? "",
   }));
   const [error, setError] = useState<string | null>(null);
+  const [kind, setKind] = useState<ClientKind>("COMPANY");
+
+  // The search text that opened this form lands in the company name. If the
+  // user then says it is a person, carry it across rather than make them retype.
+  const switchKind = (next: ClientKind) => {
+    setKind(next);
+    if (next === "INDIVIDUAL") {
+      setForm((p) =>
+        p.contactName.trim() ? p : { ...p, contactName: p.companyName },
+      );
+    }
+  };
   const [isPending, startTransition] = useTransition();
 
   const set =
@@ -83,8 +105,11 @@ export default function AddClientForm({
     ) =>
       setForm((p) => ({ ...p, [field]: e.target.value }));
 
-  // Only company name is mandatory — everything else is optional.
-  const isValid = form.companyName.trim().length > 0;
+  // A company needs its name, an individual theirs. Everything else is optional.
+  const isValid =
+    kind === "INDIVIDUAL"
+      ? form.contactName.trim().length > 0
+      : form.companyName.trim().length > 0;
 
   const handleSubmit = () => {
     if (!isValid) return;
@@ -92,7 +117,8 @@ export default function AddClientForm({
 
     // Trim + drop empties so optional fields save as undefined, not "".
     const payload = {
-      companyName:  form.companyName.trim(),
+      companyKind:  kind,
+      companyName:  form.companyName.trim() || undefined,
       contactName:  form.contactName.trim() || undefined,
       email:        form.email.trim() || undefined,
       phone:        form.phone.trim() || undefined,
@@ -102,6 +128,9 @@ export default function AddClientForm({
       country:      form.country.trim() || undefined,
       postalCode:   form.postalCode.trim() || undefined,
       notes:        form.notes.trim() || undefined,
+      gstin:        form.gstin.trim() || undefined,
+      panNumber:    form.panNumber.trim() || undefined,
+      aadhaarNumber: form.aadhaarNumber.trim() || undefined,
     };
 
     // Validate client-side so a bad email is caught before the round-trip.
@@ -127,7 +156,9 @@ export default function AddClientForm({
         <div>
           <p className="text-sm font-medium">New client</p>
           <p className="text-[11px] text-muted-foreground">
-            Only the company name is required.
+            {kind === "INDIVIDUAL"
+              ? "Only the name is required."
+              : "Only the company name is required."}
           </p>
         </div>
         <Button
@@ -141,22 +172,25 @@ export default function AddClientForm({
         </Button>
       </div>
 
-      {/* Company (required) */}
-      <FormField id="ac_company" label="Company name" required>
-        <Input
-          id="ac_company"
-          value={form.companyName}
-          onChange={set("companyName")}
-          placeholder="Acme Corp"
-          className="h-8 text-sm"
-          disabled={isPending}
-          autoFocus
-        />
-      </FormField>
+      {/* Company or individual */}
+      <Tabs value={kind} onValueChange={(v) => switchKind(v as ClientKind)}>
+        <TabsList className="grid h-8 w-full grid-cols-2">
+          <TabsTrigger value="COMPANY" className="text-xs" disabled={isPending}>
+            Company
+          </TabsTrigger>
+          <TabsTrigger value="INDIVIDUAL" className="text-xs" disabled={isPending}>
+            Individual
+          </TabsTrigger>
+        </TabsList>
+      </Tabs>
 
-      {/* Contact + Email */}
+      {/* Name first, then the company it belongs to */}
       <div className="grid grid-cols-2 gap-2">
-        <FormField id="ac_contact" label="Contact name">
+        <FormField
+          id="ac_contact"
+          label={kind === "INDIVIDUAL" ? "Full name" : "Contact name"}
+          required={kind === "INDIVIDUAL"}
+        >
           <Input
             id="ac_contact"
             value={form.contactName}
@@ -164,9 +198,27 @@ export default function AddClientForm({
             placeholder="John Smith"
             className="h-8 text-sm"
             disabled={isPending}
+            autoFocus={kind === "INDIVIDUAL"}
           />
         </FormField>
 
+        {kind === "COMPANY" && (
+          <FormField id="ac_company" label="Company name" required>
+            <Input
+              id="ac_company"
+              value={form.companyName}
+              onChange={set("companyName")}
+              placeholder="Acme Corp"
+              className="h-8 text-sm"
+              disabled={isPending}
+              autoFocus
+            />
+          </FormField>
+        )}
+      </div>
+
+      {/* Email + Phone */}
+      <div className="grid grid-cols-2 gap-2">
         <FormField id="ac_email" label="Email">
           <Input
             id="ac_email"
@@ -178,19 +230,18 @@ export default function AddClientForm({
             disabled={isPending}
           />
         </FormField>
-      </div>
 
-      {/* Phone (full width — number pads read better with room) */}
-      <FormField id="ac_phone" label="Phone">
-        <Input
-          id="ac_phone"
-          value={form.phone}
-          onChange={set("phone")}
-          placeholder="+91 98765 43210"
-          className="h-8 text-sm"
-          disabled={isPending}
-        />
-      </FormField>
+        <FormField id="ac_phone" label="Phone">
+          <Input
+            id="ac_phone"
+            value={form.phone}
+            onChange={set("phone")}
+            placeholder="+91 98765 43210"
+            className="h-8 text-sm"
+            disabled={isPending}
+          />
+        </FormField>
+      </div>
 
       {/* Address */}
       <FormField id="ac_address" label="Address">
@@ -249,6 +300,49 @@ export default function AddClientForm({
             onChange={set("postalCode")}
             placeholder="400001"
             className="h-8 text-sm"
+            disabled={isPending}
+          />
+        </FormField>
+      </div>
+
+      {/* Identity numbers (optional) */}
+      <div className="grid grid-cols-3 gap-2">
+        <FormField id="ac_gstin" label="GSTIN">
+          <Input
+            id="ac_gstin"
+            value={form.gstin}
+            onChange={set("gstin")}
+            placeholder="07ABCDE1234F1Z5"
+            maxLength={15}
+            autoComplete="off"
+            className="h-8 font-mono text-sm uppercase"
+            disabled={isPending}
+          />
+        </FormField>
+
+        <FormField id="ac_pan" label="PAN">
+          <Input
+            id="ac_pan"
+            value={form.panNumber}
+            onChange={set("panNumber")}
+            placeholder="ABCDE1234F"
+            maxLength={10}
+            autoComplete="off"
+            className="h-8 font-mono text-sm uppercase"
+            disabled={isPending}
+          />
+        </FormField>
+
+        <FormField id="ac_aadhaar" label="Aadhaar">
+          <Input
+            id="ac_aadhaar"
+            value={form.aadhaarNumber}
+            onChange={set("aadhaarNumber")}
+            inputMode="numeric"
+            placeholder="1234 5678 9012"
+            maxLength={14}
+            autoComplete="off"
+            className="h-8 font-mono text-sm"
             disabled={isPending}
           />
         </FormField>

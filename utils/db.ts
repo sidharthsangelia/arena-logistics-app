@@ -46,6 +46,17 @@ export const prisma =
       /** How long to wait for a free connection before giving up. */
       maxWait: 10_000,
     },
+
+    /**
+     * The encrypted Aadhaar is never loaded unless a query selects it by name.
+     * Many client and org reads fetch whole rows and hand them to the browser;
+     * this keeps the ciphertext out of all of them. The one reader that needs
+     * it (the export profile, lib/booking/internationalCarrier.ts) selects it.
+     */
+    omit: {
+      client: { aadhaarEncrypted: true },
+      org: { aadhaarEncrypted: true },
+    },
   });
 
 if (process.env.NODE_ENV !== "production") {

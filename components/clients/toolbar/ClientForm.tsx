@@ -15,9 +15,12 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { clientCompanyName, isIndividualClient } from "@/lib/clients/clientKind";
 
 type Props = {
-  client?: Client;
+  /** aadhaarEncrypted is never loaded for the browser (see utils/db.ts). */
+  client?: Omit<Client, "aadhaarEncrypted">;
   submitLabel: string;
   onSubmit: (values: ClientFormValues) => Promise<void>;
 };
@@ -30,11 +33,14 @@ export default function ClientForm({
   const {
     register,
     handleSubmit,
+    watch,
+    setValue,
     formState: { errors, isSubmitting },
   } = useForm<ClientFormValues>({
     resolver: zodResolver(clientSchema),
     defaultValues: {
-      companyName: client?.companyName ?? "",
+      companyKind: client && isIndividualClient(client) ? "INDIVIDUAL" : "COMPANY",
+      companyName: client ? clientCompanyName(client) : "",
       contactName: client?.contactName ?? "",
       email: client?.email ?? "",
       phone: client?.phone ?? "",
@@ -44,30 +50,39 @@ export default function ClientForm({
       country: client?.country ?? "",
       postalCode: client?.postalCode ?? "",
       notes: client?.notes ?? "",
+      gstin: client?.gstin ?? "",
+      panNumber: client?.panNumber ?? "",
+      // Never prefilled: only the masked form exists outside the server.
+      aadhaarNumber: "",
     },
   });
+
+  const kind = watch("companyKind") ?? "COMPANY";
 
   return (
     <form
       onSubmit={handleSubmit(onSubmit)}
       className="space-y-5"
     >
-      {/* Company + Contact */}
+      {/* Company or individual */}
+
+      <Tabs
+        value={kind}
+        onValueChange={(v) =>
+          setValue("companyKind", v as "COMPANY" | "INDIVIDUAL", { shouldValidate: false })
+        }
+      >
+        <TabsList className="grid w-full grid-cols-2">
+          <TabsTrigger value="COMPANY">Company</TabsTrigger>
+          <TabsTrigger value="INDIVIDUAL">Individual</TabsTrigger>
+        </TabsList>
+      </Tabs>
+
+      {/* Name first, then the company it belongs to */}
 
       <div className="grid grid-cols-2 gap-3">
         <Field
-          label="Company Name"
-          error={errors.companyName?.message}
-        >
-          <Input
-            placeholder="Acme Logistics Pvt Ltd"
-            className={cn(errors.companyName && "border-destructive")}
-            {...register("companyName")}
-          />
-        </Field>
-
-        <Field
-          label="Contact Person"
+          label={kind === "INDIVIDUAL" ? "Full Name" : "Contact Person"}
           error={errors.contactName?.message}
         >
           <Input
@@ -76,6 +91,19 @@ export default function ClientForm({
             {...register("contactName")}
           />
         </Field>
+
+        {kind === "COMPANY" && (
+          <Field
+            label="Company Name"
+            error={errors.companyName?.message}
+          >
+            <Input
+              placeholder="Acme Logistics Pvt Ltd"
+              className={cn(errors.companyName && "border-destructive")}
+              {...register("companyName")}
+            />
+          </Field>
+        )}
       </div>
 
       {/* Email + Phone */}
@@ -164,6 +192,61 @@ export default function ClientForm({
             {...register("postalCode")}
           />
         </Field>
+      </div>
+
+      {/* Identity numbers (optional) */}
+
+      <div className="space-y-2">
+        <div>
+          <p className="text-sm font-medium">
+            Identity numbers
+            <span className="ml-1.5 text-xs font-normal text-muted-foreground">
+              optional
+            </span>
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Carriers need these on international bookings: GSTIN for a
+            company, Aadhaar for an individual.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-3 gap-3">
+          <Field label="GSTIN" error={errors.gstin?.message}>
+            <Input
+              placeholder="07ABCDE1234F1Z5"
+              maxLength={15}
+              autoComplete="off"
+              className={cn("font-mono uppercase", errors.gstin && "border-destructive")}
+              {...register("gstin")}
+            />
+          </Field>
+
+          <Field label="PAN" error={errors.panNumber?.message}>
+            <Input
+              placeholder="ABCDE1234F"
+              maxLength={10}
+              autoComplete="off"
+              className={cn("font-mono uppercase", errors.panNumber && "border-destructive")}
+              {...register("panNumber")}
+            />
+          </Field>
+
+          <Field label="Aadhaar" error={errors.aadhaarNumber?.message}>
+            <Input
+              inputMode="numeric"
+              placeholder={client?.aadhaarMasked ?? "1234 5678 9012"}
+              maxLength={14}
+              autoComplete="off"
+              className={cn("font-mono", errors.aadhaarNumber && "border-destructive")}
+              {...register("aadhaarNumber")}
+            />
+            <p className="text-xs text-muted-foreground">
+              {client?.aadhaarMasked
+                ? "On file. Leave blank to keep it."
+                : "Stored encrypted."}
+            </p>
+          </Field>
+        </div>
       </div>
 
       {/* Notes */}

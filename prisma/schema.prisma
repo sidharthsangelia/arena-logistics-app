@@ -141,6 +141,16 @@ model Org {
   gstin        String?
   gstStateCode String?
 
+  // ── identity numbers (typed in with their KYC upload) ──
+  // Carriers need these as strings in a payload, which a PDF cannot supply.
+  // Written by the KYC upload of the matching document; see lib/kyc/idNumbers.ts.
+  // Aadhaar: masked for display, and the full number AES-256-GCM encrypted for
+  // carriers that require it (Aramex sends it as an individual shipper's tax ID).
+  // Decrypted only inside a vendor call. See lib/kyc/aadhaarVault.ts.
+  panNumber        String?
+  aadhaarMasked    String?
+  aadhaarEncrypted String?
+
   // ── export profile (international bookings) ──
   // Who this party legally is at customs, and under what papers. Every
   // international vendor demands some subset of these, so they are structured
@@ -242,6 +252,12 @@ model Client {
   defaultIncoterms  Incoterms?
   defaultExportType ExportType?
 
+  // Same as Org: typed in with the KYC upload. See lib/kyc/idNumbers.ts and
+  // lib/kyc/aadhaarVault.ts.
+  panNumber        String?
+  aadhaarMasked    String?
+  aadhaarEncrypted String?
+
   // Per-client override of the BA's org-wide clientEmailsEnabled setting.
   // Deliberately three-state rather than a boolean: INHERIT means "whatever the
   // org setting says", so flipping the org toggle still moves every client the BA
@@ -340,6 +356,7 @@ model ClientDocument {
   docType     KycDocType
   label       String
   description String?
+  docNumber   String? // PAN, GSTIN, or masked Aadhaar, typed in with the upload
 
   fileUrl  String
   fileKey  String
@@ -2301,7 +2318,7 @@ model ManualInvoice {
   // Each correction files the version it replaces as a ManualInvoiceRevision,
   // so every PDF a customer may have been sent stays retrievable. "Revised
   // after sending" is derived: revisedAt later than lastSentAt.
-  revisionCount Int       @default(0)
+  revisionCount Int                     @default(0)
   revisedAt     DateTime?
   revisedByName String?
   revisions     ManualInvoiceRevision[]
@@ -3118,7 +3135,7 @@ model ApiRateLimitWindow {
 
   /// "<policy>:<subject>" — the same key space lib/rateLimit.ts uses in memory,
   /// so a key means the same thing in both layers.
-  bucketKey String
+  bucketKey   String
   /// Window start, truncated to a multiple of the policy's window length.
   windowStart DateTime
   count       Int      @default(0)

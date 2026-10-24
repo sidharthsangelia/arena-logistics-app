@@ -19,7 +19,7 @@ import { revalidateTag, unstable_cache } from "next/cache";
 
 import { prisma } from "@/utils/db";
 import { getCurrentOrg, assertOrgOwnsClient } from "@/actions/book/getOrgs";
-import { KycDocType, PartyType } from "@/generated/prisma";
+import { KycDocType, PartyType, type Prisma } from "@/generated/prisma";
 import type { Party } from "@/types/booking";
 import {
   KYC_DOC_KEYS,
@@ -28,6 +28,9 @@ import {
   type KycDocKey,
 } from "@/lib/booking/kyc";
 import { isKycWaived } from "@/lib/booking/waiver";
+import { parseGstin } from "@/lib/invoices/tax/gst";
+import { partyColumnsForKycNumber, resolveKycNumber } from "@/lib/kyc/idNumbers";
+import { encryptAadhaar } from "@/lib/kyc/aadhaarVault";
 import { syncOrgProfileMetadata } from "@/utils/clerk/syncProfileMetadata";
 
 // ---------------------------------------------------------------------------
@@ -60,6 +63,8 @@ export interface PartyKycDoc {
   fileName: string;
   fileSize: number;
   mimeType: string;
+  /** PAN, GSTIN or masked Aadhaar typed in with the upload. Null on older docs. */
+  docNumber: string | null;
   verifiedAt: string | null; // ISO string
   uploadedAt: string; // ISO string
 }
@@ -89,6 +94,7 @@ async function fetchKycDocsForParty(
       fileName: true,
       fileSize: true,
       mimeType: true,
+      docNumber: true,
       verifiedAt: true,
       uploadedAt: true,
     },
@@ -110,6 +116,7 @@ async function fetchKycDocsForParty(
       fileName: row.fileName,
       fileSize: row.fileSize,
       mimeType: row.mimeType,
+      docNumber: row.docNumber,
       verifiedAt: row.verifiedAt?.toISOString() ?? null,
       uploadedAt: row.uploadedAt.toISOString(),
     });
@@ -212,6 +219,11 @@ export interface SaveKycDocInput {
   fileName: string;
   fileSize: number;
   mimeType: string;
+  /**
+   * The number printed on the document, as typed. Required for PAN, Aadhaar and
+   * GST uploads (see lib/kyc/idNumbers.ts), ignored for the rest.
+   */
+  docNumber?: string;
 }
 
 export type SaveKycDocResult =
@@ -229,13 +241,36 @@ export async function saveKycDocAction(
     const docType: KycDocType = KYC_KEY_TO_DOC_TYPE[input.key];
     if (!docType) return { success: false, message: "Unknown document type." };
 
-    const doc = await prisma.kycDocument.create({
+    // Re-validated here with the form's own rules: the client check is for the
+    // user's benefit, this one is the one that counts.
+    const number = resolveKycNumber(docType, input.docNumber);
+    if (!number.ok) return { success: false, message: number.message };
+
+    const partyColumns: ReturnType<typeof partyColumnsForKycNumber> & {
+      aadhaarEncrypted?: string | null;
+    } = number.spec ? partyColumnsForKycNumber(docType, number.stored) : {};
+
+    // The full Aadhaar, encrypted, for carriers that take it as an individual's
+    // tax ID. Never the plaintext; see lib/kyc/aadhaarVault.ts.
+    if (docType === KycDocType.ADHAR_CARD && number.spec) {
+      const encrypted = encryptAadhaar(number.normalised);
+      // Null clears a previous number rather than leave it beside a new mask.
+      partyColumns.aadhaarEncrypted = encrypted;
+      if (!encrypted)
+        Sentry.captureMessage("AADHAAR_ENCRYPTION_KEY is not set; Aadhaar kept masked only", {
+          level: "error",
+          tags: { action: "saveKycDoc" },
+        });
+    }
+
+    const createDoc = prisma.kycDocument.create({
       data: {
         partyType: party.partyType === "ORG" ? PartyType.ORG : PartyType.CLIENT,
         orgId,
         clientId,
         docType,
         label: input.label,
+        docNumber: number.spec ? number.stored : null,
         fileUrl: input.fileUrl,
         fileKey: input.fileKey,
         fileName: input.fileName,
@@ -244,6 +279,36 @@ export async function saveKycDocAction(
       },
       select: { id: true },
     });
+
+    // Batched rather than interactive: the two writes do not depend on each
+    // other, and a batch is one round trip to Neon.
+    const hasPartyColumns = Object.keys(partyColumns).length > 0;
+    const updateParty = !hasPartyColumns
+      ? null
+      : orgId
+        ? prisma.org.update({
+            where: { id: orgId },
+            data: {
+              ...partyColumns,
+              // An org's GSTIN also decides place of supply on its invoices,
+              // exactly as saveOrgProfileAction resolves it.
+              ...(partyColumns.gstin && {
+                gstStateCode: parseGstin(partyColumns.gstin)?.stateCode ?? null,
+              }),
+            },
+            select: { id: true },
+          })
+        : clientId
+          ? prisma.client.update({
+              where: { id: clientId },
+              data: partyColumns,
+              select: { id: true },
+            })
+          : null;
+
+    const ops: Prisma.PrismaPromise<unknown>[] = [createDoc];
+    if (updateParty) ops.push(updateParty);
+    const [doc] = (await prisma.$transaction(ops)) as [{ id: string }];
 
     if (party.partyType === "ORG" && orgId) {
       await syncOrgProfileMetadata(orgId);

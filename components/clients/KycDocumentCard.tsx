@@ -26,6 +26,7 @@ export type KycDocumentCardProps = {
   id:          string;
   docType:     KycDocType;
   label:       string;
+  docNumber:   string | null;
   description: string | null;
   fileUrl:     string;
   fileName:    string;
@@ -63,6 +64,7 @@ function isImage(mimeType: string) {
 export default function KycDocumentCard({
   id,
   label,
+  docNumber,
   description,
   fileUrl,
   fileName,
@@ -108,6 +110,11 @@ export default function KycDocumentCard({
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium text-foreground">
             {label}
+            {docNumber && (
+              <span className="ml-2 font-mono text-xs font-normal text-muted-foreground">
+                {docNumber}
+              </span>
+            )}
           </p>
           <p className="mt-0.5 truncate text-xs text-muted-foreground">
             {fileName} · {formatBytes(fileSize)} · Added{" "}

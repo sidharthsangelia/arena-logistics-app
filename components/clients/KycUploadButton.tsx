@@ -35,6 +35,7 @@ import {
   KycDocumentFormValues,
 } from "@/lib/validations/clientsDocument.schema";
 import { Field, FieldDescription, FieldError, FieldLabel } from "../ui/field";
+import { kycNumberSpecForDocType } from "@/lib/kyc/idNumbers";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Accepted MIME types (PDF + common image formats)
@@ -60,10 +61,11 @@ export default function KycUploadButton({ clientId }: Props) {
 
   const form = useForm<KycDocumentFormValues>({
     resolver: zodResolver(kycDocumentFormSchema),
-    defaultValues: { docType: undefined, label: "", description: "" },
+    defaultValues: { docType: undefined, label: "", description: "", docNumber: "" },
   });
 
   const selectedType = form.watch("docType");
+  const numberSpec = kycNumberSpecForDocType(selectedType);
 
   // ── UploadThing hook ──────────────────────────────────────────────────────
   // We pass the required metadata as custom headers so the server middleware
@@ -73,6 +75,9 @@ export default function KycUploadButton({ clientId }: Props) {
       "x-client-id": clientId,
       "x-doc-type": form.getValues("docType"),
       "x-doc-label": form.getValues("label"),
+      // Validated by the form schema; the upload middleware re-checks it and
+      // masks an Aadhaar before anything is stored.
+      "x-doc-number": form.getValues("docNumber") ?? "",
     }),
     onUploadError: (error) => {
       console.error("[KYC upload error]", error);
@@ -161,6 +166,8 @@ export default function KycUploadButton({ clientId }: Props) {
                     value={field.value}
                     onValueChange={(v) => {
                       field.onChange(v);
+                      // A PAN typed for one type is not a GSTIN for the next.
+                      form.setValue("docNumber", "", { shouldValidate: false });
 
                       const current = form.getValues("label");
 
@@ -202,6 +209,48 @@ export default function KycUploadButton({ clientId }: Props) {
                 </Field>
               )}
             />
+
+            {/* The number on the document, for the types that carry one */}
+            {numberSpec && (
+              <Controller
+                key={numberSpec.kind}
+                control={form.control}
+                name="docNumber"
+                render={({ field, fieldState }) => (
+                  <Field data-invalid={fieldState.invalid}>
+                    <FieldLabel htmlFor="kyc-doc-number">{numberSpec.label}</FieldLabel>
+
+                    <Input
+                      {...field}
+                      id="kyc-doc-number"
+                      value={field.value ?? ""}
+                      onChange={(e) =>
+                        field.onChange(
+                          numberSpec.kind === "aadhaar"
+                            ? e.target.value
+                            : e.target.value.toUpperCase(),
+                        )
+                      }
+                      placeholder={numberSpec.placeholder}
+                      maxLength={numberSpec.maxLength}
+                      autoComplete="off"
+                      className="font-mono"
+                      aria-invalid={fieldState.invalid}
+                    />
+
+                    {numberSpec.kind === "aadhaar" && (
+                      <FieldDescription>
+                        Stored encrypted. Only the last 4 digits are ever shown.
+                      </FieldDescription>
+                    )}
+
+                    {fieldState.invalid && (
+                      <FieldError errors={[fieldState.error]} />
+                    )}
+                  </Field>
+                )}
+              />
+            )}
 
             {/* Label */}
             <Controller

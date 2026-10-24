@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { kycNumberSpecForDocType } from "@/lib/kyc/idNumbers";
+
 // Mirror the Prisma enum — keep in sync with schema.prisma
 export const KYC_DOC_TYPES = [
   "PAN_CARD",
@@ -54,11 +56,20 @@ export const KYC_DOC_TYPE_HINTS: Record<KycDocType, string> = {
 };
 
 // Schema used in the upload dialog form
-export const kycDocumentFormSchema = z.object({
-  docType:     z.enum(KYC_DOC_TYPES, { error: "Document type is required" }),
-  label:       z.string().trim().min(1, "Label is required").max(200),
-  description: z.string().trim().max(1000).optional(),
-});
+export const kycDocumentFormSchema = z
+  .object({
+    docType:     z.enum(KYC_DOC_TYPES, { error: "Document type is required" }),
+    label:       z.string().trim().min(1, "Label is required").max(200),
+    description: z.string().trim().max(1000).optional(),
+    // PAN, Aadhaar and GST uploads must carry their number. See lib/kyc/idNumbers.ts.
+    docNumber:   z.string().optional(),
+  })
+  .superRefine((values, ctx) => {
+    const spec = kycNumberSpecForDocType(values.docType);
+    if (!spec) return;
+    const error = spec.validate(spec.normalise(values.docNumber ?? ""));
+    if (error) ctx.addIssue({ code: "custom", path: ["docNumber"], message: error });
+  });
 
 export type KycDocumentFormValues = z.infer<typeof kycDocumentFormSchema>;
 
@@ -68,6 +79,10 @@ export const saveKycDocumentSchema = z.object({
   docType:     z.enum(KYC_DOC_TYPES),
   label:       z.string().trim().min(1).max(200),
   description: z.string().trim().max(1000).optional(),
+  // Already validated and in its stored form (Aadhaar masked) by the caller.
+  docNumber:   z.string().max(20).nullable().optional(),
+  // Aadhaar only: the full number as AES-GCM ciphertext. See lib/kyc/aadhaarVault.ts.
+  aadhaarEncrypted: z.string().max(200).nullable().optional(),
   fileUrl:     z.string().url(),
   fileKey:     z.string().min(1),
   fileName:    z.string().min(1),

@@ -8,6 +8,13 @@ import {
   SaveKycDocumentInput,
   saveKycDocumentSchema,
 } from "@/lib/validations/clientsDocument.schema";
+import type { Prisma } from "@/generated/prisma";
+import {
+  isStoredKycNumber,
+  kycNumberSpecForDocType,
+  partyColumnsForKycNumber,
+} from "@/lib/kyc/idNumbers";
+import { decryptAadhaar } from "@/lib/kyc/aadhaarVault";
 
 // ---------------------------------------------------------------------------
 // Tenant context
@@ -60,12 +67,36 @@ export async function saveKycDocumentAction(
       if (!client) return { success: false, message: "Client not found." };
     }
  
-    const doc = await prisma.clientDocument.create({
+    // PAN, Aadhaar and GST uploads must carry their number, already in stored
+    // form (the upload middleware resolved it). Re-checked, not trusted: this is
+    // a server action, callable with anything.
+    const needsNumber = kycNumberSpecForDocType(data.docType) !== null;
+    const docNumber = needsNumber ? (data.docNumber ?? null) : null;
+    if (needsNumber && (!docNumber || !isStoredKycNumber(data.docType, docNumber))) {
+      return { success: false, message: "This document needs a valid number." };
+    }
+    const partyColumns: ReturnType<typeof partyColumnsForKycNumber> & {
+      aadhaarEncrypted?: string | null;
+    } = docNumber ? partyColumnsForKycNumber(data.docType, docNumber) : {};
+
+    // The ciphertext is only accepted if it decrypts to the Aadhaar whose last
+    // four digits are in docNumber, so a caller cannot pin a different number
+    // to this client. Null (no key configured) clears any previous number.
+    if (data.docType === "ADHAR_CARD" && docNumber) {
+      const full = decryptAadhaar(data.aadhaarEncrypted);
+      if (data.aadhaarEncrypted && (!full || !docNumber.endsWith(full.slice(-4)))) {
+        return { success: false, message: "This document needs a valid number." };
+      }
+      partyColumns.aadhaarEncrypted = full ? data.aadhaarEncrypted : null;
+    }
+
+    const createDoc = prisma.clientDocument.create({
       data: {
         orgId,
         clientId:    data.clientId,
         docType:     data.docType,
         label:       data.label,
+        docNumber,
         description: data.description ?? null,
         fileUrl:     data.fileUrl,
         fileKey:     data.fileKey,
@@ -75,7 +106,21 @@ export async function saveKycDocumentAction(
       },
       select: { id: true },
     });
- 
+
+    // Batched: one round trip, and the number never lands on the document
+    // without also landing on the client the carrier payload reads from.
+    const ops: Prisma.PrismaPromise<unknown>[] = [createDoc];
+    if (Object.keys(partyColumns).length > 0) {
+      ops.push(
+        prisma.client.update({
+          where: { id: data.clientId },
+          data: partyColumns,
+          select: { id: true },
+        }),
+      );
+    }
+    const [doc] = (await prisma.$transaction(ops)) as [{ id: string }];
+
     revalidatePath(`/clients/${data.clientId}`);
     return { success: true, documentId: doc.id };
   } catch (error) {

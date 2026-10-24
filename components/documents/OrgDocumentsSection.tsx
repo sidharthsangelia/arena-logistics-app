@@ -175,6 +175,9 @@ function DocCard({
       {existing && (
         <p className="truncate text-xs text-muted-foreground">
           Currently on file: {existing.fileName}
+          {existing.docNumber && (
+            <span className="font-mono"> · {existing.docNumber}</span>
+          )}
         </p>
       )}
     </div>

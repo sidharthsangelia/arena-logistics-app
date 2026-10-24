@@ -10,6 +10,8 @@ import type { FileMeta } from "@/types/booking.types";
 import type { Party } from "@/types/booking";
 import { saveKycDocAction } from "@/actions/book/kyc";
 import type { KycDocConfig } from "@/lib/booking/kyc";
+import { kycNumberSpecForDocType } from "@/lib/kyc/idNumbers";
+import { DocNumberField, docNumberReady } from "@/components/kyc/DocNumberField";
 
 export function UploadZone({
   config,
@@ -29,6 +31,10 @@ export function UploadZone({
   const [uploading, setUploading] = useState(false);
   const [uploadErr, setUploadErr] = useState<string | null>(null);
   const inputId = `upload-${config.key}`;
+  // PAN, Aadhaar and GST must be uploaded with their number.
+  const numberSpec = kycNumberSpecForDocType(config.docType);
+  const [docNumber, setDocNumber] = useState("");
+  const numberReady = docNumberReady(numberSpec, docNumber);
 
   const { startUpload } = useUploadThing("bookingDocument", {
     onClientUploadComplete: async (res) => {
@@ -45,12 +51,18 @@ export function UploadZone({
         fileSize: file.size,
         mimeType: file.type ?? "application/octet-stream",
       };
-      const saveResult = await saveKycDocAction(party, { key: config.key, label: config.label, ...meta });
+      const saveResult = await saveKycDocAction(party, {
+        key: config.key,
+        label: config.label,
+        ...meta,
+        docNumber: numberSpec ? docNumber : undefined,
+      });
       if (!saveResult.success) {
         setUploadErr(saveResult.message);
         setUploading(false);
         return;
       }
+      setDocNumber("");
       onDone(meta);
       setUploading(false);
     },
@@ -84,21 +96,40 @@ export function UploadZone({
   }
 
   const displayError = error ?? uploadErr;
+  const zoneDisabled = uploading || !numberReady;
 
   return (
     <div className="space-y-1.5">
+      {numberSpec && (
+        <div className="pb-1.5">
+          <DocNumberField
+            spec={numberSpec}
+            value={docNumber}
+            onChange={setDocNumber}
+            disabled={uploading}
+          />
+        </div>
+      )}
       <label
         htmlFor={inputId}
         className={cn(
-          "flex cursor-pointer flex-col items-center gap-2 rounded-lg border-2 border-dashed px-4 py-6 transition-colors",
-          uploading ? "border-primary/40 bg-primary/5" : "border-border hover:border-primary/50 hover:bg-muted/40",
+          "flex flex-col items-center gap-2 rounded-lg border-2 border-dashed px-4 py-6 transition-colors",
+          uploading
+            ? "border-primary/40 bg-primary/5"
+            : !numberReady
+              ? "cursor-not-allowed border-border opacity-60"
+              : "cursor-pointer border-border hover:border-primary/50 hover:bg-muted/40",
           displayError && "border-destructive/60 bg-destructive/5",
         )}
       >
         {uploading ? <Loader2 className="h-6 w-6 animate-spin text-primary" /> : <Upload className="h-6 w-6 text-muted-foreground" />}
-        <span className="text-sm text-muted-foreground">{uploading ? "Uploading…" : "Click to upload or drag & drop"}</span>
+        <span className="text-sm text-muted-foreground">{uploading
+            ? "Uploading…"
+            : !numberReady && numberSpec
+              ? `Enter the ${numberSpec.label} first`
+              : "Click to upload or drag & drop"}</span>
         <span className="text-xs text-muted-foreground">PDF, JPG, PNG · Max 16 MB</span>
-        <input id={inputId} type="file" accept="image/*,.pdf" className="hidden" disabled={uploading} onChange={handleFile} />
+        <input id={inputId} type="file" accept="image/*,.pdf" className="hidden" disabled={zoneDisabled} onChange={handleFile} />
       </label>
       {displayError && (
         <p className="flex items-center gap-1.5 text-xs text-destructive" aria-live="polite">
