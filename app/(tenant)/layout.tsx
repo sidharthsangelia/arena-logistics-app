@@ -55,7 +55,11 @@ export default async function DashboardLayout({
           )}
         />
 
-        <SidebarInset>
+        {/* min-w-0: a flex item will not shrink below its content by default, so a
+            wide table used to stretch this pane past the viewport and the whole
+            page scrolled sideways. With it, wide content scrolls inside its own
+            container (tables already have one) and the page stays put. */}
+        <SidebarInset className="min-w-0">
           {/* Top header bar */}
           <header className="flex h-14 shrink-0 items-center gap-2 border-b bg-white px-4">
             <SidebarTrigger className="-ml-1" />
