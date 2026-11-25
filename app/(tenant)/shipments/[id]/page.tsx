@@ -56,6 +56,7 @@ import {
   DocumentsSkeleton,
   WalletTransactionsSkeleton,
   BookingSummarySkeleton,
+  JOURNEY_STEPS,
 } from "./skeletons";
 
 // ---------------------------------------------------------------------------
@@ -286,45 +287,6 @@ function packageTotals(shipment: Awaited<ShipmentPromise>) {
 // ---------------------------------------------------------------------------
 // Journey steps — the progress rail shown to clients
 // ---------------------------------------------------------------------------
-
-type JourneyStep = {
-  status: ShipmentStatus[];
-  label: string;
-};
-
-const JOURNEY_STEPS: JourneyStep[] = [
-  {
-    status: [
-      "DRAFT" as ShipmentStatus,
-      "PENDING_PAYMENT" as ShipmentStatus,
-      "BOOKED" as ShipmentStatus,
-    ],
-    label: "Booked",
-  },
-  {
-    status: [
-      "PROCESSING" as ShipmentStatus,
-      "DOCUMENTS_PENDING" as ShipmentStatus,
-    ],
-    label: "Processing",
-  },
-  {
-    status: [
-      "IN_TRANSIT" as ShipmentStatus,
-      "CUSTOMS_HOLD" as ShipmentStatus,
-      "ON_HOLD" as ShipmentStatus,
-    ],
-    label: "In transit",
-  },
-  {
-    status: ["OUT_FOR_DELIVERY" as ShipmentStatus],
-    label: "Out for delivery",
-  },
-  {
-    status: ["DELIVERED" as ShipmentStatus],
-    label: "Delivered",
-  },
-];
 
 function getJourneyState(currentStatus: ShipmentStatus) {
   if (currentStatus === "CANCELLED") return { activeIdx: -1, cancelled: true };
@@ -1494,12 +1456,12 @@ async function BookingSummarySection({
  */
 async function StatusHistorySection({
   shipmentPromise,
-  orgId,
+  orgIdPromise,
 }: {
   shipmentPromise: ShipmentPromise;
-  orgId: string;
+  orgIdPromise: Promise<string>;
 }) {
-  const s = await shipmentPromise;
+  const [s, orgId] = await Promise.all([shipmentPromise, orgIdPromise]);
   return (
     <ShipmentHistory
       shipmentNumber={s.shipmentNumber}
@@ -1524,11 +1486,15 @@ export default async function ShipmentDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const orgId = await getTenantOrgId();
+
+  // Not awaited: the org lookup used to hold the whole shell, so the back link
+  // and section headings waited on a database round trip they do not need.
+  // Every section awaits the shipment, which chains off it, instead.
+  const orgIdPromise = getTenantOrgId();
 
   // Kick off the query once — every section below shares this promise. React
   // dedupes the underlying fetch, so this is still a single DB round trip.
-  const shipmentPromise = getShipment(id, orgId);
+  const shipmentPromise = orgIdPromise.then((orgId) => getShipment(id, orgId));
 
   return (
     <TooltipProvider delayDuration={200}>
@@ -1594,7 +1560,7 @@ export default async function ShipmentDetailPage({
                   <Suspense fallback={<ShipmentHistorySkeleton />}>
                     <StatusHistorySection
                       shipmentPromise={shipmentPromise}
-                      orgId={orgId}
+                      orgIdPromise={orgIdPromise}
                     />
                   </Suspense>
                 </section>

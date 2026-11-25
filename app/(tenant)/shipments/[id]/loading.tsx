@@ -1,29 +1,38 @@
-// This loading.tsx is now intentionally minimal.
-// The page itself uses inline <Suspense> boundaries per section, so granular,
-// layout-matched skeletons are handled inside page.tsx (see ./skeletons).
-// This file only covers the rare case where the page segment itself hasn't
-// streamed yet (e.g. slow params resolution) — same shell, same skeletons.
+import Link from "next/link";
+import { ArrowLeft } from "lucide-react";
+
+import { ShipmentHistorySkeleton } from "@/components/tracking/ShipmentHistory";
 
 import {
-  HeaderSkeleton,
-  StatusSkeleton,
-  FirstMileSkeleton,
   AddressesSkeleton,
+  BookingSummarySkeleton,
+  DocumentsSkeleton,
+  FirstMileSkeleton,
+  HeaderSkeleton,
   PackagesSkeleton,
   PricingSkeleton,
-  DocumentsSkeleton,
+  SectionTitle,
+  StatusSkeleton,
   WalletTransactionsSkeleton,
-  BookingSummarySkeleton,
-  StatusHistorySkeleton,
 } from "./skeletons";
-import { Skeleton } from "@/components/ui/skeleton";
 
+/**
+ * The page renders its shell at once and streams each section behind its own
+ * Suspense, so this only covers the route chunk arriving. It is that same
+ * shell with the same section fallbacks: the back link and every section
+ * heading and label are real, only the shipment's own values are skeletons.
+ */
 export default function ShipmentDetailLoading() {
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background" aria-busy="true">
       <div className="mx-auto max-w-5xl px-6 py-8 sm:px-8 sm:py-10">
-        {/* Back link */}
-        <Skeleton className="h-4 w-32" />
+        <Link
+          href="/shipments"
+          className="group inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
+        >
+          <ArrowLeft className="h-3.5 w-3.5 transition-transform group-hover:-translate-x-0.5" />
+          All shipments
+        </Link>
 
         <div className="mt-8 space-y-12">
           <HeaderSkeleton />
@@ -40,7 +49,10 @@ export default function ShipmentDetailLoading() {
             </div>
             <div className="space-y-10 xl:border-l xl:pl-10">
               <BookingSummarySkeleton />
-              <StatusHistorySkeleton />
+              <section className="space-y-5">
+                <SectionTitle>History</SectionTitle>
+                <ShipmentHistorySkeleton />
+              </section>
             </div>
           </div>
         </div>
