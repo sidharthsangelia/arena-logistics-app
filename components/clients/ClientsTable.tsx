@@ -149,16 +149,20 @@ export default function ClientsTable({
               />
             </div>
 
-            <DataTableFacetedFilter
-              title="Business Associate"
-              options={orgFacetOptions}
-              selected={orgIds}
-              onChange={(values) =>
-                updateParams({
-                  org: values.length ? values.join(",") : null,
-                })
-              }
-            />
+            {/* A Business Associate only sees its own clients, so filtering
+                by Business Associate is an Arena tool. */}
+            {!client && (
+              <DataTableFacetedFilter
+                title="Business Associate"
+                options={orgFacetOptions}
+                selected={orgIds}
+                onChange={(values) =>
+                  updateParams({
+                    org: values.length ? values.join(",") : null,
+                  })
+                }
+              />
+            )}
 
             {hasActiveFilters && (
               <Button
@@ -195,8 +199,12 @@ export default function ClientsTable({
           </p>
           <p className="text-xs text-muted-foreground">
             {query || hasActiveFilters
-              ? "Try a different search term or Business Associate."
-              : "Clients created by your tenants will appear here."}
+              ? client
+                ? "Try a different search term."
+                : "Try a different search term or Business Associate."
+              : client
+                ? "Add a client to quote and book shipments on their behalf."
+                : "Clients created by your tenants will appear here."}
           </p>
         </div>
       }

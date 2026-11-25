@@ -82,12 +82,15 @@ export default function ClientsTableSkeleton({
               />
             </div>
 
-            <DataTableFacetedFilter
-              title="Business Associate"
-              options={[]}
-              selected={[]}
-              onChange={noop}
-            />
+            {/* Arena only, as in the real table. */}
+            {!client && (
+              <DataTableFacetedFilter
+                title="Business Associate"
+                options={[]}
+                selected={[]}
+                onChange={noop}
+              />
+            )}
           </div>
 
           <DataTableViewOptions

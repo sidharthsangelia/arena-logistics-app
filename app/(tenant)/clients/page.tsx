@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { Suspense } from "react";
 
 import ClientsTable from "@/components/clients/ClientsTable";
@@ -9,10 +10,11 @@ import {
   CLIENT_PAGE_SIZE_OPTIONS,
   CLIENT_SORTABLE_FIELDS,
   DEFAULT_CLIENT_PAGE_SIZE,
-  getClientOrgOptions,
   getClientsPage,
   type ClientSortField,
 } from "@/queries/clients";
+
+export const metadata: Metadata = { title: "Clients" };
 
 // ---------------------------------------------------------------------------
 // Search params → typed, validated query params. Anything malformed falls
@@ -93,7 +95,11 @@ async function ClientsTableSection({
   // the page: in the layout it held the whole route and flashed the dashboard's
   // loading state. Here only the table waits on it, and it still redirects
   // before any row is rendered.
-  const [, { rows, totalRows, pageCount }, orgOptions] = await Promise.all([
+  //
+  // No org options here: a Business Associate only ever sees its own clients, so
+  // the Business Associate filter is Arena-only. Fetching the options without
+  // scoping them would also hand every other org's name to the browser.
+  const [, { rows, totalRows, pageCount }] = await Promise.all([
     requireBusinessAssociateOrg(),
     getClientsPage({
       page: params.page,
@@ -101,10 +107,9 @@ async function ClientsTableSection({
       sortField: params.sortField,
       sortDir: params.sortDir,
       query: params.query,
-      orgIds: params.orgIds,
+      orgIds: [],
       client: true,
     }),
-    getClientOrgOptions(),
   ]);
 
   return (
@@ -116,8 +121,8 @@ async function ClientsTableSection({
       pageCount={pageCount}
       sortField={params.sortField}
       sortDir={params.sortDir}
-      orgIds={params.orgIds}
-      orgOptions={orgOptions}
+      orgIds={[]}
+      orgOptions={[]}
       query={params.query}
       client={true}
     />
