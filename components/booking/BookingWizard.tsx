@@ -546,7 +546,7 @@ export default function BookingWizard({
             <div className="mb-6 flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-4 py-2.5 text-sm">
               <CheckCircle2 className="h-4 w-4 shrink-0 text-primary" />
               <span className="text-muted-foreground">
-                Resumed your saved booking — pick up where you left off. Your
+                Resumed your saved booking. Pick up where you left off. Your
                 progress is saved each time you continue.
               </span>
             </div>

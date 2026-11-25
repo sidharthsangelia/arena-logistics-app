@@ -11,7 +11,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { STATUS_CONFIG } from "@/utils/statusConfigColors";
 
-import { getShipmentColumns, SHIPMENT_TOGGLEABLE_COLUMNS } from "./Columns";
+import {
+  getShipmentColumns,
+  SHIPMENT_TOGGLEABLE_COLUMNS,
+  shipmentSearchPlaceholder,
+} from "./Columns";
 
 const STATUS_OPTIONS = Object.entries(STATUS_CONFIG).map(([value, cfg]) => ({
   value,
@@ -78,7 +82,7 @@ export function ShipmentsTableSkeleton({
                 <Input
                   readOnly
                   value={query}
-                  placeholder="Search shipment #, org, client, city…"
+                  placeholder={shipmentSearchPlaceholder(client)}
                   className="h-8 pl-8"
                 />
               </div>

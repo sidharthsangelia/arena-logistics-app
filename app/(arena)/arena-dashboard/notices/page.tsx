@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 /**
  * app/(arena)/arena-dashboard/notices/page.tsx
  *
@@ -27,6 +28,8 @@ import {
 import { ArenaMessageComposer } from "@/components/notifications/admin/ArenaMessageComposer";
 import { SentMessagesList } from "@/components/notifications/admin/SentMessagesList";
 import { InboxPanelSkeleton } from "@/components/notifications/admin/InboxPanelSkeleton";
+
+export const metadata: Metadata = { title: "Notices" };
 
 type RawSearchParams = Record<string, string | string[] | undefined>;
 

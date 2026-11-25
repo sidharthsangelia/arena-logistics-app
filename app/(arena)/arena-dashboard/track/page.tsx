@@ -1,4 +1,7 @@
+import type { Metadata } from "next";
 import { TrackShipmentView } from "@/components/tracking/TrackShipmentView";
+
+export const metadata: Metadata = { title: "Track shipment" };
 
 /**
  * Ops tracking. Same view as the tenant page; the difference is scope, decided

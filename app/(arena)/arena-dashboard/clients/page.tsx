@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { Suspense } from "react";
 
 import ClientsToolbar from "@/components/clients/toolbar/ClientsToolbar";
@@ -11,6 +12,8 @@ import {
   getClientsPage,
   type ClientSortField,
 } from "@/queries/clients";
+
+export const metadata: Metadata = { title: "Clients" };
 
 // ---------------------------------------------------------------------------
 // Search params → typed, validated query params. Anything malformed falls

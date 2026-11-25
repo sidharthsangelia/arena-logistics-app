@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { Suspense } from "react";
 import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
@@ -47,6 +48,8 @@ import { STATUS_CONFIG } from "@/utils/statusConfigColors";
 import { getArenaDashboardStats } from "@/lib/services/arenaDashboard.service";
 import StatCard from "@/components/StatCard";
 import { getArenaAuth } from "@/utils/arena-auth";
+
+export const metadata: Metadata = { title: "Overview" };
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Streaming model

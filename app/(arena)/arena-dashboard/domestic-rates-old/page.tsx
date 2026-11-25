@@ -14,7 +14,7 @@ import { prisma } from "@/utils/db";
  
 
 export const metadata: Metadata = {
-  title: "Domestic Rate Calculator | Arena Cargo & Logistics",
+  title: "Domestic rates",
   description:
     "Get instant domestic air freight rate quotes from EDS, IndiGo CarGo, and Air India Cargo.",
 };

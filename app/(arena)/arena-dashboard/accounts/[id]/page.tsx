@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 // app/(arena)/arena-dashboard/accounts/[id]/page.tsx
 //
 // One account, associate or standard. This used to live under
@@ -43,6 +44,8 @@ import {
   AccountOverviewSkeleton,
   OrgTeamCardSkeleton,
 } from "./skeletons";
+
+export const metadata: Metadata = { title: "Account" };
 
 type PageProps = {
   params: Promise<{ id: string }>;

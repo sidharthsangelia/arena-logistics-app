@@ -1,8 +1,11 @@
+import type { Metadata } from "next";
 // app/sign-up/[[...sign-up]]/page.tsx
 
 import { SignUp } from "@clerk/nextjs";
-import { PackageSearch, FileText, Truck } from "lucide-react";
+import { FileText, Truck } from "lucide-react";
 import Image from "next/image";
+
+export const metadata: Metadata = { title: "Create your account" };
 
 export default function Page() {
   return (

@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { prisma } from "@/utils/db";
 import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
@@ -72,6 +73,8 @@ import {
   KYC_KEY_TO_DOC_TYPE,
   requiredDomesticKycKeys,
 } from "@/lib/booking/kyc";
+
+export const metadata: Metadata = { title: "Domestic booking" };
 
 // ---------------------------------------------------------------------------
 // Domestic booking detail — the ops view of one India → India courier shipment.

@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { Suspense } from "react";
 
 import BookingWizard from "@/components/booking/BookingWizard";
@@ -6,6 +7,8 @@ import { getBookingOrgContext } from "@/actions/book/bookingContext.action";
 import { getBookingDraft } from "@/actions/book/bookingDraft.action";
 
 import { BookPageHeading } from "./heading";
+
+export const metadata: Metadata = { title: "Book shipment" };
 
 // The heading is static, so it paints immediately; the wizard streams in once
 // its org context and any saved draft resolve.

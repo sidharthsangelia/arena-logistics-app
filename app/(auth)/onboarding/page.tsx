@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 // app/onboarding/page.tsx
 // Shown after sign-up, before the user can access the dashboard.
 // Creates the Clerk org and the DB Org row together.
@@ -5,6 +6,8 @@
 import { OnboardingForm } from "@/components/onboarding/OnboardingForm";
 import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
+
+export const metadata: Metadata = { title: "Get started" };
  
 
 export default async function OnboardingPage() {

@@ -192,9 +192,9 @@ export function ExportProfileForm({
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="DDP">
-                    DDP — {partyLabel ?? "the sender"} pays
+                    DDP: {partyLabel ?? "the sender"} pays
                   </SelectItem>
-                  <SelectItem value="DDU">DDU — the receiver pays</SelectItem>
+                  <SelectItem value="DDU">DDU: the receiver pays</SelectItem>
                 </SelectContent>
               </Select>
             )}

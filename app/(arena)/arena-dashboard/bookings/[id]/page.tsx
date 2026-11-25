@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { prisma } from "@/utils/db";
 import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
@@ -85,6 +86,8 @@ import { CSB4_MAX_VALUE, SHIPMENT_TYPE_INFO } from "@/lib/booking/cargo";
 import { PartyType } from "@/generated/prisma";
 import { cn } from "@/lib/utils";
 import { aramexAccountLabel } from "@/lib/aramex/accountKeys";
+
+export const metadata: Metadata = { title: "International booking" };
 
 /** One-word read-out for the collapsed carrier-booking card in the ops rail. */
 const INTL_BOOKING_SUMMARY: Record<IntlBookingStatus, string> = {

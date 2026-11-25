@@ -145,8 +145,8 @@ export default function KycUploadButton({ clientId }: Props) {
           <DialogHeader>
             <DialogTitle>Upload KYC document</DialogTitle>
             <DialogDescription>
-              Add a verified document to this client's vault. Accepted formats:
-              PDF, JPG, PNG, WebP, TIFF — max 16 MB.
+              Add a verified document to this client&apos;s vault. Accepted formats:
+              PDF, JPG, PNG, WebP or TIFF, up to 16 MB.
             </DialogDescription>
           </DialogHeader>
 

@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { Suspense } from "react";
 import { AlertCircle, Clock, Package, TrendingUp } from "lucide-react";
 
@@ -20,6 +21,8 @@ import {
   ShipmentStatsSkeleton,
   TotalBadgeSkeleton,
 } from "@/components/shipments/ShipmentListSkeletons";
+
+export const metadata: Metadata = { title: "International bookings" };
 
 // ---------------------------------------------------------------------------
 // Search params → typed, validated query params. Anything malformed silently

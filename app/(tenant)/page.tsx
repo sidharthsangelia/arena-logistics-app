@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import Link from "next/link";
@@ -77,6 +78,8 @@ import {
   RecentShipmentsTableHeader,
   WalletActivityBodySkeleton,
 } from "./_dashboard/parts";
+
+export const metadata: Metadata = { title: "Dashboard" };
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Data flow / streaming model

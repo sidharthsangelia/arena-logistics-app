@@ -1,8 +1,11 @@
+import type { Metadata } from "next";
 // app/sign-in/[[...sign-in]]/page.tsx
 
 import { SignIn } from "@clerk/nextjs";
-import { PackageSearch, ShieldCheck, Globe2 } from "lucide-react";
+import { ShieldCheck, Globe2 } from "lucide-react";
 import Image from "next/image";
+
+export const metadata: Metadata = { title: "Sign in" };
 
 export default function Page() {
   return (

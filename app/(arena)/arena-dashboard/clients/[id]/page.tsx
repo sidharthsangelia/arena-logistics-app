@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { Suspense } from "react";
 import { notFound } from "next/navigation";
 import Link from "next/link";
@@ -21,6 +22,8 @@ import {
   QuoteHistorySkeleton,
   KycVaultSkeleton,
 } from "./skeletons";
+
+export const metadata: Metadata = { title: "Client" };
 
 type Props = {
   params: Promise<{ id: string }>;

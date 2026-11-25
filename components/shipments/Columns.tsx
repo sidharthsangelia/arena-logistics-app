@@ -255,3 +255,10 @@ export function getShipmentColumns(client = false): ColumnDef<ShipmentRow>[] {
     },
   ];
 }
+
+/** Customers only ever see their own org, so "org" is not something they search by. */
+export function shipmentSearchPlaceholder(client: boolean) {
+  return client
+    ? "Search shipment #, client, city…"
+    : "Search shipment #, org, client, city…";
+}

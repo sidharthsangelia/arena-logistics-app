@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { Suspense } from "react";
 import { AlertCircle, Banknote, Clock, Package } from "lucide-react";
 
@@ -25,6 +26,8 @@ import {
   ShipmentStatsSkeleton,
   TotalBadgeSkeleton,
 } from "@/components/shipments/ShipmentListSkeletons";
+
+export const metadata: Metadata = { title: "Domestic bookings" };
 
 // ---------------------------------------------------------------------------
 // Domestic bookings — the ops queue for India → India courier shipments.

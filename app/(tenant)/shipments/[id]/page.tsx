@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { Suspense } from "react";
 import { notFound, redirect } from "next/navigation";
 import { auth } from "@clerk/nextjs/server";
@@ -58,6 +59,8 @@ import {
   BookingSummarySkeleton,
   JOURNEY_STEPS,
 } from "./skeletons";
+
+export const metadata: Metadata = { title: "Shipment details" };
 
 // ---------------------------------------------------------------------------
 // Data fetch — tenant-scoped. The org lookup is fast (single indexed query)

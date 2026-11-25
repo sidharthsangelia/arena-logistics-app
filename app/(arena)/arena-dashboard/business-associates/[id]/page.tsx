@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 // app/(arena)/arena-dashboard/business-associates/[id]/page.tsx
 //
 // This page moved to /arena-dashboard/accounts/[id].
@@ -12,6 +13,8 @@
 // future move is not fighting a 308 cached in everyone's browser forever.
 
 import { redirect } from "next/navigation";
+
+export const metadata: Metadata = { title: "Business associate" };
 
 export default async function BusinessAssociateDetailRedirect({
   params,

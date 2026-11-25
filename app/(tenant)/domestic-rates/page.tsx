@@ -17,7 +17,7 @@ import type { Metadata } from "next";
 import RatesClient from "@/app/(tenant)/rates/RatesClient";
 
 export const metadata: Metadata = {
-  title: "Domestic Rate Calculator | Arena Cargo & Logistics",
+  title: "Domestic rates",
   description:
     "Get instant domestic courier rate quotes across carriers by pincode.",
 };

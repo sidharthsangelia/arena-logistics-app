@@ -29,7 +29,7 @@ import RatesClient from "./RatesClient";
 
 
 export const metadata: Metadata = {
-  title: "Rate Calculator | Arena Cargo & Logistics",
+  title: "International rates",
   description:
     "Get instant freight rate quotes from multiple carriers for international shipments.",
 };

@@ -11,7 +11,11 @@ import { Input } from "@/components/ui/input";
 import { ShipmentStatus } from "@/generated/prisma";
 import { STATUS_CONFIG } from "@/utils/statusConfigColors";
 import type { ShipmentRow, ShipmentSortField } from "@/queries/shipments";
-import { getShipmentColumns, SHIPMENT_TOGGLEABLE_COLUMNS } from "./Columns";
+import {
+  getShipmentColumns,
+  SHIPMENT_TOGGLEABLE_COLUMNS,
+  shipmentSearchPlaceholder,
+} from "./Columns";
 import { DataTable } from "@/components/data-table/DataTable";
 import { DataTableFacetedFilter } from "@/components/data-table/DataTableFacetedFilter";
 import { DataTableViewOptions } from "@/components/data-table/DataTableViewOptions";
@@ -128,7 +132,7 @@ export function ShipmentsTable({
               <Input
                 value={searchValue}
                 onChange={(e) => handleSearchChange(e.target.value)}
-                placeholder="Search shipment #, org, client, city…"
+                placeholder={shipmentSearchPlaceholder(client)}
                 className="h-8 pl-8"
               />
             </div>
@@ -176,7 +180,9 @@ export function ShipmentsTable({
           <p className="text-xs text-muted-foreground">
             {hasActiveFilters
               ? "Try a different search term or status."
-              : "Tenant bookings will appear here once submitted."}
+              : client
+                ? "Shipments you book will appear here."
+                : "Tenant bookings will appear here once submitted."}
           </p>
         </div>
       }

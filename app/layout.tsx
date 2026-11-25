@@ -22,9 +22,14 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Arena Cargo And Logistics Dashboard",
+  // Pages set a short title ("Shipments"); the template adds the brand, so a
+  // row of tabs reads by page rather than as eight copies of the company name.
+  title: {
+    default: "Arena Cargo & Logistics",
+    template: "%s | Arena Cargo & Logistics",
+  },
   description:
-    "A dashboard for comparing shipping rates across multiple vendors, built with Next.js and TypeScript.",
+    "Compare international and domestic shipping rates, book shipments and track them in one place.",
 };
 
 export default function RootLayout({

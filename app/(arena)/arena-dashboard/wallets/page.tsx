@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -49,6 +50,8 @@ import {
   WalletTableSkeleton,
   WalletTilesSkeleton,
 } from "@/components/wallet/admin/WalletPanelSkeletons";
+
+export const metadata: Metadata = { title: "Wallets" };
 
 /**
  * ARENA WALLETS

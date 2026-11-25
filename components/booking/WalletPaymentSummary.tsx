@@ -146,7 +146,7 @@ export function WalletPaymentSummary({
         {!loading && sufficient && (
           <div className="flex items-center gap-2 text-sm text-green-700">
             <CheckCircle2 className="h-4 w-4 shrink-0" />
-            Sufficient balance — ready to pay and book.
+            Enough balance to pay and book.
           </div>
         )}
         {!loading && !sufficient && (

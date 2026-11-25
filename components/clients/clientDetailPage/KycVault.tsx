@@ -47,7 +47,7 @@ export default function KycVault({ clientId, documents }: Props) {
         <div className="space-y-1">
           <p className="text-sm text-foreground">No documents yet</p>
           <p className="max-w-md text-sm text-muted-foreground">
-            Upload KYC documents — PAN, GST, IEC, bank details and more.
+            Upload KYC documents such as PAN, GST, IEC and bank details.
           </p>
         </div>
       ) : (

@@ -1,4 +1,7 @@
+import type { Metadata } from "next";
 import { TrackShipmentView } from "@/components/tracking/TrackShipmentView";
+
+export const metadata: Metadata = { title: "Track shipment" };
 
 /**
  * Tenant tracking. The view is shared with the Arena dashboard; what differs is

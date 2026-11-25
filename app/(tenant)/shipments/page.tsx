@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { Suspense } from "react";
 import { Badge } from "@/components/ui/badge";
 import { ShipmentStatus } from "@/generated/prisma";
@@ -18,6 +19,8 @@ import {
   ShipmentsTableFallback,
   TotalBadgeSkeleton,
 } from "./skeletons";
+
+export const metadata: Metadata = { title: "Shipments" };
 
 // ---------------------------------------------------------------------------
 // Search params → typed, validated query params. Anything malformed silently
