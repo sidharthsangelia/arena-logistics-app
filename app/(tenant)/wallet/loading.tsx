@@ -1,58 +1,58 @@
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
+import { Plus, RefreshCw } from "lucide-react";
+
+import { Button } from "@/components/ui/button";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  WalletActivityCard,
+  WalletBalanceCard,
+  WalletBalanceSkeleton,
+  WalletTransactionsSkeleton,
+} from "@/components/wallet/WalletPageParts";
+import { WALLET_HISTORY_RANGE_DAYS } from "@/lib/wallet/historyRange";
 
 /**
- * The wallet page is a client component that fetches through react-query, so it
- * renders its own skeletons once mounted. This covers the step before that — the
- * route chunk loading — and mirrors the same two cards so there is no second
- * flash when the real page takes over.
+ * Covers the wallet page's chunk arriving. Built from the page's own card shells
+ * (WalletPageParts), so the icon, headings, buttons and range tabs are the real
+ * ones; only the balance and the transaction rows, which come from the
+ * database, are skeletons.
  *
- * It also stops the (tenant) dashboard fallback from standing in for this route.
+ * Buttons and tabs are inert (no pointer events, out of the tab order) rather
+ * than disabled, so they keep their real colour and do not change when the
+ * page takes over. The range starts on 7 days, as the page does.
  */
 export default function WalletLoading() {
   return (
-    <div className="mx-auto max-w-3xl py-8 space-y-6">
-      {/* Balance card */}
-      <Card>
-        <CardContent className="flex items-center justify-between py-6">
-          <div className="flex items-center gap-4">
-            <Skeleton className="h-12 w-12 rounded-full" />
-            <div className="space-y-2">
-              <Skeleton className="h-4 w-28" />
-              <Skeleton className="h-8 w-40" />
-            </div>
-          </div>
-          <div className="flex gap-2">
-            <Skeleton className="h-9 w-9 rounded-md" />
-            <Skeleton className="h-9 w-28 rounded-md" />
-          </div>
-        </CardContent>
-      </Card>
+    <div className="mx-auto max-w-3xl py-8 space-y-6" aria-busy="true">
+      <WalletBalanceCard
+        amount={<WalletBalanceSkeleton />}
+        actions={
+          <>
+            <Button variant="outline" size="icon" tabIndex={-1} aria-hidden className="pointer-events-none">
+              <RefreshCw className="h-4 w-4" />
+            </Button>
+            <Button tabIndex={-1} aria-hidden className="pointer-events-none">
+              <Plus className="mr-2 h-4 w-4" />
+              Recharge
+            </Button>
+          </>
+        }
+      />
 
-      {/* Recent activity */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between gap-4 pb-2">
-          <Skeleton className="h-4 w-32" />
-          <Skeleton className="h-9 w-44 rounded-md" />
-        </CardHeader>
-        <CardContent className="divide-y">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="flex items-center justify-between py-3">
-              <div className="flex items-center gap-3">
-                <Skeleton className="h-8 w-8 rounded-full" />
-                <div className="space-y-1.5">
-                  <Skeleton className="h-4 w-28" />
-                  <Skeleton className="h-3 w-36" />
-                </div>
-              </div>
-              <div className="space-y-1.5 text-right">
-                <Skeleton className="ml-auto h-4 w-20" />
-                <Skeleton className="ml-auto h-3 w-14" />
-              </div>
-            </div>
-          ))}
-        </CardContent>
-      </Card>
+      <WalletActivityCard
+        rangeTabs={
+          <Tabs value="7" className="pointer-events-none" aria-hidden>
+            <TabsList>
+              {WALLET_HISTORY_RANGE_DAYS.map((d) => (
+                <TabsTrigger key={d} value={String(d)} tabIndex={-1}>
+                  {d}d
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
+        }
+      >
+        <WalletTransactionsSkeleton />
+      </WalletActivityCard>
     </div>
   );
 }

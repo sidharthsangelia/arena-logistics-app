@@ -2,17 +2,21 @@
 
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Wallet, Plus, RefreshCw, ArrowUpRight, ArrowDownLeft, RotateCcw } from "lucide-react";
+import { Plus, RefreshCw, ArrowUpRight, ArrowDownLeft, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 import { getWalletSummaryAction } from "@/actions/wallet/getWalletSummary.action";
 import { getWalletTransactionsAction } from "@/actions/wallet/getWalletTransactions.action";
 import { WALLET_HISTORY_RANGE_DAYS, type WalletHistoryRangeDays } from "@/lib/wallet/historyRange";
 import { TopUpModal } from "@/components/wallet/TopUpModal";
+import {
+  WalletActivityCard,
+  WalletBalanceCard,
+  WalletBalanceSkeleton,
+  WalletTransactionsSkeleton,
+} from "@/components/wallet/WalletPageParts";
 
 const BALANCE_QUERY_KEY = ["wallet-balance"];
 const TRANSACTIONS_QUERY_KEY = "wallet-transactions";
@@ -68,24 +72,18 @@ export default function WalletPage() {
 
   return (
     <div className="mx-auto max-w-3xl py-8 space-y-6">
-      <Card>
-        <CardContent className="flex items-center justify-between py-6">
-          <div className="flex items-center gap-4">
-            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
-              <Wallet className="h-6 w-6 text-primary" />
-            </div>
-            <div>
-              <p className="text-sm text-muted-foreground">Wallet balance</p>
-              {balanceQuery.isPending ? (
-                <Skeleton className="mt-1.5 h-8 w-40" />
-              ) : (
-                <p className="text-3xl font-bold text-foreground">
-                  {fmt(summary?.balance ?? 0, summary?.currency)}
-                </p>
-              )}
-            </div>
-          </div>
-          <div className="flex gap-2">
+      <WalletBalanceCard
+        amount={
+          balanceQuery.isPending ? (
+            <WalletBalanceSkeleton />
+          ) : (
+            <p className="text-3xl font-bold text-foreground">
+              {fmt(summary?.balance ?? 0, summary?.currency)}
+            </p>
+          )
+        }
+        actions={
+          <>
             <Button variant="outline" size="icon" onClick={refreshAll} disabled={isRefreshing}>
               <RefreshCw className={isRefreshing ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
             </Button>
@@ -93,13 +91,12 @@ export default function WalletPage() {
               <Plus className="mr-2 h-4 w-4" />
               Recharge
             </Button>
-          </div>
-        </CardContent>
-      </Card>
+          </>
+        }
+      />
 
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between gap-4 pb-2">
-          <p className="text-sm font-semibold">Recent activity</p>
+      <WalletActivityCard
+        rangeTabs={
           <Tabs
             value={String(rangeDays)}
             onValueChange={(v) => setRangeDays(Number(v) as WalletHistoryRangeDays)}
@@ -112,61 +109,45 @@ export default function WalletPage() {
               ))}
             </TabsList>
           </Tabs>
-        </CardHeader>
-        <CardContent className="divide-y">
-          {transactionsQuery.isPending &&
-            Array.from({ length: 4 }).map((_, i) => (
-              <div key={i} className="flex items-center justify-between py-3">
+        }
+      >
+        {transactionsQuery.isPending && <WalletTransactionsSkeleton />}
+        {!transactionsQuery.isPending && history?.transactions.length === 0 && (
+          <p className="py-6 text-center text-sm text-muted-foreground">
+            No transactions in the last {rangeDays} days.
+          </p>
+        )}
+        {!transactionsQuery.isPending &&
+          history?.transactions.map((t) => {
+            const meta = TYPE_META[t.type] ?? TYPE_META.ADJUSTMENT;
+            const Icon = meta.icon;
+            return (
+              <div key={t.id} className="flex items-center justify-between py-3 text-sm">
                 <div className="flex items-center gap-3">
-                  <Skeleton className="h-8 w-8 rounded-full" />
-                  <div className="space-y-1.5">
-                    <Skeleton className="h-4 w-28" />
-                    <Skeleton className="h-3 w-36" />
+                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-muted">
+                    <Icon className="h-4 w-4 text-muted-foreground" />
+                  </div>
+                  <div>
+                    <p className="font-medium text-foreground">{meta.label}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {new Date(t.createdAt).toLocaleString("en-IN")}
+                      {t.shipmentId ? ` · Shipment ${t.shipmentId.slice(-8)}` : ""}
+                    </p>
                   </div>
                 </div>
-                <div className="space-y-1.5 text-right">
-                  <Skeleton className="ml-auto h-4 w-20" />
-                  <Skeleton className="ml-auto h-3 w-14" />
+                <div className="text-right">
+                  <p className="font-semibold">
+                    {meta.sign}
+                    {fmt(t.amount, currency)}
+                  </p>
+                  <Badge variant="outline" className={`mt-0.5 text-[10px] ${STATUS_VARIANT[t.status] ?? ""}`}>
+                    {t.status}
+                  </Badge>
                 </div>
               </div>
-            ))}
-          {!transactionsQuery.isPending && history?.transactions.length === 0 && (
-            <p className="py-6 text-center text-sm text-muted-foreground">
-              No transactions in the last {rangeDays} days.
-            </p>
-          )}
-          {!transactionsQuery.isPending &&
-            history?.transactions.map((t) => {
-              const meta = TYPE_META[t.type] ?? TYPE_META.ADJUSTMENT;
-              const Icon = meta.icon;
-              return (
-                <div key={t.id} className="flex items-center justify-between py-3 text-sm">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-muted">
-                      <Icon className="h-4 w-4 text-muted-foreground" />
-                    </div>
-                    <div>
-                      <p className="font-medium text-foreground">{meta.label}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {new Date(t.createdAt).toLocaleString("en-IN")}
-                        {t.shipmentId ? ` · Shipment ${t.shipmentId.slice(-8)}` : ""}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <p className="font-semibold">
-                      {meta.sign}
-                      {fmt(t.amount, currency)}
-                    </p>
-                    <Badge variant="outline" className={`mt-0.5 text-[10px] ${STATUS_VARIANT[t.status] ?? ""}`}>
-                      {t.status}
-                    </Badge>
-                  </div>
-                </div>
-              );
-            })}
-        </CardContent>
-      </Card>
+            );
+          })}
+      </WalletActivityCard>
 
       <TopUpModal
         open={modalOpen}
