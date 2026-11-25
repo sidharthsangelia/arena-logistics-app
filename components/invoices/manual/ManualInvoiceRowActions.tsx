@@ -17,6 +17,16 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -30,6 +40,8 @@ import {
   emailManualInvoiceAction,
   setManualInvoicePaidAction,
 } from "@/actions/invoices/manualInvoices.action";
+
+import { CancelDialog } from "./ManualInvoiceActions";
 
 /**
  * Everything an admin can do to a manual invoice from a list row.
@@ -60,6 +72,9 @@ export function ManualInvoiceRowActions({
 }) {
   const router = useRouter();
   const [busy, setBusy] = React.useState(false);
+  // The menu closes before either dialog opens, so they live outside it.
+  const [cancelling, setCancelling] = React.useState(false);
+  const [deleting, setDeleting] = React.useState(false);
 
   async function run(
     fn: () => Promise<{ ok: boolean; error?: string }>,
@@ -80,6 +95,7 @@ export function ManualInvoiceRowActions({
   }
 
   return (
+    <>
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" size="icon" className="h-8 w-8" disabled={busy}>
@@ -164,16 +180,7 @@ export function ManualInvoiceRowActions({
             </DropdownMenuItem>
             <DropdownMenuItem
               variant="destructive"
-              onClick={() => {
-                const reason = window.prompt(
-                  "Why is this invoice being cancelled? The number and the PDF are kept for the record.",
-                );
-                if (!reason) return;
-                run(
-                  () => cancelManualInvoiceAction(id, reason),
-                  "Invoice cancelled.",
-                );
-              }}
+              onSelect={() => setCancelling(true)}
             >
               <X className="mr-2 h-4 w-4" />
               Cancel invoice
@@ -186,17 +193,7 @@ export function ManualInvoiceRowActions({
             <DropdownMenuSeparator />
             <DropdownMenuItem
               variant="destructive"
-              onClick={() => {
-                if (
-                  !window.confirm("Delete this draft? It has no number yet.")
-                ) {
-                  return;
-                }
-                run(
-                  () => deleteManualInvoiceDraftAction(id),
-                  "Draft deleted.",
-                );
-              }}
+              onSelect={() => setDeleting(true)}
             >
               <Trash2 className="mr-2 h-4 w-4" />
               Delete draft
@@ -205,5 +202,44 @@ export function ManualInvoiceRowActions({
         ) : null}
       </DropdownMenuContent>
     </DropdownMenu>
+
+    <CancelDialog
+      open={cancelling}
+      onOpenChange={setCancelling}
+      onCancel={async (reason) => {
+        const result = await cancelManualInvoiceAction(id, reason);
+        if (!result.ok) {
+          toast.error(result.error ?? "That did not work.");
+          return false;
+        }
+        toast.success("Invoice cancelled.");
+        onDone();
+        return true;
+      }}
+    />
+
+    <AlertDialog open={deleting} onOpenChange={setDeleting}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete this draft?</AlertDialogTitle>
+          <AlertDialogDescription>
+            It has no invoice number yet, so nothing is lost from the series.
+            This cannot be undone.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Keep it</AlertDialogCancel>
+          <AlertDialogAction
+            variant="destructive"
+            onClick={() =>
+              run(() => deleteManualInvoiceDraftAction(id), "Draft deleted.")
+            }
+          >
+            Delete draft
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    </>
   );
 }

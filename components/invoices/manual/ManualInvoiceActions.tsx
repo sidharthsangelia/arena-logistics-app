@@ -294,7 +294,7 @@ function SendForm({
   );
 }
 
-function CancelDialog({
+export function CancelDialog({
   open,
   onOpenChange,
   onCancel,

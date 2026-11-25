@@ -14,6 +14,37 @@ import type { HelpRelease } from "../types";
  */
 export const releases: HelpRelease[] = [
   {
+    version: "2026.11.25",
+    entries: [
+      {
+        kind: "improved",
+        title: "Pages load without the wait",
+        body: "Headings, labels, buttons and table headers now appear the moment you open a page, with only your own figures and rows filling in after. Each browser tab is now named after its page, so several open tabs are easy to tell apart.",
+        audiences: ["standard", "ba", "arena-ops", "arena-admin"],
+      },
+      {
+        kind: "improved",
+        title: "Simpler client list",
+        body: "The Business Associate filter is gone from your client list. It only ever showed your own business, so it did nothing.",
+        audiences: ["ba"],
+        articles: ["clients"],
+      },
+      {
+        kind: "fixed",
+        title: "Error and missing pages",
+        body: "If a page fails to load, Try again now loads it afresh instead of showing the same error. A link to something that does not exist keeps you inside the app with a way back to your dashboard.",
+        audiences: ["standard", "ba", "arena-ops", "arena-admin"],
+      },
+      {
+        kind: "improved",
+        title: "Cancelling and deleting manual invoices from the list",
+        body: "The row menu now asks for the cancellation reason, and confirms a draft delete, in the same dialogs as the invoice page instead of browser pop-ups.",
+        audiences: ["arena-admin"],
+        articles: ["ops-manual-invoices"],
+      },
+    ],
+  },
+  {
     version: "2026.11.21",
     entries: [
       {
