@@ -1,19 +1,13 @@
 "use client";
 
-export default function GlobalError({
-  reset,
+import { RouteErrorView } from "@/components/RouteErrorView";
+
+export default function RootError({
+  error,
+  unstable_retry,
 }: {
   error: Error & { digest?: string };
-  reset: () => void;
+  unstable_retry: () => void;
 }) {
-  return (
-    <html>
-      <body>
-        <div className="  " style={{ padding: 40, textAlign: "center" }}>
-          <h2>Something went wrong</h2>
-          <button onClick={reset}>Try again</button>
-        </div>
-      </body>
-    </html>
-  );
+  return <RouteErrorView error={error} retry={unstable_retry} />;
 }
