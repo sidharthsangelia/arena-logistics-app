@@ -27,9 +27,11 @@ import * as Sentry from "@sentry/nextjs";
 
 import { getCurrentOrgContext } from "@/actions/book/getOrgs";
 import { getCachedOrgKycDocs } from "@/actions/book/kyc";
-import { OrgDocumentsSection } from "@/components/documents/OrgDocumentsSection";
-import VaultTable from "@/components/documentVault/VaultTable";
-import { DataTableSkeleton } from "@/components/data-table/DataTableSkeleton";
+import {
+  OrgDocumentsSection,
+  OrgDocumentsSectionSkeleton,
+} from "@/components/documents/OrgDocumentsSection";
+import VaultTable, { VaultTableSkeleton } from "@/components/documentVault/VaultTable";
 import { getTenantVaultPage } from "@/lib/documentVault/tenantQueries";
 import {
   DEFAULT_VAULT_PAGE_SIZE,
@@ -39,8 +41,12 @@ import {
   type VaultListParams,
   type VaultPage,
 } from "@/lib/documentVault/config";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
+import {
+  MyDocumentsCard,
+  VaultHeading,
+  VaultPageFrame,
+  VaultSubtitleSkeleton,
+} from "./parts";
 
 export const metadata = {
   title: "Document Vault",
@@ -82,31 +88,27 @@ export default async function VaultPage({
   const vaultParams = parseVaultParams(await searchParams);
 
   return (
-    <div className="mx-auto max-w-5xl space-y-10 px-6 py-8">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Document Vault</h1>
-        <Suspense fallback={<Skeleton className="mt-2 h-4 w-80" />}>
-          <VaultSubtitle />
-        </Suspense>
-      </div>
+    <VaultPageFrame>
+      <VaultHeading
+        subtitle={
+          <Suspense fallback={<VaultSubtitleSkeleton />}>
+            <VaultSubtitle />
+          </Suspense>
+        }
+      />
 
       {/* ── The org's own documents (everyone) ── */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">My documents</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Suspense fallback={<OrgDocumentsSkeleton />}>
-            <MyDocuments />
-          </Suspense>
-        </CardContent>
-      </Card>
+      <MyDocumentsCard>
+        <Suspense fallback={<OrgDocumentsSectionSkeleton />}>
+          <MyDocuments />
+        </Suspense>
+      </MyDocumentsCard>
 
       {/* ── Client documents (Business Associates only) ── */}
       <Suspense fallback={null}>
         <ClientDocumentsSection params={vaultParams} />
       </Suspense>
-    </div>
+    </VaultPageFrame>
   );
 }
 
@@ -149,9 +151,7 @@ async function ClientDocumentsSection({ params }: { params: VaultListParams }) {
           client-side against /api/document-vault/tenant. */}
       <Suspense
         key={JSON.stringify(params)}
-        fallback={
-          <DataTableSkeleton columns={8} rows={params.pageSize} withToolbar />
-        }
+        fallback={<VaultTableSkeleton />}
       >
         <ClientDocumentsTable orgId={org.id} params={params} />
       </Suspense>
@@ -190,19 +190,5 @@ async function ClientDocumentsTable({
     <VaultTable initialData={firstPage} initialParams={params} />
   ) : (
     <VaultTable />
-  );
-}
-
-/** Mirrors OrgDocumentsSection's shape: two baseline doc cards + the
- *  collapsed commercial-docs trigger bar underneath. */
-function OrgDocumentsSkeleton() {
-  return (
-    <div className="space-y-6">
-      <div className="grid gap-3 sm:grid-cols-2">
-        <Skeleton className="h-40 rounded-lg" />
-        <Skeleton className="h-40 rounded-lg" />
-      </div>
-      <Skeleton className="h-14 rounded-lg" />
-    </div>
   );
 }

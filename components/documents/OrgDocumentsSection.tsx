@@ -6,6 +6,7 @@ import { CheckCircle2, ChevronDown, ShieldCheck, FileText } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Collapsible,
   CollapsibleContent,
@@ -33,11 +34,20 @@ export function OrgDocumentsSection({
   orgId,
   initialDocs,
   defaultExportOpen = false,
+  pending = false,
 }: {
   orgId: string;
   initialDocs: PartyKycDoc[];
   /** Force the commercial section open (e.g. when the org ships commercially). */
   defaultExportOpen?: boolean;
+  /**
+   * The org's docs have not arrived yet. Everything that is the same for every
+   * org (headings, each document's name and hint, the upload boxes) renders for
+   * real; only what depends on the docs (the "On file" marks and the added
+   * count) is a skeleton. The whole section is inert meanwhile. Use
+   * OrgDocumentsSectionSkeleton rather than passing this directly.
+   */
+  pending?: boolean;
 }) {
   const party = { partyType: "ORG" as const, orgId };
   const qc = useQueryClient();
@@ -50,6 +60,7 @@ export function OrgDocumentsSection({
     },
     initialData: initialDocs,
     staleTime: 30_000,
+    enabled: !pending,
   });
 
   const byKey = Object.fromEntries(docs.map((d) => [d.key, d])) as Partial<
@@ -64,7 +75,7 @@ export function OrgDocumentsSection({
   );
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" inert={pending} aria-busy={pending || undefined}>
       {/* ── Baseline identity documents ── */}
       <div className="space-y-3">
         <div className="flex items-center gap-2">
@@ -82,6 +93,7 @@ export function OrgDocumentsSection({
               existing={byKey[config.key]}
               party={party}
               onChanged={invalidate}
+              pending={pending}
             />
           ))}
         </div>
@@ -102,9 +114,15 @@ export function OrgDocumentsSection({
               export commercially.
             </p>
           </div>
-          <span className="shrink-0 text-xs text-muted-foreground">
-            {exportOnFile} of {EXPORT_KYC_CONFIGS.length} added
-          </span>
+          {pending ? (
+            <span className="flex h-4 shrink-0 items-center">
+              <Skeleton className="h-3 w-16" />
+            </span>
+          ) : (
+            <span className="shrink-0 text-xs text-muted-foreground">
+              {exportOnFile} of {EXPORT_KYC_CONFIGS.length} added
+            </span>
+          )}
           <ChevronDown
             className={cn(
               "h-4 w-4 shrink-0 text-muted-foreground transition-transform",
@@ -122,6 +140,7 @@ export function OrgDocumentsSection({
                 party={party}
                 onChanged={invalidate}
                 showRequiredFor
+                pending={pending}
               />
             ))}
           </div>
@@ -137,12 +156,14 @@ function DocCard({
   party,
   onChanged,
   showRequiredFor = false,
+  pending = false,
 }: {
   config: KycDocConfig;
   existing: PartyKycDoc | undefined;
   party: { partyType: "ORG"; orgId: string };
   onChanged: () => void;
   showRequiredFor?: boolean;
+  pending?: boolean;
 }) {
   return (
     <div className="space-y-3 rounded-lg border p-4">
@@ -158,6 +179,7 @@ function DocCard({
           </div>
           <p className="mt-0.5 text-xs text-muted-foreground">{config.hint}</p>
         </div>
+        {pending && <Skeleton className="h-5 w-16 shrink-0 rounded-full" />}
         {existing && (
           <span className="flex shrink-0 items-center gap-1 rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-medium text-green-700">
             <CheckCircle2 className="h-3 w-3" />
@@ -182,4 +204,14 @@ function DocCard({
       )}
     </div>
   );
+}
+
+/**
+ * "My documents" before the org's docs arrive: the real section, inert, with
+ * skeletons only where the org's own docs would show. Same component, so the
+ * cards, upload boxes and the collapsed commercial bar sit exactly where the
+ * loaded section will put them.
+ */
+export function OrgDocumentsSectionSkeleton() {
+  return <OrgDocumentsSection orgId="" initialDocs={[]} pending />;
 }

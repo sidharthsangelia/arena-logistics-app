@@ -71,12 +71,19 @@ const ALL_TYPES = "all";
 export default function VaultTable({
   initialData,
   initialParams,
+  skeleton = false,
 }: {
   /** The first page the route already rendered on the server, if it rendered one. */
   initialData?: VaultPage;
   initialParams?: VaultListParams;
+  /**
+   * Render as the table's own loading state: real toolbar, headers and pager,
+   * placeholder cells, nothing fetched and nothing clickable. Use
+   * VaultTableSkeleton rather than passing this directly.
+   */
+  skeleton?: boolean;
 } = {}) {
-  const t = useVaultQuery({ initialData, initialParams });
+  const t = useVaultQuery({ initialData, initialParams, disabled: skeleton });
   const invalidate = t.invalidate;
 
   const [selection, setSelection] = React.useState<RowSelectionState>({});
@@ -374,6 +381,28 @@ export default function VaultTable({
     );
   }
 
+  if (skeleton) {
+    return (
+      <div inert aria-busy="true">
+        <DataTable
+          columns={columns}
+          data={[]}
+          page={t.page}
+          pageSize={t.pageSize}
+          totalRows={0}
+          pageCount={1}
+          onPageChange={t.setPage}
+          onPageSizeChange={t.setPageSize}
+          sorting={t.sorting}
+          onSortingChange={t.setSorting}
+          isFirstLoad
+          skeletonRows={t.pageSize}
+          toolbar={toolbar}
+        />
+      </div>
+    );
+  }
+
   return (
     <>
       <DataTable
@@ -412,4 +441,14 @@ export default function VaultTable({
       {deleteDialog}
     </>
   );
+}
+
+/**
+ * The client-documents table before its first page arrives: the real toolbar,
+ * filters, column headers and pager, with placeholder cells. Reads page size,
+ * sort and filters from the URL exactly as the live table does, so it draws the
+ * same number of rows with the same filter selected. Fetches nothing.
+ */
+export function VaultTableSkeleton() {
+  return <VaultTable skeleton />;
 }

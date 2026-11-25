@@ -27,6 +27,8 @@ export const VAULT_QUERY_KEY = "vault-documents";
 export function useVaultQuery(opts?: {
   initialData?: VaultPage;
   initialParams?: VaultListParams;
+  /** Skeleton use: never fetch, stay on the first-load state. */
+  disabled?: boolean;
 }) {
   const qc = useQueryClient();
 
@@ -66,6 +68,7 @@ export function useVaultQuery(opts?: {
     staleTime: 15_000,
     placeholderData: keepPreviousData,
     initialData: matchesPrefetch ? opts?.initialData : undefined,
+    enabled: !opts?.disabled,
   });
 
   // Deleting shifts what every cached page holds, so drop the whole key rather
