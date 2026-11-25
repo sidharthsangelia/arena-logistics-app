@@ -13,7 +13,6 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
   TableBody,
@@ -26,16 +25,11 @@ import { Separator } from "@/components/ui/separator";
 import {
   Tooltip,
   TooltipContent,
-  TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 
 import {
-  Wallet,
-  Truck,
-  Clock,
-  PackageCheck,
   Users,
   FileText,
   Plus,
@@ -47,7 +41,6 @@ import {
   ShieldCheck,
   Inbox,
   Building2,
-  Receipt,
   Plane,
   Hash,
   ChevronRight,
@@ -69,7 +62,21 @@ import {
   getRecentShipments,
   getRecentWalletActivity,
   getShipmentStats,
+  RECENT_QUOTES_LIMIT,
+  RECENT_SHIPMENTS_LIMIT,
+  RECENT_WALLET_TXNS_LIMIT,
 } from "@/lib/dashboard/tenantOverview";
+import { StatCardSubSkeleton, StatCardValueSkeleton } from "@/components/StatCard";
+import {
+  CardDescriptionSkeleton,
+  DashCardDescription,
+  DashboardLayout,
+  GreetingNameSkeleton,
+  QuotesBodySkeleton,
+  RecentShipmentsBodySkeleton,
+  RecentShipmentsTableHeader,
+  WalletActivityBodySkeleton,
+} from "./_dashboard/parts";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Data flow / streaming model
@@ -204,98 +211,6 @@ function RowLink({
   );
 }
 
-function StatCard({
-  label,
-  value,
-  sub,
-  icon: Icon,
-  tooltip,
-}: {
-  label: string;
-  value: string | number;
-  sub?: string;
-  icon: React.ElementType;
-  tooltip?: string;
-}) {
-  return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between pb-2">
-        <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-1.5">
-          {label}
-          {tooltip && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Info className="h-3.5 w-3.5 cursor-help" />
-              </TooltipTrigger>
-              <TooltipContent className="max-w-[220px] text-xs">{tooltip}</TooltipContent>
-            </Tooltip>
-          )}
-        </CardTitle>
-        <Icon className="h-4 w-4 text-muted-foreground" />
-      </CardHeader>
-      <CardContent>
-        <p className="text-2xl font-semibold tracking-tight">{value}</p>
-        {sub && <p className="text-xs text-muted-foreground mt-1">{sub}</p>}
-      </CardContent>
-    </Card>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Skeletons — one per streamed section, sized to match its real content so the
-// layout never jumps when the data lands.
-// ─────────────────────────────────────────────────────────────────────────────
-
-function StatCardSkeleton() {
-  return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between pb-2">
-        <Skeleton className="h-4 w-24" />
-        <Skeleton className="h-4 w-4 rounded" />
-      </CardHeader>
-      <CardContent>
-        <Skeleton className="h-7 w-16" />
-        <Skeleton className="mt-2 h-3 w-28" />
-      </CardContent>
-    </Card>
-  );
-}
-
-function TableCardSkeleton({ rows = 5 }: { rows?: number }) {
-  return (
-    <div className="space-y-3 p-6">
-      {Array.from({ length: rows }).map((_, i) => (
-        <div key={i} className="flex items-center justify-between gap-4">
-          <div className="space-y-1.5">
-            <Skeleton className="h-4 w-32" />
-            <Skeleton className="h-3 w-40" />
-          </div>
-          <Skeleton className="h-5 w-16 rounded-full" />
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function ListCardSkeleton({ rows = 3 }: { rows?: number }) {
-  return (
-    <CardContent className="space-y-3">
-      {Array.from({ length: rows }).map((_, i) => (
-        <div key={i} className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <Skeleton className="h-7 w-7 rounded-md" />
-            <div className="space-y-1">
-              <Skeleton className="h-4 w-24" />
-              <Skeleton className="h-3 w-16" />
-            </div>
-          </div>
-          <Skeleton className="h-4 w-14" />
-        </div>
-      ))}
-    </CardContent>
-  );
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Streamed sections — each owns its own query and its own Suspense boundary.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -365,351 +280,295 @@ async function DashboardAlerts({ orgId }: { orgId: string }) {
   );
 }
 
-async function WalletBalanceCard({ orgId }: { orgId: string }) {
+// Wallet balance card: label, icon and tooltip are fixed (DashboardLayout); the
+// figure and its one-word state stream. Both read the same cached balance.
+async function WalletBalanceValue({ orgId }: { orgId: string }) {
   const wallet = await getCachedWalletBalance(orgId);
+  return <>{formatMoney(wallet.balance, wallet.currency)}</>;
+}
 
+async function WalletBalanceSub({ orgId }: { orgId: string }) {
+  const wallet = await getCachedWalletBalance(orgId);
+  return <>{wallet.exists ? "Available to spend" : "Wallet not set up yet"}</>;
+}
+
+type ShipmentStatsPromise = ReturnType<typeof getShipmentStats>;
+type ShipmentStatKey = "activeCount" | "needsAttentionCount" | "deliveredThisMonth";
+
+// One stats query, started once by the page and shared by every figure.
+async function ShipmentStatValue({
+  stats,
+  pick,
+}: {
+  stats: ShipmentStatsPromise;
+  pick: ShipmentStatKey;
+}) {
+  const s = await stats;
+  return <>{s[pick]}</>;
+}
+
+async function DeliveredSub({ stats }: { stats: ShipmentStatsPromise }) {
+  const s = await stats;
+  return <>{`${s.totalCount} shipments all time`}</>;
+}
+
+type RecentShipmentsPromise = ReturnType<typeof getRecentShipments>;
+
+async function RecentShipmentsDescription({ shipments }: { shipments: RecentShipmentsPromise }) {
+  const recentShipments = await shipments;
   return (
-    <StatCard
-      label="Wallet Balance"
-      value={formatMoney(wallet.balance, wallet.currency)}
-      sub={wallet.exists ? "Available to spend" : "Wallet not set up yet"}
-      icon={Wallet}
-      tooltip="Funds used to pay for shipments and services booked through your account."
-    />
+    <DashCardDescription>
+      Your last {recentShipments.length} booking{recentShipments.length === 1 ? "" : "s"}
+      . Select one for full details
+    </DashCardDescription>
   );
 }
 
-async function ShipmentStatCards({ orgId }: { orgId: string }) {
-  const stats = await getShipmentStats(orgId);
+async function RecentShipmentsBody({ shipments }: { shipments: RecentShipmentsPromise }) {
+  const recentShipments = await shipments;
+
+  if (recentShipments.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-3 py-12 px-6 text-center">
+        <Inbox className="h-8 w-8 text-muted-foreground" />
+        <div>
+          <p className="text-sm font-medium">No shipments yet</p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Book your first shipment to see it show up here.
+          </p>
+        </div>
+        <Button size="sm" className="gap-1.5 mt-1" asChild>
+          <Link href="/book">
+            <Plus className="h-3.5 w-3.5" />
+            New Shipment
+          </Link>
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <Table>
+      <RecentShipmentsTableHeader />
+      <TableBody>
+        {recentShipments.map((s) => (
+          <TableRow
+            key={s.id}
+            className="relative cursor-pointer hover:bg-muted/50 transition-colors group"
+          >
+            <TableCell className="pl-6 py-3 relative">
+              <RowLink
+                href={`/shipments/${s.id}`}
+                label={`View shipment ${s.shipmentNumber}`}
+              />
+              <p className="text-sm font-medium leading-tight font-mono">
+                {s.shipmentNumber}
+              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {s.clientName ?? "For your organisation"} ·{" "}
+                {formatDate(new Date(s.createdAt))}
+              </p>
+            </TableCell>
+            <TableCell className="px-3 py-3 font-mono text-xs">
+              {s.fromCity} → {s.toCity}
+            </TableCell>
+            <TableCell className="px-3 py-3">
+              {s.hawbNumber ? (
+                <>
+                  <p className="text-xs font-mono flex items-center gap-1">
+                    <Hash className="h-3 w-3 text-muted-foreground" />
+                    {s.hawbNumber}
+                  </p>
+                  {s.carrierAirline && (
+                    <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1">
+                      <Plane className="h-3 w-3" />
+                      {s.carrierAirline}
+                    </p>
+                  )}
+                </>
+              ) : (
+                <span className="text-xs text-muted-foreground italic">
+                  Pending assignment
+                </span>
+              )}
+            </TableCell>
+            <TableCell className=" py-3 text-sm tabular-nums font-medium">
+              {s.quotedTotal ? formatMoney(s.quotedTotal, s.currency) : "—"}
+            </TableCell>
+            <TableCell className="pr-6 py-3">
+              <div className="flex items-center justify-between gap-2">
+                <ShipmentStatusBadge status={s.status} />
+                <ChevronRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+              </div>
+            </TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
+  );
+}
+
+type WalletActivityPromise = ReturnType<typeof getRecentWalletActivity>;
+
+async function WalletActivityDescription({ txns }: { txns: WalletActivityPromise }) {
+  const recentWalletTxns = await txns;
+  return (
+    <DashCardDescription>Last {recentWalletTxns.length || 0} transactions</DashCardDescription>
+  );
+}
+
+async function WalletActivityBody({ txns }: { txns: WalletActivityPromise }) {
+  const recentWalletTxns = await txns;
+
+  if (recentWalletTxns.length === 0) {
+    return <p className="text-xs text-muted-foreground">No transactions yet.</p>;
+  }
 
   return (
     <>
-      <StatCard
-        label="Active Shipments"
-        value={stats.activeCount}
-        sub="Booked through out-for-delivery"
-        icon={Truck}
-        tooltip="Shipments currently in progress: booked, processing, in transit, on customs hold, or out for delivery."
-      />
-      <StatCard
-        label="Needs Your Attention"
-        value={stats.needsAttentionCount}
-        sub="Drafts, payments & documents"
-        icon={Clock}
-        tooltip="Shipments that are drafted, awaiting payment, or waiting on documents from you."
-      />
-      <StatCard
-        label="Delivered This Month"
-        value={stats.deliveredThisMonth}
-        sub={`${stats.totalCount} shipments all time`}
-        icon={PackageCheck}
-        tooltip="Shipments marked delivered since the 1st of this month."
-      />
+      {recentWalletTxns.map((txn, i) => {
+        const isCredit = CREDIT_TXN_TYPES.includes(txn.type);
+        const meta = WALLET_TXN_LABELS[txn.type];
+        return (
+          <div key={txn.id}>
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 min-w-0">
+                <div
+                  className={`h-7 w-7 rounded-md border flex items-center justify-center shrink-0 ${
+                    isCredit ? "text-emerald-600" : "text-muted-foreground"
+                  }`}
+                >
+                  {isCredit ? (
+                    <ArrowUpRight className="h-3.5 w-3.5" />
+                  ) : (
+                    <ArrowDownRight className="h-3.5 w-3.5" />
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <p className="text-sm font-medium leading-tight truncate cursor-help w-fit">
+                        {meta.label}
+                      </p>
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-[220px] text-xs">
+                      {meta.tooltip}
+                    </TooltipContent>
+                  </Tooltip>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {formatDate(new Date(txn.createdAt))}
+                  </p>
+                </div>
+              </div>
+              <span
+                className={`text-sm tabular-nums font-medium shrink-0 ${
+                  isCredit ? "text-emerald-600" : ""
+                }`}
+              >
+                {isCredit ? "+" : "-"}
+                {formatMoney(txn.amount, txn.currency)}
+              </span>
+            </div>
+            {i < recentWalletTxns.length - 1 && <Separator className="mt-3" />}
+          </div>
+        );
+      })}
     </>
   );
 }
 
-async function RecentShipments({ orgId }: { orgId: string }) {
-  const recentShipments = await getRecentShipments(orgId);
+type QuotesSummaryPromise = ReturnType<typeof getQuotesSummary>;
+
+async function QuotesDescription({ summary }: { summary: QuotesSummaryPromise }) {
+  const { openCount: openQuotesCount } = await summary;
+  return (
+    <DashCardDescription>
+      {openQuotesCount} open quote{openQuotesCount === 1 ? "" : "s"}
+    </DashCardDescription>
+  );
+}
+
+async function QuotesBody({ summary }: { summary: QuotesSummaryPromise }) {
+  const { recent: recentQuotes } = await summary;
+
+  if (recentQuotes.length === 0) {
+    return <p className="text-xs text-muted-foreground">No quotes generated yet.</p>;
+  }
 
   return (
-    <Card className="lg:col-span-2">
-      <CardHeader className="flex flex-row items-center justify-between pb-3">
-        <div>
-          <CardTitle className="text-sm font-semibold">Recent Shipments</CardTitle>
-          <CardDescription className="text-xs mt-0.5">
-            Your last {recentShipments.length} booking{recentShipments.length === 1 ? "" : "s"}
-            . Select one for full details
-          </CardDescription>
-        </div>
-        <Button variant="ghost" size="sm" className="gap-1 text-xs h-7" asChild>
-          <Link href="/shipments">
-            View all
-            <ArrowRight className="h-3 w-3" />
-          </Link>
-        </Button>
-      </CardHeader>
+    <>
+      {recentQuotes.map((q, i) => {
+        const validUntil = new Date(q.validUntil);
+        const remaining = daysUntil(validUntil);
+        const expiringSoon =
+          (q.status === "SENT" || q.status === "DRAFT") && remaining <= 3;
+        const hasPdf = Boolean(q.pdfUrl);
 
-      <CardContent className="p-0">
-        {recentShipments.length === 0 ? (
-          <div className="flex flex-col items-center justify-center gap-3 py-12 px-6 text-center">
-            <Inbox className="h-8 w-8 text-muted-foreground" />
-            <div>
-              <p className="text-sm font-medium">No shipments yet</p>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Book your first shipment to see it show up here.
-              </p>
-            </div>
-            <Button size="sm" className="gap-1.5 mt-1" asChild>
-              <Link href="/book">
-                <Plus className="h-3.5 w-3.5" />
-                New Shipment
-              </Link>
-            </Button>
-          </div>
-        ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="pl-6">Shipment</TableHead>
-                <TableHead>Route</TableHead>
-                <TableHead>
-                  <span className="inline-flex items-center gap-1">
-                    Tracking
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Info className="h-3 w-3 cursor-help" />
-                      </TooltipTrigger>
-                      <TooltipContent className="max-w-[220px] text-xs">
-                        House Air Waybill (HAWB) and carrier, once assigned by our
-                        operations team.
-                      </TooltipContent>
-                    </Tooltip>
-                  </span>
-                </TableHead>
-                <TableHead>Amount</TableHead>
-                <TableHead className="pr-6">Status</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {recentShipments.map((s) => (
-                <TableRow
-                  key={s.id}
-                  className="relative cursor-pointer hover:bg-muted/50 transition-colors group"
-                >
-                  <TableCell className="pl-6 py-3 relative">
-                    <RowLink
-                      href={`/shipments/${s.id}`}
-                      label={`View shipment ${s.shipmentNumber}`}
-                    />
-                    <p className="text-sm font-medium leading-tight font-mono">
-                      {s.shipmentNumber}
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      {s.clientName ?? "For your organisation"} ·{" "}
-                      {formatDate(new Date(s.createdAt))}
-                    </p>
-                  </TableCell>
-                  <TableCell className="px-3 py-3 font-mono text-xs">
-                    {s.fromCity} → {s.toCity}
-                  </TableCell>
-                  <TableCell className="px-3 py-3">
-                    {s.hawbNumber ? (
-                      <>
-                        <p className="text-xs font-mono flex items-center gap-1">
-                          <Hash className="h-3 w-3 text-muted-foreground" />
-                          {s.hawbNumber}
-                        </p>
-                        {s.carrierAirline && (
-                          <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1">
-                            <Plane className="h-3 w-3" />
-                            {s.carrierAirline}
-                          </p>
-                        )}
-                      </>
+        return (
+          <div key={q.id}>
+            <div
+              className={`relative rounded-md -mx-2 px-2 py-1 transition-colors ${
+                hasPdf ? "hover:bg-muted/50 cursor-pointer" : "opacity-70"
+              }`}
+            >
+              {hasPdf && (
+                <RowLink
+                  href={q.pdfUrl as string}
+                  label={`Open PDF for quote ${q.quoteNumber}`}
+                  external
+                />
+              )}
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium leading-tight truncate flex items-center gap-1">
+                    {q.quoteNumber}
+                    {hasPdf ? (
+                      <ExternalLink className="h-3 w-3 text-muted-foreground shrink-0" />
                     ) : (
-                      <span className="text-xs text-muted-foreground italic">
-                        Pending assignment
-                      </span>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <FileSearch className="h-3 w-3 text-muted-foreground shrink-0 cursor-help" />
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-[200px] text-xs">
+                          PDF hasn&apos;t been generated for this quote yet.
+                        </TooltipContent>
+                      </Tooltip>
                     )}
-                  </TableCell>
-                  <TableCell className=" py-3 text-sm tabular-nums font-medium">
-                    {s.quotedTotal ? formatMoney(s.quotedTotal, s.currency) : "—"}
-                  </TableCell>
-                  <TableCell className="pr-6 py-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <ShipmentStatusBadge status={s.status} />
-                      <ChevronRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-async function WalletActivity({ orgId }: { orgId: string }) {
-  const recentWalletTxns = await getRecentWalletActivity(orgId);
-
-  return (
-    <Card>
-      <CardHeader className="">
-        <div className="flex items-center justify-between">
-          <div>
-            <CardTitle className="text-sm font-semibold">Wallet Activity</CardTitle>
-            <CardDescription className="text-xs mt-0.5">
-              Last {recentWalletTxns.length || 0} transactions
-            </CardDescription>
-          </div>
-          <Button variant="ghost" size="sm" className="gap-1 text-xs h-7" asChild>
-            <Link href="/wallet">
-              <Receipt className="h-3 w-3" />
-              Ledger
-            </Link>
-          </Button>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {recentWalletTxns.length === 0 ? (
-          <p className="text-xs text-muted-foreground">No transactions yet.</p>
-        ) : (
-          recentWalletTxns.map((txn, i) => {
-            const isCredit = CREDIT_TXN_TYPES.includes(txn.type);
-            const meta = WALLET_TXN_LABELS[txn.type];
-            return (
-              <div key={txn.id}>
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <div
-                      className={`h-7 w-7 rounded-md border flex items-center justify-center shrink-0 ${
-                        isCredit ? "text-emerald-600" : "text-muted-foreground"
-                      }`}
-                    >
-                      {isCredit ? (
-                        <ArrowUpRight className="h-3.5 w-3.5" />
-                      ) : (
-                        <ArrowDownRight className="h-3.5 w-3.5" />
-                      )}
-                    </div>
-                    <div className="min-w-0">
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <p className="text-sm font-medium leading-tight truncate cursor-help w-fit">
-                            {meta.label}
-                          </p>
-                        </TooltipTrigger>
-                        <TooltipContent className="max-w-[220px] text-xs">
-                          {meta.tooltip}
-                        </TooltipContent>
-                      </Tooltip>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        {formatDate(new Date(txn.createdAt))}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                    {q.clientName ?? "Unassigned"}
+                  </p>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <p
+                        className={`text-xs mt-0.5 flex items-center gap-1 w-fit cursor-help ${
+                          expiringSoon ? "text-destructive" : "text-muted-foreground"
+                        }`}
+                      >
+                        <CalendarClock className="h-3 w-3" />
+                        {remaining >= 0
+                          ? `Valid for ${remaining} more day${remaining === 1 ? "" : "s"}`
+                          : "Expired"}
                       </p>
-                    </div>
-                  </div>
-                  <span
-                    className={`text-sm tabular-nums font-medium shrink-0 ${
-                      isCredit ? "text-emerald-600" : ""
-                    }`}
-                  >
-                    {isCredit ? "+" : "-"}
-                    {formatMoney(txn.amount, txn.currency)}
-                  </span>
+                    </TooltipTrigger>
+                    <TooltipContent className="text-xs">
+                      Valid until {formatDate(validUntil)}
+                    </TooltipContent>
+                  </Tooltip>
                 </div>
-                {i < recentWalletTxns.length - 1 && <Separator className="mt-3" />}
-              </div>
-            );
-          })
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-async function QuotesCard({ orgId }: { orgId: string }) {
-  const { openCount: openQuotesCount, recent: recentQuotes } =
-    await getQuotesSummary(orgId);
-
-  return (
-    <Card>
-      <CardHeader className=" ">
-        <div className="flex items-center justify-between">
-          <div>
-            <CardTitle className="text-sm font-semibold">Recent Quotes</CardTitle>
-            <CardDescription className="text-xs mt-0.5">
-              {openQuotesCount} open quote{openQuotesCount === 1 ? "" : "s"}
-            </CardDescription>
-          </div>
-          <Button variant="ghost" size="sm" className="gap-1 text-xs h-7" asChild>
-            <Link href="/quotes">
-              View all
-              <ArrowRight className="h-3 w-3" />
-            </Link>
-          </Button>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {recentQuotes.length === 0 ? (
-          <p className="text-xs text-muted-foreground">No quotes generated yet.</p>
-        ) : (
-          recentQuotes.map((q, i) => {
-            const validUntil = new Date(q.validUntil);
-            const remaining = daysUntil(validUntil);
-            const expiringSoon =
-              (q.status === "SENT" || q.status === "DRAFT") && remaining <= 3;
-            const hasPdf = Boolean(q.pdfUrl);
-
-            return (
-              <div key={q.id}>
-                <div
-                  className={`relative rounded-md -mx-2 px-2 py-1 transition-colors ${
-                    hasPdf ? "hover:bg-muted/50 cursor-pointer" : "opacity-70"
-                  }`}
-                >
-                  {hasPdf && (
-                    <RowLink
-                      href={q.pdfUrl as string}
-                      label={`Open PDF for quote ${q.quoteNumber}`}
-                      external
-                    />
-                  )}
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium leading-tight truncate flex items-center gap-1">
-                        {q.quoteNumber}
-                        {hasPdf ? (
-                          <ExternalLink className="h-3 w-3 text-muted-foreground shrink-0" />
-                        ) : (
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <FileSearch className="h-3 w-3 text-muted-foreground shrink-0 cursor-help" />
-                            </TooltipTrigger>
-                            <TooltipContent className="max-w-[200px] text-xs">
-                              PDF hasn&apos;t been generated for this quote yet.
-                            </TooltipContent>
-                          </Tooltip>
-                        )}
-                      </p>
-                      <p className="text-xs text-muted-foreground mt-0.5 truncate">
-                        {q.clientName ?? "Unassigned"}
-                      </p>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <p
-                            className={`text-xs mt-0.5 flex items-center gap-1 w-fit cursor-help ${
-                              expiringSoon ? "text-destructive" : "text-muted-foreground"
-                            }`}
-                          >
-                            <CalendarClock className="h-3 w-3" />
-                            {remaining >= 0
-                              ? `Valid for ${remaining} more day${remaining === 1 ? "" : "s"}`
-                              : "Expired"}
-                          </p>
-                        </TooltipTrigger>
-                        <TooltipContent className="text-xs">
-                          Valid until {formatDate(validUntil)}
-                        </TooltipContent>
-                      </Tooltip>
-                    </div>
-                    <div className="text-right shrink-0">
-                      <p className="text-sm tabular-nums font-medium">
-                        {formatMoney(q.quotedTotal, q.currency)}
-                      </p>
-                      <QuoteStatusBadge status={q.status} />
-                    </div>
-                  </div>
+                <div className="text-right shrink-0">
+                  <p className="text-sm tabular-nums font-medium">
+                    {formatMoney(q.quotedTotal, q.currency)}
+                  </p>
+                  <QuoteStatusBadge status={q.status} />
                 </div>
-                {i < recentQuotes.length - 1 && <Separator className="mt-3" />}
               </div>
-            );
-          })
-        )}
-      </CardContent>
-    </Card>
+            </div>
+            {i < recentQuotes.length - 1 && <Separator className="mt-3" />}
+          </div>
+        );
+      })}
+    </>
   );
 }
 
@@ -836,15 +695,15 @@ async function ClientsCard({ orgId }: { orgId: string }) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Greeting — the only thing on this page that needs the full (uncached) org row,
-// so it streams on its own rather than holding the header back. The date beside
-// it is pure computation and renders with the shell.
+// so the name streams on its own; "Welcome back," and the date render with the
+// shell.
 // ─────────────────────────────────────────────────────────────────────────────
 
-async function Greeting() {
+async function GreetingName() {
   const org = await getCurrentOrg();
   if (!org) redirect("/onboarding");
 
-  return <>Welcome back, {org.companyName || org.name}</>;
+  return <>{org.companyName || org.name}</>;
 }
 
 async function OnboardingChecklistSection() {
@@ -857,7 +716,8 @@ async function OnboardingChecklistSection() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Page — awaits only the cached org shell, then streams every section.
+// Page — awaits only the cached org shell, then streams every value into the
+// fixed layout (_dashboard/parts.tsx), which (tenant)/loading.tsx also renders.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default async function DashboardOverviewPage() {
@@ -868,150 +728,110 @@ export default async function DashboardOverviewPage() {
   // No matching Org row yet — send them through onboarding rather than 404.
   if (!org) redirect("/onboarding");
 
-  const todayLabel = new Intl.DateTimeFormat("en-IN", {
-    weekday: "long",
-    day: "2-digit",
-    month: "long",
-    year: "numeric",
-  }).format(new Date());
+  // Each started once and shared by the pieces that read it.
+  const stats = getShipmentStats(org.id);
+  const shipments = getRecentShipments(org.id);
+  const txns = getRecentWalletActivity(org.id);
+  const quotes = org.isBusinessAssociate ? getQuotesSummary(org.id) : null;
+
+  // The ClientsCard (BA only) is not rendered: it was removed alongside the
+  // "become a Business Associate" promo, whose "Apply now" link pointed at a
+  // route that does not exist. TODO: restore once a real application flow is
+  // built.
 
   return (
-    <TooltipProvider delayDuration={200}>
-      <div className="p-6 space-y-6">
-        {/* ── Page header ─────────────────────────────────────────────── */}
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <h1 className="text-xl font-semibold tracking-tight">
-              {/* Sized to a typical company name so the line does not reflow
-                  when the real greeting lands. */}
-              <Suspense fallback={<Skeleton className="h-6 w-64" />}>
-                <Greeting />
-              </Suspense>
-            </h1>
-            <p className="text-sm text-muted-foreground mt-0.5">{todayLabel}</p>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" className="gap-1.5" asChild>
-              <Link href="/wallet">
-                <Wallet className="h-3.5 w-3.5" />
-                Top Up Wallet
-              </Link>
-            </Button>
-            <Button size="sm" className="gap-1.5" asChild>
-              <Link href="/book">
-                <Plus className="h-3.5 w-3.5" />
-                New Shipment
-              </Link>
-            </Button>
-          </div>
-        </div>
-
-        {/* ── Alerts (streams; renders nothing until known) ───────────── */}
+    <DashboardLayout
+      greetingName={
+        <Suspense fallback={<GreetingNameSkeleton />}>
+          <GreetingName />
+        </Suspense>
+      }
+      alerts={
+        // Renders nothing until known, and nothing at all for most orgs.
         <Suspense fallback={null}>
           <DashboardAlerts orgId={org.id} />
         </Suspense>
-
-        {/* ── Onboarding checklist (auto-hides once complete) ─────────── */}
+      }
+      checklist={
+        // Auto-hides once complete.
         <Suspense fallback={null}>
           <OnboardingChecklistSection />
         </Suspense>
-
-        {/* ── Stat cards ──────────────────────────────────────────────── */}
-        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-          {/* Balance is cached until a wallet write invalidates it, so this
-              lands effectively instantly — but it is still a read, so it gets
-              its own boundary rather than blocking the three cards beside it. */}
-          <Suspense fallback={<StatCardSkeleton />}>
-            <WalletBalanceCard orgId={org.id} />
+      }
+      wallet={{
+        value: (
+          <Suspense fallback={<StatCardValueSkeleton className="w-24" />}>
+            <WalletBalanceValue orgId={org.id} />
           </Suspense>
-          <Suspense
-            fallback={
-              <>
-                <StatCardSkeleton />
-                <StatCardSkeleton />
-                <StatCardSkeleton />
-              </>
+        ),
+        sub: (
+          <Suspense fallback={<StatCardSubSkeleton className="w-24" />}>
+            <WalletBalanceSub orgId={org.id} />
+          </Suspense>
+        ),
+      }}
+      stats={{
+        active: (
+          <Suspense fallback={<StatCardValueSkeleton />}>
+            <ShipmentStatValue stats={stats} pick="activeCount" />
+          </Suspense>
+        ),
+        attention: (
+          <Suspense fallback={<StatCardValueSkeleton />}>
+            <ShipmentStatValue stats={stats} pick="needsAttentionCount" />
+          </Suspense>
+        ),
+        delivered: (
+          <Suspense fallback={<StatCardValueSkeleton />}>
+            <ShipmentStatValue stats={stats} pick="deliveredThisMonth" />
+          </Suspense>
+        ),
+        deliveredSub: (
+          <Suspense fallback={<StatCardSubSkeleton />}>
+            <DeliveredSub stats={stats} />
+          </Suspense>
+        ),
+      }}
+      recentShipments={{
+        description: (
+          <Suspense fallback={<CardDescriptionSkeleton w="w-56" />}>
+            <RecentShipmentsDescription shipments={shipments} />
+          </Suspense>
+        ),
+        body: (
+          <Suspense fallback={<RecentShipmentsBodySkeleton rows={RECENT_SHIPMENTS_LIMIT} />}>
+            <RecentShipmentsBody shipments={shipments} />
+          </Suspense>
+        ),
+      }}
+      walletActivity={{
+        description: (
+          <Suspense fallback={<CardDescriptionSkeleton w="w-28" />}>
+            <WalletActivityDescription txns={txns} />
+          </Suspense>
+        ),
+        body: (
+          <Suspense fallback={<WalletActivityBodySkeleton rows={RECENT_WALLET_TXNS_LIMIT} />}>
+            <WalletActivityBody txns={txns} />
+          </Suspense>
+        ),
+      }}
+      quotes={
+        quotes
+          ? {
+              description: (
+                <Suspense fallback={<CardDescriptionSkeleton w="w-24" />}>
+                  <QuotesDescription summary={quotes} />
+                </Suspense>
+              ),
+              body: (
+                <Suspense fallback={<QuotesBodySkeleton rows={RECENT_QUOTES_LIMIT} />}>
+                  <QuotesBody summary={quotes} />
+                </Suspense>
+              ),
             }
-          >
-            <ShipmentStatCards orgId={org.id} />
-          </Suspense>
-        </div>
-
-        {/* ── Middle row: Recent shipments + Wallet/Quotes ───────────────── */}
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-          {/* Recent shipments — 2/3 width */}
-          <Suspense
-            fallback={
-              <Card className="lg:col-span-2">
-                <CardHeader className="pb-3">
-                  <Skeleton className="h-4 w-36" />
-                  <Skeleton className="mt-1 h-3 w-56" />
-                </CardHeader>
-                <TableCardSkeleton rows={5} />
-              </Card>
-            }
-          >
-            <RecentShipments orgId={org.id} />
-          </Suspense>
-
-          {/* Right column — Wallet + Quotes (Quotes is BA-only) */}
-          <div className="space-y-6">
-            <Suspense
-              fallback={
-                <Card>
-                  <CardHeader className="pb-3">
-                    <Skeleton className="h-4 w-28" />
-                  </CardHeader>
-                  <ListCardSkeleton rows={3} />
-                </Card>
-              }
-            >
-              <WalletActivity orgId={org.id} />
-            </Suspense>
-
-            {/* Quotes are generated for Business Associates booking on behalf
-                of their clients. Standard orgs don't have quotes, so this card
-                is hidden for them — matching the hidden /quotes route. */}
-            {org.isBusinessAssociate && (
-              <Suspense
-                fallback={
-                  <Card>
-                    <CardHeader className="pb-3">
-                      <Skeleton className="h-4 w-20" />
-                    </CardHeader>
-                    <ListCardSkeleton rows={3} />
-                  </Card>
-                }
-              >
-                <QuotesCard orgId={org.id} />
-              </Suspense>
-            )}
-          </div>
-        </div>
-
-        {/* ── Bottom row: Clients (BA only) ──────────────────────────────── */}
-        {/*
-          The "become a Business Associate" promo card was removed here: its
-          "Apply now" link pointed at /business-associate/apply, a route that
-          does not exist, and there is no BA application flow in the tenant app
-          yet. TODO: restore a CTA once a real application flow is built.
-        */}
-        {/* {org.isBusinessAssociate && (
-          <Suspense
-            fallback={
-              <Card>
-                <CardHeader className="pb-3">
-                  <Skeleton className="h-4 w-28" />
-                </CardHeader>
-                <TableCardSkeleton rows={3} />
-              </Card>
-            }
-          >
-            <ClientsCard orgId={org.id} />
-          </Suspense>
-        )} */}
-      </div>
-    </TooltipProvider>
+          : undefined
+      }
+    />
   );
 }

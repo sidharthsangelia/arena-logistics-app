@@ -46,6 +46,12 @@ import type { QuoteStatus, ShipmentStatus, WalletTxnType } from "@/generated/pri
 import { SHIPMENTS_COUNTS_TAG, SHIPMENTS_LIST_TAG } from "@/queries/shipments";
 import { walletBalanceTag } from "@/lib/wallet/queries";
 
+// How many rows each dashboard card lists. Exported so the dashboard's loading
+// state draws the same number of placeholder rows as the loaded card.
+export const RECENT_SHIPMENTS_LIMIT = 5;
+export const RECENT_WALLET_TXNS_LIMIT = 2;
+export const RECENT_QUOTES_LIMIT = 2;
+
 // ---------------------------------------------------------------------------
 // Alerts — BA application in review, plus documents expiring within 30 days
 // ---------------------------------------------------------------------------
@@ -54,6 +60,7 @@ export interface DashboardAlertsDTO {
   pendingBaApplicationAt: string | null;
   expiringDocs: { id: string; label: string }[];
 }
+
 
 export function getDashboardAlerts(orgId: string) {
   return unstable_cache(
@@ -182,7 +189,7 @@ export function getRecentShipments(orgId: string) {
       const rows = await prisma.shipment.findMany({
         where: { orgId },
         orderBy: { createdAt: "desc" },
-        take: 5,
+        take: RECENT_SHIPMENTS_LIMIT,
         select: {
           id: true,
           shipmentNumber: true,
@@ -247,7 +254,7 @@ export function getRecentWalletActivity(orgId: string) {
       const rows = await prisma.walletTransaction.findMany({
         where: { walletId: wallet.id },
         orderBy: { createdAt: "desc" },
-        take: 2,
+        take: RECENT_WALLET_TXNS_LIMIT,
         select: {
           id: true,
           type: true,
@@ -303,7 +310,7 @@ export function getQuotesSummary(orgId: string) {
         prisma.quote.findMany({
           where: { orgId },
           orderBy: { createdAt: "desc" },
-          take: 2,
+          take: RECENT_QUOTES_LIMIT,
           select: {
             id: true,
             quoteNumber: true,

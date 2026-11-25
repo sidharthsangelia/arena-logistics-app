@@ -1,6 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 import { Info } from "lucide-react";
+import { Skeleton } from "./ui/skeleton";
 
 export default function StatCard({
   label,
@@ -10,8 +11,10 @@ export default function StatCard({
   tooltip,
 }: {
   label: string;
-  value: string | number;
-  sub?: string;
+  /** The figure. Pass <StatCardValueSkeleton /> while it loads; label and icon stay real. */
+  value: React.ReactNode;
+  /** Pass <StatCardSubSkeleton /> when the line is data-driven and still loading. */
+  sub?: React.ReactNode;
   icon: React.ElementType;
   tooltip?: string;
 }) {
@@ -32,9 +35,26 @@ export default function StatCard({
         <Icon className="h-4 w-4 text-muted-foreground" />
       </CardHeader>
       <CardContent>
-        <p className="text-2xl font-semibold tracking-tight">{value}</p>
-        {sub && <p className="text-xs text-muted-foreground mt-1">{sub}</p>}
+        <div className="text-2xl font-semibold tracking-tight">{value}</div>
+        {sub && <div className="text-xs text-muted-foreground mt-1">{sub}</div>}
       </CardContent>
     </Card>
+  );
+}
+/** The figure's 32px line, with a bar inside it, so the card keeps its height. */
+export function StatCardValueSkeleton({ className = "w-12" }: { className?: string }) {
+  return (
+    <span className="flex h-8 items-center">
+      <Skeleton className={`h-6 ${className}`} />
+    </span>
+  );
+}
+
+/** A data-driven 16px sub line. Static sub lines should be passed as text instead. */
+export function StatCardSubSkeleton({ className = "w-28" }: { className?: string }) {
+  return (
+    <span className="flex h-4 items-center">
+      <Skeleton className={`h-3 ${className}`} />
+    </span>
   );
 }
