@@ -38,7 +38,10 @@ import {
   Megaphone,
   FolderOpen,
   BookUser,
+  LifeBuoy,
 } from "lucide-react";
+
+import { useHelpUnread } from "@/components/help/HelpUnread";
 
 import {
   Sidebar,
@@ -76,7 +79,7 @@ import { cn } from "@/lib/utils";
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
 
-interface NavItem {
+export interface NavItem {
   title: string;
   href: string;
   icon: React.ElementType;
@@ -85,7 +88,7 @@ interface NavItem {
   description: string;
 }
 
-interface NavSection {
+export interface NavSection {
   /** Stable React key. Also what an unlabelled section is identified by. */
   id: string;
   /** Heading shown above the group when expanded. Omitted for the top section,
@@ -381,6 +384,9 @@ export interface AppSidebarProps {
    *  Hiding the nav item is presentation; the route itself is gated in
    *  proxy.ts and re-checked on the page. See utils/arena-auth.ts. */
   isArenaAdmin?: boolean;
+  /** Newest What's new release this viewer has entries in. Drives the unread
+   *  dot on Help & Docs. Computed server-side so no changelog text ships. */
+  latestHelpVersion?: string | null;
 }
 
 // Tenant nav visibility by org classification.
@@ -399,6 +405,35 @@ const STANDARD_HIDDEN_HREFS = new Set(["/clients", "/quotes"]);
 // Arena nav visibility by role. Anything to do with Arena's own money is for
 // admins only, so ops members do not see the link at all.
 const ARENA_ADMIN_ONLY_HREFS = new Set(["/wallets"]);
+
+/**
+ * The nav sections this viewer may see. Shared with the Cmd+K palette, which
+ * offers exactly the pages the sidebar does, so the two can never disagree
+ * about what someone is allowed to open. Sections left empty are dropped.
+ */
+export function visibleNavSections(
+  variant: keyof typeof NAV_CONFIGS,
+  { isBA, isArenaAdmin }: { isBA: boolean; isArenaAdmin: boolean },
+): NavSection[] {
+  const filtered = NAV_CONFIGS[variant].sections.map((s) => ({
+    ...s,
+    items: s.items.filter((i) =>
+      variant === "tenant"
+        ? isBA
+          ? !BA_HIDDEN_HREFS.has(i.href)
+          : !STANDARD_HIDDEN_HREFS.has(i.href)
+        : isArenaAdmin || !ARENA_ADMIN_ONLY_HREFS.has(i.href),
+    ),
+  }));
+  return filtered.filter((s) => s.items.length > 0);
+}
+
+/** "/clients" under "/arena-dashboard" → "/arena-dashboard/clients"; "/" → the base itself. */
+export function resolveNavHref(basePath: string, href: string): string {
+  if (href === "/") return basePath;
+  if (basePath === "/") return href;
+  return `${basePath}${href}`;
+}
 
 // Shared row geometry. Kept in one place so the nav rows, the org switcher and
 // the user button all collapse to the same 40px square on the icon rail and the
@@ -473,10 +508,13 @@ function NavItemRow({
   item,
   href,
   isActive,
+  indicator,
 }: {
   item: NavItem;
   href: string;
   isActive: boolean;
+  /** Absolutely positioned extra, e.g. an unread dot. Never affects layout. */
+  indicator?: React.ReactNode;
 }) {
   const Icon = item.icon;
 
@@ -520,11 +558,12 @@ function NavItemRow({
           RAIL_SQUARE,
         )}
       >
-        <Link href={href}>
+        <Link href={href} className={indicator ? "relative" : undefined}>
           <Icon />
           <span className="truncate group-data-[collapsible=icon]:hidden">
             {item.title}
           </span>
+          {indicator}
         </Link>
       </SidebarMenuButton>
     </SidebarMenuItem>
@@ -612,8 +651,9 @@ export function AppSidebar({
   basePath,
   isBusinessAssociate,
   isArenaAdmin = false,
+  latestHelpVersion = null,
 }: AppSidebarProps) {
-  const { subtitle, sections: allSections } = NAV_CONFIGS[variant];
+  const { subtitle } = NAV_CONFIGS[variant];
 
   const pathname = usePathname();
   const { isMobile } = useSidebar();
@@ -646,26 +686,14 @@ export function AppSidebar({
   // Filter nav down to what this viewer is allowed: tenant items by org
   // classification, arena items by role. Sections that end up empty are dropped
   // so no stray heading is left behind with nothing under it.
-  const sections = useMemo(() => {
-    const filtered =
-      variant === "tenant"
-        ? allSections.map((s) => ({
-            ...s,
-            items: s.items.filter((i) =>
-              isBA
-                ? !BA_HIDDEN_HREFS.has(i.href)
-                : !STANDARD_HIDDEN_HREFS.has(i.href),
-            ),
-          }))
-        : allSections.map((s) => ({
-            ...s,
-            items: s.items.filter(
-              (i) => isArenaAdmin || !ARENA_ADMIN_ONLY_HREFS.has(i.href),
-            ),
-          }));
+  const sections = useMemo(
+    () => visibleNavSections(variant, { isBA, isArenaAdmin }),
+    [variant, isBA, isArenaAdmin],
+  );
 
-    return filtered.filter((s) => s.items.length > 0);
-  }, [variant, allSections, isBA, isArenaAdmin]);
+  const helpHref = resolveNavHref(basePath, "/help");
+  const helpActive = pathname === helpHref || pathname.startsWith(`${helpHref}/`);
+  const helpUnread = useHelpUnread(latestHelpVersion);
 
   // openUserProfile / openOrganizationProfile mount Clerk's own modal UI —
   // that's what makes the "Clerk popup" actually appear, as opposed to
@@ -696,12 +724,7 @@ export function AppSidebar({
   // recomputing every render — hence the suppression. It is a pure function of
   // basePath, so a useCallback makes that true in the dependency graph too.
   const resolveHref = useCallback(
-    (href: string) => {
-      if (href === "/") return basePath;
-      // Avoid a double slash when basePath is the app root
-      if (basePath === "/") return href;
-      return `${basePath}${href}`;
-    },
+    (href: string) => resolveNavHref(basePath, href),
     [basePath],
   );
 
@@ -856,6 +879,31 @@ export function AppSidebar({
 
       {/* ── Footer ──────────────────────────────────────────────────────── */}
       <SidebarFooter className="border-t border-sidebar-border p-2 group-data-[collapsible=icon]:px-3">
+        {/* Help sits above the account row rather than in a nav group: it is
+            about the app, not a part of it. The unread dot is absolutely
+            placed so it appearing after hydration never moves the row. */}
+        <SidebarMenu className="gap-0.5">
+          <NavItemRow
+            item={{
+              title: "Help & Docs",
+              href: "/help",
+              icon: LifeBuoy,
+              description: helpUnread
+                ? "Guides, search and something new in What's new"
+                : "Guides for everything you can do here",
+            }}
+            href={helpHref}
+            isActive={helpActive}
+            indicator={
+              helpUnread ? (
+                <span
+                  aria-label="New updates"
+                  className="absolute right-2.5 top-1/2 size-2 -translate-y-1/2 rounded-full bg-primary group-data-[collapsible=icon]:right-1.5 group-data-[collapsible=icon]:top-1.5 group-data-[collapsible=icon]:translate-y-0"
+                />
+              ) : null
+            }
+          />
+        </SidebarMenu>
         <SidebarMenu>
           <SidebarMenuItem>
             <DropdownMenu>

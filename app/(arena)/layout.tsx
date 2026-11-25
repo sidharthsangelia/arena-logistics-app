@@ -12,6 +12,8 @@ import { Suspense } from "react";
 import { getArenaAuth } from "@/utils/arena-auth";
 import { HeaderBell } from "@/components/notifications/HeaderBell";
 import { NotificationBellSkeleton } from "@/components/notifications/NotificationBell";
+import { HelpHeaderControls } from "@/components/help/HelpHeaderControls";
+import { getLatestVersionFor } from "@/lib/help/registry";
 
 const ARENA_ORG_ID = process.env.ARENA_ORG_ID!;
 
@@ -43,6 +45,9 @@ export default async function ArenaDashboardLayout({
           variant="arena"
           basePath="/arena-dashboard"
           isArenaAdmin={isArenaAdmin}
+          latestHelpVersion={getLatestVersionFor(
+            isArenaAdmin ? "arena-admin" : "arena-ops",
+          )}
         />
 
         <SidebarInset>
@@ -57,7 +62,12 @@ export default async function ArenaDashboardLayout({
             </div>
 
             {/* Suspended so the inbox query never holds up the dashboard shell. */}
-            <div className="flex shrink-0 items-center">
+            <div className="flex shrink-0 items-center gap-1">
+              <HelpHeaderControls
+                variant="arena"
+                basePath="/arena-dashboard"
+                isArenaAdmin={isArenaAdmin}
+              />
               <Suspense fallback={<NotificationBellSkeleton />}>
                 <HeaderBell />
               </Suspense>

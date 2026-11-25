@@ -18,6 +18,8 @@ import {
 } from "@/components/wallet/WalletBalanceIndicator";
 import { HeaderBell } from "@/components/notifications/HeaderBell";
 import { NotificationBellSkeleton } from "@/components/notifications/NotificationBell";
+import { HelpHeaderControls } from "@/components/help/HelpHeaderControls";
+import { getLatestVersionFor } from "@/lib/help/registry";
 
 const ARENA_ORG_ID = process.env.ARENA_ORG_ID!;
 
@@ -48,6 +50,9 @@ export default async function DashboardLayout({
           variant="tenant"
           basePath="/"
           isBusinessAssociate={org.isBusinessAssociate}
+          latestHelpVersion={getLatestVersionFor(
+            org.isBusinessAssociate ? "ba" : "standard",
+          )}
         />
 
         <SidebarInset>
@@ -65,6 +70,11 @@ export default async function DashboardLayout({
                 the breadcrumb. Each is suspended on its own so a slow query on one
                 never holds up the other or the header itself. */}
             <div className="flex shrink-0 items-center gap-1">
+              <HelpHeaderControls
+                variant="tenant"
+                basePath="/"
+                isBusinessAssociate={org.isBusinessAssociate}
+              />
               <Suspense fallback={<WalletBalanceIndicatorSkeleton />}>
                 <WalletBalanceIndicator orgId={org.id} />
               </Suspense>
