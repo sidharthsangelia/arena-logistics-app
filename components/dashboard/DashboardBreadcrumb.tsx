@@ -1,5 +1,6 @@
 "use client";
 
+import { Fragment } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -35,6 +36,8 @@ const TENANT_LABELS: Record<string, string> = {
   invoices: "Invoices",
   settings: "Settings",
   notifications: "Notifications",
+  help: "Help & Docs",
+  "whats-new": "What's new",
 };
 
 const ARENA_LABELS: Record<string, string> = {
@@ -54,6 +57,8 @@ const ARENA_LABELS: Record<string, string> = {
   customers: "Billing Customers",
   notices: "Notices",
   notifications: "Notifications",
+  help: "Help & Docs",
+  "whats-new": "What's new",
 };
 
 const LABEL_MAPS: Record<string, Record<string, string>> = {
@@ -93,6 +98,13 @@ function formatSegment(segment: string, labelMap: Record<string, string>) {
   );
 }
 
+/** Joins the base path and a relative path without doubling the slash when the
+ *  base is the app root: ("/", "shipments") → "/shipments", not "//shipments",
+ *  which the browser reads as a protocol-relative URL to a host named shipments. */
+function joinPath(basePath: string, rest: string) {
+  return `${basePath.replace(/\/+$/, "")}/${rest}`;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Component
 // ─────────────────────────────────────────────────────────────────────────────
@@ -115,10 +127,12 @@ export function DashboardBreadcrumb({ variant, basePath }: DashboardBreadcrumbPr
 
   return (
     <Breadcrumb>
-      <BreadcrumbList>
+      {/* nowrap: the header is a fixed 56px row, so a wrapped trail would be
+          clipped. Long labels truncate instead. */}
+      <BreadcrumbList className="flex-nowrap">
 
         {/* Root crumb — always first */}
-        <BreadcrumbItem>
+        <BreadcrumbItem className="shrink-0">
           {isRoot ? (
             <BreadcrumbPage>{rootLabel}</BreadcrumbPage>
           ) : (
@@ -131,7 +145,7 @@ export function DashboardBreadcrumb({ variant, basePath }: DashboardBreadcrumbPr
         {/* Remaining segments */}
         {segments.map((segment, index) => {
           // Build href relative to basePath
-          const href = basePath + "/" + segments.slice(0, index + 1).join("/");
+          const href = joinPath(basePath, segments.slice(0, index + 1).join("/"));
           const isLast = index === segments.length - 1;
 
           // Skip dynamic segments that look like IDs (cuid, uuid, numeric)
@@ -139,19 +153,21 @@ export function DashboardBreadcrumb({ variant, basePath }: DashboardBreadcrumbPr
           const isDynamic = /^[a-z0-9]{20,}$|^\d+$|^[0-9a-f-]{36}$/.test(segment);
           const label = isDynamic ? "Detail" : formatSegment(segment, labelMap);
 
+          // Fragment, not a wrapper element: separator and item are both <li>s
+          // and must be direct children of the <ol> to get its gap and markup.
           return (
-            <div key={href} className="flex items-center">
+            <Fragment key={href}>
               <BreadcrumbSeparator />
-              <BreadcrumbItem>
+              <BreadcrumbItem className="min-w-0">
                 {isLast ? (
-                  <BreadcrumbPage>{label}</BreadcrumbPage>
+                  <BreadcrumbPage className="truncate">{label}</BreadcrumbPage>
                 ) : (
-                  <BreadcrumbLink asChild>
+                  <BreadcrumbLink asChild className="truncate">
                     <Link href={href}>{label}</Link>
                   </BreadcrumbLink>
                 )}
               </BreadcrumbItem>
-            </div>
+            </Fragment>
           );
         })}
 
