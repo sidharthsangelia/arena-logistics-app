@@ -24,7 +24,10 @@ export const QUOTES_QUERY_KEY = "quotes";
  * written through the History API, react-query holding the previous page on
  * screen while the next one loads.
  */
-export function useQuotesQuery() {
+export function useQuotesQuery(opts?: {
+  /** Skeleton use: never fetch, stay on the first-load state. */
+  disabled?: boolean;
+}) {
   const qc = useQueryClient();
 
   const url = useTableUrlState({
@@ -52,6 +55,7 @@ export function useQuotesQuery() {
     queryFn: () => listQuotesAction(params),
     staleTime: 15_000,
     placeholderData: keepPreviousData,
+    enabled: !opts?.disabled,
   });
 
   // Deleting or sending a quote changes what every cached page holds, so drop

@@ -2,7 +2,7 @@
  * app/(tenant)/quotes/page.tsx
  *
  * A Business Associate's own quotations. The org scope is enforced twice over:
- * the layout calls requireBusinessAssociateOrg(), and the action behind the table
+ * the layout wraps it in BusinessAssociateGate, and the action behind the table
  * resolves the org itself through getDbOrgId() rather than taking it as a param.
  *
  * The page fetches nothing. Paging, sorting, search and the status filter live in
@@ -14,8 +14,7 @@
 
 import { Suspense } from "react";
 
-import QuotesTable from "@/components/quotes/QuotesTable";
-import { DataTableSkeleton } from "@/components/data-table/DataTableSkeleton";
+import QuotesTable, { QuotesTableSkeleton } from "@/components/quotes/QuotesTable";
 
 export const metadata = {
   title: "Quotes",
@@ -23,7 +22,7 @@ export const metadata = {
 
 export default function QuotesPage() {
   return (
-    <Suspense fallback={<DataTableSkeleton columns={10} rows={10} withToolbar />}>
+    <Suspense fallback={<QuotesTableSkeleton />}>
       <QuotesTable />
     </Suspense>
   );

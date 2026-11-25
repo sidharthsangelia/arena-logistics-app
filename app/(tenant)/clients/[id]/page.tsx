@@ -19,7 +19,7 @@ import {
   hasAnyExportDetail,
   toExportProfileForm,
 } from "@/lib/booking/exportProfile";
-import { getCurrentOrg } from "@/utils/tenant";
+import { getCurrentOrg, requireBusinessAssociateOrg } from "@/utils/tenant";
 import {
   HeaderSkeleton,
   StatsSkeleton,
@@ -399,7 +399,12 @@ export default async function ClientDetailPage({ params }: Props) {
 
   // Kick off the query once — all sub-components share this promise.
   // React will deduplicate; no extra DB calls are made.
-  const clientPromise = fetchClient(id);
+  //
+  // Business Associates only. The guard used to be awaited in the clients
+  // layout, which held the whole route on it and flashed the dashboard's
+  // loading state; chained here, the page shell paints at once and every
+  // section that reads the client waits on (and is redirected by) the guard.
+  const clientPromise = requireBusinessAssociateOrg().then(() => fetchClient(id));
 
   return (
     <div className="space-y-12">

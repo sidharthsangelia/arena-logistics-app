@@ -3,6 +3,7 @@ import { Suspense } from "react";
 import ClientsTable from "@/components/clients/ClientsTable";
 import ClientsToolbar from "@/components/clients/toolbar/ClientsToolbar";
 import ClientsTableSkeleton from "@/components/clients/ClientTableSkeleton";
+import { requireBusinessAssociateOrg } from "@/utils/tenant";
 
 import {
   CLIENT_PAGE_SIZE_OPTIONS,
@@ -88,7 +89,12 @@ async function ClientsTableSection({
 }: {
   params: ReturnType<typeof parseSearchParams>;
 }) {
-  const [{ rows, totalRows, pageCount }, orgOptions] = await Promise.all([
+  // The Business Associate guard runs alongside the queries rather than ahead of
+  // the page: in the layout it held the whole route and flashed the dashboard's
+  // loading state. Here only the table waits on it, and it still redirects
+  // before any row is rendered.
+  const [, { rows, totalRows, pageCount }, orgOptions] = await Promise.all([
+    requireBusinessAssociateOrg(),
     getClientsPage({
       page: params.page,
       pageSize: params.pageSize,

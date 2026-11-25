@@ -20,7 +20,6 @@ import { toast } from "sonner";
 
 import { DataTable } from "@/components/data-table/DataTable";
 import { DataTableColumnHeader } from "@/components/data-table/DataTableColumnHeader";
-import { DataTableSkeleton } from "@/components/data-table/DataTableSkeleton";
 import {
   DataTableBulkBar,
   selectedIds,
@@ -55,8 +54,17 @@ import { EmailEventBadge } from "./EmailEventBadge";
 import { QuotesExportButton } from "./QuotesExportButton";
 import { useQuotesQuery } from "./useQuotesQuery";
 
-export default function QuotesTable() {
-  const t = useQuotesQuery();
+export default function QuotesTable({
+  skeleton = false,
+}: {
+  /**
+   * Render as the table's own loading state: real toolbar, headers and pager,
+   * placeholder cells, nothing fetched and nothing clickable. Use
+   * QuotesTableSkeleton rather than passing this directly.
+   */
+  skeleton?: boolean;
+} = {}) {
+  const t = useQuotesQuery({ disabled: skeleton });
   // Vendor column is Arena-internal; masked for tenants and BAs.
   const isArena = useIsArenaOrg();
 
@@ -280,13 +288,27 @@ export default function QuotesTable() {
       </DataTableToolbar>
     );
 
-  // First load has nothing to keep on screen, so show the shape of the table.
-  // Every later fetch reuses the rows already rendered.
+  // First load has nothing to keep on screen, so draw the table's own header
+  // labels, border and pager and stand in only the cells. Every later fetch
+  // reuses the rows already rendered.
   if (t.isFirstLoad) {
     return (
-      <div className="space-y-4">
-        {toolbar}
-        <DataTableSkeleton columns={columns.length} rows={10} />
+      <div inert={skeleton || undefined} aria-busy="true">
+        <DataTable
+          columns={columns}
+          data={[]}
+          page={t.page}
+          pageSize={t.pageSize}
+          totalRows={0}
+          pageCount={1}
+          onPageChange={t.setPage}
+          onPageSizeChange={t.setPageSize}
+          sorting={t.sorting}
+          onSortingChange={t.setSorting}
+          isFirstLoad
+          skeletonRows={t.pageSize}
+          toolbar={toolbar}
+        />
       </div>
     );
   }
@@ -335,4 +357,13 @@ export default function QuotesTable() {
       }
     />
   );
+}
+
+/**
+ * The quotes table before its first page arrives: real toolbar, column headers
+ * and pager, with placeholder cells. Reads paging and filters from the URL as
+ * the live table does. Fetches nothing.
+ */
+export function QuotesTableSkeleton() {
+  return <QuotesTable skeleton />;
 }

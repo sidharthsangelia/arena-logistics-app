@@ -1,10 +1,9 @@
-import { DataTableSkeleton } from "@/components/data-table/DataTableSkeleton";
+import { QuotesTableSkeleton } from "@/components/quotes/QuotesTable";
 
 /**
- * Covers the instant between clicking Quotes in the sidebar and the route
- * rendering. The layout header is already on screen by then, so this stands in
- * only for the toolbar and the table.
+ * The layout's heading is already on screen by then, so this stands in only for
+ * the table: its real toolbar, headers and pager, with placeholder cells.
  */
 export default function Loading() {
-  return <DataTableSkeleton columns={10} rows={10} withToolbar />;
+  return <QuotesTableSkeleton />;
 }
