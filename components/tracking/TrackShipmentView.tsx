@@ -16,7 +16,7 @@ import { useState, useTransition } from "react";
 import {
   MapPin, Package, CheckCircle2, AlertCircle, Truck,
   ArrowRight, Loader2, RotateCcw, Box, Navigation,
-  Search, CalendarDays, Weight, Layers, Globe, Clock,
+  Search, Clock,
   Route,
 } from "lucide-react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -32,6 +32,16 @@ import type {
   TrackingEvent,
   TrackingEventType,
 } from "@/lib/tracking-adapters/core/tracking.types";
+
+import {
+  META_FIELDS,
+  StageTrack,
+  TRACK_PAGE,
+  TRACK_SEARCH_PLACEHOLDER,
+  TRACKING_FOOTER,
+  TrackEmptyState,
+  TrackHeader,
+} from "./trackParts";
 
 // ─── Event type configuration ─────────────────────────────────────────────────
 // Color is used only in two places: (1) the status badge on the hero card,
@@ -109,22 +119,6 @@ const EVENT_CONFIG: Record<TrackingEventType, EventConfig> = {
 // Exceptions / returns don't map cleanly here — the tracker shows progress
 // up to the last known normal stage, with the alert badge doing the rest.
 
-type NormalStage = "booked" | "picked_up" | "in_transit" | "out_for_delivery" | "delivered";
-
-interface Stage {
-  type:       NormalStage;
-  shortLabel: string;
-  icon:       React.ElementType;
-}
-
-const STAGES: Stage[] = [
-  { type: "booked",           shortLabel: "Booked",    icon: Box         },
-  { type: "picked_up",        shortLabel: "Collected", icon: Package     },
-  { type: "in_transit",       shortLabel: "In Transit",icon: Truck       },
-  { type: "out_for_delivery", shortLabel: "Dispatched",icon: Navigation  },
-  { type: "delivered",        shortLabel: "Delivered", icon: CheckCircle2},
-];
-
 const STAGE_INDEX: Partial<Record<TrackingEventType, number>> = {
   booked: 0, picked_up: 1, in_transit: 2, out_for_delivery: 3, delivered: 4,
 };
@@ -168,49 +162,9 @@ function formatGroupLabel(iso: string): string {
 // ─── ProgressTracker ─────────────────────────────────────────────────────────
 
 function ProgressTracker({ result }: { result: CanonicalTrackResult }) {
-  const reachedIdx = getReachedStageIndex(result.events);
   const latestType = result.latestEvent?.eventType;
-  const isAlert    = latestType && ["exception", "returned", "attempted"].includes(latestType);
-
-  return (
-    <div className="flex items-start">
-      {STAGES.map((stage, i) => {
-        const Icon      = stage.icon;
-        const completed = i <= reachedIdx;
-        const isLast    = i === STAGES.length - 1;
-        const lineActive= i < reachedIdx;
-
-        return (
-          <div key={stage.type} className="flex items-center flex-1 min-w-0">
-            <div className="flex flex-col items-center min-w-0">
-              <div
-                className={cn(
-                  "h-8 w-8 rounded-full flex items-center justify-center border-2 transition-colors shrink-0",
-                  completed && !isAlert && "bg-foreground border-foreground text-background",
-                  completed && isAlert  && "bg-amber-500 border-amber-500 text-white",
-                  !completed            && "border-border bg-background text-muted-foreground",
-                )}
-              >
-                <Icon className="h-3.5 w-3.5" />
-              </div>
-              <p className={cn(
-                "text-[10px] mt-1.5 text-center leading-tight whitespace-nowrap",
-                completed ? "font-semibold text-foreground" : "text-muted-foreground",
-              )}>
-                {stage.shortLabel}
-              </p>
-            </div>
-            {!isLast && (
-              <div className={cn(
-                "h-0.5 flex-1 mx-1.5 mb-5.5 rounded-full transition-colors",
-                lineActive ? "bg-foreground" : "bg-border",
-              )} />
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
+  const isAlert    = !!latestType && ["exception", "returned", "attempted"].includes(latestType);
+  return <StageTrack reachedIdx={getReachedStageIndex(result.events)} isAlert={isAlert} />;
 }
 
 // ─── StatusBadge ─────────────────────────────────────────────────────────────
@@ -242,19 +196,19 @@ function ShipmentHeroCard({ result }: { result: CanonicalTrackResult }) {
 
   const metaItems = [
     shipmentInfo.weight !== undefined && {
-      icon: Weight, label: "Weight",
+      ...META_FIELDS.weight,
       value: `${shipmentInfo.weight} kg`,
     },
     shipmentInfo.numberOfPieces !== undefined && {
-      icon: Layers, label: "Pieces",
+      ...META_FIELDS.pieces,
       value: String(shipmentInfo.numberOfPieces),
     },
     shipmentInfo.shipDate && {
-      icon: CalendarDays, label: "Shipped",
+      ...META_FIELDS.shipped,
       value: formatDate(shipmentInfo.shipDate),
     },
     shipmentInfo.destination && {
-      icon: Globe, label: "Destination",
+      ...META_FIELDS.destination,
       value: shipmentInfo.destination,
     },
   ].filter(Boolean) as { icon: React.ElementType; label: string; value: string }[];
@@ -561,92 +515,105 @@ function TrackingTimeline({
 
       {/* Footer attribution */}
       <p className="text-xs text-muted-foreground text-center pt-1">
-        Data via Arena Logistics
+        {TRACKING_FOOTER}
       </p>
     </div>
   );
 }
 
-// ─── EmptyState ───────────────────────────────────────────────────────────────
+// ─── Result skeleton ──────────────────────────────────────────────────────────
+// Shown while a lookup runs. A copy of the hero card and timeline: every fixed
+// label (stage names, metadata labels, "Latest Update", "Tracking History",
+// the footer) renders for real, the stages draw as not yet reached, and only
+// what the lookup returns is a skeleton, sized to the line it stands in for.
 
-function EmptyState() {
+function ResultSkeleton() {
   return (
-    <div className="flex flex-col items-center py-16 text-center">
-      <div className="rounded-full border-2 border-dashed border-border p-5 mb-4">
-        <Search className="h-7 w-7 text-muted-foreground/50" />
-      </div>
-      <p className="text-sm font-semibold mb-1">Enter a shipment number or AWB</p>
-      <p className="text-sm text-muted-foreground max-w-xs">
-        Use the Arena shipment number from your booking confirmation
-        (ARN260130748291) or the carrier&apos;s airway bill number. Either one
-        pulls the same live updates.
-      </p>
-    </div>
-  );
-}
-
-// ─── Loading skeleton ─────────────────────────────────────────────────────────
-
-function LoadingSkeleton() {
-  return (
-    <div className="space-y-4" aria-label="Loading tracking data">
-      {/* Hero card */}
+    <div className="space-y-4" aria-busy="true" aria-label="Loading tracking data">
       <Card>
         <CardHeader className="pb-5">
-          <div className="flex items-start justify-between">
-            <div className="space-y-2">
-              <Skeleton className="h-3 w-16 rounded" />
-              <Skeleton className="h-7 w-44 rounded" />
-              <Skeleton className="h-4 w-28 rounded" />
+          <div className="flex items-start justify-between gap-4 flex-wrap">
+            <div className="min-w-0 space-y-1">
+              {/* "Shipment Number" or "Airway Bill" depends on the answer. */}
+              <Skeleton className="h-4 w-24" />
+              <Skeleton className="h-8 w-52" />
+              <Skeleton className="h-5 w-32" />
             </div>
-            <Skeleton className="h-7 w-24" />
+            <Skeleton className="h-6.5 w-24" />
+          </div>
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 pt-3">
+            <Skeleton className="h-4 w-40" />
+            <Skeleton className="h-4 w-32" />
           </div>
         </CardHeader>
+
         <CardContent className="space-y-6 pt-0">
-          {/* Progress bar */}
-          <div className="flex items-start gap-2">
-            {[...Array(5)].map((_, i) => (
-              <div key={i} className="flex items-center flex-1">
-                <Skeleton className="h-8 w-8 rounded-full shrink-0" />
-                {i < 4 && <Skeleton className="h-0.5 flex-1 mx-1.5 rounded-none" />}
+          <StageTrack reachedIdx={-1} />
+
+          <Separator />
+          <div className="grid gap-4 grid-cols-2 sm:grid-cols-4">
+            {Object.values(META_FIELDS).map(({ icon: Icon, label }) => (
+              <div key={label} className="space-y-0.5">
+                <p className="text-xs text-muted-foreground flex items-center gap-1">
+                  <Icon className="h-3 w-3" />
+                  {label}
+                </p>
+                <Skeleton className="h-5 w-16" />
               </div>
             ))}
           </div>
+
           <Separator />
-          <div className="grid grid-cols-4 gap-4">
-            {[...Array(4)].map((_, i) => (
-              <div key={i} className="space-y-1.5">
-                <Skeleton className="h-3 w-12 rounded" />
-                <Skeleton className="h-4 w-16 rounded" />
-              </div>
-            ))}
-          </div>
-          <Separator />
-          <div className="rounded-lg border bg-muted/30 p-4 space-y-2">
-            <Skeleton className="h-3 w-20 rounded" />
-            <Skeleton className="h-5 w-48 rounded" />
-            <Skeleton className="h-4 w-36 rounded" />
-            <Skeleton className="h-3 w-28 rounded" />
+          <div className="rounded-lg border bg-muted/30 px-4 py-3.5 space-y-2">
+            <p className="text-xs font-medium text-muted-foreground">Latest Update</p>
+            <Skeleton className="h-5.5 w-56" />
+            <div className="flex items-center gap-1.5">
+              <MapPin className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+              <Skeleton className="h-5 w-36" />
+            </div>
+            <Skeleton className="h-4 w-28" />
           </div>
         </CardContent>
       </Card>
 
-      {/* Timeline card */}
       <Card>
-        <CardHeader className="pb-3">
-          <Skeleton className="h-5 w-36 rounded" />
+        <CardHeader className="pb-0 pt-5 px-6">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-semibold">Tracking History</p>
+            <Skeleton className="h-4 w-14" />
+          </div>
         </CardHeader>
-        <CardContent className="space-y-5">
-          {[...Array(4)].map((_, i) => (
-            <div key={i} className="flex gap-3">
-              <Skeleton className="h-7 w-7 rounded-full shrink-0" />
-              <div className="flex-1 space-y-1.5 pt-0.5">
-                <Skeleton className="h-4 w-48 rounded" />
-                <Skeleton className="h-3 w-32 rounded" />
-                <Skeleton className="h-3 w-20 rounded" />
+        <CardContent className="pt-5 px-6 pb-6">
+          <div className="space-y-6">
+            <div>
+              <div className="flex items-center gap-3 mb-5">
+                <div className="h-px flex-1 bg-border" />
+                <Skeleton className="h-4 w-40" />
+                <div className="h-px flex-1 bg-border" />
               </div>
+              {[0, 1, 2].map((i) => {
+                const isLast = i === 2;
+                return (
+                  <div key={i} className="flex gap-3">
+                    <div className="flex flex-col items-center shrink-0 pt-0.5">
+                      <div className="h-7 w-7 rounded-full border-2 border-border bg-background shrink-0" />
+                      {!isLast && (
+                        <div className="w-px flex-1 bg-border mt-1" style={{ minHeight: 20 }} />
+                      )}
+                    </div>
+                    <div className={cn("flex-1 min-w-0 space-y-1", isLast ? "pb-0" : "pb-5")}>
+                      <Skeleton className={cn("h-5", i === 0 ? "w-56" : "w-44")} />
+                      <Skeleton className="h-5 w-32" />
+                      <Skeleton className="mt-1.5 h-4 w-12" />
+                    </div>
+                  </div>
+                );
+              })}
             </div>
-          ))}
+            <p className="text-xs text-muted-foreground text-center pt-1">
+              {TRACKING_FOOTER}
+            </p>
+          </div>
         </CardContent>
       </Card>
     </div>
@@ -694,15 +661,10 @@ export function TrackShipmentView() {
   const isEmpty   = !result && !error && !isPending;
 
   return (
-    <div className="max-w-2xl mx-auto px-4 py-8 sm:px-6">
+    <div className={TRACK_PAGE}>
 
       {/* ── Page header ──────────────────────────────────────────────── */}
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold tracking-tight">Track Shipment</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Enter an Arena shipment number or a carrier AWB to see live updates.
-        </p>
-      </div>
+      <TrackHeader />
 
       {/* ── Search bar ───────────────────────────────────────────────── */}
       <div className="flex gap-2 mb-6">
@@ -712,7 +674,7 @@ export function TrackShipmentView() {
             value={awb}
             onChange={(e) => setAwb(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleTrack()}
-            placeholder="ARN260130748291 or AWB number"
+            placeholder={TRACK_SEARCH_PLACEHOLDER}
             className="pl-9 font-mono"
             disabled={isPending}
             aria-label="Shipment number or AWB"
@@ -745,7 +707,7 @@ export function TrackShipmentView() {
       </div>
 
       {/* ── Loading ──────────────────────────────────────────────────── */}
-      {isPending && <LoadingSkeleton />}
+      {isPending && <ResultSkeleton />}
 
       {/* ── Error ────────────────────────────────────────────────────── */}
       {hasError && (
@@ -765,7 +727,7 @@ export function TrackShipmentView() {
       )}
 
       {/* ── Empty state ───────────────────────────────────────────────── */}
-      {isEmpty && <EmptyState />}
+      {isEmpty && <TrackEmptyState />}
 
       {/* ── Result ───────────────────────────────────────────────────── */}
       {hasResult && (
