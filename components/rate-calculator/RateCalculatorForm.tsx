@@ -88,6 +88,24 @@ import { COUNTRY_TO_ISO } from "@/utils/data";
 import { computeShipmentWeights } from "@/lib/pricing/chargeableWeight";
 import { useAppStore } from "@/store";
 import { useIsArenaOrg } from "@/hooks/useIsArenaOrg";
+import {
+  BOX_COLUMN_HEADER,
+  BOX_COLUMNS,
+  BOX_GRID,
+  BOX_INPUT_HEIGHT,
+  BOXES_TIP,
+  CARRIERS_TIP,
+  CHARGED_WEIGHT_EMPTY,
+  CHARGED_WEIGHT_TIP,
+  DOMESTIC_DESTINATION_TIP,
+  FORM_TOP_GRID,
+  INVOICE_VALUE_TIP,
+  ROUTE_FIELD_GRID,
+  SECTION_LABEL_TEXT,
+  allCarriersLabel,
+  destinationPincodeLabel,
+  originTip,
+} from "./formLayout";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -241,7 +259,7 @@ function SectionLabel({
 }) {
   return (
     <div className="flex items-center gap-1.5">
-      <span className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+      <span className={SECTION_LABEL_TEXT}>
         {children}
       </span>
       {tip && <InfoTip text={tip} />}
@@ -312,7 +330,7 @@ function RouteCard({ register, setValue, errors, control, scope }: RouteProps) {
     (city) => setValue("destinationCity", city, { shouldValidate: true }),
   );
 
-  const destPincodeLabel = isDomestic ? "Pincode" : "Postal code";
+  const destPincodeLabel = destinationPincodeLabel(scope);
   const destPincodePlaceholder = isDomestic ? "e.g. 400001" : "Postal / ZIP";
 
   return (
@@ -322,15 +340,9 @@ function RouteCard({ register, setValue, errors, control, scope }: RouteProps) {
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <SectionLabel>Sending from</SectionLabel>
-            <IndiaChip
-              tip={
-                isDomestic
-                  ? "Domestic shipments are picked up within India."
-                  : "This tool quotes shipments leaving India."
-              }
-            />
+            <IndiaChip tip={originTip(scope)} />
           </div>
-          <div className="grid grid-cols-[0.5fr_1fr] gap-3">
+          <div className={ROUTE_FIELD_GRID}>
             <div>
               <Label className="mb-1.5 block text-xs">Pincode</Label>
               <div className="relative">
@@ -364,7 +376,7 @@ function RouteCard({ register, setValue, errors, control, scope }: RouteProps) {
           <div className="flex items-center justify-between">
             <SectionLabel>Sending to</SectionLabel>
             {isDomestic && (
-              <IndiaChip tip="Domestic shipments are delivered within India." />
+              <IndiaChip tip={DOMESTIC_DESTINATION_TIP} />
             )}
           </div>
           {!isDomestic && (
@@ -385,7 +397,7 @@ function RouteCard({ register, setValue, errors, control, scope }: RouteProps) {
               )}
             />
           )}
-          <div className="grid grid-cols-[0.5fr_1fr] gap-3">
+          <div className={ROUTE_FIELD_GRID}>
             <div>
               <Label className="mb-1.5 block text-xs">{destPincodeLabel}</Label>
               <div className="relative">
@@ -417,7 +429,7 @@ function RouteCard({ register, setValue, errors, control, scope }: RouteProps) {
           <>
             <div className="h-px bg-border" />
             <div className="space-y-2">
-              <SectionLabel tip="The value on the invoice for the goods inside, not the shipping. Carriers price their risk cover on it, and some will not carry high-value consignments at all, so it changes both the price and which couriers you are offered.">
+              <SectionLabel tip={INVOICE_VALUE_TIP}>
                 Invoice value
               </SectionLabel>
               <div className="relative">
@@ -452,8 +464,6 @@ function RouteCard({ register, setValue, errors, control, scope }: RouteProps) {
 // Boxes: compact one-row-per-box table
 // ---------------------------------------------------------------------------
 
-const BOX_GRID = "grid grid-cols-3 gap-2 sm:grid-cols-[3rem_5.5rem_1fr_1fr_1fr_1.75rem] sm:items-center";
-
 interface BoxRowProps {
   index: number;
   register: ReturnType<typeof useForm<FormValues>>["register"];
@@ -466,7 +476,7 @@ function BoxRow({ index, register, errors, canRemove, onRemove }: BoxRowProps) {
   const be = errors.boxes?.[index];
   const hasError = !!(be?.boxCount || be?.weightKg || be?.lengthCm || be?.widthCm || be?.heightCm);
 
-  const numInput = "h-9 text-sm";
+  const numInput = cn(BOX_INPUT_HEIGHT, "text-sm");
 
   return (
     <div className={cn("rounded-md px-1 py-1", hasError && "bg-destructive/5")}>
@@ -561,7 +571,7 @@ function BoxesCard({
     <Card>
       <CardContent className="space-y-3 p-5">
         <div className="flex items-center justify-between">
-          <SectionLabel tip="Group identical boxes on one row. Add a row for each different size or weight.">
+          <SectionLabel tip={BOXES_TIP}>
             Your boxes
           </SectionLabel>
           <div className="flex items-center gap-1.5">
@@ -585,32 +595,13 @@ function BoxesCard({
         </div>
 
         {/* Column headers (desktop only) */}
-        <div
-          className={cn(
-            BOX_GRID,
-            "hidden px-1 pb-0.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground sm:grid",
-          )}
-        >
-          <span className="flex items-center gap-1">
-            Qty
-            <InfoTip text="How many identical boxes of this size and weight." />
-          </span>
-          <span className="flex items-center gap-1">
-            Weight
-            <InfoTip text="Weight of one box, in kilograms." />
-          </span>
-          <span className="flex items-center gap-1">
-            L
-            <InfoTip text="Length of one box." />
-          </span>
-          <span className="flex items-center gap-1">
-            B
-            <InfoTip text="Breadth (width) of one box." />
-          </span>
-          <span className="flex items-center gap-1">
-            H
-            <InfoTip text="Height of one box." />
-          </span>
+        <div className={cn(BOX_GRID, BOX_COLUMN_HEADER)}>
+          {BOX_COLUMNS.map((col) => (
+            <span key={col.label} className="flex items-center gap-1">
+              {col.label}
+              <InfoTip text={col.tip} />
+            </span>
+          ))}
           <span />
         </div>
 
@@ -679,7 +670,7 @@ function CarrierPicker({
   const count = selected.length;
   const label =
     count === total
-      ? `All carriers (${total})`
+      ? allCarriersLabel(total)
       : count === 0
       ? "No carriers picked"
       : count === 1
@@ -690,7 +681,7 @@ function CarrierPicker({
     <div className="space-y-1.5">
       <div className="flex items-center gap-1.5">
         <span className="text-xs font-medium text-foreground">Carriers</span>
-        <InfoTip text="We ask each selected carrier for a live rate. Leave all on to compare the most options." />
+        <InfoTip text={CARRIERS_TIP} />
       </div>
       <Popover>
         <PopoverTrigger asChild>
@@ -757,7 +748,7 @@ function ChargedWeightInline({ control }: { control: Control<FormValues> }) {
       <div className="min-w-0">
         <div className="flex items-center gap-1 text-xs text-muted-foreground">
           You pay for
-          <InfoTip text="Carriers bill the higher of a box's real weight or its size based (volumetric) weight. We work this out for each box, then add them up." />
+          <InfoTip text={CHARGED_WEIGHT_TIP} />
         </div>
         {ready ? (
           <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
@@ -771,7 +762,7 @@ function ChargedWeightInline({ control }: { control: Control<FormValues> }) {
             </span>
           </div>
         ) : (
-          <p className="text-sm text-muted-foreground">Add box weight and size to see this.</p>
+          <p className="text-sm text-muted-foreground">{CHARGED_WEIGHT_EMPTY}</p>
         )}
       </div>
     </div>
@@ -930,7 +921,7 @@ export default function RateCalculatorForm({
   return (
     <form onSubmit={handleSubmit(onSubmit)} autoComplete="off" className="space-y-5">
       {/* Top: narrow route + wide boxes */}
-      <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[24rem_1fr]">
+      <div className={FORM_TOP_GRID}>
         <RouteCard
           register={register}
           setValue={setValue}
