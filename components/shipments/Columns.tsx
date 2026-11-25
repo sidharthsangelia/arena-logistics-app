@@ -6,6 +6,7 @@ import { ArrowRight } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 
 import { formatDate, formatMoney, formatTime, formatWeight } from "@/utils/format";
 import { STATUS_CONFIG } from "@/utils/statusConfigColors";
@@ -71,12 +72,35 @@ function CarrierCell({
   );
 }
 
+// ── First-load placeholders ─────────────────────────────────────────────────
+// Each column's placeholder is sized to its real cell: a bar inside a box of the
+// real line's height (16px for text-xs, 14px for the 10px sub line), so rows
+// are as tall as loaded ones and the columns settle at their loaded widths.
+
+function LineSkeleton({ width, small = false }: { width: string; small?: boolean }) {
+  return (
+    <div className={small ? "mt-0.5 flex h-3.5 items-center" : "flex h-4 items-center"}>
+      <Skeleton className={`${small ? "h-2.5" : "h-3"} ${width}`} />
+    </div>
+  );
+}
+
+function TwoLineSkeleton({ first, second }: { first: string; second: string }) {
+  return (
+    <div>
+      <LineSkeleton width={first} />
+      <LineSkeleton width={second} small />
+    </div>
+  );
+}
+
 export function getShipmentColumns(client = false): ColumnDef<ShipmentRow>[] {
   return [
     {
       accessorKey: "shipmentNumber",
       id: "shipmentNumber",
       enableHiding: false,
+      meta: { skeleton: <TwoLineSkeleton first="w-28" second="w-16" /> },
       header: ({ column }) => <DataTableColumnHeader column={column} title="Shipment" />,
       cell: ({ row }) => (
         <Link
@@ -109,6 +133,7 @@ export function getShipmentColumns(client = false): ColumnDef<ShipmentRow>[] {
     {
       id: "org",
       header: "BA / Client",
+      meta: { skeleton: <TwoLineSkeleton first="w-24" second="w-20" /> },
       enableSorting: false,
       cell: ({ row }) => (
         <div>
@@ -124,6 +149,7 @@ export function getShipmentColumns(client = false): ColumnDef<ShipmentRow>[] {
     {
       id: "route",
       header: "Route",
+      meta: { skeleton: <LineSkeleton width="w-40" /> },
       enableSorting: false,
       cell: ({ row }) => {
         const origin = [row.original.pickupAddress.city, row.original.pickupAddress.country]
@@ -144,6 +170,7 @@ export function getShipmentColumns(client = false): ColumnDef<ShipmentRow>[] {
     {
       id: "carrier",
       header: "Carrier",
+      meta: { skeleton: <LineSkeleton width="w-24" /> },
       enableSorting: false,
       cell: ({ row }) => (
         <CarrierCell
@@ -155,6 +182,7 @@ export function getShipmentColumns(client = false): ColumnDef<ShipmentRow>[] {
     {
       id: "packages",
       header: () => <div className="text-center">Pcs</div>,
+      meta: { skeleton: <div className="flex h-4 items-center justify-center"><Skeleton className="h-3 w-4" /></div> },
       enableSorting: false,
       cell: ({ row }) => (
         <div className="text-center text-xs tabular-nums text-foreground">
@@ -165,6 +193,7 @@ export function getShipmentColumns(client = false): ColumnDef<ShipmentRow>[] {
     {
       accessorKey: "totalActualWeightKg",
       id: "totalActualWeightKg",
+      meta: { skeleton: <LineSkeleton width="w-12" /> },
       header: ({ column }) => <DataTableColumnHeader column={column} title="Weight" />,
       cell: ({ row }) => (
         <span className="text-xs tabular-nums text-foreground">
@@ -175,6 +204,7 @@ export function getShipmentColumns(client = false): ColumnDef<ShipmentRow>[] {
     {
       accessorKey: "quotedTotal",
       id: "quotedTotal",
+      meta: { skeleton: <LineSkeleton width="w-16" /> },
       header: ({ column }) => <DataTableColumnHeader column={column} title="Freight" />,
       cell: ({ row }) => (
         <span className="text-xs tabular-nums text-foreground">
@@ -188,6 +218,7 @@ export function getShipmentColumns(client = false): ColumnDef<ShipmentRow>[] {
       accessorKey: "status",
       id: "status",
       enableHiding: false,
+      meta: { skeleton: <Skeleton className="h-5 w-20 rounded-4xl" /> },
       header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
       cell: ({ row }) => {
         const cfg = STATUS_CONFIG[row.original.status] ?? {
@@ -204,6 +235,7 @@ export function getShipmentColumns(client = false): ColumnDef<ShipmentRow>[] {
     {
       accessorKey: "bookedAt",
       id: "bookedAt",
+      meta: { skeleton: <TwoLineSkeleton first="w-20" second="w-12" /> },
       header: ({ column }) => <DataTableColumnHeader column={column} title="Booked At" />,
       cell: ({ row }) => {
         const bookedAt = row.original.bookedAt;

@@ -1,5 +1,4 @@
 import { Suspense } from "react";
-import { AlertCircle, Clock, Package, TrendingUp } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { ShipmentStatus } from "@/generated/prisma";
 import {
@@ -11,12 +10,13 @@ import {
   type ShipmentSortField,
 } from "@/queries/shipments";
 
-import StatCard from "@/components/StatCard";
 import { ShipmentsTable } from "@/components/shipments/ShipmentsTable";
 import {
-  TotalBadgeSkeleton,
+  ShipmentStatCards as ShipmentStatCardsView,
   ShipmentStatCardsSkeleton,
-  ShipmentsTableSkeleton,
+  ShipmentsPageHeader,
+  ShipmentsTableFallback,
+  TotalBadgeSkeleton,
 } from "./skeletons";
 
 // ---------------------------------------------------------------------------
@@ -95,32 +95,7 @@ async function ShipmentStatCards({
   statusCountsPromise: StatusCountsPromise;
 }) {
   const statusCounts = await statusCountsPromise;
-  const totalBooked = statusCounts.BOOKED ?? 0;
-  const totalProcessing = statusCounts.PROCESSING ?? 0;
-  const totalInTransit = statusCounts.IN_TRANSIT ?? 0;
-  const needsAttention =
-    (statusCounts.DOCUMENTS_PENDING ?? 0) +
-    (statusCounts.CUSTOMS_HOLD ?? 0) +
-    (statusCounts.ON_HOLD ?? 0);
-
-  return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-      <StatCard
-        label="Awaiting ops"
-        value={totalBooked}
-        icon={Clock}
-        sub="Newly booked"
-      />
-      <StatCard label="Processing" value={totalProcessing} icon={TrendingUp} />
-      <StatCard label="In transit" value={totalInTransit} icon={Package} />
-      <StatCard
-        label="Needs attention"
-        value={needsAttention}
-        icon={AlertCircle}
-        sub="Hold / docs / customs"
-      />
-    </div>
-  );
+  return <ShipmentStatCardsView counts={statusCounts} />;
 }
 
 async function ShipmentsTableSection({
@@ -173,16 +148,13 @@ export default async function ClientAllShipmentsPage({
   return (
     <div className="mx-auto max-w-screen-2xl px-6 py-8 space-y-6">
       {/* ── Header — static, never blocked ── */}
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">
-            All Shipments
-          </h1>
-        </div>
-        <Suspense fallback={<TotalBadgeSkeleton />}>
-          <TotalBadge statusCountsPromise={statusCountsPromise} />
-        </Suspense>
-      </div>
+      <ShipmentsPageHeader
+        badge={
+          <Suspense fallback={<TotalBadgeSkeleton />}>
+            <TotalBadge statusCountsPromise={statusCountsPromise} />
+          </Suspense>
+        }
+      />
 
       {/* ── Summary stats (unfiltered — always the full picture) ── */}
       <Suspense fallback={<ShipmentStatCardsSkeleton />}>
@@ -190,7 +162,7 @@ export default async function ClientAllShipmentsPage({
       </Suspense>
 
       {/* ── Table ── */}
-      <Suspense fallback={<ShipmentsTableSkeleton />}>
+      <Suspense fallback={<ShipmentsTableFallback />}>
         <ShipmentsTableSection
           params={params}
           statusCountsPromise={statusCountsPromise}
