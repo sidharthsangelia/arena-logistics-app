@@ -114,15 +114,14 @@ function handleSubmit(e: React.FormEvent) {
 
       {/* Workspace slug */}
       <div className="space-y-1.5">
-        <Label htmlFor="slug">Workspace URL</Label>
-        <div className="flex items-center gap-0 rounded-md border focus-within:ring-2 focus-within:ring-ring overflow-hidden">
-          <span className="bg-muted px-3 py-2 text-sm text-muted-foreground border-r select-none">
-            univendor.com/
-          </span>
-          <div className="relative flex-1">
+        {/* A unique handle for the workspace. It is not part of any web
+            address, so the field no longer shows a domain in front of it. */}
+        <Label htmlFor="slug">Workspace ID</Label>
+        <div>
+          <div className="relative">
             <Input
               id="slug"
-              className="border-0 rounded-none focus-visible:ring-0 pr-8"
+              className="pr-8"
               placeholder="acme-logistics"
               value={slug}
               onChange={(e) => {
@@ -151,8 +150,8 @@ function handleSubmit(e: React.FormEvent) {
         </div>
         <p className="text-xs text-muted-foreground">
           {slugStatus === "taken"
-            ? "This slug is already taken. Try another."
-            : "Lowercase letters, numbers, and hyphens only."}
+            ? "This ID is already taken. Try another."
+            : "Filled in from the name. Lowercase letters, numbers and hyphens."}
         </p>
       </div>
 
