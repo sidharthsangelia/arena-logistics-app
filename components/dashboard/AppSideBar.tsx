@@ -19,15 +19,14 @@ import {
   Building2,
   FileUser,
   Calculator,
+  Globe,
+  ReceiptIndianRupee,
   PackagePlus,
   MapPin,
-  BookMarked,
   Package,
-  FileText,
   Settings,
-  SquareSigma,
   TableProperties,
-  PackageCheck,
+  Plane,
   Truck,
   Users,
   ChevronsUpDown,
@@ -138,13 +137,13 @@ const NAV_CONFIGS: Record<string, NavConfig> = {
           {
             title: "International Rates",
             href: "/rates",
-            icon: Calculator,
+            icon: Globe,
             description: "Check prices for parcels going abroad",
           },
           {
             title: "Domestic Rates",
             href: "/domestic-rates",
-            icon: SquareSigma,
+            icon: Calculator,
             description: "Check prices for parcels inside India",
           },
           {
@@ -192,7 +191,7 @@ const NAV_CONFIGS: Record<string, NavConfig> = {
           {
             title: "Address Book",
             href: "/addressbook",
-            icon: BookMarked,
+            icon: BookUser,
             description: "Saved pickup and delivery addresses",
           },
           {
@@ -216,7 +215,7 @@ const NAV_CONFIGS: Record<string, NavConfig> = {
           {
             title: "Invoices",
             href: "/invoices",
-            icon: FileText,
+            icon: ReceiptIndianRupee,
             description: "Bills Arena has raised to you",
           },
           {
@@ -253,7 +252,7 @@ const NAV_CONFIGS: Record<string, NavConfig> = {
           {
             title: "International Bookings",
             href: "/bookings",
-            icon: PackageCheck,
+            icon: Plane,
             description: "Export shipments waiting to be processed",
           },
           {
@@ -271,13 +270,13 @@ const NAV_CONFIGS: Record<string, NavConfig> = {
           {
             title: "International Rates",
             href: "/rates",
-            icon: Calculator,
+            icon: Globe,
             description: "Check prices for parcels going abroad",
           },
           {
             title: "Domestic Rates",
             href: "/domestic-rates",
-            icon: SquareSigma,
+            icon: Calculator,
             description: "Check prices for parcels inside India",
           },
         ],
@@ -343,7 +342,7 @@ const NAV_CONFIGS: Record<string, NavConfig> = {
           {
             title: "Invoices",
             href: "/invoices",
-            icon: FileText,
+            icon: ReceiptIndianRupee,
             description: "Bills you raise to accounts",
           },
           {
@@ -435,11 +434,33 @@ export function resolveNavHref(basePath: string, href: string): string {
   return `${basePath}${href}`;
 }
 
-// Shared row geometry. Kept in one place so the nav rows, the org switcher and
-// the user button all collapse to the same 40px square on the icon rail and the
-// rail reads as a single column of evenly sized targets.
-const RAIL_SQUARE =
-  "group-data-[collapsible=icon]:size-10! group-data-[collapsible=icon]:p-0! group-data-[collapsible=icon]:justify-center";
+// ── Rail geometry ───────────────────────────────────────────────────────────
+// Collapsing should look like the sidebar sliding shut over a fixed column of
+// icons, not a re-layout. So nothing is re-centred or re-padded on the rail:
+// every icon, avatar and the logo already sit on the rail's centre line (32px
+// from the left edge) when expanded, and collapsing only narrows each row to a
+// 40px target while the labels fade. The sums, with the 12px side gutter:
+//   nav row   12 + 11 pad + 18 icon/2           = 32
+//   avatars   12 + 1 border + 5 pad + 28/2      = 32  (org row)
+//             12 + 6 pad + 28/2                 = 32  (account row)
+//   logo      16 pad + 32/2                     = 32
+// Change one of those numbers and its partner has to move with it.
+
+// Every curve below is the sidebar's own width change in ui/sidebar.tsx
+// (300ms, cubic-bezier(0.32,0.72,0,1)). Written out in full each time because
+// Tailwind only generates classes it can read literally in the source.
+
+/** Rows narrow in step with the sidebar; hover colours stay quick. */
+const ROW_MOTION =
+  "[transition:width_300ms_cubic-bezier(0.32,0.72,0,1),height_300ms_cubic-bezier(0.32,0.72,0,1),background-color_150ms,color_150ms] motion-reduce:transition-none";
+
+/** Labels and secondary text fade rather than vanish in one frame. */
+const RAIL_FADE =
+  "transition-opacity duration-200 motion-reduce:transition-none group-data-[collapsible=icon]:opacity-0";
+
+/** Vertical spacing that changes between states animates on the same curve. */
+const RAIL_SPACING =
+  "transition-[margin,opacity] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Avatars
@@ -541,7 +562,9 @@ function NavItemRow({
         // conditional instead would leave the cva's own active colours in the
         // class list, and they land later in the stylesheet.
         className={cn(
-          "h-9 gap-3 rounded-md px-2.5 text-sm transition-colors",
+          "h-9 w-full gap-3 rounded-md px-[11px] text-sm",
+          "group-data-[collapsible=icon]:w-10",
+          ROW_MOTION,
           "[&_svg]:size-4.5",
           // Resting
           "text-sidebar-foreground/75 [&_svg]:text-sidebar-foreground/50",
@@ -555,14 +578,11 @@ function NavItemRow({
           // the dark pill.
           "data-active:hover:bg-sidebar-primary data-active:hover:text-sidebar-primary-foreground",
           "data-active:hover:[&_svg]:text-sidebar-primary-foreground",
-          RAIL_SQUARE,
         )}
       >
         <Link href={href} className={indicator ? "relative" : undefined}>
           <Icon />
-          <span className="truncate group-data-[collapsible=icon]:hidden">
-            {item.title}
-          </span>
+          <span className={cn("truncate", RAIL_FADE)}>{item.title}</span>
           {indicator}
         </Link>
       </SidebarMenuButton>
@@ -606,15 +626,16 @@ function OrgSwitcherRow() {
         <div className="relative">
           <SidebarMenuButton
             className={cn(
-              "h-12 gap-2.5 rounded-md px-2 transition-colors",
+              "h-12 w-full gap-2.5 rounded-md px-[5px]",
+              "group-data-[collapsible=icon]:h-10 group-data-[collapsible=icon]:w-10",
+              ROW_MOTION,
               "border border-sidebar-border bg-sidebar-foreground/3",
               "hover:bg-sidebar-foreground/6",
-              RAIL_SQUARE,
-              "group-data-[collapsible=icon]:border-transparent",
+              "group-data-[collapsible=icon]:border-transparent group-data-[collapsible=icon]:bg-transparent",
             )}
           >
             <OrgAvatar name={name} logoUrl={organization?.imageUrl} />
-            <div className="min-w-0 flex-1 text-left group-data-[collapsible=icon]:hidden">
+            <div className={cn("min-w-0 flex-1 text-left", RAIL_FADE)}>
               <p className="truncate text-[13px] font-medium leading-tight text-sidebar-foreground">
                 {name}
               </p>
@@ -624,7 +645,7 @@ function OrgSwitcherRow() {
                 </p>
               )}
             </div>
-            <ChevronsUpDown className="size-4 shrink-0 text-sidebar-foreground/40 group-data-[collapsible=icon]:hidden" />
+            <ChevronsUpDown className={cn("size-4 shrink-0 text-sidebar-foreground/40", RAIL_FADE)} />
           </SidebarMenuButton>
           {clerkOverlay}
         </div>
@@ -797,20 +818,22 @@ export function AppSidebar({
         <Link
           href={basePath}
           className={cn(
-            "flex h-14 shrink-0 items-center gap-2.5 border-b border-sidebar-border px-3 transition-colors",
+            "flex h-14 shrink-0 items-center gap-2.5 overflow-hidden border-b border-sidebar-border px-4 transition-colors",
             "hover:bg-sidebar-foreground/4",
-            "group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0",
           )}
         >
+          {/* The emblem alone, cut from the full wordmark (public/arena_logo.png)
+              on a transparent background. The wordmark itself is a wide banner
+              on a black starfield and shrank to an unreadable smudge here. */}
           <Image
-            src="/arena_logo.png"
+            src="/arena_mark.png"
             alt="Arena Cargo"
             width={32}
             height={32}
             priority
-            className="size-8 shrink-0 rounded-md object-contain"
+            className="size-8 shrink-0 object-contain"
           />
-          <div className="min-w-0 group-data-[collapsible=icon]:hidden">
+          <div className={cn("min-w-0", RAIL_FADE)}>
             <p className="truncate text-sm font-semibold leading-tight tracking-tight text-sidebar-foreground">
               Arena Cargo
             </p>
@@ -820,7 +843,7 @@ export function AppSidebar({
           </div>
         </Link>
 
-        <div className="p-2 group-data-[collapsible=icon]:px-3">
+        <div className="px-3 py-2">
           <SidebarMenu>
             <SidebarMenuItem>
               <OrgSwitcherRow />
@@ -830,16 +853,23 @@ export function AppSidebar({
       </SidebarHeader>
 
       {/* ── Content ─────────────────────────────────────────────────────────
-          px-3 on the rail centres the 40px rows inside the 64px column. */}
-      <SidebarContent className="gap-0 px-2 pb-3 group-data-[collapsible=icon]:px-3">
+          The same 12px gutter in both states, so the icon column never moves
+          (see Rail geometry above). */}
+      <SidebarContent className="gap-0 px-3 pb-3">
         {sections.map((section, index) => (
           <Fragment key={section.id}>
             {/* The rail has no group headings, so a hairline is what keeps the
-                groups readable there. Expanded, the headings do that job. */}
+                groups readable there. Expanded, the headings do that job. It is
+                always rendered and only grows in, so the swap with the heading
+                animates instead of jumping. */}
             {index > 0 && (
               <div
                 aria-hidden
-                className="mx-1 my-2 hidden h-px bg-sidebar-border group-data-[collapsible=icon]:block"
+                className={cn(
+                  "mx-2 my-0 h-px bg-sidebar-border opacity-0",
+                  "group-data-[collapsible=icon]:my-2 group-data-[collapsible=icon]:opacity-100",
+                  RAIL_SPACING,
+                )}
               />
             )}
 
@@ -850,12 +880,18 @@ export function AppSidebar({
                 // tighter than it was at three: the whole list still has to
                 // clear the footer on a laptop viewport without scrolling.
                 index > 0 && "mt-3 group-data-[collapsible=icon]:mt-0",
+                RAIL_SPACING,
               )}
             >
               {/* The first section is the lone dashboard row. A heading over a
                   single self-explanatory link is noise, so it goes without. */}
               {section.label && (
-                <SidebarGroupLabel className="h-7 px-2.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-sidebar-foreground/45 group-data-[collapsible=icon]:-mt-7">
+                <SidebarGroupLabel
+                  className={cn(
+                    "h-7 whitespace-nowrap px-[11px] text-[11px] font-semibold uppercase tracking-[0.08em] text-sidebar-foreground/45 group-data-[collapsible=icon]:-mt-7",
+                    RAIL_SPACING,
+                  )}
+                >
                   {section.label}
                 </SidebarGroupLabel>
               )}
@@ -878,7 +914,7 @@ export function AppSidebar({
       </SidebarContent>
 
       {/* ── Footer ──────────────────────────────────────────────────────── */}
-      <SidebarFooter className="border-t border-sidebar-border p-2 group-data-[collapsible=icon]:px-3">
+      <SidebarFooter className="border-t border-sidebar-border px-3 py-2">
         {/* Help sits above the account row rather than in a nav group: it is
             about the app, not a part of it. The unread dot is absolutely
             placed so it appearing after hydration never moves the row. */}
@@ -911,14 +947,15 @@ export function AppSidebar({
                 <SidebarMenuButton
                   aria-label={`Account menu for ${displayName}`}
                   className={cn(
-                    "h-12 gap-2.5 rounded-md px-2 transition-colors",
+                    "h-12 w-full gap-2.5 rounded-md px-1.5",
+                    "group-data-[collapsible=icon]:h-10 group-data-[collapsible=icon]:w-10",
+                    ROW_MOTION,
                     "hover:bg-sidebar-foreground/6",
                     "data-open:bg-sidebar-foreground/6",
-                    RAIL_SQUARE,
                   )}
                 >
                   <UserAvatar name={displayName} avatarUrl={avatarUrl} />
-                  <div className="min-w-0 flex-1 text-left group-data-[collapsible=icon]:hidden">
+                  <div className={cn("min-w-0 flex-1 text-left", RAIL_FADE)}>
                     <p className="truncate text-[13px] font-medium leading-tight text-sidebar-foreground">
                       {displayName}
                     </p>
@@ -926,7 +963,7 @@ export function AppSidebar({
                       {email}
                     </p>
                   </div>
-                  <ChevronsUpDown className="size-4 shrink-0 text-sidebar-foreground/40 group-data-[collapsible=icon]:hidden" />
+                  <ChevronsUpDown className={cn("size-4 shrink-0 text-sidebar-foreground/40", RAIL_FADE)} />
                 </SidebarMenuButton>
               </DropdownMenuTrigger>
 
