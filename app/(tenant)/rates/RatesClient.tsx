@@ -23,13 +23,15 @@
  * - Does not manage sort/filter/compare state (ui.slice and compare.slice do)
  */
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { AlertCircle } from "lucide-react";
 
 import RateCalculatorForm from "@/components/rate-calculator/RateCalculatorForm";
 import { useAppStore } from "@/store";
 import RateResultsList from "@/components/rate-calculator/RateResultList";
+import RateResultsLoading from "@/components/rate-calculator/RateResultsLoading";
+import { useRateResultsCue } from "@/components/rate-calculator/useRateResultsCue";
 import type { RateScope } from "@/lib/types";
 
 
@@ -50,6 +52,20 @@ export default function RatesClient({
   // hides them until a fresh search for THIS scope runs.
   const isThisScope = useAppStore((s) => s.activeScope === scope);
   const resetCalculator = useAppStore((s) => s.resetCalculator);
+  // Only one calculator is mounted at a time, so a running search is this one's
+  // even before activeScope is stamped on the result.
+  const loading = useAppStore((s) => s.loading);
+
+  // Scroll to the results on search and again when they land; toast if the
+  // user scrolled away meanwhile. See useRateResultsCue.
+  const resultsRef = useRef<HTMLDivElement>(null);
+  useRateResultsCue(resultsRef);
+
+  const showError = !loading && !!error && isThisScope;
+  const showResults = !loading && hasResults && hasRequest && isThisScope;
+  // A search can succeed with nothing back (e.g. no courier serves the route).
+  // Say so, rather than leaving the spot the page just scrolled to blank.
+  const showEmpty = !loading && !error && !hasResults && hasRequest && isThisScope;
 
   // Full ephemeral reset when this calculator mounts (or the scope changes), so
   // a fresh visit starts empty — no results, filters, sort, compare, or open
@@ -62,16 +78,30 @@ export default function RatesClient({
     <div className="space-y-6">
       <RateCalculatorForm scope={scope} />
 
-      {error && isThisScope && (
-        <Alert variant="destructive">
-          <AlertCircle className="h-4 w-4" />
-          <AlertTitle>Error</AlertTitle>
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
+      {(loading || showError || showResults || showEmpty) && (
+        <div ref={resultsRef} className="scroll-mt-6 space-y-6">
+          {loading && <RateResultsLoading />}
 
-      {hasResults && hasRequest && isThisScope && (
-        <RateResultsList variant={scope} />
+          {showError && (
+            <Alert variant="destructive">
+              <AlertCircle className="h-4 w-4" />
+              <AlertTitle>Error</AlertTitle>
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+
+          {showResults && <RateResultsList variant={scope} />}
+
+          {showEmpty && (
+            <div className="rounded-xl border border-dashed bg-card px-6 py-10 text-center">
+              <p className="text-sm font-medium text-foreground">No rates for this parcel</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                No carrier quoted this route and box size. Check the postal codes and box
+                sizes, then try again.
+              </p>
+            </div>
+          )}
+        </div>
       )}
     </div>
   );

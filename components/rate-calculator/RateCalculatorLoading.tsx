@@ -5,6 +5,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+import { BoxPresetChips, HowToMeasure } from "@/components/booking/BoxSizeHelpers";
+import { KeyboardShortcuts, SubmitShortcutHint } from "./KeyboardShortcuts";
 import {
   AVAILABLE_VENDORS,
   DOMESTIC_CALCULATOR_VENDORS,
@@ -118,6 +120,8 @@ export function RateCalculatorLoading({
                   <div className="flex items-center justify-between">
                     <SectionLabel tip>Your boxes</SectionLabel>
                     <div className="flex items-center gap-1.5">
+                      <KeyboardShortcuts className="mr-1" />
+                      <HowToMeasure className="mr-2" />
                       <span className="text-xs text-muted-foreground">Size in</span>
                       <Skeleton className="h-7 w-18 rounded-lg" />
                     </div>
@@ -149,6 +153,8 @@ export function RateCalculatorLoading({
                       </div>
                     </div>
                   </div>
+
+                  <BoxPresetChips className="px-1" />
 
                   <Button
                     type="button"
@@ -219,6 +225,7 @@ export function RateCalculatorLoading({
                 >
                   Get live rates
                   <ArrowRight className="ml-2 h-4 w-4" />
+                  <SubmitShortcutHint />
                 </Button>
               </CardContent>
             </Card>

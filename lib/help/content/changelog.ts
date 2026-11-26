@@ -14,6 +14,58 @@ import type { HelpRelease } from "../types";
  */
 export const releases: HelpRelease[] = [
   {
+    version: "2026.11.26",
+    entries: [
+      {
+        kind: "improved",
+        title: "A new sign-in page",
+        body: "Sign in, create account and workspace setup share one cleaner look, with the Arena emblem and a short summary of what you can do here. The sign-in form now matches the rest of the app. Setting up a workspace shows the steps to your first booking, and its **Workspace ID** field no longer shows a web address in front of it.",
+        audiences: ["standard", "ba", "arena-ops", "arena-admin"],
+      },
+      {
+        kind: "improved",
+        title: "Easier box sizes",
+        body: "Wherever you enter box sizes, in the rate calculators and the booking form, a **How to measure** link shows a box with length, breadth and height marked. **Common sizes** chips fill in a standard carton in one click, each box shows its size weight as you type, and a short note flags a number that looks mistyped. The booking form now takes sizes in inches too, calls the second side breadth, and lists count and weight first, the same as the calculators.",
+        audiences: ["standard", "ba", "arena-ops", "arena-admin"],
+        articles: ["international-rates", "domestic-rates", "chargeable-weight", "book-international"],
+      },
+      {
+        kind: "improved",
+        title: "You can see when rates arrive",
+        body: "After **Get live rates**, the rate calculators move down to the results and show placeholders while carriers answer, so the prices appear where you are already looking. If you scroll away meanwhile, a message with a **View** button tells you they are ready. A search that finds no rates now says so, instead of showing nothing.",
+        audiences: ["standard", "ba", "arena-ops", "arena-admin"],
+        articles: ["international-rates"],
+      },
+      {
+        kind: "improved",
+        title: "Keyboard shortcuts in the rate calculators",
+        body: "Use the arrow keys to move around the box rows like a spreadsheet, and Cmd + Enter (Ctrl + Enter on Windows) to get rates from any field. Press **?** or click the keyboard icon above your boxes for the full list. Enter on its own no longer searches, and scrolling over a box field no longer changes its number.",
+        audiences: ["standard", "ba", "arena-ops", "arena-admin"],
+        articles: ["international-rates", "domestic-rates"],
+      },
+      {
+        kind: "improved",
+        title: "Courier logos on domestic rates",
+        body: "Domestic rate cards now show each courier's logo, as international ones do, so you can spot a courier at a glance.",
+        audiences: ["standard", "ba", "arena-ops", "arena-admin"],
+        articles: ["domestic-rates"],
+      },
+      {
+        kind: "fixed",
+        title: "Error marks clear as you fix them",
+        body: "In the booking form and the rate calculators, a field marked in red now clears the moment you fill it in correctly, including ones you pick from a list or switch on, and the message under the form counts down what is left. In the calculators, a box row now outlines only the empty fields and names them.",
+        audiences: ["standard", "ba", "arena-ops", "arena-admin"],
+        articles: ["book-international", "international-rates"],
+      },
+      {
+        kind: "improved",
+        title: "A tidier sidebar",
+        body: "The sidebar shows the Arena emblem clearly, and its icons now match their pages: a globe for international rates, a calculator for domestic rates, a receipt for invoices and a contacts book for the address book. Collapsing it to icons is smoother, with the icons staying put while the labels fade away.",
+        audiences: ["standard", "ba", "arena-ops", "arena-admin"],
+      },
+    ],
+  },
+  {
     version: "2026.11.25",
     entries: [
       {

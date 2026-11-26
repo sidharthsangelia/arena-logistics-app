@@ -88,6 +88,13 @@ import { COUNTRY_TO_ISO } from "@/utils/data";
 import { computeShipmentWeights } from "@/lib/pricing/chargeableWeight";
 import { useAppStore } from "@/store";
 import { useIsArenaOrg } from "@/hooks/useIsArenaOrg";
+import { fromCm, readBoxSize, toCm, type BoxPreset } from "@/lib/booking/boxSize";
+import {
+  BoxPresetChips,
+  BoxSizeHint,
+  HowToMeasure,
+} from "@/components/booking/BoxSizeHelpers";
+import { KeyboardShortcuts, SubmitShortcutHint } from "./KeyboardShortcuts";
 import {
   BOX_COLUMN_HEADER,
   BOX_COLUMNS,
@@ -172,7 +179,16 @@ const formSchema = z
   })
   .refine(
     (data) => data.scope !== "domestic" || typeof data.invoiceValue === "number",
-    { path: ["invoiceValue"], message: "Add the invoice value" },
+    {
+      path: ["invoiceValue"],
+      message: "Add the invoice value",
+      // Zod skips an object-level check while any field has a type error, and
+      // an empty box field is one (NaN). Without this the invoice value only
+      // complained on the second Get rates, after the boxes were filled. The
+      // check reads nothing but scope and invoiceValue, so it is safe to run
+      // on a half-filled form.
+      when: () => true,
+    },
   );
 
 type FormValues = z.infer<typeof formSchema>;
@@ -464,71 +480,164 @@ function RouteCard({ register, setValue, errors, control, scope }: RouteProps) {
 // Boxes: compact one-row-per-box table
 // ---------------------------------------------------------------------------
 
+/**
+ * Spreadsheet-style keys across the box rows. Delegated from the rows' wrapper,
+ * so each input only carries its row and column as data attributes.
+ *
+ *   ← →  move to the neighbouring field once the caret is at that edge of the
+ *        number (or the whole number is selected, as it is after a move)
+ *   ↑ ↓  move to the same field in the row above or below
+ *
+ * Moving selects the target's value so typing replaces it, as in a sheet. The
+ * inputs are type="text" with a decimal keypad: number inputs hide the caret
+ * position and change the value on ↑/↓ and the mouse wheel, which is how a
+ * wrong weight slips through unnoticed. Stray letters are blocked here instead.
+ */
+function handleBoxGridKeys(e: React.KeyboardEvent<HTMLDivElement>) {
+  const el = e.target;
+  if (!(el instanceof HTMLInputElement) || el.dataset.boxCol === undefined) return;
+  if (e.metaKey || e.ctrlKey || e.altKey || e.nativeEvent.isComposing) return;
+
+  const row = Number(el.dataset.boxRow);
+  const col = Number(el.dataset.boxCol);
+  const root = e.currentTarget;
+  const moveTo = (r: number, c: number) => {
+    const target = root.querySelector<HTMLInputElement>(
+      `input[data-box-row="${r}"][data-box-col="${c}"]`,
+    );
+    if (!target) return false;
+    target.focus();
+    target.select();
+    return true;
+  };
+
+  const len = el.value.length;
+  const start = el.selectionStart ?? 0;
+  const end = el.selectionEnd ?? 0;
+  const allSelected = start === 0 && end === len;
+  const atStart = allSelected || (start === 0 && end === 0);
+  const atEnd = allSelected || (start === len && end === len);
+
+  switch (e.key) {
+    case "ArrowLeft":
+      if (atStart && moveTo(row, col - 1)) e.preventDefault();
+      return;
+    case "ArrowRight":
+      if (atEnd && moveTo(row, col + 1)) e.preventDefault();
+      return;
+    case "ArrowUp":
+      e.preventDefault();
+      moveTo(row - 1, col);
+      return;
+    case "ArrowDown":
+      e.preventDefault();
+      moveTo(row + 1, col);
+      return;
+  }
+
+  // Digits and one decimal point only. Named keys (Tab, Backspace...) pass.
+  if (e.key.length === 1 && !/[0-9.]/.test(e.key)) e.preventDefault();
+  if (e.key === "." && el.value.includes(".") && !allSelected) e.preventDefault();
+}
+
 interface BoxRowProps {
   index: number;
+  control: Control<FormValues>;
   register: ReturnType<typeof useForm<FormValues>>["register"];
   errors: ReturnType<typeof useForm<FormValues>>["formState"]["errors"];
   canRemove: boolean;
   onRemove: () => void;
 }
 
-function BoxRow({ index, register, errors, canRemove, onRemove }: BoxRowProps) {
+type BoxFieldKey = keyof FormValues["boxes"][number];
+
+/** In the order the row shows them, named the way the message reads. */
+const BOX_FIELD_NAMES: { key: BoxFieldKey; name: string }[] = [
+  { key: "boxCount", name: "number of boxes" },
+  { key: "weightKg", name: "weight" },
+  { key: "lengthCm", name: "length" },
+  { key: "widthCm", name: "breadth" },
+  { key: "heightCm", name: "height" },
+];
+
+/** "weight", "weight and height", "weight, length and height". */
+function joinWords(words: string[]): string {
+  if (words.length <= 1) return words.join("");
+  return `${words.slice(0, -1).join(", ")} and ${words[words.length - 1]}`;
+}
+
+function BoxRow({ index, control, register, errors, canRemove, onRemove }: BoxRowProps) {
   const be = errors.boxes?.[index];
-  const hasError = !!(be?.boxCount || be?.weightKg || be?.lengthCm || be?.widthCm || be?.heightCm);
+  // Each input that still needs a value gets its own red outline, and one line
+  // under the row names them. Tinting the whole row left people guessing which
+  // of five boxes was wrong, and the tint stayed after they fixed the one they
+  // noticed.
+  const missing = BOX_FIELD_NAMES.filter((f) => be?.[f.key]).map((f) => f.name);
 
   const numInput = cn(BOX_INPUT_HEIGHT, "text-sm");
+  const invalid = (key: BoxFieldKey) => (be?.[key] ? true : undefined);
 
   return (
-    <div className={cn("rounded-md px-1 py-1", hasError && "bg-destructive/5")}>
+    <div className="rounded-md px-1 py-1">
       <div className={BOX_GRID}>
         <Input
-          type="number"
-          min="1"
-          step="1"
+          type="text"
           inputMode="numeric"
+          autoComplete="off"
+          data-box-row={index}
+          data-box-col={0}
           aria-label="Number of boxes"
           placeholder="1"
           className={numInput}
+          aria-invalid={invalid("boxCount")}
           {...register(`boxes.${index}.boxCount`, { valueAsNumber: true })}
         />
         <Input
-          type="number"
-          min="0.01"
-          step="0.01"
+          type="text"
           inputMode="decimal"
+          autoComplete="off"
+          data-box-row={index}
+          data-box-col={1}
           aria-label="Weight of each box in kg"
           placeholder="kg"
           className={numInput}
+          aria-invalid={invalid("weightKg")}
           {...register(`boxes.${index}.weightKg`, { valueAsNumber: true })}
         />
         <Input
-          type="number"
-          min="1"
-          step="0.1"
+          type="text"
           inputMode="decimal"
+          autoComplete="off"
+          data-box-row={index}
+          data-box-col={2}
           aria-label="Length"
           placeholder="L"
           className={numInput}
+          aria-invalid={invalid("lengthCm")}
           {...register(`boxes.${index}.lengthCm`, { valueAsNumber: true })}
         />
         <Input
-          type="number"
-          min="1"
-          step="0.1"
+          type="text"
           inputMode="decimal"
+          autoComplete="off"
+          data-box-row={index}
+          data-box-col={3}
           aria-label="Breadth"
           placeholder="B"
           className={numInput}
+          aria-invalid={invalid("widthCm")}
           {...register(`boxes.${index}.widthCm`, { valueAsNumber: true })}
         />
         <Input
-          type="number"
-          min="1"
-          step="0.1"
+          type="text"
           inputMode="decimal"
+          autoComplete="off"
+          data-box-row={index}
+          data-box-col={4}
           aria-label="Height"
           placeholder="H"
           className={numInput}
+          aria-invalid={invalid("heightCm")}
           {...register(`boxes.${index}.heightCm`, { valueAsNumber: true })}
         />
         <div className="flex justify-end">
@@ -548,8 +657,28 @@ function BoxRow({ index, register, errors, canRemove, onRemove }: BoxRowProps) {
           )}
         </div>
       </div>
+      {missing.length > 0 && (
+        <p className="px-0.5 pt-1 text-[11px] text-destructive">
+          Add the {joinWords(missing)}
+        </p>
+      )}
+      <BoxRowHint control={control} index={index} />
     </div>
   );
+}
+
+/** Live size weight and mistyped-number hints for one row, in cm whatever the unit. */
+function BoxRowHint({ control, index }: { control: Control<FormValues>; index: number }) {
+  const box = useWatch({ control, name: `boxes.${index}` });
+  const unit = useWatch({ control, name: "sizeUnit", defaultValue: "cm" });
+  const reading = readBoxSize({
+    lengthCm: toCm(Number(box?.lengthCm) || 0, unit),
+    widthCm: toCm(Number(box?.widthCm) || 0, unit),
+    heightCm: toCm(Number(box?.heightCm) || 0, unit),
+    weightKg: Number(box?.weightKg) || 0,
+    unit,
+  });
+  return <BoxSizeHint reading={reading} className="px-0.5 pt-1" />;
 }
 
 function BoxesCard({
@@ -559,6 +688,7 @@ function BoxesCard({
   control,
   onAdd,
   onRemove,
+  onPreset,
 }: {
   fields: { id: string }[];
   register: ReturnType<typeof useForm<FormValues>>["register"];
@@ -566,6 +696,7 @@ function BoxesCard({
   control: Control<FormValues>;
   onAdd: () => void;
   onRemove: (i: number) => void;
+  onPreset: (preset: BoxPreset) => void;
 }) {
   return (
     <Card>
@@ -575,6 +706,8 @@ function BoxesCard({
             Your boxes
           </SectionLabel>
           <div className="flex items-center gap-1.5">
+            <KeyboardShortcuts className="mr-1" />
+            <HowToMeasure className="mr-2" />
             <span className="text-xs text-muted-foreground">Size in</span>
             <Controller
               control={control}
@@ -605,11 +738,12 @@ function BoxesCard({
           <span />
         </div>
 
-        <div className="space-y-1.5">
+        <div className="space-y-1.5" onKeyDown={handleBoxGridKeys}>
           {fields.map((field, index) => (
             <BoxRow
               key={field.id}
               index={index}
+              control={control}
               register={register}
               errors={errors}
               canRemove={fields.length > 1}
@@ -617,6 +751,8 @@ function BoxesCard({
             />
           ))}
         </div>
+
+        <BoxPresetChips onPick={onPreset} className="px-1" />
 
         <Button
           type="button"
@@ -825,6 +961,7 @@ function BottomBar({
             <>
               Get live rates
               <ArrowRight className="ml-2 h-4 w-4" />
+              <SubmitShortcutHint />
             </>
           )}
         </Button>
@@ -853,6 +990,7 @@ export default function RateCalculatorForm({
     control,
     handleSubmit,
     setValue,
+    getValues,
     formState: { errors },
   } = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -868,6 +1006,42 @@ export default function RateCalculatorForm({
   React.useEffect(() => {
     setValue("scope", scope);
   }, [scope, setValue]);
+
+  // A common-size chip fills the last row if it has no size yet, otherwise it
+  // adds a new row of that size. Converted to whichever unit is picked.
+  const applyPreset = (preset: BoxPreset) => {
+    const unit = getValues("sizeUnit");
+    const boxes = getValues("boxes");
+    const dims = {
+      lengthCm: fromCm(preset.lengthCm, unit),
+      widthCm: fromCm(preset.widthCm, unit),
+      heightCm: fromCm(preset.heightCm, unit),
+    };
+    const last = boxes.length - 1;
+    const lastBox = boxes[last];
+    const lastHasSize =
+      !!lastBox &&
+      [lastBox.lengthCm, lastBox.widthCm, lastBox.heightCm].some((v) => Number(v) > 0);
+    if (last < 0 || lastHasSize) {
+      append({ ...emptyBox, ...dims });
+      return;
+    }
+    (["lengthCm", "widthCm", "heightCm"] as const).forEach((key) =>
+      setValue(`boxes.${last}.${key}`, dims[key], { shouldDirty: true, shouldValidate: true }),
+    );
+  };
+
+  // Enter on its own never searches: in a dense numeric form a stray Enter sent
+  // half-filled boxes. ⌘/Ctrl+Enter searches from any field instead.
+  const onFormKeyDown = (e: React.KeyboardEvent<HTMLFormElement>) => {
+    if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
+    if (e.metaKey || e.ctrlKey) {
+      e.preventDefault();
+      if (!loading) e.currentTarget.requestSubmit();
+      return;
+    }
+    if (e.target instanceof HTMLInputElement) e.preventDefault();
+  };
 
   const onSubmit = (data: FormValues) => {
     const factor = toCmFactor(data.sizeUnit);
@@ -919,7 +1093,12 @@ export default function RateCalculatorForm({
   };
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} autoComplete="off" className="space-y-5">
+    <form
+      onSubmit={handleSubmit(onSubmit)}
+      onKeyDown={onFormKeyDown}
+      autoComplete="off"
+      className="space-y-5"
+    >
       {/* Top: narrow route + wide boxes */}
       <div className={FORM_TOP_GRID}>
         <RouteCard
@@ -936,6 +1115,7 @@ export default function RateCalculatorForm({
           control={control}
           onAdd={() => append(emptyBox)}
           onRemove={(i) => remove(i)}
+          onPreset={applyPreset}
         />
       </div>
 

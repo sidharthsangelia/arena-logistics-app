@@ -1,6 +1,9 @@
 import "server-only";
 
+import { BOX_PRESETS, BULKY_RATIO, LONG_SIDE_CM, LIKELY_CM_IN_INCHES } from "@/lib/booking/boxSize";
 import type { HelpArticle } from "../types";
+
+const presetList = BOX_PRESETS.map((p) => `${p.label} ${p.lengthCm} × ${p.widthCm} × ${p.heightCm} cm`).join(", ");
 
 export const ratesArticles: HelpArticle[] = [
   {
@@ -12,7 +15,7 @@ export const ratesArticles: HelpArticle[] = [
     audiences: ["standard", "ba"],
     routes: [{ scope: "tenant", path: "/rates" }],
     keywords: ["price", "quote", "calculator", "cost", "export", "abroad", "compare", "transit time", "cheapest", "fastest"],
-    updated: "2026.11.21",
+    updated: "2026.11.26",
     related: ["chargeable-weight", "prices-and-tax", "book-international"],
     blocks: [
       {
@@ -26,9 +29,12 @@ export const ratesArticles: HelpArticle[] = [
           { title: "Sending to", body: "The destination country and the receiver's postal code." },
           {
             title: "Your boxes",
-            body: "For each box: weight in kg, and length, breadth and height. Switch **Size in** between cm and inches. Identical boxes go on one row with a count; add a row for each different size.",
+            body: "For each box: how many, weight in kg, then length, breadth and height. Switch **Size in** between cm and inches. Identical boxes go on one row with a count; add a row for each different size. Not sure which side is which? Open **How to measure** for a labelled diagram, or click a **Common sizes** chip to fill in a standard carton.",
           },
-          { title: "Get rates", body: "Each service shows its total price, transit time and a charge breakdown." },
+          {
+            title: "Get rates",
+            body: "The page moves down to where the results will appear and shows placeholders while carriers answer, then fills in each service with its total price, transit time and a charge breakdown. If you scroll away while waiting, a **Your rates are ready** message with a **View** button tells you when they arrive. If no carrier quotes your parcel, you see **No rates for this parcel**; check the postal codes and box sizes.",
+          },
         ],
       },
       { type: "heading", text: "Reading the results" },
@@ -47,6 +53,31 @@ export const ratesArticles: HelpArticle[] = [
         type: "p",
         audiences: ["ba"],
         text: "Business Associates also see **Get quote** on each card, which turns that price into a branded quote you can send to a client.",
+      },
+      { type: "heading", text: "Help with box sizes" },
+      {
+        type: "list",
+        items: [
+          "**How to measure**, above the boxes, shows a box with L, B and H marked and a few measuring tips.",
+          `**Common sizes** fills in a standard carton: ${presetList}. It fills the last row if that row has no size yet, otherwise it adds a new row.`,
+          "Under each row you see that box's **size weight** against its real weight, and which one it is charged on.",
+          `A short note appears if a number looks off: a side over ${LONG_SIDE_CM} cm (often mm typed as cm), over ${LIKELY_CM_IN_INCHES} inches with inches picked (often cm typed as inches), or a size weight ${BULKY_RATIO} times the real weight or more, where a snugger carton could cost less. These notes never stop you getting rates.`,
+        ],
+      },
+      { type: "heading", text: "Keyboard shortcuts" },
+      {
+        type: "table",
+        head: ["Keys", "What they do"],
+        rows: [
+          ["Left and right arrows", "Move between Qty, weight, L, B and H once the cursor reaches the end of the number"],
+          ["Up and down arrows", "Move to the same field in the box row above or below"],
+          ["Cmd + Enter (Mac) or Ctrl + Enter", "Get live rates from any field"],
+          ["?", "Show the list of shortcuts"],
+        ],
+      },
+      {
+        type: "p",
+        text: "Enter on its own does not search, so a stray key never sends a half-filled form. Box fields take numbers only, and scrolling the page over a field no longer changes its value.",
       },
       {
         type: "callout",
@@ -70,7 +101,7 @@ export const ratesArticles: HelpArticle[] = [
     audiences: ["standard", "ba"],
     routes: [{ scope: "tenant", path: "/domestic-rates" }],
     keywords: ["india", "pincode", "courier", "within india", "local", "price", "invoice value"],
-    updated: "2026.11.21",
+    updated: "2026.11.26",
     related: ["book-domestic", "chargeable-weight"],
     blocks: [
       {
@@ -85,12 +116,12 @@ export const ratesArticles: HelpArticle[] = [
             title: "Invoice value",
             body: "The value of the goods inside, not the shipping cost. Couriers price their risk cover on it and some will not carry high-value parcels, so it changes both the price and which couriers you see.",
           },
-          { title: "Boxes", body: "Weight and size of each box, as for international." },
+          { title: "Boxes", body: "Weight and size of each box, with the same **How to measure** diagram, **Common sizes** chips and size notes as international." },
         ],
       },
       {
         type: "p",
-        text: "Results work the same way as international: sort, filter by courier, open the breakdown, compare. Couriers that offer more than one speed are grouped so you can pick between them.",
+        text: "Results work the same way as international: sort, filter by courier, open the breakdown, compare. Each card shows the courier's logo, and couriers that offer more than one speed are grouped so you can pick between them. The same keyboard shortcuts work here.",
       },
     ],
   },
@@ -102,7 +133,7 @@ export const ratesArticles: HelpArticle[] = [
     order: 3,
     audiences: ["standard", "ba"],
     keywords: ["volumetric", "dimensional", "volume", "size", "weight", "5000", "dimensions", "bulky", "charged by size"],
-    updated: "2026.11.21",
+    updated: "2026.11.26",
     related: ["international-rates"],
     blocks: [
       {
@@ -124,7 +155,7 @@ export const ratesArticles: HelpArticle[] = [
       },
       {
         type: "p",
-        text: "The booking form shows the chargeable weight of each box, and marks a box **charged by size** when its volume is what decides the price.",
+        text: "The rate calculators and the booking form show the size weight of each box as you type, and say **charged by size** when its volume is what decides the price. Open **How to measure** next to the boxes for a diagram of which side is length, breadth and height.",
       },
       {
         type: "callout",

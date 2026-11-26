@@ -1,12 +1,19 @@
 "use client";
 
-import { useEffect, useEffectEvent } from "react";
+import { useEffect, useEffectEvent, useState } from "react";
 import { Plus, Trash2, Info, Scale } from "lucide-react";
 import { nanoid } from "nanoid";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Tooltip,
   TooltipContent,
@@ -19,9 +26,17 @@ import {
   totalBoxCount,
   boxDeclaredValue,
   boxChargeableWeight,
-  boxVolumetricWeight,
   totalChargeableWeight,
 } from "@/lib/booking/cargo";
+import {
+  fromCm,
+  matchingPreset,
+  readBoxSize,
+  toCm,
+  unitLabel,
+  type SizeUnit,
+} from "@/lib/booking/boxSize";
+import { BoxPresetChips, BoxSizeHint, HowToMeasure } from "./BoxSizeHelpers";
 
 // ---------------------------------------------------------------------------
 // BoxEditor
@@ -74,6 +89,11 @@ export function BoxEditor({
   hsCodeLabel = "HSN code",
   hsCodePlaceholder = "6109.10",
 }: BoxEditorProps) {
+  // Sizes are always stored in cm. The unit only changes what is typed and shown,
+  // so it is view state and resets to cm when the step remounts.
+  const [unit, setUnit] = useState<SizeUnit>("cm");
+  const u = unitLabel(unit);
+
   const totalValue = totalDeclaredValue(boxes);
   const boxCount = totalBoxCount(boxes);
   const chargeableWeight = totalChargeableWeight(boxes);
@@ -114,11 +134,32 @@ export function BoxEditor({
   return (
     <div className="space-y-6">
       <div className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <HowToMeasure />
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-muted-foreground">Size in</span>
+            <Select value={unit} onValueChange={(v) => setUnit(v as SizeUnit)}>
+              <SelectTrigger className="h-7 w-18 text-xs" aria-label="Size unit">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="cm">cm</SelectItem>
+                <SelectItem value="in">inches</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
         {boxes.map((box, bi) => {
-          const actual = Number(box.weightKg) || 0;
-          const volumetric = boxVolumetricWeight(box);
           const chargeable = boxChargeableWeight(box);
-          const bySize = volumetric > actual && volumetric > 0;
+          const reading = readBoxSize({
+            lengthCm: box.lengthCm,
+            widthCm: box.widthCm,
+            heightCm: box.heightCm,
+            weightKg: box.weightKg,
+            unit,
+          });
+          const preset = matchingPreset(box.lengthCm, box.widthCm, box.heightCm);
 
           return (
             <div key={box.id} className="rounded-lg border bg-card">
@@ -138,60 +179,87 @@ export function BoxEditor({
               </div>
 
               <div className="space-y-4 p-4">
-                {/* dimensions / weight / count */}
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
-                  {(
-                    [
-                      ["lengthCm", "Length (cm)"],
-                      ["widthCm", "Width (cm)"],
-                      ["heightCm", "Height (cm)"],
-                      ["weightKg", "Weight (kg)"],
-                    ] as const
-                  ).map(([key, label]) => (
-                    <div key={key} className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">{label}</Label>
+                {/* count / weight / dimensions, same order as the rate calculator */}
+                <div className="space-y-2.5">
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-1">
+                        <Label className="text-xs text-muted-foreground">
+                          Identical boxes
+                        </Label>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              type="button"
+                              className="text-muted-foreground"
+                              aria-label="About identical boxes"
+                            >
+                              <Info className="h-3 w-3" />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent className="max-w-xs">
+                            Shipping several boxes of the same size, weight and
+                            contents? Set the count here instead of adding each
+                            one. Add a new box only when something differs.
+                          </TooltipContent>
+                        </Tooltip>
+                      </div>
+                      <Input
+                        type="number"
+                        min={1}
+                        value={box.quantity || ""}
+                        onChange={(e) =>
+                          patchBox(bi, { quantity: Number(e.target.value) })
+                        }
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Weight (kg)</Label>
                       <Input
                         type="number"
                         min={0}
                         step="0.01"
-                        value={box[key] || ""}
+                        value={box.weightKg || ""}
                         onChange={(e) =>
-                          patchBox(bi, { [key]: Number(e.target.value) })
+                          patchBox(bi, { weightKg: Number(e.target.value) })
                         }
                       />
                     </div>
-                  ))}
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-1">
-                      <Label className="text-xs text-muted-foreground">
-                        Identical boxes
-                      </Label>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <button
-                            type="button"
-                            className="text-muted-foreground"
-                            aria-label="About identical boxes"
-                          >
-                            <Info className="h-3 w-3" />
-                          </button>
-                        </TooltipTrigger>
-                        <TooltipContent className="max-w-xs">
-                          Shipping several boxes of the same size, weight and
-                          contents? Set the count here instead of adding each
-                          one. Add a new box only when something differs.
-                        </TooltipContent>
-                      </Tooltip>
-                    </div>
-                    <Input
-                      type="number"
-                      min={1}
-                      value={box.quantity || ""}
-                      onChange={(e) =>
-                        patchBox(bi, { quantity: Number(e.target.value) })
-                      }
-                    />
+                    {(
+                      [
+                        ["lengthCm", "Length"],
+                        ["widthCm", "Breadth"],
+                        ["heightCm", "Height"],
+                      ] as const
+                    ).map(([key, label]) => (
+                      <div key={key} className="space-y-1">
+                        <Label className="text-xs text-muted-foreground">
+                          {label} ({u})
+                        </Label>
+                        <Input
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          value={box[key] ? fromCm(box[key], unit) : ""}
+                          onChange={(e) =>
+                            patchBox(bi, { [key]: toCm(Number(e.target.value), unit) })
+                          }
+                        />
+                      </div>
+                    ))}
                   </div>
+
+                  <BoxPresetChips
+                    activeId={preset?.id}
+                    onPick={(p) =>
+                      patchBox(bi, {
+                        lengthCm: p.lengthCm,
+                        widthCm: p.widthCm,
+                        heightCm: p.heightCm,
+                      })
+                    }
+                  />
+                  <BoxSizeHint reading={reading} />
                 </div>
 
                 {/* contents */}
@@ -285,23 +353,9 @@ export function BoxEditor({
                       </>
                     )}
                   </span>
-                  <span className="flex items-center gap-1.5">
+                  <span>
                     Chargeable{" "}
                     <strong className="text-foreground">{fmtKg(chargeable)}</strong>
-                    {bySize && (
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <span className="cursor-default rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-foreground">
-                            charged by size
-                          </span>
-                        </TooltipTrigger>
-                        <TooltipContent className="max-w-xs">
-                          This box is bulky for its weight, so it&apos;s priced
-                          on its size. Size-based weight here is{" "}
-                          {fmtKg(volumetric)} vs {fmtKg(actual)} actual.
-                        </TooltipContent>
-                      </Tooltip>
-                    )}
                   </span>
                 </div>
               </div>
@@ -342,7 +396,7 @@ export function BoxEditor({
             <TooltipContent className="max-w-xs">
               Carriers charge the greater of a box&apos;s real weight and its
               size-based (volumetric) weight. We work out size-based weight as
-              length × width × height in cm ÷ 5000, take the higher of the two
+              length × breadth × height in cm ÷ 5000, take the higher of the two
               per box, and add them up. Your price is based on this number.
             </TooltipContent>
           </Tooltip>

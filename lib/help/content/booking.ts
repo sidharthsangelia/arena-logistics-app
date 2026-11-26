@@ -24,12 +24,12 @@ export const bookingArticles: HelpArticle[] = [
     audiences: ["standard", "ba"],
     routes: [{ scope: "tenant", path: "/book" }],
     keywords: ["book", "booking", "export", "send abroad", "create shipment", "new shipment", "wizard", "form", "draft", "save and next", "resume"],
-    updated: "2026.11.21",
+    updated: "2026.11.26",
     related: ["customs-categories", "identity-documents", "door-pickup", "book-domestic", "prohibited-items"],
     blocks: [
       {
         type: "p",
-        text: "Open [Book Shipment](app:/book). The form is split into short steps shown along the top. **Save & Next** checks the step and saves your progress, so you can close the page and carry on later from where you stopped.",
+        text: "Open [Book Shipment](app:/book). The form is split into short steps shown along the top. **Save & Next** checks the step and saves your progress, so you can close the page and carry on later from where you stopped. If something is missing, the fields are marked in red and each mark clears as soon as you fix it.",
       },
       {
         type: "flow",
@@ -72,7 +72,7 @@ export const bookingArticles: HelpArticle[] = [
       {
         type: "list",
         items: [
-          "**Boxes**: weight and size of each box, and a count for identical boxes. The summary bar shows the total declared value and [chargeable weight](help:chargeable-weight).",
+          "**Boxes**: a count for identical boxes, the weight of one box, then its length, breadth and height. Switch **Size in** between cm and inches. **How to measure** shows which side is which, and the **Common sizes** chips fill in a standard carton. Each box shows its size weight as you type, with a note if a number looks off. The summary bar shows the total declared value and [chargeable weight](help:chargeable-weight).",
           "**Contents**: inside each box, list every item with a description, HSN code, quantity and unit price. Pick the currency under **Values in**.",
           `**Customs category**: chosen for you from the declared value. Under ${inr(CSB4_MAX_VALUE)} it is CSB-IV; at ${inr(CSB4_MAX_VALUE)} or more you choose CSB-V or Commercial. See [Customs categories](help:customs-categories).`,
           "**Invoice**: let us build the commercial invoice and packing list from your boxes, or upload your own. Fill in the boxes either way; they decide the price and the KYC.",

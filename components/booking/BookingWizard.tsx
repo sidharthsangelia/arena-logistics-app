@@ -9,7 +9,7 @@ import {
   AlertTriangle,
   ExternalLink,
 } from "lucide-react";
-import { useForm } from "react-hook-form";
+import { useForm, type Path } from "react-hook-form";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -262,6 +262,7 @@ export default function BookingWizard({
     setValue,
     setError,
     clearErrors,
+    getFieldState,
     formState: { errors },
     reset,
   } = useForm<BookingFormData>({
@@ -281,6 +282,11 @@ export default function BookingWizard({
    * when the event fires, always current, and never a reason to re-run.
    */
   const syncFormToStep = React.useEffectEvent(() => {
+    // A new step starts clean: last step's banner and flagged fields belong to
+    // last step. Cleared before the reset so its value event finds nothing to
+    // re-check.
+    flaggedRef.current = null;
+    setSubmitError(null);
     reset(formData);
   });
 
@@ -402,30 +408,141 @@ export default function BookingWizard({
     };
   }
 
-  // ── Next / Submit ────────────────────────────────────────────────────────
-  const handleNext = async () => {
-    setSubmitError(null);
+  // ── Step rules ───────────────────────────────────────────────────────────
+  // Shared by "Save & Next" and the live re-check below, so the two can never
+  // disagree about what this step needs.
 
-    // Self-managed steps hold arrays and file metadata edited through
-    // updateFormData rather than register(), so their RHF values are empty and
-    // merging getValues() over form data would wipe what the user just did.
-    // They validate against form data directly instead.
-    if (currentStepKey && SELF_MANAGED_STEPS.includes(currentStepKey)) {
+  // Self-managed steps hold arrays and file metadata edited through
+  // updateFormData rather than register(), so their RHF values are empty and
+  // merging getValues() over form data would wipe what the user just did.
+  // They validate against form data directly instead.
+  const isSelfManagedStep =
+    !!currentStepKey && SELF_MANAGED_STEPS.includes(currentStepKey);
+
+  function mergedValues(): BookingFormData & Record<string, any> {
+    return normalizeLinkedAddresses({ ...formData, ...getValues() });
+  }
+
+  function checkStep(values: BookingFormData) {
+    if (isSelfManagedStep) {
       const schema =
         currentStepKey === STEP_KEY.MODE
           ? modeSchema
           : isDomestic
             ? domesticShipmentDetailsSchema
             : shipmentDetailsSchema;
+      return schema.safeParse(values);
+    }
+    // KYC is the one step whose rules are not fixed. Internationally they come
+    // from the export matrix, shortened to Aadhaar alone when the party has a
+    // live waiver (a flag KycStep resolved server-side). Domestically the
+    // export matrix does not apply at all: it is Aadhaar for an individual
+    // sender and nothing for a company one. Either way the schema is built
+    // per-attempt rather than looked up. KYC requirements also branch by
+    // shipmentType, read straight off the merged form.
+    const schema =
+      currentStepKey === STEP_KEY.KYC
+        ? isDomestic
+          ? makeDomesticKycSchema(senderIsCompany)
+          : makeKycSchema(kycWaived)
+        : rhfSchemaFor(currentStepKey, isDomestic);
+    return schema?.safeParse(values);
+  }
 
-      const result = schema.safeParse(formData);
-      if (!result.success) {
+  // ── Live re-check after a failed "Save & Next" ───────────────────────────
+  // Errors used to be set once, on the click, and then left alone. Typed
+  // fields cleared themselves, but anything filled by a picker, toggle or
+  // upload (setValue), the box list, and the red banner kept showing an error
+  // the user had already fixed until they clicked again.
+  //
+  // So after a failed attempt, every edit re-runs this step's rules over the
+  // fields that attempt flagged: fixed ones clear, ones broken again come
+  // back, and the banner counts what is left (or goes away). Fields the
+  // attempt did not flag are left alone until the next click, so nothing new
+  // turns red while someone is still filling the step in. `null` = no failed
+  // attempt on this step; `[]` = a self-managed step, banner only.
+  const flaggedRef = React.useRef<string[] | null>(null);
+
+  const recheckFlagged = React.useEffectEvent(() => {
+    const flagged = flaggedRef.current;
+    if (!flagged) return;
+
+    const result = checkStep(isSelfManagedStep ? formData : mergedValues());
+    const issues: { path: PropertyKey[]; message: string }[] =
+      result && !result.success ? result.error.issues : [];
+
+    if (isSelfManagedStep) {
+      setSubmitError(issues[0]?.message ?? null);
+      if (issues.length === 0) flaggedRef.current = null;
+      return;
+    }
+
+    const failing = new Map<string, string>();
+    for (const i of issues) {
+      const path = i.path.join(".");
+      if (!failing.has(path)) failing.set(path, i.message);
+    }
+
+    const left: string[] = [];
+    for (const path of flagged) {
+      const message = failing.get(path);
+      const field = path as Path<BookingFormData>;
+      const shown = getFieldState(field).error;
+      if (message) {
+        left.push(message);
+        if (shown?.message !== message) {
+          setError(field, { type: "manual", message });
+        }
+      } else if (shown) {
+        clearErrors(field);
+      }
+    }
+
+    setSubmitError(
+      left.length === 0
+        ? null
+        : left.length === 1
+          ? left[0]
+          : `Please fix the ${left.length} highlighted fields before continuing.`,
+    );
+  });
+
+  // RHF edits: typing, and every setValue from a picker or toggle. Deferred a
+  // tick so react-hook-form's own change handling (which clears a typed
+  // field's error) has finished and does not undo the re-check.
+  React.useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const sub = watch(() => {
+      clearTimeout(timer);
+      timer = setTimeout(recheckFlagged, 0);
+    });
+    return () => {
+      clearTimeout(timer);
+      sub.unsubscribe();
+    };
+  }, [watch]);
+
+  // Edits that go through updateFormData instead (boxes, mode, uploads).
+  React.useEffect(() => {
+    recheckFlagged();
+  }, [formData]);
+
+  // ── Next / Submit ────────────────────────────────────────────────────────
+  const handleNext = async () => {
+    setSubmitError(null);
+
+    // Self-managed steps validate form data as it stands (see checkStep).
+    if (isSelfManagedStep) {
+      const result = checkStep(formData);
+      if (result && !result.success) {
+        flaggedRef.current = [];
         setSubmitError(
           result.error.issues[0]?.message ??
             "Please complete this step before continuing.",
         );
         return;
       }
+      flaggedRef.current = null;
       if (isLastStep) {
         await handleSubmit(formData);
       } else {
@@ -434,37 +551,20 @@ export default function BookingWizard({
       return;
     }
 
-    const currentValues = getValues();
-    const merged: BookingFormData & Record<string, any> =
-      normalizeLinkedAddresses({
-        ...formData,
-        ...currentValues,
-      });
-
-    // KYC requirements branch by shipmentType (read straight off the merged
-    // form) and by the party's waiver — see the schema choice below.
+    const merged = mergedValues();
 
     // Re-validate from a clean slate so a field the user just corrected
     // doesn't keep a stale red line: only fields that fail *this* pass stay
     // highlighted.
     clearErrors();
 
-    // KYC is the one step whose rules are not fixed. Internationally they come
-    // from the export matrix, shortened to Aadhaar alone when the party has a
-    // live waiver (a flag KycStep resolved server-side). Domestically the
-    // export matrix does not apply at all: it is Aadhaar for an individual
-    // sender and nothing for a company one. Either way the schema is built
-    // per-attempt rather than looked up.
-    const schema =
-      currentStepKey === STEP_KEY.KYC
-        ? isDomestic
-          ? makeDomesticKycSchema(senderIsCompany)
-          : makeKycSchema(kycWaived)
-        : rhfSchemaFor(currentStepKey, isDomestic);
-    const result = schema?.safeParse(merged);
+    const result = checkStep(merged);
 
     if (result && !result.success) {
       const issues = result.error.issues;
+      flaggedRef.current = issues
+        .map((i: { path: PropertyKey[] }) => i.path.join("."))
+        .filter((p: string) => p !== "");
       issues.forEach((issue: any) => {
         setError(issue.path.join(".") as any, {
           type: "manual",
@@ -487,6 +587,7 @@ export default function BookingWizard({
       return;
     }
 
+    flaggedRef.current = null;
     updateFormData(merged);
 
     if (isLastStep) {
