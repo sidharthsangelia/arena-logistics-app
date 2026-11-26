@@ -29,6 +29,8 @@
  * and serve an optimised, correctly-sized asset instead of shipping the full
  * source PNG (the Arena logo alone is ~670KB) to render at 16px tall.
  */
+import { courierFamily } from "@/lib/rates/courierFamily";
+
 export type CarrierLogo = { src: string; alt: string; width: number; height: number };
 
 // Ordered detection rules. First match wins. Kept as one list so carrierLogo
@@ -117,4 +119,47 @@ export function carrierBrand(
   const name = productName ?? "";
   const rule = CARRIER_RULES.find((r) => r.pattern.test(name));
   return rule ? (rule.logo.alt as CarrierBrand) : OTHER_BRAND;
+}
+
+// ---------------------------------------------------------------------------
+// Domestic courier logos
+//
+// Keyed on courierFamily's brand code, so a logo follows exactly the same
+// "which courier is this" call that groups the domestic cards: "Delhivery
+// Surface 5KG" and "Delhivery Air" both resolve to DELHIVERY whichever vendor
+// quoted them.
+//
+// Unlike carrierLogo there is NO fallback. A domestic row we cannot name gets
+// no logo rather than the Arena one, and Shipmozo's own-brand rows ("Shipmozo
+// Sky Saver" and friends) are deliberately absent: a sourcing vendor's mark
+// does not belong on a customer's card (carrierBranding.md).
+//
+// Files are the couriers' official marks, from Wikimedia or the courier's own
+// site, in /public/couriers.
+// ---------------------------------------------------------------------------
+
+const bigFourLogo = (alt: string): CarrierLogo =>
+  CARRIER_RULES.find((r) => r.logo.alt === alt)!.logo;
+
+const DOMESTIC_COURIER_LOGOS: Record<string, CarrierLogo> = {
+  DELHIVERY: { src: "/couriers/delhivery.png", alt: "Delhivery", width: 500, height: 80 },
+  XPRESSBEES: { src: "/couriers/xpressbees.png", alt: "XpressBees", width: 269, height: 47 },
+  AMAZON: { src: "/couriers/amazon.png", alt: "Amazon", width: 500, height: 151 },
+  SHADOWFAX: { src: "/couriers/shadowfax.png", alt: "Shadowfax", width: 800, height: 300 },
+  EKART: { src: "/couriers/ekart.png", alt: "Ekart", width: 500, height: 157 },
+  TCI: { src: "/couriers/tci-express.png", alt: "TCI Express", width: 368, height: 71 },
+  MOVIN: { src: "/couriers/movin.png", alt: "MOVIN", width: 178, height: 70 },
+  INDIAPOST: { src: "/couriers/indiapost.png", alt: "India Post", width: 388, height: 252 },
+  GATI: { src: "/couriers/gati.png", alt: "Gati", width: 500, height: 167 },
+  DTDC: { src: "/couriers/dtdc.png", alt: "DTDC", width: 660, height: 150 },
+  DPWORLD: { src: "/couriers/dpworld.png", alt: "DP World", width: 500, height: 311 },
+  ARAMEX: bigFourLogo("Aramex"),
+  DHL: bigFourLogo("DHL"),
+  FEDEX: bigFourLogo("FedEx"),
+  UPS: bigFourLogo("UPS"),
+};
+
+/** Logo for a domestic service's DISPLAY name, or null when there is none to show. */
+export function domesticCourierLogo(productName: string | null | undefined): CarrierLogo | null {
+  return DOMESTIC_COURIER_LOGOS[courierFamily(productName).key] ?? null;
 }

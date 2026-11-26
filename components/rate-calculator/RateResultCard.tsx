@@ -21,7 +21,7 @@ import {
 } from "lucide-react";
 import { RateQuote } from "@/lib/types";
 import { useIsArenaOrg } from "@/hooks/useIsArenaOrg";
-import { carrierLogo } from "@/lib/carrierLogo";
+import { carrierLogo, domesticCourierLogo } from "@/lib/carrierLogo";
 import { brandServiceName } from "@/lib/branding/serviceName";
 import { aramexAccountShortLabel } from "@/lib/aramex/accountKeys";
 import { RATE_VARIANTS, type RateVariant } from "./rateVariants";
@@ -77,6 +77,8 @@ const VENDOR_BADGE: Record<string, string> = {
     "bg-teal-50 text-teal-700 border-teal-200 dark:bg-teal-950/30 dark:text-teal-400 dark:border-teal-800",
   speedopost:
     "bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950/30 dark:text-indigo-400 dark:border-indigo-800",
+  delipack:
+    "bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/30 dark:text-rose-400 dark:border-rose-800",
 };
 
 function vendorBadgeClass(id: string) {
@@ -162,7 +164,10 @@ export default function RateResultCard({
   // contradict the label it sits next to: a white-labelled "Arena Direct" gets
   // the Arena logo, while the raw "ShipGlobal Direct" an Arena staffer sees
   // gets the ShipGlobal one.
-  const logo = carrierLogo(displayName);
+  // Domestic has its own table and no Arena fallback: an unknown courier, or a
+  // Shipmozo own-brand row, shows no logo at all.
+  const logo =
+    variant === "domestic" ? domesticCourierLogo(displayName) : carrierLogo(displayName);
 
   return (
     <Card
@@ -212,13 +217,18 @@ export default function RateResultCard({
               )}
 
               <div className="flex items-center gap-1.5">
-                {showCarrierLogo && (
+                {showCarrierLogo && logo && (
                   <Image
                     src={logo.src}
                     alt={logo.alt}
                     width={logo.width}
                     height={logo.height}
-                    className="h-4 w-auto max-w-10 shrink-0 object-contain"
+                    // Domestic marks are mostly wide wordmarks; give them room
+                    // to stay legible. International keeps its compact size.
+                    className={cn(
+                      "h-4 w-auto shrink-0 object-contain",
+                      variant === "domestic" ? "max-w-16" : "max-w-10",
+                    )}
                   />
                 )}
                 <h3 className="truncate text-sm font-semibold leading-tight text-foreground">

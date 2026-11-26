@@ -35,9 +35,9 @@ export const RATE_VARIANTS: Record<RateVariant, RateVariantConfig> = {
     brandServiceNames: true,
   },
   domestic: {
-    // No carrier logos on domestic today. When domestic logos land, flip this
-    // on and wire the domestic logo source in RateResultCard.
-    showCarrierLogo: false,
+    // Courier logos via domesticCourierLogo (lib/carrierLogo.ts). Rows with no
+    // known courier, Shipmozo's own-brand services among them, show none.
+    showCarrierLogo: true,
     brandServiceNames: false,
   },
 };
